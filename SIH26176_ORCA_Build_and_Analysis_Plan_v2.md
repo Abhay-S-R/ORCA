@@ -1,7 +1,7 @@
 # 🌊 SIH26176 — ORCA: Marine EcOsystem Reasoning with Collaborative Agents
 ### Consolidated Build & Analysis Plan v2 — Team of 6
 
-> **Sponsor:** ISRO (Department of Space) | **Track:** Software | **Theme:** Miscellaneous / Space Technology
+> **Sponsor:** ISRO (Department of Space) | **Track:** Software | **Theme:** Miscellaneous (Disaster Management & Marine Safety Focus)
 > **Deadline:** 20 September 2026 | **Official portal:** sih.gov.in/sih2026PS | **Live PS page:** sih2026.vuce.in/ps/SIH26176
 
 This replaces the earlier draft, which was built on inferred/reconstructed PS text. The full **official Background / Description / Expected Solution** has now been retrieved from the live SIH portal (verbatim, verified 27 Aug 2026) and is used as ground truth below.
@@ -50,50 +50,53 @@ This is **9 named roles**, more granular than either of your earlier drafts' 5�
 ## 1. Revised Agent Architecture (mapped to ISRO's 9 roles)
 
 ```
-User Query (any language, multi-turn)
+User Query (any Indian language, voice/text, multi-turn)
         │
         ▼
-┌────────────────────────┐
-│ User Interaction Agent   │ → language ID, translation in/out, session/context memory
-└────────────────────────┘
+┌───────────────────────────────┐
+│ User Interaction Agent (Ingress)│ → language ID, translates query to English, loads session memory
+└───────────────────────────────┘
         │
         ▼
-┌────────────────────────┐
-│ Planning Agent (Orchestr.)│ → intent → sub-task decomposition, agent routing, hand-off order
-└────────────────────────┘
+┌───────────────────────────────┐
+│ Planning Agent (Orchestrator) │ → intent classification → sub-task decomposition, routing plan
+└───────────────────────────────┘
         │
    ┌────┼─────────────┬────────────────┬─────────────────┐
    ▼    ▼              ▼                ▼                 ▼
 ┌────────────┐ ┌───────────────┐ ┌───────────────┐ ┌──────────────────┐
 │Marine Data  │ │Weather        │ │Ocean Analytics │ │Geospatial         │
 │Discovery    │ │Intelligence   │ │Agent            │ │Reasoning Agent     │
-│Agent        │ │Agent           │ │(SST/chl/PFZ    │ │(spatial-temporal   │
-│(finds/pulls │ │(wind, waves,   │ │correlation,    │ │correlation, route  │
-│right dataset│ │currents,       │ │trend/anomaly)  │ │+ boundary geometry)│
-│per query)   │ │cyclone/lightning)│               │ │                    │
+│Agent        │ │Agent           │ │(SST/chl/PFZ    │ │(boundary & MPA    │
+│(queries     │ │(wind, waves,   │ │correlation,    │ │geometry, GEBCO    │
+│ERDDAP,      │ │currents,       │ │tide/temp trends│ │depths, route      │
+│MOSDAC, OSF, │ │lightning,      │ │& anomalies)    │ │optimization)      │
+│Open-Meteo)  │ │cyclone tracks) │               │ │                  │
 └────────────┘ └───────────────┘ └───────────────┘ └──────────────────┘
         │              │                │                    │
         └──────────────┴────────┬───────┴────────────────────┘
                                  ▼
-                    ┌─────────────────────┐
-                    │ Risk Assessment Agent │ → hazard scoring, geofence violation checks,
-                    │                        │   confidence/uncertainty tiering
-                    └─────────────────────┘
+                    ┌─────────────────────────┐
+                    │ Risk Assessment Agent   │ → DETERMINISTIC rule-based hazard gating,
+                    │ (Deterministic Safeguard│   geofence violation checks, 3-tier confidence
+                    └─────────────────────────┘
                                  ▼
-                    ┌─────────────────────┐
-                    │ Visualization Agent    │ → map overlays, chart generation
-                    └─────────────────────┘
+                    ┌─────────────────────────┐
+                    │ Visualization Agent     │ → generates GeoJSON layers, heatmap coordinates,
+                    │                         │   and route vectors for Leaflet/Mapbox GL
+                    └─────────────────────────┘
                                  ▼
-                    ┌─────────────────────┐
-                    │ Reporting Agent        │ → evidence-cited synthesized answer,
-                    │ (Synthesis/Critic)     │   cites which agent/dataset backs each claim
-                    └─────────────────────┘
+                    ┌─────────────────────────┐
+                    │ Reporting Agent         │ → evidence-cited synthesized answer,
+                    │ (Synthesis / Critic)    │   attaches dataset, timestamp & confidence to claims
+                    └─────────────────────────┘
                                  ▼
-                    ┌─────────────────────┐
-                    │ User Interaction Agent │ → back-translation, final chat + map response
-                    └─────────────────────┘
+                    ┌─────────────────────────┐
+                    │ User Interaction (Egress)│ → back-translation into user's language,
+                    │                         │   delivers conversational text + map payload
+                    └─────────────────────────┘
                                  ▼
-                            User (chat + map)
+                         User (Chat + Interactive Map)
 ```
 
 **Non-negotiable for credibility (unchanged from before, now stronger given official emphasis on "evidence and reasoning used to derive each response"):** log every inter-agent hand-off as structured JSON and make the trace visibly inspectable — the PS explicitly demands explainability, so this isn't just a demo trick, it's literally graded criteria.
@@ -115,19 +118,20 @@ This single schema, reused across all 9 agent roles, is what makes the orchestra
 
 ---
 
-## 2. Tech Stack (unchanged core, lightly refined)
+## 2. Tech Stack (Refined & Complete)
 
 | Layer | Choice | Notes |
 |---|---|---|
 | Agent orchestration | **LangGraph** (preferred) | Explicit state graph proves genuine hand-offs; CrewAI as backup |
-| LLM | Model-agnostic API layer | Keep swappable — judges ask "what if the LLM API dies mid-demo" |
-| Vector DB / RAG | Chroma or FAISS | For advisories, historical reports, marine documents |
-| Data pipeline | Python — pandas, xarray, netCDF4 | Satellite data ships as NetCDF/HDF5; budget real time here |
-| Backend | FastAPI | Agent-serving + REST |
-| Frontend | Next.js (or Streamlit if time-constrained) | Chat + map |
-| Map/geospatial | Leaflet or Mapbox GL + GeoPandas/Shapely for geofence math | SST/chlorophyll heatmaps, PFZ pins, boundary polygons |
-| Multilingual | IndicTrans2 / Bhashini API / LLM-native translation | PS explicitly names "Indian regional languages" as a priority, not a stretch |
-| Alerts | Polling against IMD/INCOIS feeds | Cyclone/lightning ingestion |
+| LLM | Model-agnostic API layer | Keep swappable (Gemini / Claude / GPT / Ollama) — prevents single-point failure |
+| Vector DB / RAG | Chroma or FAISS | For marine advisories, historical event reports, regional guides |
+| Data pipeline | Python — pandas, xarray, netCDF4, erddapy | Ingestion for NetCDF, OPeNDAP, GeoTIFF, and REST data |
+| Backend | FastAPI | Agent serving, REST endpoints, and async pipeline orchestration |
+| Frontend | Next.js (or React + Vite) | Responsive chat UI + map overlay + live trace inspector |
+| Map/geospatial | Leaflet or Mapbox GL + GeoPandas/Shapely | SST/chlorophyll heatmaps, PFZ pins, Marine Regions EEZ/IMBL, WDPA MPA polygons, GEBCO depth contours |
+| Marine Weather APIs | **Open-Meteo Marine API** + INCOIS ERDDAP | Zero-friction, free global wave/current data; Stormglass as tidal fallback |
+| Multilingual | IndicTrans2 / Bhashini API / LLM translation | Seamless English translation bridge for 9+ Indian coastal languages |
+| Alerts & Caching | In-memory / Redis cache + IMD CAP / Damini feed | 5–15 min TTL to prevent upstream rate-limiting |
 
 ---
 
@@ -135,13 +139,17 @@ This single schema, reused across all 9 agent roles, is what makes the orchestra
 
 | Source | What it gives you | Access reality (verified) | Action required |
 |---|---|---|---|
-| **MOSDAC** (ISRO/SAC) | SST, ocean color, INSAT-3D/3DR weather, ocean currents, salinity, wave/eddy products | Two tiers: (1) **Open Data** — free, no login, non-commercial use, covers Land/Ocean/Atmosphere derived products; (2) **Full/near-real-time data** — requires **registered-user SignUp**, email-verified, then admin approval by email. Near-real-time needs a **"standing order"** placed after login (max 1 month duration, renewable, privileged-user feature). There's also a documented **Satellite Data Download API** and SFTP service. | 🔴 **Register on mosdac.gov.in NOW** (SignUp form → email verification → wait for approval email — this has historically taken days, not hours). Separately request **API/SFTP credentials** if you plan programmatic pulls, and place a **standing order** once approved if you need near-real-time (not just archived) data. |
-| **INCOIS** | PFZ advisories (14 coastal sectors: Gujarat→Andaman/Nicobar), Tuna advisory, Ocean State Forecasts (SST, mixed layer depth, wave height, wind), text + WebGIS + GIS-server map layers | PFZ Advisory, WebGIS, and text-data pages (`incois.gov.in/MarineFisheries/...`, `incois.gov.in/geoportal/MFASPFZ`) are **publicly browsable today, no login** — but this is a **map/HTML/text-page product**, not a clean bulk API. Getting structured lat/long PFZ points programmatically means scraping the text-data endpoint or geoportal layer, not calling a documented REST API. | 🟡 No registration needed to view — but you should **email INCOIS (ESSO-INCOIS, Hyderabad) requesting a structured/bulk data feed or API for PFZ advisories** for your specific coastal sector, since the public interface is view-only. Treat scraping as a fallback, not the primary plan — a sponsor-approved feed is a strong judge talking point ("we requested official access"). |
-| **Bhuvan / VEDAS** (ISRO/NRSC geoportal) | Imagery, derived geospatial layers, thematic ocean layers (Bhuvan hosts its own PFZ page too, sourced from INCOIS) | Public, registration required for most download/API services (same pattern as MOSDAC — NRSC-run sign-up). | 🔴 **Register on bhuvan.nrsc.gov.in / VEDAS** on day one alongside MOSDAC. |
-| **IMD** | Cyclone/lightning alerts, weather warnings | Public bulletins/RSS-style feeds; no clean unified API for all alert types | 🟠 Identify the specific IMD bulletin/RSS endpoints for your target region before committing to "real-time IMD ingestion" as a claim. |
-| **Copernicus Marine (CMEMS)** | Global ocean reanalysis — SST, currents, waves | Free registration, mature REST/OPeNDAP API | 🟡 Strong **fallback** if Indian portals lag — register early too, it's low-friction. |
-| **NASA Ocean Color / MODIS-Aqua** | Chlorophyll, SST | Free, well-documented API | 🟡 Fallback for chlorophyll if MOSDAC access is delayed. |
-| **Global Fishing Watch** | Vessel activity/AIS | Free, rate-limited | 🟢 Optional/stretch — only if geofencing/route-optimization becomes a focus area. |
+| **MOSDAC** (ISRO/SAC) | SST, ocean color, INSAT-3D/3DR/3DS weather, ocean currents, salinity, wave products | Two tiers: (1) **Open Data** — free, no login; (2) **NRT/API data** — requires SignUp, email verification, and admin approval. Near-real-time needs a "standing order". | 🔴 **Register on mosdac.gov.in NOW**. Separately request API/SFTP credentials. |
+| **INCOIS ERDDAP & LAS** (`erddap.incois.gov.in`) | RESTful, OPeNDAP, JSON, CSV, NetCDF access to oceanographic & buoy observations | Publicly accessible server, standardized endpoints, much cleaner than scraping HTML. | 🔴 **P0: Query INCOIS ERDDAP immediately** — integrate directly for structured ocean data. |
+| **Open-Meteo Marine API** | Wave height, swell direction/period, wind waves, ocean currents | **100% free, zero API key required**, instant HTTP GET queries by lat/long. | 🔴 **P0: Use immediately** for instant, reliable marine weather nowcasts and forecasts. |
+| **INCOIS PFZ Advisory** | PFZ points (~1,223 coastal nodes) | Public WebGIS/text page (JSP-based). Structured pull requires scraping text pages or official bulk request. | 🟡 Email INCOIS for bulk feed; keep scraping/cached fallback ready in parallel. |
+| **Tide Predictions** (Survey of India / INCOIS) | High/low tide times and heights along Indian coast (Query #3) | Survey of India monthly tables (downloadable); INCOIS tide gauge portal; Stormglass.io (10 req/day free tier) as API fallback. | 🔴 **P0: Download Survey of India tables** & setup Stormglass fallback. |
+| **GEBCO Global Bathymetry** | 15 arc-second gridded ocean depth data | Free public download from `gebco.net` (NetCDF/GeoTIFF) — prerequisite for depth-safe vessel routing. | 🟡 **Download GEBCO grid** for South Tamil Nadu / pilot sector. |
+| **Bhuvan / VEDAS** | Thematic ocean layers & PFZ visualization | Public, registration required for WMS/API layers. | 🔴 **Register on bhuvan.nrsc.gov.in / VEDAS**. |
+| **IMD (CAP, Bulletins, Damini)** | Cyclone bulletins, CAP warnings, lightning alerts | Public bulletins + CAP feed + Damini lightning nowcasts. | 🟠 Target the CAP feed and Damini endpoints directly. |
+| **Marine Regions (VLIZ) & WDPA** | Official EEZ boundaries, Palk Strait IMBL coordinates, Gulf of Mannar MPA polygon | Free public download, no registration required. | 🔴 **Download shapefiles NOW** from marineregions.org and protectedplanet.net. |
+| **Copernicus Marine (CMEMS)** | Global ocean reanalysis (SST, currents, waves) | Free, mature REST API, instant registration. | 🟡 Register early as an instant fallback safety net. |
+| **NASA Ocean Color / MODIS** | Chlorophyll-a, SST | Free Earthdata login, instant access. | 🟡 Fallback for chlorophyll if MOSDAC is delayed. |
 
 ### 📩 The formal requests you should actually send (do this literally, in the first 48 hours)
 1. **MOSDAC SignUp** (mosdac.gov.in) — registration form + wait for email approval. If no response in a few days, there's typically a listed contact/helpdesk on the portal — follow up directly rather than re-submitting.
@@ -159,16 +167,16 @@ This single schema, reused across all 9 agent roles, is what makes the orchestra
 
 | # | Pain point | Why it's dangerous | Mitigation |
 |---|---|---|---|
-| 1 | **"Multi-agent" is trivially fake-able** with one prompt wearing labels | This is the single most likely judge attack, and the official PS explicitly asks for "collaboration among specialized agents" — judges will have read this line | Structured JSON hand-off contract (Section 1) + visible trace log; rehearse showing Agent A's raw output being consumed by Agent B, live |
-| 2 | **MOSDAC/Bhuvan/INCOIS access latency** | Registration approval has historically taken days; near-real-time data needs an extra "standing order" step most teams won't know about | Register everything in the first 48 hours (Section 3 checklist); Copernicus/NASA fallback ready before you need it, not after |
-| 3 | **INCOIS PFZ data isn't a clean API** — it's a WebGIS/text page | Teams often discover this only when they try to integrate it, losing a day to scraping | Budget scraping time explicitly in Phase 2, or send the direct INCOIS request early (Section 3, item 5) |
-| 4 | **Geofencing correctness** (MPAs, EEZ/international boundary lines, restricted zones) | Getting maritime boundary geometry wrong is both a technical bug and a factual/diplomatic sensitivity (international boundaries) — a domain-literate judge will check this | Use only official/public boundary datasets (e.g., published EEZ shapefiles), don't hand-draw approximate lines; caveat any approximated boundary explicitly in the UI |
-| 5 | **Multilingual is core, not a stretch** per the official text ("emphasis on supporting Indian regional languages") | v1 draft treated this as a Phase 5 add-on; the official PS puts it in the *Expected Solution* capability list itself | Design the language-detection/translation layer into the architecture from Phase 1, not bolted on later — even if you ship only 2–3 languages, the pipeline should be structurally first-class |
-| 6 | **The "why did catch decline" root-cause query** | Hardest of the 8 official example queries — requires correlating historical trend data your team may not have | Either scope it out explicitly and say so in the demo ("we prioritized the 7 real-time queries; root-cause trend analysis is our stretch goal") or find one real historical dataset (even INCOIS/CMFRI catch statistics) to make one narrow version of this work |
-| 7 | **Ocean data messiness** (cloud cover, missing satellite passes) | Real satellite data has gaps; AI-generated pipeline code often fails silently on this | Explicit "no data / low confidence" states everywhere — never let a missing value silently become a wrong answer |
-| 8 | **Explainability as a literal grading line, not a vibe** | PS says "reliable recommendations together with the supporting evidence and reasoning used to derive each response" — this is closer to a rubric line than a suggestion | Every final answer must cite which agent + which dataset + what timestamp backed each claim, not just "confidence: high" |
-| 9 | **LLM API downtime mid-demo** | Single point of failure | Model-agnostic reasoning layer, backup provider pre-configured and tested, not just claimed |
-| 10 | **Scope creep across 9 named agent roles** | Trying to build all 9 as fully separate, fully-functional agents in a hackathon window is unrealistic | Build all 9 as real modular components with real hand-offs, but let some be intentionally thin (e.g., Reporting Agent can be simple templated synthesis) — thinness is fine, fakeness is not |
+| 1 | **"Multi-agent" is trivially fake-able** with one prompt wearing labels | This is the single most likely judge attack, and the official PS explicitly asks for "collaboration among specialized agents" | Structured JSON hand-off contract (Section 1) + visible trace log; rehearse showing Agent A's raw output being consumed by Agent B, live |
+| 2 | **LLM Hallucination in safety-critical alerts** | In a disaster/safety context, an LLM generating "it is safe" during an active storm is catastrophic | **Deterministic rule-based gating in Risk Assessment Agent** — safety thresholds are computed in code, not generated by LLM text |
+| 3 | **MOSDAC/Bhuvan/INCOIS access latency** | Registration approval takes days; near-real-time needs standing orders | Use Open-Meteo Marine API + Copernicus immediately; keep cached regional snapshot ready |
+| 4 | **INCOIS PFZ data isn't a clean REST API** | WebGIS scraping is fragile during live demos | Investigate INCOIS ERDDAP (`erddap.incois.gov.in`); pre-download sector PFZ CSVs as offline fallback |
+| 5 | **Geofencing correctness** (MPAs, EEZ/IMBL lines) | Boundary errors are legal/safety incidents | Use authoritative Marine Regions VLIZ shapefiles & WDPA polygons; never let LLM hallucinate coordinates |
+| 6 | **Missing Tidal Data (Query #3 requirement)** | Judges testing "tides, weather, sea state" will catch missing tide predictions | Integrate Survey of India tables + Stormglass.io API fallback into Ocean Analytics Agent |
+| 7 | **Multilingual is core per Expected Solution** | PS explicitly emphasizes Indian regional languages | Build language-ID and translation pipeline into Phase 1 architecture rather than bolting on at the end |
+| 8 | **The "why did catch decline" root-cause query** | Hardest of the 8 queries — requires multi-year historical correlation | Pre-index data.gov.in fisheries statistics + CMFRI published trends for the pilot sector (Thoothukudi) |
+| 9 | **Upstream API rate-limiting / mid-demo downtime** | External servers failing or blocking queries during evaluation | In-memory caching (5–15 min TTL) for live feeds; swappable LLM provider layer |
+| 10 | **Scope creep across 9 named agent roles** | Trying to over-build all 9 agents as heavy LLM pipelines | Build all 9 as modular nodes in LangGraph, but keep helper agents (Reporting, Visualization) deterministic and lightweight |
 
 ---
 
@@ -192,14 +200,14 @@ This single schema, reused across all 9 agent roles, is what makes the orchestra
 
 | Phase | Focus | Key deliverable |
 |---|---|---|
-| **Phase 0 (pre-hackathon, do this week)** | Register MOSDAC + Bhuvan/VEDAS + send INCOIS bulk-data request + register Copernicus/NASA fallback; pick coastal region; pre-download snapshot | All 5 registration/request items in Section 3 actioned |
-| **Phase 1** | Design 9-agent graph on paper; lock JSON hand-off schema; map each of the 8 official example queries to which agents fire | Architecture doc + schema, reviewed against official PS text line-by-line |
-| **Phase 2** | Data-access layer per agent (real API + cached fallback); resolve the INCOIS scraping-vs-API question | Each agent independently fetches/returns structured data with source+timestamp |
-| **Phase 3** | Orchestrator + Risk Assessment + Reporting agents; wire real hand-offs | End-to-end query → 9-agent trace → cited answer, logged |
-| **Phase 4** | Frontend: chat + map + confidence display + visible trace panel | Working demo UI |
-| **Phase 5** | Multilingual layer (should already be structurally wired from Phase 1 — this phase is filling it in, not designing it) | Query/response works in 2–3 languages |
-| **Phase 6** | Stress-test: swap a data source live, break an agent's input, test missing-satellite-pass edge case, test a wrong-region geofence query | System degrades visibly and gracefully, never silently |
-| **Phase 7** | Demo scripting using the **official 8 example queries** as your script backbone; Q&A rehearsal against Section 7 below | Rehearsed live orchestration-trace demo |
+| **Phase 0 (pre-hackathon, do this week)** | Register MOSDAC + Bhuvan/VEDAS; download Marine Regions EEZ/IMBL + WDPA MPA + GEBCO bathymetry; test Open-Meteo & INCOIS ERDDAP; download Survey of India tide tables | All foundational shapefiles stored locally; open APIs tested |
+| **Phase 1** | Design 9-agent LangGraph state graph; lock JSON hand-off schema; scaffold multilingual ingress/egress pipeline skeleton | Architecture doc + schema + executable LangGraph skeleton |
+| **Phase 2** | Data access layer per specialist agent (Open-Meteo, ERDDAP, PFZ parser, tide calculator, GEBCO depth lookup) with local fallback cache | Each specialist agent returns structured JSON with timestamps & confidence |
+| **Phase 3** | Implement deterministic Risk Assessment gating + Geospatial routing + Reporting evidence citation; wire orchestrator | End-to-end multi-agent execution pipeline working in CLI |
+| **Phase 4** | Frontend UI: Next.js chat interface + interactive Leaflet/Mapbox GL map + live agent trace inspector panel | Working interactive Web UI |
+| **Phase 5** | Multilingual model integration (IndicTrans2 / Bhashini / Gemini Multilingual) for Hindi, Tamil, Telugu, Malayalam, Bengali | Voice/text input-output functioning across coastal languages |
+| **Phase 6** | Validation & Stress-Testing: verify factual correctness of output against live INCOIS/IMD pages; test Cyclone Gaja replay scenario; test offline cache fallback | Verified factual accuracy + graceful degradation under errors |
+| **Phase 7** | Demo rehearsal using the **8 official PS example queries** as the exact script; judge Q&A drill on agent authenticity and safety gating | Rehearsed live orchestration demo |
 
 ---
 

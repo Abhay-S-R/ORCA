@@ -1,87 +1,111 @@
 # ORCA (SIH26176) — Master Dataset List, Verified Aug 2026
 
-This reconciles your two planning docs (v2 Build Plan + Master Analysis Doc) with a fresh check of each source's live portal. Nothing in your docs was wrong — this adds current confirmation, a few missing datasets, and the exact "what to request" language for each org.
+This document provides the verified, comprehensive catalog of all data sources required for the ORCA multi-agent marine intelligence platform, categorized by priority and access mechanics.
 
 ---
 
-## 1. Quick-reference comparison table
+## 1. Quick-Reference Comparison Table
 
-| # | Dataset / Source | Owner | What it gives ORCA | Access tier | Free tier? | Needs org permission? |
-|---|---|---|---|---|---|---|
-| 1 | MOSDAC Open Data | ISRO/SAC | SST, ocean color, wind, ocean currents, salinity — derived products | Anonymous | ✅ Free, no login | ❌ No |
-| 2 | MOSDAC Registered (NRT/API/SFTP) | ISRO/SAC | Same as above but near-real-time + programmatic pull | Registered (General/Privileged) | ⚠️ Free but gated | ✅ Yes — SignUp + email approval |
-| 3 | INCOIS PFZ Advisory (WebGIS/text) | INCOIS/MoES | Potential Fishing Zone points, ~1,223 coastal nodes | Public page | ✅ Free, no login | ⚠️ No login, but no clean API — email needed for bulk feed |
-| 4 | INCOIS Ocean State Forecast (OSF) | INCOIS/MoES | Wave height, currents, SST, mixed layer depth, wind | Public page | ✅ Free | ⚠️ Same as above |
-| 5 | INCOIS Hazard Alerts (Tsunami/Storm Surge/High Wave) | INCOIS/MoES | Operational hazard bulletins | Public | ✅ Free | ⚠️ Bulk/API — request |
-| 6 | INCOIS Sagar Vani | INCOIS/MoES | Existing multi-channel advisory dissemination (reference model, not a data feed you pull) | N/A | N/A | ✅ Yes, if integrating rather than referencing |
-| 7 | Bhuvan / VEDAS (NRSC) | ISRO/NRSC | Geoportal layers incl. PFZ, thematic ocean layers | Registered | ⚠️ Free but gated | ✅ Yes — separate signup from MOSDAC |
-| 8 | IMD Cyclone/Weather Warnings | IMD/MoES | Cyclone bulletins, colour-coded warnings, district-wise alerts (issued 4×/day) | Public bulletins; CAP-based dissemination | ✅ Free | ⚠️ No unified public REST API confirmed — use CAP feed / bulletin scraping |
-| 9 | Copernicus Marine Service (CMEMS) | EU/Mercator Ocean | Global SST, currents, salinity, sea level, waves — mature API | Registered | ✅ Free | ✅ Yes, but instant self-serve signup |
-| 10 | NASA Ocean Color (OB.DAAC / MODIS-Aqua) | NASA | Chlorophyll-a, SST, remote-sensing reflectance | Earthdata Login | ✅ Free | ✅ Yes, instant self-serve (Earthdata account) |
-| 11 | Global Fishing Watch API | GFW (Oceana/SkyTruth/Google) | Vessel AIS activity, fishing effort, encounters | API token | ✅ Free tier, rate-limited | ✅ Yes, instant self-serve token |
-| 12 | Marine Regions / VLIZ Maritime Boundaries Geodatabase | Flanders Marine Institute | Authoritative EEZ, territorial sea, contiguous zone, IMBL-adjacent boundary polygons | Public download | ✅ Free | ❌ No — direct download, cite source |
-| 13 | Protected Planet / WDPA (MPA polygons) | UNEP-WCMC/IUCN | Marine Protected Area boundaries (e.g., Gulf of Mannar Marine National Park) | Public download | ✅ Free | ❌ No, but register for bulk API pull |
-| 14 | DAT-SG / Sagarmitra | ISRO + Coast Guard | Distress-alert transmitter integration point (reference/handoff, not a pullable dataset) | N/A | N/A | ✅ Yes, if integrating |
-| 15 | data.gov.in (fisheries/catch statistics) | Govt of India (OGD platform) | Historical catch/landing statistics — needed for the "why did catch decline" query | Public/registered per dataset | ✅ Mostly free | ⚠️ Some datasets require registration |
-| 16 | CMFRI catch/landing data | ICAR-CMFRI | Historical fish landing data, validated PFZ persistence studies | Publication/request-based | ⚠️ Mixed | ✅ Yes — many datasets are published in papers, not open APIs; direct request likely needed |
-
----
-
-## 2. Analysis against your two docs
-
-**What your docs already got right (confirmed live, Aug 2026):**
-- MOSDAC's two-tier system (Open Data = free/anonymous; General/Privileged registered users = NRT + bulk) is confirmed exactly as described, including the 3-day latency for General users vs. NRT access for Privileged users, and the documented Data Download API + SFTP service.
-- INCOIS PFZ is confirmed still WebGIS/text-page first, not a REST API — the ~1,223-node figure is verified live on `incois.gov.in/MarineFisheries/PfzWebGis`. Your "budget scraping time" mitigation stands.
-- IMD still has no single unified public REST API for all alert types — it disseminates via bulletins, apps, and **Common Alerting Protocol (CAP)**, confirmed by a March 2026 government statement that IMD pushes district-wise warnings 4×/day via CAP, apps, WhatsApp, and social media. This is a stronger integration path than scraping: **target the CAP feed specifically**, not generic bulletin pages.
-- Copernicus Marine and NASA Ocean Color are confirmed free with instant self-serve registration (Earthdata Login for NASA; Copernicus Marine account) — good fallback choices exactly as your doc positioned them.
-- Global Fishing Watch confirmed free-tier API with a self-serve token from the GFW API Portal, rate-limited — matches your "optional/stretch" framing.
-
-**Two things your docs under-specified that I'd add:**
-1. **Maritime boundary data source was named generically ("official/published EEZ shapefiles") but never pinned down.** Use the **Marine Regions / VLIZ Maritime Boundaries Geodatabase** (Flanders Marine Institute) — it's the de facto authoritative, freely downloadable global EEZ/territorial-sea/IMBL-adjacent dataset used across GIS research, and it directly solves your Section 4 pain point ("geofencing correctness... don't hand-draw approximate lines"). No permission needed, just cite it.
-2. **MPA boundary source was named narratively (Gulf of Mannar Marine National Park) but no dataset was named.** Use **Protected Planet / WDPA (World Database on Protected Areas)**, maintained by UNEP-WCMC and IUCN — it has the polygon for Gulf of Mannar and every other Indian MPA, free to download, bulk API available with a free registration.
-3. **Historical catch/landing data for the "why did catch decline" query** — both docs flag this as the hardest query and suggest "CMFRI/INCOIS catch statistics" vaguely. Concretely: check **data.gov.in** first (Open Government Data platform — searchable, many datasets need no registration) before assuming you need a CMFRI research request; CMFRI's own granular data is often only available via direct request or embedded in published papers, which takes longer than a hackathon timeline allows — so data.gov.in should be your primary attempt, CMFRI email request a stretch/parallel action, not a dependency.
+| # | Dataset / Source | Owner / Provider | What it gives ORCA | Access Tier | Free Tier? | Needs Org Permission? | Priority |
+|---|---|---|---|---|---|---|---|
+| 1 | **MOSDAC Open Data** | ISRO / SAC | SST, ocean color, wind vectors, ocean currents, salinity (derived products) | Anonymous | ✅ Free, no login | ❌ No | **P0** |
+| 2 | **MOSDAC Registered (NRT/API/SFTP)** | ISRO / SAC | Near-real-time satellite passes & programmatic bulk pull | Registered (General/Privileged) | ⚠️ Free but gated | ✅ Yes — SignUp + admin email approval | **P0** |
+| 3 | **INCOIS ERDDAP & LAS** (`erddap.incois.gov.in`, `las.incois.gov.in`) | INCOIS / MoES | RESTful, OPeNDAP, JSON, CSV, NetCDF programmatic access to oceanographic, buoy & satellite data | Public server | ✅ Free, open access | ❌ No — instant programmatic REST queries | **P0** |
+| 4 | **Open-Meteo Marine API** | Open-Meteo (NOAA/ECMWF/DWD) | Wave height, direction, period, swell waves, ocean current velocity & direction | Public REST API | ✅ **100% Free, zero API key** | ❌ No | **P0** |
+| 5 | **Marine Regions (VLIZ) Geodatabase** | Flanders Marine Institute | Authoritative EEZ, territorial sea, contiguous zone, and India–Sri Lanka IMBL coordinates | Public download | ✅ Free | ❌ No — direct shapefile download | **P0** |
+| 6 | **Protected Planet / WDPA** | UNEP-WCMC / IUCN | Marine Protected Area boundary polygons (e.g. Gulf of Mannar Marine National Park) | Public download | ✅ Free | ❌ No — direct shapefile download | **P0** |
+| 7 | **Tide Predictions & Gauges** | Survey of India / INCOIS | High/low tide times and tidal water levels along Indian coast (Survey of India tables + INCOIS gauges) | Public download / portal | ✅ Free | ⚠️ No — downloadable tables; Stormglass.io (10 req/day) as API fallback | **P0** |
+| 8 | **Copernicus Marine (CMEMS)** | EU / Mercator Ocean | Global ocean reanalysis (SST, currents, salinity, sea level, waves) — mature API | Registered | ✅ Free | ✅ Yes — instant self-serve signup | **P0 (Fallback)** |
+| 9 | **NASA Ocean Color (OB.DAAC)** | NASA | Chlorophyll-a concentration, SST, remote-sensing reflectance | Earthdata Login | ✅ Free | ✅ Yes — instant self-serve (Earthdata) | **P0 (Fallback)** |
+| 10 | **Bhuvan / VEDAS** | ISRO / NRSC | Geoportal layers (PFZ, thematic ocean layers, coastal land use) | Registered | ⚠️ Free but gated | ✅ Yes — separate signup from MOSDAC | **P0** |
+| 11 | **INCOIS PFZ Advisory (WebGIS/Text)** | INCOIS / MoES | Potential Fishing Zone coordinates (~1,223 coastal nodes) | Public page | ✅ Free, no login | ⚠️ View-only; scraping or direct email needed for bulk feed | **P1** |
+| 12 | **INCOIS Ocean State Forecast (OSF)** | INCOIS / MoES | Wave height, currents, SST, mixed layer depth, wind | Public page | ✅ Free | ⚠️ Available on portal / ERDDAP | **P1** |
+| 13 | **INCOIS Hazard Alerts** | INCOIS / MoES | Operational bulletins for Tsunami, Storm Surge, High Wave alerts | Public | ✅ Free | ⚠️ Bulletins / feed scraping | **P1** |
+| 14 | **IMD Cyclone & Weather Warnings** | IMD / MoES | Cyclone tracks, colour-coded warnings, district-wise alerts (4×/day) via CAP feed | Public bulletins / CAP | ✅ Free | ⚠️ CAP feed integration | **P1** |
+| 15 | **IMD Damini / Lightning Nowcast** | IMD / IITM | Real-time lightning alerts and thunderstorm nowcasting | Public feed / Damini app | ✅ Free | ⚠️ API/feed endpoint | **P1** |
+| 16 | **GEBCO Global Bathymetry Grid** | IHO / IOC UNESCO | 15 arc-second gridded ocean depth data (NetCDF/GeoTIFF) — prerequisite for vessel routing | Public download | ✅ Free | ❌ No — direct download from `gebco.net` | **P1** |
+| 17 | **data.gov.in (Fisheries Statistics)** | Govt of India (OGD) | Historical fish catch/landing statistics by district/state (for catch-decline root cause query) | Public / Registered | ✅ Mostly free | ⚠️ Open download / OGD account | **P1** |
+| 18 | **INCOIS Sagar Vani** | INCOIS / MoES | Multi-channel advisory dissemination (reference architecture for regional SMS/voice push) | N/A | N/A | ℹ️ Architectural reference model | **Ref** |
+| 19 | **DAT-SG / Sagarmitra** | ISRO + Coast Guard | Distress-alert transmitter handoff integration point | N/A | N/A | ℹ️ Emergency handoff reference | **Ref** |
+| 20 | **CMFRI Catch/Landing Time-Series** | ICAR-CMFRI | Granular historical fish landing time-series and published PFZ validation studies | Publication / Request | ⚠️ Mixed | ✅ Yes — direct institutional request | **P2** |
+| 21 | **Global Fishing Watch (GFW)** | GFW (Oceana/Google) | Vessel AIS tracking, fishing effort density | API Token | ✅ Free tier, rate-limited | ✅ Yes — instant self-serve token | **P3 (Deferred)** |
 
 ---
 
-## 3. What to specifically request from each org (copy-paste-able asks)
+## 2. Deep Analysis of Critical Additions & Fixes
 
-**MOSDAC (mosdac.gov.in)** — after SignUp + email verification + approval:
-- Ask for: **Registered General User access** (sufficient for most of your build) — only escalate to **Privileged/NRT access** if you specifically need near-real-time (not 3-day-latency) SST/ocean-color/wind for your live demo window.
-- Additionally request: **API/SFTP credentials** explicitly — these are not automatically granted with SignUp alone.
+### 🌟 1. INCOIS ERDDAP (`erddap.incois.gov.in`) — High-Value Discovery
+- **Why it matters:** Prior planning assumed INCOIS data was strictly locked behind HTML/JSP WebGIS pages requiring fragile scraping. INCOIS operates an active **ERDDAP server**, which provides RESTful, machine-readable data subsets (JSON, CSV, NetCDF) with standard OPeNDAP and REST query parameters.
+- **Action:** Query `erddap.incois.gov.in/erddap/` immediately in Phase 0 to identify available datasets (buoy data, OSF parameters, satellite products). This could eliminate significant scraping overhead.
 
-**Bhuvan / VEDAS (bhuvan.nrsc.gov.in)** — separate registration from MOSDAC:
-- Ask for: geoportal **API/WMS access** to the PFZ and thematic ocean layers you plan to overlay, not just browser-based viewing.
+### 🌊 2. Open-Meteo Marine API — Zero-Friction Weather Foundation
+- **Why it matters:** 100% free, requires **no API key**, and provides instant global wave height, swell period, direction, and ocean current velocity via simple HTTP GET requests.
+- **Endpoint:** `https://marine-api.open-meteo.com/v1/marine?latitude=8.8&longitude=78.1&hourly=wave_height,wave_direction,wave_period,ocean_current_velocity`
+- **Role:** Primary live data provider for the Weather Intelligence and Risk Assessment agents.
 
-**INCOIS (ESSO-INCOIS, Hyderabad)** — direct email/contact-form request:
-- Ask for: (a) a **structured/bulk data feed or documented API for PFZ advisories** for your specific coastal sector (North TN / South TN if you're following the Palk Bay/Gulf of Mannar pilot region), and (b) any **documented Ocean State Forecast API**, since the public interface is map/text only.
-- Mention "SIH 2026, ISRO PS SIH26176" for context — this is a legitimate, common ask and may speed a response, but don't build your timeline assuming a fast reply; keep the scraping fallback live in parallel.
+### ⏱️ 3. Tidal Prediction Data (Survey of India + Stormglass Fallback)
+- **Why it matters:** Directly addresses **PS Query #3** (*"What are the tide, weather, and sea conditions near my fishing location?"*), which was previously missing from the dataset catalog.
+- **Sources:**
+  1. *Survey of India:* Official Indian Tide Tables (published annually/monthly).
+  2. *INCOIS TEWS Tide Gauges:* Operational coastal tide gauge network.
+  3. *Stormglass.io:* Developer API fallback offering tidal height extremes and hourly tide predictions (free tier: 10 requests/day).
 
-**Copernicus Marine (marine.copernicus.eu)**:
-- Just self-serve register — no special ask needed, instant approval historically.
+### 🗺️ 4. GEBCO Global Bathymetry Grid
+- **Why it matters:** Directly required for **PS Query #6** (*"What is the safest route for a fishing vessel considering weather and sea-state conditions?"*). A routing algorithm that only evaluates wave heights but ignores shallow water hazards is unsafe. GEBCO provides 15 arc-second gridded depth data for calculating safe navigable depth corridors.
 
-**NASA Earthdata / Ocean Color (urs.earthdata.nasa.gov)**:
-- Just self-serve register for an Earthdata Login — required for any OB.DAAC download, but instant, no approval wait.
-
-**Global Fishing Watch (globalfishingwatch.org/our-apis)**:
-- Self-serve API token request through the GFW API Portal — only pursue if geofencing/vessel-tracking becomes an actual demo feature, not by default.
-
-**data.gov.in**:
-- Check per-dataset — most fisheries/catch datasets are open-download; a few require a free OGD platform account. No special request email needed typically.
-
-**CMFRI (if pursuing historical catch-decline analysis beyond what data.gov.in offers)**:
-- Ask for: any publicly citable **catch/landing time-series for your pilot region** (e.g., Thoothukudi sector) — treat this as a parallel, best-effort request, not a blocking dependency; your fallback is to scope the "why did catch decline" query narrowly around whatever historical data you can get from data.gov.in or published CMFRI papers.
-
-**Marine Regions (VLIZ) / Protected Planet (WDPA)**:
-- No request needed — direct shapefile/GeoJSON download. Just cite the source in your UI (both explicitly require attribution in their license terms).
+### ⚡ 5. IMD Damini / Lightning Feed
+- **Why it matters:** Required for **PS Query #4** (*"Are there any lightning or cyclone alerts in my area?"*). IMD/IITM operates the Damini lightning nowcasting system, providing 15-minute lead-time lightning strike warnings.
 
 ---
 
-## 4. Net priority order for Phase 0 (this week)
+## 3. Clear Priority Execution Stack
 
-1. MOSDAC SignUp (has the longest approval lag historically — start first)
-2. Bhuvan/VEDAS SignUp (same NRSC approval pattern)
-3. Copernicus Marine + NASA Earthdata registration (instant, do in parallel, zero excuse to delay)
-4. Global Fishing Watch token (instant, only if geofencing/route features are in scope)
-5. Marine Regions EEZ + WDPA MPA downloads (no registration — just download and store locally now)
-6. INCOIS direct email request (slow — send early, don't wait on it, build the scraping fallback regardless)
-7. Confirm which data.gov.in catch/landing datasets exist for your pilot sector before committing to the root-cause query as a live demo feature
+```
+═══════════════════════════════════════════════════════════════════════════
+P0 — MUST ACTION THIS WEEK (Pre-Hackathon Foundation)
+═══════════════════════════════════════════════════════════════════════════
+├── 1. Register MOSDAC (mosdac.gov.in) — initiate signup immediately (longest approval lag)
+├── 2. Register Bhuvan / VEDAS (bhuvan.nrsc.gov.in)
+├── 3. Query INCOIS ERDDAP (erddap.incois.gov.in) to catalog machine-readable endpoints
+├── 4. Download Marine Regions EEZ/IMBL shapefiles (marineregions.org/downloads.php)
+├── 5. Download WDPA Marine Protected Area polygons (protectedplanet.net)
+├── 6. Download GEBCO 15 arc-second bathymetry grid for South Tamil Nadu sector (gebco.net)
+├── 7. Download Survey of India monthly tide tables for coastal nodes
+├── 8. Register instant fallbacks: Copernicus Marine (CMEMS) + NASA Earthdata (instant approval)
+└── 9. Test Open-Meteo Marine API with sample coordinates (Thoothukudi: 8.80°N, 78.14°E)
+
+═══════════════════════════════════════════════════════════════════════════
+P1 — NEEDED FOR FULL 8-QUERY DEMO EXECUTION
+═══════════════════════════════════════════════════════════════════════════
+├── 10. Implement INCOIS PFZ text parser / scraper (with fallback pre-cached sector CSV)
+├── 11. Connect IMD CAP feed for cyclone bulletins and colour-coded district alerts
+├── 12. Connect IMD Damini / nowcast endpoints for lightning warning evaluation
+├── 13. Index data.gov.in marine catch statistics for pilot sector historical analysis
+└── 14. Pre-download historical "Cyclone Gaja" replay dataset for off-season hazard testing
+
+═══════════════════════════════════════════════════════════════════════════
+P2 — BEST-EFFORT / PARALLEL (Do not block build)
+═══════════════════════════════════════════════════════════════════════════
+├── 15. Send formal request to ESSO-INCOIS for official structured PFZ bulk feed
+└── 16. Request CMFRI historical fish landing publications for South Tamil Nadu
+
+═══════════════════════════════════════════════════════════════════════════
+P3 — DEFERRED / OUT OF MVP SCOPE
+═══════════════════════════════════════════════════════════════════════════
+├── 17. Global Fishing Watch API (live AIS vessel tracking — not required for 8 official queries)
+└── 18. Live DAT-SG hardware distress relay integration (keep purely as architectural reference)
+```
+
+---
+
+## 4. Copy-Paste Request Templates
+
+### 📧 MOSDAC Access Request (mosdac.gov.in)
+- **Account Type:** Registered General User
+- **Requested Capabilities:** API / SFTP programmatic download credentials
+- **Standing Order:** Near-real-time SST, Ocean Color (Oceansat-3 / INSAT-3DR) covering Gulf of Mannar & Palk Bay (8.0°N–10.5°N, 77.5°E–80.0°E).
+
+### 📧 INCOIS Formal Data Request (ESSO-INCOIS Hyderabad)
+- **Subject:** Data Feed Request for SIH 2026 — PS SIH26176 (ORCA Platform)
+- **Body:** Requesting (1) documented REST/ERDDAP endpoint or bulk structured text feed for PFZ advisories for South Tamil Nadu and North Tamil Nadu coastal sectors, and (2) programmatic Ocean State Forecast (OSF) time-series feeds for wave and current nowcasts. Mentioning participation in SIH 2026 under the ISRO problem statement.
+
