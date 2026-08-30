@@ -1,274 +1,349 @@
-# ORCA (SIH26176) — Master Dataset & API Architecture Catalog
+# 🌊 ORCA (SIH26176) — Dataset Checklist & Master Data Source Catalog
 
-**Verified & Grounded:** August 2026  
 **System Target:** Multi-Agent Marine Intelligence & Conversational Decision Support Platform  
+**Sponsor & Theme:** ISRO (Department of Space) | Disaster Management & Marine Safety Focus  
+**Last Verified:** August 2026  
 
 ---
 
-## 1. Access Classification Taxonomy
+## 1. 📋 Simple & Proper Dataset Checklist
 
-All 21 datasets and APIs are classified hierarchically into **4 Access Tiers**, sub-divided by **7 Marine Functional Domains**:
+Use this checklist to track dataset procurement, API integration, and fallback verification across development phases.
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                       ORCA DATA ACCESS HIERARCHY                           │
-├────────────────────────────────────────────────────────────────────────────┤
-│ 🟢 TIER 1: 100% Free & Open Access (Zero Friction / Public Endpoints)      │
-│ 🔵 TIER 2: Free Self-Serve Registration (Instant Sign-Up / API Tokens)     │
-│ 🟠 TIER 3: Gated Government Registration & Request Access (Approval Lag)   │
-│ 🟣 TIER 4: Architectural Reference & Emergency Integration Points          │
-└────────────────────────────────────────────────────────────────────────────┘
-```
+### 🟢 Tier 1: 100% Free & Open Access (Zero Friction / Instant Access)
+
+| Status | Dataset / API Name | Domain & Parameters | Priority | Target Agent | Source URL / Endpoint |
+| :---: | :--- | :--- | :---: | :--- | :--- |
+| [ ] | **Open-Meteo Marine API** | Wave height ($H_s$), wave period ($T_p$), swell, currents | `P0 Core` | `Weather Intelligence Agent` | [marine-api.open-meteo.com](https://marine-api.open-meteo.com/v1/marine) |
+| [ ] | **INCOIS ERDDAP Data Server** | In-situ buoy telemetry, SST, salinity, ocean models | `P0 Core` | `Marine Data Discovery Agent` | [erddap.incois.gov.in](https://erddap.incois.gov.in/erddap/) |
+| [ ] | **MOSDAC Open Data Portal** | Oceansat-3, INSAT-3D/3DR SST & Chlorophyll | `P0 Core` | `Ocean Analytics Agent` | [mosdac.gov.in](https://mosdac.gov.in) |
+| [ ] | **Survey of India Tide Tables** | High/low tide predictions & astronomical heights | `P0 Core` | `Ocean Analytics Agent` | [surveyofindia.gov.in](https://www.surveyofindia.gov.in/) |
+| [ ] | **INCOIS Tide Gauge Network** | Real-time coastal tide gauge water level telemetry | `P0 Core` | `Ocean Analytics Agent` | [tsunami.incois.gov.in](https://tsunami.incois.gov.in/TEWS/TGMap.jsp) |
+| [ ] | **Marine Regions (VLIZ)** | EEZ (200 NM), Territorial Waters, Palk Strait IMBL | `P0 Core` | `Geospatial Reasoning Agent` | [marineregions.org](https://www.marineregions.org/downloads.php) |
+| [ ] | **Protected Planet (WDPA)** | Marine Protected Areas (MPAs) boundary polygons | `P0 Core` | `Geospatial Reasoning Agent` | [protectedplanet.net](https://www.protectedplanet.net) |
+| [ ] | **GEBCO Bathymetry Grid** | 15 arc-second gridded ocean depth for route safety | `P1 Core` | `Geospatial Reasoning Agent` | [download.gebco.net](https://download.gebco.net/) |
+| [ ] | **INCOIS PFZ Advisories** | Potential Fishing Zone text & web nodes (~1,223 nodes) | `P1 Core` | `Marine Data Discovery Agent` | [incois.gov.in/PFZ](https://incois.gov.in/MarineFisheries/PfzWebGis) |
+| [ ] | **INCOIS Hazard Alerts** | Swell surge, Kallakkadal, high wave advisories | `P1 Core` | `Risk Assessment Agent` | [incois.gov.in/OSF](https://incois.gov.in/portal/osf/osf.jsp) |
+| [ ] | **IMD Cyclone & CAP Feed** | Cyclone tracks, storm warnings, CAP alert feeds | `P1 Core` | `Weather Intelligence Agent` | [mausam.imd.gov.in](https://mausam.imd.gov.in/) |
+| [ ] | **IMD Damini / Lightning** | Real-time lightning strikes & 15-30 min nowcasts | `P1 Core` | `Weather Intelligence Agent` | [damini.tropmet.res.in](https://damini.tropmet.res.in/) |
+| [ ] | **data.gov.in Catch Stats** | Historical district marine fish landings & trends | `P1 Diagnostic` | `Ocean Analytics Agent` | [data.gov.in](https://data.gov.in/) |
 
 ---
 
-## 2. Comprehensive Catalog by Access Tier & Functionality
+### 🔵 Tier 2: Free Self-Serve Registration (Instant Sign-Up / Tokens)
+
+| Status | Dataset / API Name | Domain & Parameters | Priority | Target Agent | Source URL / Endpoint |
+| :---: | :--- | :--- | :---: | :--- | :--- |
+| [ ] | **Copernicus Marine (CMEMS)** | Global SST reanalysis ($0.05^\circ$), currents, waves | `P0 Fallback` | `Ocean Analytics Agent` | [marine.copernicus.eu](https://marine.copernicus.eu/) |
+| [ ] | **NASA Ocean Color / Earthdata**| Chlorophyll-a ($mg/m^3$), PAR, MODIS/VIIRS SST | `P0 Fallback` | `Ocean Analytics Agent` | [oceancolor.gsfc.nasa.gov](https://oceancolor.gsfc.nasa.gov/) |
+| [ ] | **Stormglass.io Marine API** | Astronomical tide extremes point API fallback | `P0 Fallback` | `Ocean Analytics Agent` | [api.stormglass.io](https://api.stormglass.io/v2/tide/extremes/point) |
+| [ ] | **Global Fishing Watch (GFW)** | AIS vessel presence & fishing effort density | `P3 Stretch` | `Geospatial Reasoning Agent` | [globalfishingwatch.org](https://globalfishingwatch.org/our-apis/) |
 
 ---
 
-### 🟢 TIER 1: 100% Free & Open Access (No Registration / Instant API & Direct Downloads)
+### 🟠 Tier 3: Gated Government Portals (Approval Lag / Lead Time)
 
-Zero-friction datasets that can be downloaded or integrated programmatically into the agent pipeline immediately without API keys or admin approvals.
+| Status | Dataset / API Name | Domain & Parameters | Priority | Target Agent | Source URL / Endpoint |
+| :---: | :--- | :--- | :---: | :--- | :--- |
+| [ ] | **MOSDAC Registered NRT Portal**| Near-real-time Level-2/3 INSAT-3DR & Oceansat-3 | `P0 Priority` | `Marine Data Discovery Agent` | [mosdac.gov.in](https://mosdac.gov.in) |
+| [ ] | **Bhuvan / VEDAS (NRSC)** | WMS/WFS ocean thematic maps & PFZ GIS overlays | `P0 Priority` | `Visualization Agent` | [bhuvan.nrsc.gov.in](https://bhuvan.nrsc.gov.in/) |
+| [ ] | **INCOIS Bulk PFZ JSON Feed** | Direct structured JSON stream of PFZ sector nodes | `P2 Best Effort` | `Marine Data Discovery Agent` | Direct request to ESSO-INCOIS |
+| [ ] | **ICAR-CMFRI Research Data** | Long-term landing archives & stock assessment | `P2 Best Effort` | `Ocean Analytics Agent` | [cmfri.org.in](http://www.cmfri.org.in/) |
 
-#### 1.1 🌊 Marine Weather, Sea State & Hydrodynamics
+---
+
+### 🟣 Tier 4: Architectural Integration & Emergency Systems
+
+| Status | System Name | Role in ORCA | Target Agent | Source URL / Integration |
+| :---: | :--- | :--- | :--- | :--- |
+| [ ] | **INCOIS Sagar Vani** | Multi-channel SMS/IVR regional language broadcast template | `User Interaction Agent` | [incois.gov.in/SagarVani](https://incois.gov.in/SagarVani) |
+| [ ] | **ISRO DAT-SG / Sagarmitra** | At-sea emergency distress beacon & Coast Guard MRCC handoff | `User Interaction Agent` | [isro.gov.in/DAT](https://www.isro.gov.in/DAT.html) |
+
+---
+
+## 2. 🗺️ Dataset Master List: Detailed Source & Retrieval Catalog
+
+Below is the complete dataset master list detailing **where to take each dataset from**, the exact API endpoints/urls, protocols, target agents, parameters provided, and step-by-step retrieval instructions.
+
+---
+
+### 🟢 TIER 1: 100% Free & Open Access (Zero Friction / Public Endpoints)
+
+#### 1.1 🌊 Marine Weather, Waves & Ocean Currents
+
 * **Dataset / API:** **Open-Meteo Marine Weather API**
-  * **Provider:** Open-Meteo / Global NWP blend (NOAA GFS Wave, ECMWF WAM, DWD ICON Wave)
+  * **Where to Take Data From:** `https://marine-api.open-meteo.com/v1/marine`
+  * **Provider:** Open-Meteo / Global NWP Ensemble (NOAA GFS Wave, ECMWF WAM, DWD ICON Wave)
   * **Target Agent:** `Weather Intelligence Agent`, `Risk Assessment Agent`
-  * **Parameters Provided:** Significant wave height ($H_s$), wave direction, wave period ($T_p$), swell wave height/period/direction, wind wave height, ocean current velocity ($m/s$) and direction ($^\circ$).
-  * **Format / Protocol:** REST JSON via HTTP GET
-  * **Endpoint:** `https://marine-api.open-meteo.com/v1/marine?latitude={lat}&longitude={lon}&hourly=wave_height,wave_direction,wave_period,ocean_current_velocity`
-  * **Relevance / Priority:** **P0 Core** — Zero-friction, highly reliable foundation for live sea-state queries and vessel safety scoring.
+  * **Parameters Provided:** Significant wave height ($H_s$), wave direction, wave period ($T_p$), swell wave height/period/direction, wind wave height, ocean current velocity ($m/s$) and current direction ($^\circ$).
+  * **Data Format:** REST JSON over HTTP GET
+  * **Example Retrieval Query:**
+    ```bash
+    curl -X GET "https://marine-api.open-meteo.com/v1/marine?latitude=8.80&longitude=78.14&hourly=wave_height,wave_direction,wave_period,ocean_current_velocity,ocean_current_direction&timezone=Asia%2FKolkata"
+    ```
+  * **Relevance / Priority:** **P0 Core** — Primary live weather and sea-state engine. Zero friction, instant implementation.
 
 #### 1.2 🛰️ Earth Observation & In-Situ Ocean Analytics
+
 * **Dataset / API:** **INCOIS ERDDAP Data Server**
+  * **Where to Take Data From:** `https://erddap.incois.gov.in/erddap/`
   * **Provider:** ESSO-INCOIS (Ministry of Earth Sciences, Govt of India)
   * **Target Agent:** `Marine Data Discovery Agent`, `Ocean Analytics Agent`
-  * **Parameters Provided:** In-situ ocean observational buoy telemetry (SST, salinity, currents), model forecast grids, satellite-derived SST/chlorophyll parameters.
-  * **Format / Protocol:** REST, OPeNDAP, JSON, CSV, NetCDF, GeoTIFF
-  * **Endpoint:** `https://erddap.incois.gov.in/erddap/`
-  * **Relevance / Priority:** **P0 Core** — High-value discovery; provides machine-readable INCOIS data without fragile HTML scraping.
+  * **Parameters Provided:** In-situ ocean buoy telemetry (SST, salinity, currents, wave spectrum), model forecast grids, satellite SST/chlorophyll products.
+  * **Data Format:** REST, OPeNDAP, JSON, CSV, NetCDF, GeoTIFF
+  * **Example Retrieval Query:**
+    ```bash
+    curl -X GET "https://erddap.incois.gov.in/erddap/tabledap/index.json"
+    ```
+  * **Relevance / Priority:** **P0 Core** — Machine-readable programmatic access to Indian ocean buoy telemetry without fragile web scraping.
 
 * **Dataset / API:** **MOSDAC Open Data Portal**
+  * **Where to Take Data From:** `https://mosdac.gov.in` (Open Data Catalog section)
   * **Provider:** Space Applications Centre (SAC / ISRO)
   * **Target Agent:** `Marine Data Discovery Agent`, `Ocean Analytics Agent`
-  * **Parameters Provided:** Derived daily/weekly satellite products: SST (Oceansat-3 / INSAT-3D/3DR), ocean color, wind vectors (ScatSat-1 archives), sea surface salinity.
-  * **Format / Protocol:** NetCDF4, HDF5, GeoTIFF
-  * **Endpoint:** `https://mosdac.gov.in` (Open Data Catalog)
-  * **Relevance / Priority:** **P0 Core** — Authoritative ISRO Earth Observation products backing scientific evidence claims.
+  * **Parameters Provided:** Satellite Earth Observation products: SST (Oceansat-3, INSAT-3D/3DR/3DS), Chlorophyll-a, ocean color, Scatterometer ocean surface winds.
+  * **Data Format:** NetCDF4, HDF5, GeoTIFF
+  * **Relevance / Priority:** **P0 Core** — Authoritative ISRO satellite observations.
 
 #### 1.3 ⏱️ Tides, Water Levels & Coastal Dynamics
-* **Dataset / API:** **Survey of India Tidal Tables & INCOIS Tide Gauges**
-  * **Provider:** Survey of India (SOI) & INCOIS Tsunami Early Warning Centre
-  * **Target Agent:** `Ocean Analytics Agent`, `Geospatial Reasoning Agent`
-  * **Parameters Provided:** High tide / low tide times, astronomical tide heights, sea level anomalies, hourly tidal predictions across Indian coastal stations.
-  * **Format / Protocol:** Downloadable Tables (ASCII/PDF/CSV) & Web Portal
-  * **Endpoint:** `https://www.surveyofindia.gov.in/` & `https://tsunami.incois.gov.in/TEWS/TGMap.jsp`
-  * **Relevance / Priority:** **P0 Core** — Directly answers **PS Query #3** (*"What are the tide, weather, and sea conditions...?"*).
 
-#### 1.4 🗺️ Geospatial Boundaries & Ocean Bathymetry
-* **Dataset / API:** **Marine Regions (VLIZ) Maritime Boundaries Geodatabase**
+* **Dataset / API:** **Survey of India (SOI) Annual Tidal Tables**
+  * **Where to Take Data From:** `https://www.surveyofindia.gov.in/`
+  * **Provider:** Survey of India (SOI), Department of Science & Technology
+  * **Target Agent:** `Ocean Analytics Agent`, `Geospatial Reasoning Agent`
+  * **Parameters Provided:** High tide and low tide prediction times, astronomical tide heights (in meters above chart datum) for Indian ports (Tuticorin, Pamban, Chennai, Kochi, Visakhapatnam, Mumbai).
+  * **Data Format:** Downloadable PDF / CSV / Tabular Tables
+  * **Relevance / Priority:** **P0 Core** — Directly resolves **PS Query #3** (*"What are tide, weather, and sea conditions...?"*).
+
+* **Dataset / API:** **INCOIS Tide Gauge Network (TEWS)**
+  * **Where to Take Data From:** `https://tsunami.incois.gov.in/TEWS/TGMap.jsp`
+  * **Provider:** ESSO-INCOIS Tsunami Early Warning Centre
+  * **Target Agent:** `Ocean Analytics Agent`
+  * **Parameters Provided:** Real-time sea-level anomaly observations and tide gauge water levels.
+  * **Data Format:** Public Web Portal / HTML / GeoJSON
+  * **Relevance / Priority:** **P0 Core** — Real-time validation of tidal water levels.
+
+#### 1.4 🗺️ Geospatial Boundaries, Bathymetry & Restricted Zones
+
+* **Dataset / API:** **Marine Regions (VLIZ) Maritime Boundaries**
+  * **Where to Take Data From:** `https://www.marineregions.org/downloads.php`
   * **Provider:** Flanders Marine Institute (VLIZ)
   * **Target Agent:** `Geospatial Reasoning Agent`, `Risk Assessment Agent`
-  * **Parameters Provided:** Authoritative global polygons for Exclusive Economic Zones (EEZ 200 NM), Territorial Seas (12 NM), Contiguous Zones, and India–Sri Lanka Palk Strait IMBL coordinates.
-  * **Format / Protocol:** Shapefile, GeoJSON
-  * **Endpoint:** `https://www.marineregions.org/downloads.php`
+  * **Parameters Provided:** Exclusive Economic Zones (EEZ 200 NM), Territorial Seas (12 NM), Contiguous Zones, and India–Sri Lanka Palk Strait IMBL polygon coordinates.
+  * **Data Format:** GeoJSON, Shapefile
   * **Relevance / Priority:** **P0 Core** — Essential for hard geofencing constraints; prevents accidental boundary crossing into international waters.
 
 * **Dataset / API:** **Protected Planet / World Database on Protected Areas (WDPA)**
+  * **Where to Take Data From:** `https://www.protectedplanet.net/en/thematic-areas/marine-protected-areas`
   * **Provider:** UNEP-WCMC & IUCN
   * **Target Agent:** `Geospatial Reasoning Agent`, `Visualization Agent`
-  * **Parameters Provided:** Boundary polygons and metadata for Marine Protected Areas (MPAs) and ecologically sensitive zones (e.g. Gulf of Mannar Marine National Park).
-  * **Format / Protocol:** Shapefile, GeoJSON
-  * **Endpoint:** `https://www.protectedplanet.net/en/thematic-areas/marine-protected-areas`
-  * **Relevance / Priority:** **P0 Core** — Directly implements the PS requirement for MPA notifications and restricted zone geofencing.
+  * **Parameters Provided:** Polygons and metadata for Marine Protected Areas (MPAs) (e.g., Gulf of Mannar Marine National Park, Gahirmatha Sanctuary).
+  * **Data Format:** GeoJSON, Shapefile
+  * **Relevance / Priority:** **P0 Core** — Mandatory for MPA alert notifications and restricted area geofencing.
 
 * **Dataset / API:** **GEBCO Global Bathymetry Grid**
+  * **Where to Take Data From:** `https://download.gebco.net/`
   * **Provider:** General Bathymetric Chart of the Oceans (IHO / IOC UNESCO)
   * **Target Agent:** `Geospatial Reasoning Agent`
-  * **Parameters Provided:** 15 arc-second gridded ocean depth / bathymetric terrain elevation.
-  * **Format / Protocol:** NetCDF, GeoTIFF (subsettable by bounding box)
-  * **Endpoint:** `https://download.gebco.net/`
-  * **Relevance / Priority:** **P1 Core** — Prerequisite for depth-safe route optimization; prevents routing fishing vessels through dangerous shallow shoals.
+  * **Parameters Provided:** 15 arc-second gridded 3D ocean depth and bathymetric elevation terrain grid.
+  * **Data Format:** NetCDF, GeoTIFF (Sub-settable by Bounding Box, e.g., 7.5°N–10.5°N, 77.0°E–80.5°E for South Tamil Nadu)
+  * **Relevance / Priority:** **P1 Core** — Prerequisite for bathymetry-aware safe route optimization (avoids shallow shoals).
 
 #### 1.5 🐟 Fisheries Intelligence & Potential Fishing Zones
-* **Dataset / API:** **INCOIS PFZ Advisory (WebGIS / Text Dissemination)**
+
+* **Dataset / API:** **INCOIS PFZ Advisories**
+  * **Where to Take Data From:** `https://incois.gov.in/MarineFisheries/PfzWebGis`
   * **Provider:** ESSO-INCOIS (Ministry of Earth Sciences)
   * **Target Agent:** `Marine Data Discovery Agent`, `Ocean Analytics Agent`
-  * **Parameters Provided:** Lat/Long coordinates of Potential Fishing Zones (14 coastal sectors, ~1,223 coastal nodes), bearing and distance from landing centers, validity windows.
-  * **Format / Protocol:** HTML / WebGIS / Plain text tabular bulletin
-  * **Endpoint:** `https://incois.gov.in/MarineFisheries/PfzWebGis`
-  * **Relevance / Priority:** **P1 Core** — Answers **PS Query #1** (*"Where is the nearest Potential Fishing Zone today?"*); fallback to pre-parsed regional CSV.
+  * **Parameters Provided:** Coordinates of Potential Fishing Zones across 14 Indian coastal sectors (~1,223 coastal nodes), bearing and distance from fish landing centers, validity time windows.
+  * **Data Format:** WebGIS / HTML text bulletin / Tabular parsing
+  * **Relevance / Priority:** **P1 Core** — Answers **PS Query #1** (*"Where is the nearest Potential Fishing Zone today?"*).
 
-#### 1.6 ⚠️ Marine Hazards, Weather Warnings & Lightning
+#### 1.6 ⚠️ Marine Hazards, Cyclones & Severe Weather Warnings
+
 * **Dataset / API:** **INCOIS Hazard Alerts & Ocean State Warnings**
+  * **Where to Take Data From:** `https://incois.gov.in/portal/osf/osf.jsp`
   * **Provider:** ESSO-INCOIS
   * **Target Agent:** `Weather Intelligence Agent`, `Risk Assessment Agent`
-  * **Parameters Provided:** Tsunami warnings, storm surge alerts, high wave (swell surge / Kallakkadal) advisories, coastal roughness warnings.
-  * **Format / Protocol:** Public web bulletins, RSS/XML
-  * **Endpoint:** `https://incois.gov.in/portal/osf/osf.jsp`
-  * **Relevance / Priority:** **P1 Core** — Core safety gating inputs.
+  * **Parameters Provided:** Swell surge advisories, Kallakkadal warnings, high wave alerts, storm surge alerts, tsunami advisories.
+  * **Data Format:** RSS/XML, Public Bulletins
+  * **Relevance / Priority:** **P1 Core** — Safety gating inputs for deterministic risk assessment.
 
 * **Dataset / API:** **IMD Cyclone Bulletins & CAP Feed**
+  * **Where to Take Data From:** `https://mausam.imd.gov.in/` & `https://sachet.ndma.gov.in/` (NDMA CAP Alert Portal)
   * **Provider:** India Meteorological Department (IMD / MoES)
   * **Target Agent:** `Weather Intelligence Agent`, `Risk Assessment Agent`
-  * **Parameters Provided:** Tropical cyclone genesis, track coordinates, intensity categories, colour-coded district coastal warnings (issued 4× daily).
-  * **Format / Protocol:** Common Alerting Protocol (CAP XML) & Web Bulletins
-  * **Endpoint:** `https://mausam.imd.gov.in/` & National NDMA/IMD CAP Alert Portal
+  * **Parameters Provided:** Tropical cyclone genesis, track forecast coordinates, intensity categories, color-coded district coastal warnings.
+  * **Data Format:** Common Alerting Protocol (CAP XML) & Web Bulletins
   * **Relevance / Priority:** **P1 Core** — Answers **PS Query #4** (*"Any lightning or cyclone alerts in my area?"*).
 
 * **Dataset / API:** **IMD Damini / Lightning Nowcast Feed**
+  * **Where to Take Data From:** `https://damini.tropmet.res.in/`
   * **Provider:** Indian Institute of Tropical Meteorology (IITM) / IMD
   * **Target Agent:** `Weather Intelligence Agent`, `Risk Assessment Agent`
   * **Parameters Provided:** Real-time lightning strike locations and 15–30 minute convective thunderstorm nowcasts.
-  * **Format / Protocol:** Mobile API / Web Nowcast feed
-  * **Endpoint:** `https://damini.tropmet.res.in/`
-  * **Relevance / Priority:** **P1 Core** — Critical fisherman safety requirement during pre-departure planning.
+  * **Data Format:** Mobile API / Web Feed
+  * **Relevance / Priority:** **P1 Core** — Critical safety check for pre-departure fishing planning.
 
 * **Dataset / API:** **data.gov.in Fisheries Catch Statistics**
-  * **Provider:** Department of Fisheries / Open Government Data (OGD) India
+  * **Where to Take Data From:** `https://data.gov.in/`
+  * **Provider:** Department of Fisheries / Open Government Data (OGD) Platform India
   * **Target Agent:** `Ocean Analytics Agent`, `Reporting Agent`
   * **Parameters Provided:** Historical district-wise and state-wise marine fish landings, species composition, and annual catch trends.
-  * **Format / Protocol:** CSV, JSON REST
-  * **Endpoint:** `https://data.gov.in/`
-  * **Relevance / Priority:** **P1 (Diagnostic)** — Answers **PS Query #7** (*"Why has fish productivity declined in a particular coastal region?"*).
+  * **Data Format:** CSV, REST API
+  * **Relevance / Priority:** **P1 Diagnostic** — Answers **PS Query #7** (*"Why has fish productivity declined in a particular coastal region?"*).
 
 ---
 
 ### 🔵 TIER 2: Free Self-Serve Registration (Instant Sign-Up / Free API Tokens)
 
-Services that require a free user account or API key, but grant **instant access** without waiting for manual administrator approval.
+#### 2.1 🛰️ Global Earth Observation Fallbacks
 
-#### 2.1 🛰️ Global Earth Observation & Ocean Reanalysis (Fallbacks)
 * **Dataset / API:** **Copernicus Marine Service (CMEMS)**
+  * **Where to Take Data From:** `https://marine.copernicus.eu/`
   * **Provider:** European Union / Mercator Ocean International
   * **Target Agent:** `Ocean Analytics Agent`, `Marine Data Discovery Agent`
-  * **Parameters Provided:** Global multi-satellite SST reanalysis ($0.05^\circ$), surface/subsurface ocean currents, salinity, sea surface height anomalies, wave spectra.
-  * **Format / Protocol:** REST API, OPeNDAP, WMS, NetCDF download via Python `copernicusmarine` CLI
-  * **Endpoint:** `https://marine.copernicus.eu/`
-  * **Relevance / Priority:** **P0 (Fallback)** — Instant, bulletproof fallback if MOSDAC access experiences downtime during live evaluation.
+  * **Parameters Provided:** Global multi-satellite SST reanalysis ($0.05^\circ$), ocean currents, salinity, sea surface height anomalies, wave spectra.
+  * **Data Format:** Python `copernicusmarine` CLI, REST API, OPeNDAP, NetCDF
+  * **Access Workflow:** Free instant sign-up on `marine.copernicus.eu` → Obtain API credentials.
+  * **Relevance / Priority:** **P0 Fallback** — Instant secondary fallback if MOSDAC access experiences latency during evaluation.
 
-* **Dataset / API:** **NASA Ocean Color / OB.DAAC (MODIS-Aqua / VIIRS / PACE)**
+* **Dataset / API:** **NASA Ocean Color / Earthdata (MODIS-Aqua / VIIRS / PACE)**
+  * **Where to Take Data From:** `https://oceancolor.gsfc.nasa.gov/` & `https://urs.earthdata.nasa.gov/`
   * **Provider:** NASA Ocean Biology Processing Group (OBPG)
   * **Target Agent:** `Ocean Analytics Agent`
-  * **Parameters Provided:** High-resolution Chlorophyll-a concentration ($mg/m^3$), Photosynthetically Available Radiation (PAR), Diffuse Attenuation Coefficient ($K_d490$).
-  * **Format / Protocol:** OPeNDAP, HTTPS REST via Earthdata Login
-  * **Endpoint:** `https://oceancolor.gsfc.nasa.gov/` & `https://urs.earthdata.nasa.gov/`
-  * **Relevance / Priority:** **P0 (Fallback)** — Reliable secondary chlorophyll provider.
+  * **Parameters Provided:** High-resolution Chlorophyll-a ($mg/m^3$), Photosynthetically Available Radiation (PAR), Diffuse Attenuation Coefficient ($K_d490$).
+  * **Data Format:** HTTPS REST, OPeNDAP via Earthdata Login
+  * **Access Workflow:** Free instant sign-up on `urs.earthdata.nasa.gov`.
+  * **Relevance / Priority:** **P0 Fallback** — Instant fallback for chlorophyll data.
 
-#### 2.2 ⏱️ High-Precision Commercial Tidal & Marine Telemetry (Fallback)
+#### 2.2 ⏱️ Tidal API Fallback
+
 * **Dataset / API:** **Stormglass.io Marine API (Free Tier)**
+  * **Where to Take Data From:** `https://api.stormglass.io/v2/tide/extremes/point?lat={lat}&lng={lon}`
   * **Provider:** Stormglass AB
-  * **Target Agent:** `Ocean Analytics Agent`, `Weather Intelligence Agent`
-  * **Parameters Provided:** Astronomical tide extremes (high/low water levels and times), wave swell components, water temperature.
-  * **Format / Protocol:** REST JSON (Rate limit: 10 requests/day free)
-  * **Endpoint:** `https://api.stormglass.io/v2/tide/extremes/point?lat={lat}&lng={lon}`
-  * **Relevance / Priority:** **P0 (Fallback)** — Clean programmatic fallback for instant tide predictions when offline tables need real-time validation.
+  * **Target Agent:** `Ocean Analytics Agent`
+  * **Parameters Provided:** Astronomical tide extremes (high/low water levels and exact times), swell parameters.
+  * **Data Format:** REST JSON (Rate limit: 10 free requests/day)
+  * **Access Workflow:** Instant sign-up on `stormglass.io` → API Key generated immediately.
+  * **Relevance / Priority:** **P0 Fallback** — Programmatic API validation for tide extremes.
 
-#### 2.3 🚢 Global Vessel Activity & AIS Analytics (Stretch)
+#### 2.3 🚢 Global Vessel Activity (Stretch Goal)
+
 * **Dataset / API:** **Global Fishing Watch (GFW) API**
+  * **Where to Take Data From:** `https://globalfishingwatch.org/our-apis/`
   * **Provider:** Global Fishing Watch (Oceana / SkyTruth / Google)
-  * **Target Agent:** `Geospatial Reasoning Agent` (Vessel Traffic)
+  * **Target Agent:** `Geospatial Reasoning Agent`
   * **Parameters Provided:** Aggregated fishing effort density (vessel hours per $km^2$), AIS vessel presence tracks.
-  * **Format / Protocol:** REST API (Bearer Token, free self-serve rate limit)
-  * **Endpoint:** `https://globalfishingwatch.org/our-apis/`
-  * **Relevance / Priority:** **P3 (Deferred / Stretch)** — Useful only if commercial fleet monitoring is demonstrated; not required for core 8 queries.
+  * **Data Format:** REST API (Bearer Token)
+  * **Relevance / Priority:** **P3 Stretch** — Optional stretch goal for fleet tracking demo.
 
 ---
 
 ### 🟠 TIER 3: Gated Government Registration & Request Access (Approval Lag)
 
-Official Indian Government portals that require formal registration, email verification, administrative approval, or direct institutional data-feed requests.
+#### 3.1 🛰️ Near-Real-Time ISRO Satellite Feeds
 
-#### 3.1 🛰️ Near-Real-Time ISRO Satellite Telemetry
-* **Dataset / API:** **MOSDAC Registered User Portal (NRT / SFTP / API)**
+* **Dataset / API:** **MOSDAC Registered NRT Data Portal**
+  * **Where to Take Data From:** `https://mosdac.gov.in` (Registered User Portal)
   * **Provider:** Space Applications Centre (SAC / ISRO)
   * **Target Agent:** `Marine Data Discovery Agent`, `Weather Intelligence Agent`
-  * **Parameters Provided:** Near-Real-Time (NRT) Level-2/3 products: INSAT-3DR/3DS atmospheric & ocean imagery, Oceansat-3 OCM (Ocean Color Monitor), Scatterometer winds, cyclone track forecasts.
-  * **Format / Protocol:** FTP / SFTP, HTTPS Satellite Data Download API
-  * **Access Workflow:** SignUp on `mosdac.gov.in` → Email verification → Wait for SAC admin approval → Place "Standing Order" for NRT sector data.
-  * **Relevance / Priority:** **P0 (Action Now)** — Initiate on Day 1 due to approval lag.
+  * **Parameters Provided:** Near-Real-Time Level-2/3 INSAT-3DR/3DS atmospheric & ocean products, Oceansat-3 OCM Chlorophyll, Scatterometer winds.
+  * **Data Format:** SFTP / FTP / HTTPS Data Download API
+  * **Access Step-by-Step Workflow:**
+    1. Sign up on `mosdac.gov.in`.
+    2. Complete email verification.
+    3. Wait for SAC admin approval.
+    4. Place a "Standing Order" for NRT sector data.
+  * **Relevance / Priority:** **P0 Priority** — Submit registration immediately due to approval lead time.
 
-#### 3.2 🗺️ NRSC Spatial Layers & Ocean Thematics
+#### 3.2 🗺️ NRSC Spatial Layers & Ocean Maps
+
 * **Dataset / API:** **Bhuvan / VEDAS Geoportal (NRSC / ISRO)**
+  * **Where to Take Data From:** `https://bhuvan.nrsc.gov.in/` & `https://vedas.sac.gov.in/`
   * **Provider:** National Remote Sensing Centre (NRSC / ISRO)
   * **Target Agent:** `Visualization Agent`, `Marine Data Discovery Agent`
   * **Parameters Provided:** Web Map Service (WMS) thematic layers: INCOIS PFZ overlays, coastal geomorphology, coral reef maps, land use/land cover.
-  * **Format / Protocol:** OGC WMS/WFS, GeoTIFF, KML
-  * **Access Workflow:** Separate user registration on `bhuvan.nrsc.gov.in` / `vedas.sac.gov.in`.
-  * **Relevance / Priority:** **P0 (Action Now)**.
+  * **Data Format:** OGC WMS/WFS, KML, GeoTIFF
+  * **Access Workflow:** User registration on `bhuvan.nrsc.gov.in`.
+  * **Relevance / Priority:** **P0 Priority** — Necessary for native Bhuvan map layer visualization.
 
-#### 3.3 🐟 Formal Institutional Fisheries & Ocean Feeds
-* **Dataset / API:** **INCOIS Structured Bulk PFZ & OSF Feeds (ESSO-INCOIS)**
-  * **Provider:** ESSO-INCOIS (Hyderabad)
+#### 3.3 🐟 Bulk Government Data Feeds
+
+* **Dataset / API:** **INCOIS Structured Bulk PFZ & OSF Feeds**
+  * **Where to Take Data From:** Direct formal request to ESSO-INCOIS (Hyderabad)
+  * **Provider:** ESSO-INCOIS
   * **Target Agent:** `Marine Data Discovery Agent`
-  * **Parameters Provided:** Structured JSON/CSV streaming feed of sector PFZs and Ocean State Forecast numerical model outputs.
-  * **Access Workflow:** Direct email to ESSO-INCOIS requesting academic/hackathon data access for SIH 2026 (PS SIH26176).
-  * **Relevance / Priority:** **P2 (Best Effort)** — Parallel track; proceed with ERDDAP / scraping fallback while awaiting reply.
+  * **Parameters Provided:** Structured JSON/CSV stream of sector PFZs and Ocean State Forecast numerical model outputs.
+  * **Access Workflow:** Send official email request mentioning *SIH 2026 PS SIH26176*.
+  * **Relevance / Priority:** **P2 Best Effort** — Parallel track while utilizing ERDDAP & pre-downloaded sector CSVs.
 
-* **Dataset / API:** **ICAR-CMFRI Marine Fisheries Research Datasets**
+* **Dataset / API:** **ICAR-CMFRI Marine Fisheries Datasets**
+  * **Where to Take Data From:** `http://www.cmfri.org.in/` & `https://eprints.cmfri.org.in/`
   * **Provider:** Central Marine Fisheries Research Institute (ICAR-CMFRI)
-  * **Target Agent:** `Ocean Analytics Agent` (Diagnostic)
-  * **Parameters Provided:** Long-term localized fish landing archives, species stock assessments, validated PFZ catch-enhancement ratios for South Tamil Nadu.
-  * **Access Workflow:** Formal institutional request / research publication extraction.
-  * **Relevance / Priority:** **P2 (Best Effort)**.
+  * **Target Agent:** `Ocean Analytics Agent`
+  * **Parameters Provided:** Long-term localized fish landing archives, species stock assessments, validated PFZ catch-enhancement ratios.
+  * **Access Workflow:** Research publication extraction & institutional repository pull.
+  * **Relevance / Priority:** **P2 Best Effort**.
 
 ---
 
-### 🟣 TIER 4: Architectural Reference & Emergency Integration Points
+### 🟣 TIER 4: Architectural Integration & Emergency Systems
 
-Operational national systems that serve as **architectural models** or **downstream integration handoffs** rather than direct pullable datasets.
+#### 4.1 📢 Multi-Channel Broadcast Format Reference
 
-#### 4.1 📢 Multi-Channel Alert Push Reference Architecture
 * **System / Model:** **INCOIS Sagar Vani**
+  * **Where to Take Architecture Reference From:** `https://incois.gov.in/SagarVani`
   * **Operating Agency:** ESSO-INCOIS
-  * **Role in ORCA:** Architectural reference for multi-channel, regional-language dissemination (SMS, IVR voice calls, community radio, mobile push).
-  * **Design Implication:** ORCA’s alert generation module is designed to format output payloads into Sagar Vani-compatible SMS/IVR templates.
+  * **Role in ORCA:** Architectural reference for multi-channel regional-language alert dissemination (SMS, IVR voice calls, community radio, mobile push).
+  * **Target Agent:** `User Interaction Agent`
 
 #### 4.2 🆘 Maritime Distress & Search-and-Rescue Handoff
+
 * **System / Model:** **ISRO DAT-SG / Sagarmitra Distress Program**
+  * **Where to Take Handoff Target From:** `https://www.isro.gov.in/DAT.html`
   * **Operating Agency:** ISRO & Indian Coast Guard (MRCC)
-  * **Role in ORCA:** Emergency escalation target. When a user in the conversational interface indicates an active at-sea distress emergency (capsizing, vessel breakdown, medical crisis), ORCA displays the official Sagarmitra distress beacon protocol and Maritime Rescue Coordination Centre contact vectors.
+  * **Role in ORCA:** Emergency escalation handoff. When a user query indicates an active emergency (capsizing, engine breakdown, medical crisis), ORCA outputs official distress beacon guidance and MRCC emergency contacts.
+  * **Target Agent:** `User Interaction Agent`, `Risk Assessment Agent`
 
 ---
 
-## 3. Functional Matrix: Mapping 9 Agents to Datasets & Access Tiers
+## 3. 🎯 Agent-to-Dataset Mapping Matrix
 
-| # | Agent Role | Primary Functional Domain | Primary Datasets & Sources | Access Tier Breakdown |
-|---|---|---|---|---|
-| 1 | **Planning Agent** | Orchestration & Intent Routing | Internal intent taxonomy & domain rulebooks | System Internal |
-| 2 | **Marine Data Discovery Agent** | Catalog Routing & Retrieval | INCOIS ERDDAP, MOSDAC Open Data, Bhuvan, Copernicus | 🟢 Tier 1 / 🔵 Tier 2 / 🟠 Tier 3 |
-| 3 | **Weather Intelligence Agent** | Meteorology, Waves & Extreme Weather | Open-Meteo Marine API, IMD CAP & Bulletins, IMD Damini Lightning, MOSDAC INSAT-3DR | 🟢 Tier 1 / 🟠 Tier 3 |
-| 4 | **Ocean Analytics Agent** | SST, Chlorophyll, Tides & PFZ Analytics | INCOIS ERDDAP, Survey of India Tide Tables, NASA Ocean Color, data.gov.in Catch Data | 🟢 Tier 1 / 🔵 Tier 2 |
-| 5 | **Geospatial Reasoning Agent** | Boundaries, Geofences & Routing | Marine Regions EEZ/IMBL, WDPA MPAs, GEBCO Bathymetry Grid | 🟢 Tier 1 |
-| 6 | **Risk Assessment Agent** | Deterministic Safety & Hazard Gating | INCOIS Hazard Advisories, IMD Cyclone Feeds, Open-Meteo Wave Thresholds, EEZ Polygons | 🟢 Tier 1 |
-| 7 | **Visualization Agent** | Map Overlays & Chart Geometry | Bhuvan WMS, GeoJSON layer generators, Leaflet / Mapbox GL pipelines | 🟢 Tier 1 / 🟠 Tier 3 |
-| 8 | **Reporting Agent** | Evidence Synthesis & Structured Citations | Dataset provenance metadata, timestamp generators, 3-tier confidence engine | System Internal |
-| 9 | **User Interaction Agent** | Multilingual NLU/NLG & Audio Channels | IndicTrans2, Bhashini API, Sagar Vani formatters | 🟢 Tier 1 / 🟣 Tier 4 |
+| # | Specialized Agent Role | Primary Datasets & Sources Needed | Access Tiers Covered |
+|---|---|---|---|
+| 1 | **Planning Agent** | Internal intent taxonomy & domain routing rulebooks | System Internal |
+| 2 | **Marine Data Discovery Agent** | INCOIS ERDDAP, MOSDAC Open Data, Bhuvan, Copernicus CMEMS | 🟢 Tier 1 / 🔵 Tier 2 / 🟠 Tier 3 |
+| 3 | **Weather Intelligence Agent** | Open-Meteo Marine API, IMD CAP & Bulletins, IMD Damini, MOSDAC INSAT-3DR | 🟢 Tier 1 / 🟠 Tier 3 |
+| 4 | **Ocean Analytics Agent** | INCOIS ERDDAP, Survey of India Tide Tables, NASA Ocean Color, data.gov.in Catch Data | 🟢 Tier 1 / 🔵 Tier 2 |
+| 5 | **Geospatial Reasoning Agent** | Marine Regions EEZ/IMBL, WDPA MPAs, GEBCO Bathymetry Grid | 🟢 Tier 1 |
+| 6 | **Risk Assessment Agent** | INCOIS Hazard Advisories, IMD Cyclone Feeds, Open-Meteo Wave Thresholds, EEZ Polygons | 🟢 Tier 1 |
+| 7 | **Visualization Agent** | Bhuvan WMS, Leaflet / Mapbox GL GeoJSON generators | 🟢 Tier 1 / 🟠 Tier 3 |
+| 8 | **Reporting Agent** | Dataset provenance metadata, timestamp generators, 3-tier confidence engine | System Internal |
+| 9 | **User Interaction Agent** | IndicTrans2, Bhashini API, Sagar Vani templates, ISRO DAT-SG contacts | 🟢 Tier 1 / 🟣 Tier 4 |
 
 ---
 
-## 4. Phase 0 Execution & Procurement Checklist
+## 4. ⚡ Phase 0 Data Procurement Execution Plan
 
 ```
-══════════════════════════════════════════════════════════════════════════════
-PHASE 0 IMMEDIATE ACTION ITEMS (PRE-HACKATHON WEEK)
-══════════════════════════════════════════════════════════════════════════════
-[ ] 1. TIER 1 DIRECT DOWNLOADS (Do Today — 0 Minutes Wait Time):
+==============================================================================
+PHASE 0 IMMEDIATE DATA PROCUREMENT STEPS
+==============================================================================
+[ ] 1. TIER 1 DIRECT DOWNLOADS (Do First — Instant):
     ├── Download Marine Regions EEZ + India-Sri Lanka IMBL GeoJSON (marineregions.org)
     ├── Download WDPA Gulf of Mannar Marine National Park shapefile (protectedplanet.net)
-    ├── Download GEBCO 15 arc-second bathymetry grid for 7.5°N–10.5°N, 77.0°E–80.5°E (gebco.net)
+    ├── Download GEBCO 15 arc-sec bathymetry grid for pilot sector (gebco.net)
     └── Download Survey of India 2026 tidal prediction tables for Tuticorin / Pamban / Chennai
 
 [ ] 2. TIER 1 & TIER 2 API INTEGRATION TESTS:
-    ├── Test Open-Meteo Marine API curl request for Thoothukudi coordinates (8.80°N, 78.14°E)
+    ├── Test Open-Meteo Marine API request for Thoothukudi coords (8.80°N, 78.14°E)
     ├── Test INCOIS ERDDAP server query (erddap.incois.gov.in/erddap/) for active datasets
-    ├── Register Copernicus Marine (marine.copernicus.eu) — instant account confirmation
-    └── Register NASA Earthdata (urs.earthdata.nasa.gov) — instant account confirmation
+    ├── Register Copernicus Marine (marine.copernicus.eu) — instant confirmation
+    └── Register NASA Earthdata (urs.earthdata.nasa.gov) — instant confirmation
 
-[ ] 3. TIER 3 GOVERNMENT ACCESS REGISTRATIONS (Longest Lead Time):
+[ ] 3. TIER 3 GOVERNMENT ACCESS REGISTRATIONS (Initiate Now):
     ├── Submit MOSDAC SignUp registration form (mosdac.gov.in)
     ├── Submit Bhuvan / VEDAS user registration (bhuvan.nrsc.gov.in)
     └── Send formal data request email to ESSO-INCOIS Hyderabad for SIH26176 PFZ bulk feeds
 ```
-
-
