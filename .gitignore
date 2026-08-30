@@ -1,0 +1,4 @@
+# Ignore data directory containing large NetCDF models and datasets
+data/
+*.nc
+*.zip
