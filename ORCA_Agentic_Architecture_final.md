@@ -179,8 +179,9 @@ These are unchanged in responsibility from v3.0. What v4 adds per agent: concret
 
 | Source | Tier | Verified? |
 |---|---|---|
-| Open-Meteo Marine API | 🟢 T1 | ✅ `https://marine-api.open-meteo.com/v1/marine`. Global model, 6h updates; resolution inside Palk Bay may be coarser than open coast |
-| IMD CAP bulletins / cyclone tracks | 🟢 T1 | ✅ Real — SACHET is IMD's CAP integration point |
+| Open-Meteo Marine API | 🟢 T1 | ✅ `https://marine-api.open-meteo.com/v1/marine`. Global model, 6h updates; **⚠️ 0.25° (~28 km) resolution — not suited for shallow enclosed areas like Palk Bay; use as offshore baseline, not coastal ground truth** |
+| IMD API (`api.imd.gov.in`) | 🔵 T2 | ✅ **Official IMD developer portal confirmed live.** Registration-based access. Provides localized marine forecasts far more accurate for Indian coastal zones than Open-Meteo's global model. **Preferred source for Palk Bay / pilot region.** |
+| IMD CAP bulletins / cyclone tracks | 🟢 T1 | ✅ Real — SACHET (`sachet.ndma.gov.in`) is IMD's CAP 1.2 integration point; RSS feeds available |
 | IMD Damini lightning nowcast | 🟢 T1 | Real service; verify current endpoint before coding against it |
 
 - **Tools:**
@@ -261,9 +262,10 @@ def evaluate_marine_safety(wave_height_m, wind_speed_kmh, lightning_active,
 ```
 VESSEL CLASS THRESHOLD DELTAS (applied before evaluate_marine_safety)
 ════════════════════════════════════════════════════════════════════
+  NOTE: All deltas in km/h to match evaluate_marine_safety's input units.
   small_fishing:      base thresholds above (most conservative — default)
-  mechanized_trawler:  wind +5 kt on each band, Hs +0.5 m on each band
-  cargo_vessel:        wind +15 kt on each band, Hs +1.5 m on each band
+  mechanized_trawler:  wind +9.3 km/h on each band, Hs +0.5 m on each band
+  cargo_vessel:        wind +27.8 km/h on each band, Hs +1.5 m on each band
 ════════════════════════════════════════════════════════════════════
 ```
 
@@ -365,7 +367,7 @@ LOOP (runs continuously, independent of user queries):
   | `dispatch_alert` | payload, channel, recipient_list | Delivery status | Sagar-Vani-modeled dispatcher (SMS/IVR/push) |
 
 #### Agent 12 — Distress & Emergency Handoff
-**Role:** Closes a gap flagged in the master requirements doc (§6.5, §10) but never actually built out in either prior architecture: **ISRO's own DAT-SG/Sagarmitra distress-alert program is the natural handoff point for at-sea emergencies**, and this system sits adjacent to that mandate whether or not it says so explicitly. If ORCA is deployed and a user's message indicates an active emergency (not a hypothetical safety query), silently answering with a normal advisory card is a failure mode worth designing against.
+**Role:** Closes a gap flagged in the master requirements doc (§6.5, §10) but never actually built out in either prior architecture: **ISRO's own DAT-SG/Sagarmitra distress-alert program and the newer Nabhmitra/VCSS (Vessel Communication and Support System, actively deploying in 2026 under PMMSY at ₹364 crore to equip ~1 lakh fishing vessels with satellite transponders, SOS buttons, and IMBL geofencing) are the natural handoff points for at-sea emergencies**, and this system sits adjacent to that mandate whether or not it says so explicitly. ORCA complements the Nabhmitra hardware layer with an intelligent conversational interface — framing this correctly to judges is important. If ORCA is deployed and a user's message indicates an active emergency (not a hypothetical safety query), silently answering with a normal advisory card is a failure mode worth designing against.
 
 **Detection, deterministically, not by LLM judgment call (mirrors Principle 3 and 9):**
 
@@ -638,7 +640,7 @@ Agent 5 (OAA)
 Agent 6 (GRA) — spatial_query_zones to confirm PFZ point isn't inside any exclusion polygon → clear
 Agent 9 (Reporting, fisherman format)
   📍 அருகிலுள்ள மீன்பிடி மண்டலம்: 17.2 கிமீ தொலைவில், வடகிழக்கு திசையில்
-  (advisory issued 19h ago — within the ~3x/week freshness window, no staleness flag needed)
+  (advisory issued 19h ago — within the daily advisory freshness window, no staleness flag needed)
   Map: single pin at PFZ coordinates + user position, direction arrow.
 ```
 
@@ -1097,8 +1099,9 @@ operator → OperationalBrief(route overlay, condition summary, ETA, safety badg
 |---|---|---|
 | MOSDAC | 504 / auth delay / unclear open-access status — **Phase 0 blocker, see §16.1** | 1. Copernicus CMEMS · 2. Pre-cached NetCDF |
 | INCOIS PFZ | HTML structure change | 1. INCOIS ERDDAP · 2. Local sector CSV |
-| Open-Meteo Marine | Timeout >3s | 1. Stormglass API · 2. IMD CAP regional table |
+| Open-Meteo Marine | Timeout >3s | 1. IMD API (`api.imd.gov.in`) · 2. Stormglass API · 3. IMD CAP regional table |
 | Bhashini ASR (ingress voice) | Timeout / rate limit | 1. Local Whisper (quantized, §9.15) |
+| Bhashini NMT (translation) | Timeout / rate limit | 1. Local IndicTrans2 (AI4Bharat) — **must be pre-downloaded and warm on demo machine** |
 | LLM provider | Rate limit / downtime | Model-agnostic swapper (both cost tiers, §9.6) |
 
 ### 12.2 Failure-mode / degraded-response contract
