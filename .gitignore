@@ -2,3 +2,5 @@
 data/
 *.nc
 *.zip
+.env
+__pycache__/

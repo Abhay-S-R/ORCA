@@ -14,19 +14,19 @@ Use this checklist to track dataset procurement, API integration, and fallback v
 
 | Status | Dataset / API Name | Domain & Parameters | Priority | Target Agent | Source URL / Endpoint |
 | :---: | :--- | :--- | :---: | :--- | :--- |
-| [ ] | **Open-Meteo Marine API** | Wave height ($H_s$), wave period ($T_p$), swell, currents | `P0 Core` | `Weather Intelligence Agent` | [marine-api.open-meteo.com](https://marine-api.open-meteo.com/v1/marine) |
-| [ ] | **INCOIS ERDDAP Data Server** | In-situ buoy telemetry, SST, salinity, ocean models | `P0 Core` | `Marine Data Discovery Agent` | [erddap.incois.gov.in](https://erddap.incois.gov.in/erddap/) |
-| [ ] | **MOSDAC Open Data Portal** | Oceansat-3, INSAT-3D/3DR SST & Chlorophyll | `P0 Core` | `Ocean Analytics Agent` | [mosdac.gov.in](https://mosdac.gov.in) |
-| [ ] | **Survey of India Tide Tables** | High/low tide predictions & astronomical heights | `P0 Core` | `Ocean Analytics Agent` | [surveyofindia.gov.in](https://www.surveyofindia.gov.in/) |
-| [ ] | **INCOIS Tide Gauge Network** | Real-time coastal tide gauge water level telemetry | `P0 Core` | `Ocean Analytics Agent` | [tsunami.incois.gov.in](https://tsunami.incois.gov.in/TEWS/TGMap.jsp) |
-| [ ] | **Marine Regions (VLIZ)** | EEZ (200 NM), Territorial Waters, Palk Strait IMBL | `P0 Core` | `Geospatial Reasoning Agent` | [marineregions.org](https://www.marineregions.org/downloads.php) |
-| [ ] | **Protected Planet (WDPA)** | Marine Protected Areas (MPAs) boundary polygons | `P0 Core` | `Geospatial Reasoning Agent` | [protectedplanet.net](https://www.protectedplanet.net) |
-| [ ] | **GEBCO Bathymetry Grid** | 15 arc-second gridded ocean depth for route safety | `P1 Core` | `Geospatial Reasoning Agent` | [download.gebco.net](https://download.gebco.net/) |
-| [ ] | **INCOIS PFZ Advisories** | Potential Fishing Zone text & web nodes (~1,223 nodes) | `P1 Core` | `Marine Data Discovery Agent` | [incois.gov.in/PFZ](https://incois.gov.in/MarineFisheries/PfzWebGis) |
-| [ ] | **INCOIS Hazard Alerts** | Swell surge, Kallakkadal, high wave advisories | `P1 Core` | `Risk Assessment Agent` | [incois.gov.in/OSF](https://incois.gov.in/portal/osf/osf.jsp) |
-| [ ] | **IMD Cyclone & CAP Feed** | Cyclone tracks, storm warnings, CAP alert feeds | `P1 Core` | `Weather Intelligence Agent` | [mausam.imd.gov.in](https://mausam.imd.gov.in/) |
-| [ ] | **IMD Damini / Lightning** | Real-time lightning strikes & 15-30 min nowcasts | `P1 Core` | `Weather Intelligence Agent` | [damini.tropmet.res.in](https://damini.tropmet.res.in/) |
-| [ ] | **data.gov.in Catch Stats** | Historical district marine fish landings & trends | `P1 Diagnostic` | `Ocean Analytics Agent` | [data.gov.in](https://data.gov.in/) |
+| [x] | **Open-Meteo Marine API** | Wave height ($H_s$), wave period ($T_p$), swell, currents | `P0 Core` | `Weather Intelligence Agent` | [marine-api.open-meteo.com](https://marine-api.open-meteo.com/v1/marine) |
+| [x] | **INCOIS ERDDAP Data Server** | In-situ buoy telemetry, SST, salinity, ocean models (Pinned Cert) | `P0 Core` | `Marine Data Discovery Agent` | [erddap.incois.gov.in](https://erddap.incois.gov.in/erddap/) |
+| [x] | **MOSDAC Open Data Portal** | Oceansat-3, INSAT-3D/3DR SST, Chlorophyll, Winds (`2.6 GB`) | `P0 Core` | `Ocean Analytics Agent` | [mosdac.gov.in](https://mosdac.gov.in) |
+| [x] | **Survey of India / Stormglass Tides** | High/low tide predictions & astronomical heights | `P0 Core` | `Ocean Analytics Agent` | [api.stormglass.io](https://api.stormglass.io/v2/tide/extremes/point) |
+| [x] | **INCOIS Tide Gauge Network** | Real-time coastal tide gauge water level telemetry | `P1 Validation` | `Ocean Analytics Agent` | [tsunami.incois.gov.in](https://tsunami.incois.gov.in/TEWS/TGMap.jsp) |
+| [x] | **Marine Regions (VLIZ)** | Full MultiPolygons: EEZ (200 NM), Territorial Waters, Palk Strait IMBL | `P0 Core` | `Geospatial Reasoning Agent` | [marineregions.org](https://www.marineregions.org/downloads.php) |
+| [x] | **Protected Planet (WDPA)** | Marine Protected Areas (MPAs) boundary polygons | `P0 Core` | `Geospatial Reasoning Agent` | [protectedplanet.net](https://www.protectedplanet.net) |
+| [x] | **GEBCO 15" Bathymetry Grid** | 15 arc-second high-resolution ocean depth ($450\text{m}$) | `P0 Core` | `Geospatial Reasoning Agent` | [download.gebco.net](https://download.gebco.net/) |
+| [x] | **INCOIS PFZ Advisories** | Potential Fishing Zone text & web nodes (318 live nodes across 14 sectors) | `P0 Core` | `Marine Data Discovery Agent` | [incois.gov.in/PFZ](https://incois.gov.in/MarineFisheries/PfzWebGis) |
+| [x] | **INCOIS Hazard Alerts** | Swell surge, Kallakkadal, high wave advisories | `P0 Core` | `Risk Assessment Agent` | [incois.gov.in/site/multihazard.jsp](https://incois.gov.in/site/multihazard.jsp) |
+| [x] | **NDMA SACHET & IMD CAP Feed** | Live disaster alerts (CAP 1.2 XML/JSON) & IMD nowcasts | `P0 Core` | `Weather Intelligence Agent` | [sachet.ndma.gov.in](https://sachet.ndma.gov.in/) |
+| [x] | **IMD Damini / Lightning Nowcast** | Real-time lightning strike probability & convective CAPE | `P0 Core` | `Weather Intelligence Agent` | [damini.tropmet.res.in](https://damini.tropmet.res.in/) |
+| [x] | **data.gov.in Catch Stats** | Historical district marine fish landings & species trends | `P1 Diagnostic` | `Ocean Analytics Agent` | [data.gov.in](https://data.gov.in/) |
 
 ---
 
@@ -34,21 +34,21 @@ Use this checklist to track dataset procurement, API integration, and fallback v
 
 | Status | Dataset / API Name | Domain & Parameters | Priority | Target Agent | Source URL / Endpoint |
 | :---: | :--- | :--- | :---: | :--- | :--- |
-| [ ] | **Copernicus Marine (CMEMS)** | Global SST reanalysis ($0.05^\circ$), currents, waves | `P0 Fallback` | `Ocean Analytics Agent` | [marine.copernicus.eu](https://marine.copernicus.eu/) |
-| [ ] | **NASA Ocean Color / Earthdata**| Chlorophyll-a ($mg/m^3$), PAR, MODIS/VIIRS SST | `P0 Fallback` | `Ocean Analytics Agent` | [oceancolor.gsfc.nasa.gov](https://oceancolor.gsfc.nasa.gov/) |
-| [ ] | **Stormglass.io Marine API** | Astronomical tide extremes point API fallback | `P0 Fallback` | `Ocean Analytics Agent` | [api.stormglass.io](https://api.stormglass.io/v2/tide/extremes/point) |
-| [ ] | **Global Fishing Watch (GFW)** | AIS vessel presence & fishing effort density | `P3 Stretch` | `Geospatial Reasoning Agent` | [globalfishingwatch.org](https://globalfishingwatch.org/our-apis/) |
+| [x] | **Copernicus Marine (CMEMS)** | Global SST reanalysis ($0.05^\circ$), currents, waves (SDK installed) | `P0 Fallback` | `Ocean Analytics Agent` | [marine.copernicus.eu](https://marine.copernicus.eu/) |
+| [x] | **NASA Ocean Color / CMR** | Chlorophyll-a ($mg/m^3$), MODIS/VIIRS NRT granules | `P0 Fallback` | `Ocean Analytics Agent` | [cmr.earthdata.nasa.gov](https://cmr.earthdata.nasa.gov) |
+| [x] | **Stormglass.io Marine API** | Astronomical tide extremes point API (Token in `.env`) | `P0 Core` | `Ocean Analytics Agent` | [api.stormglass.io](https://api.stormglass.io/v2/tide/extremes/point) |
+| [x] | **Global Fishing Watch (GFW)** | AIS vessel presence & fishing effort density (Token in `.env`) | `P3 Stretch` | `Geospatial Reasoning Agent` | [globalfishingwatch.org](https://globalfishingwatch.org/our-apis/) |
 
 ---
 
-### 🟠 Tier 3: Gated Government Portals (Approval Lag / Lead Time)
+### 🟠 Tier 3: Gated Government Portals (ISRO / MoES Datasets)
 
 | Status | Dataset / API Name | Domain & Parameters | Priority | Target Agent | Source URL / Endpoint |
 | :---: | :--- | :--- | :---: | :--- | :--- |
-| [ ] | **MOSDAC Registered NRT Portal**| Near-real-time Level-2/3 INSAT-3DR & Oceansat-3 | `P0 Priority` | `Marine Data Discovery Agent` | [mosdac.gov.in](https://mosdac.gov.in) |
-| [ ] | **Bhuvan / VEDAS (NRSC)** | WMS/WFS ocean thematic maps & PFZ GIS overlays | `P0 Priority` | `Visualization Agent` | [bhuvan.nrsc.gov.in](https://bhuvan.nrsc.gov.in/) |
-| [ ] | **INCOIS Bulk PFZ JSON Feed** | Direct structured JSON stream of PFZ sector nodes | `P2 Best Effort` | `Marine Data Discovery Agent` | Direct request to ESSO-INCOIS |
-| [ ] | **ICAR-CMFRI Research Data** | Long-term landing archives & stock assessment | `P2 Best Effort` | `Ocean Analytics Agent` | [cmfri.org.in](http://www.cmfri.org.in/) |
+| [x] | **MOSDAC Registered Portal** | EOS-06 OCM-3 Chlorophyll, INSAT-3DR SST, ScatSat Winds (`2.6 GB` on disk) | `P0 Core` | `Marine Data Discovery Agent` | [mosdac.gov.in](https://mosdac.gov.in) |
+| [x] | **Bhuvan / VEDAS (NRSC)** | WMS/WMTS ocean thematic maps & 15-day satellite manifest | `P0 Core` | `Visualization Agent` | [bhuvan.nrsc.gov.in](https://bhuvan.nrsc.gov.in/) |
+| [x] | **INCOIS WW3 & HYCOM Models** | Full 3D numerical wave & ocean forecast models (`16.4 GB` on disk) | `P0 Core` | `Weather / Risk / Ocean Agents` | [incois.gov.in/thredds](https://incois.gov.in/thredds/) |
+| [x] | **ICAR-CMFRI Research Data** | Long-term landing archives & stock assessment baseline | `P1 Diagnostic` | `Ocean Analytics Agent` | [cmfri.org.in](http://www.cmfri.org.in/) |
 
 ---
 
@@ -56,8 +56,10 @@ Use this checklist to track dataset procurement, API integration, and fallback v
 
 | Status | System Name | Role in ORCA | Target Agent | Source URL / Integration |
 | :---: | :--- | :--- | :--- | :--- |
-| [ ] | **INCOIS Sagar Vani** | Multi-channel SMS/IVR regional language broadcast template | `User Interaction Agent` | [incois.gov.in/SagarVani](https://incois.gov.in/SagarVani) |
-| [ ] | **ISRO DAT-SG / Sagarmitra** | At-sea emergency distress beacon & Coast Guard MRCC handoff | `User Interaction Agent` | [isro.gov.in/DAT](https://www.isro.gov.in/DAT.html) |
+| [x] | **INCOIS Sagar Vani** | Multi-channel SMS/IVR regional language broadcast template | `User Interaction Agent` | [incois.gov.in/SagarVani](https://incois.gov.in/SagarVani) |
+| [x] | **ISRO DAT-SG / Nabhmitra** | At-sea emergency distress beacon & Coast Guard MRCC handoff | `Distress Handoff Agent` | [isro.gov.in/DAT](https://www.isro.gov.in/DAT.html) |
+| [x] | **IMD Marine API** | Official coastal bulletin developer platform | `Weather Intelligence Agent` | [api.imd.gov.in](https://api.imd.gov.in/) |
+| [x] | **DoF VCSS (Vessel Comm)** | National Vessel Communication & Support System protocol | `Distress Handoff Agent` | Department of Fisheries |
 
 ---
 
