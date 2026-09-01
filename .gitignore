@@ -1,6 +1,32 @@
-# Ignore data directory containing large NetCDF models and datasets
+# Large Data & Satellite Models (18+ GB)
 data/
 *.nc
+*.h5
 *.zip
+
+# Environment & Secrets
 .env
+.env.*
+!.env.example
+*.key
+
+# Python Virtual Environments & Caches
 __pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# Node / Next.js (Frontend)
+node_modules/
+.next/
+out/
+dist/
+
+# Local Dev, IDE & Knowledge Graphs
+graphify-out/
+.claude/
+.vscode/
+.DS_Store
+Thumbs.db
