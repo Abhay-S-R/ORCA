@@ -1,0 +1,19 @@
+# Dependencies for the ORCA data-preparation scripts.
+#
+# netCDF4 is deliberately absent. The INCOIS OSF and GEBCO files are NetCDF-3
+# classic (magic "CDF\x01"), which xarray reads through the scipy backend, and the
+# Copernicus file is HDF5, which h5py/h5netcdf handles. Installing netCDF4 on
+# Windows pulls a large binary stack for no gain here.
+#
+# cftime is also unnecessary: the INCOIS time axes use epochs (hours since
+# 0001-01-01, days since 1900-12-31) that decode_time_axis() in
+# extract_osf_pilot.py handles directly.
+
+xarray>=2024.1.0
+numpy>=1.26
+pandas>=2.0
+scipy>=1.11          # ndimage.label for PFZ zone clustering; NetCDF-3 backend
+h5py>=3.10           # HDF5-backed products (Copernicus, MOSDAC INSAT SST)
+requests>=2.31       # INCOIS, UNEP-WCMC, Marine Regions, Nominatim
+shapely>=2.0         # geofence geometry, point-in-polygon
+pyproj>=3.6          # geodesic distance and area on WGS84

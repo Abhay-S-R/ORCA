@@ -1,6 +1,7 @@
 # 🔬 ORCA Data Verification Audit — Full Cross-Reference
 
 **Audit Date:** 2026-08-31 00:37 IST  
+**Revised:** 2026-09-01 — see §0, which supersedes several ✅ marks below.  
 **Total Files on Disk:** 98 files  
 **Total Data Size:** 18.72 GB  
 **Documents Cross-Referenced:**
@@ -9,6 +10,47 @@
 - [ORCA_Master_Analysis_and_Requirements.md](file:///c:/Users/Abhay%20S%20R/Desktop/orca/ORCA_Master_Analysis_and_Requirements.md) — Data ecosystem & PS queries
 - [data_collection_analysis.md](file:///c:/Users/Abhay%20S%20R/Desktop/orca/data_collection_analysis.md) — Gap analysis & resolution steps
 - [ORCA_Master_Data_Status_Report.md](file:///c:/Users/Abhay%20S%20R/Desktop/orca/ORCA_Master_Data_Status_Report.md) — Dataset status tracking
+
+---
+
+## 0. Corrections (2026-09-01)
+
+The original audit checked that a *file existed* for each dataset. It did not open the
+files to check that the contents could answer the query they were mapped to. Three of
+its ✅ marks did not survive that second check, and all three sat under the pilot
+region. Each is now fixed; the reproducing script is named so the work can be re-run
+or challenged.
+
+| # | Original claim | What was actually true | Fix | Script |
+|:--|:--|:--|:--|:--|
+| C-1 | T1-10 — "Gulf of Mannar MPA + 9 others — geofencing ✅" | The Gulf of Mannar feature was a **MultiPoint holding a single vertex** (WDPA `site_id` 900665, the UNESCO-MAB Biosphere Reserve). A centroid cannot answer `point_in_polygon` or `check_boundary_proximity`, so the pilot region's flagship geofence query had no geometry. **This was not an extraction error:** a spatial query against the authoritative UNEP-WCMC WDPA polygon service over 77–80.5 E / 7.5–10.5 N returns 147 polygons, none of them Gulf of Mannar. WDPA publishes that site in its point layer only. | Layer rebuilt from the best available geometry per site: 5 authoritative WDPA polygons (including **Adam's Bridge Marine NP**, declared 2024, directly relevant to the Rameswaram/IMBL demo), the Gulf of Mannar MNP outline from **OSM relation 415570** (`protect_class=2`, wikidata Q5617576), and the previous file's polygons carried forward so national coverage is not lost. Now **15 features, 11 geofence-usable**. Every feature carries `orca_precision` (HIGH / MEDIUM / CENTROID_ONLY) and `orca_geofence_usable`, so a centroid can never be mistaken for a boundary. | `scripts/build_mpa_geofence.py` |
+| C-2 | T1-5 — "318 live advisory nodes for PS Query #1 (nearest PFZ) ✅" | True nationally, false for the pilot region. Sector coverage ran 10.66–13.21 °N (North Tamil Nadu); Thoothukudi is at 8.80 °N. **South Tamil Nadu had zero nodes.** Root cause is not a scraper bug — INCOIS itself returns *"No data available for this sector due to excessive cloud cover"* for SEC006. PFZ advisories are retrieved from satellite SST and chlorophyll, so cloud suppresses issuance entirely. | Scraper rewritten against the real endpoint (`/MarineFisheries/TextData?secid=SEC001..SEC014`, found via the INCOIS sitemap; the WebGIS iframe's JSON service is on an unreachable `172.16.x.x` intranet address). All 14 sectors now covered, **353 nodes**, and sector *status* is a first-class output — a clouded sector yields `NO_DATA_CLOUD_COVER` carrying INCOIS's own wording rather than an empty result that reads like a failure. Runs archive under `pfz/history/<date>/` so persistence data accumulates for `score_pfz_persistence`. | `scripts/scrape_pfz_advisories.py` |
+| C-3 | T1-6 / T1-7 — WW3 and HYCOM "✅" | The derived pilot CSVs were **empty for four of six ports**, Thoothukudi included. The extraction sampled true port coordinates, which fall in land-mask cells at WW3's 0.1° and HYCOM's 1/16°, so nearest-neighbour lookup returned NaN. The offshore CSVs were complete only because their points were hand-picked out to sea. | Re-extracted with nearest-*wet*-cell snapping, ranked by haversine distance rather than index offset (index distance is anisotropic in longitude and biases the pick equatorward). **7 ports × 56 WW3 steps and × 28 HYCOM steps, zero missing values.** Snap distances 3.3–10.1 km, and every row records `grid_lat`, `grid_lon`, `snap_distance_km` so agents cite the cell actually sampled. | `scripts/extract_osf_pilot.py`, `scripts/orca_grid_utils.py` |
+
+### Additional defects found while verifying
+
+| # | Defect | Fix |
+|:--|:--|:--|
+| C-4 | `vliz_india_eez_record.json` contained **Tunisia's** EEZ record (MRGID 8366) and the Sri Lanka sidecar contained **Gambia's** (MRGID 8370) — an indexing error in the original fetch. The polygons themselves were always correct. | Both refetched as MRGID **8480** / **8346**; gazetteer bboxes now match the polygon bboxes exactly. |
+| C-5 | The PFZ sector map in `dataset_manifest.json` diverged from INCOIS's real assignment from sector 7 onward, listing Puducherry / Odisha / West Bengal / Andaman-Nicobar / Lakshadweep / Tamil Nadu South / Kerala North against ids INCOIS assigns to North Tamil Nadu / North Andhra Pradesh / Odisha / West Bengal / Andaman / Nicobar / Lakshadweep. Routing on it would have queried the **wrong coastline**. | Map rebuilt from the live sector index and stored with `SEC0nn` ids alongside the names. |
+
+### New capability added while closing C-2
+
+Because South Tamil Nadu will be clouded regularly through the monsoon, the pilot
+region needs an answer on those days. `scripts/build_pfz_fallback.py` derives one from
+data already on disk: thermal front strength (|∇SST|, °C/km) from the HYCOM forecast,
+restricted to the GEBCO mid-shelf band and screened against the no-take MPA polygons
+from C-1.
+
+It is labelled `DERIVED_PROXY` / `LOW-DATA` and states plainly that it is **not an
+INCOIS advisory**, with its three limitations recorded in the output. Its top-ranked
+zones fall 22–49 km off Thoothukudi in 18–25 m of water — independently reproducing
+the mid-shelf clustering that ICAR-CMFRI's published PFZ analysis reports for this
+coast, which is a useful check that the method is tracking something real.
+
+**Standing lesson:** "file exists" is not "dataset works". The remaining ✅ marks below
+were verified at the file-existence level and have not all been re-checked at the
+content level.
 
 ---
 
@@ -22,13 +64,13 @@
 | T1-2 | Open-Meteo Weather API | Agent 4 `get_marine_weather` | `data/tier1/weather/openmeteo_weather_*.json` (6 ports) | 105 KB | Wind, temperature, precip for PS Query #3 | ✅ |
 | T1-3 | ERA5 Historical Climate | Agent 5 `compute_sst_chl_trend` | `data/tier1/weather/era5_historical_thoothukudi_30d.json` | ~15 KB | 30-day baseline for trend/anomaly detection | ✅ |
 | T1-4 | INCOIS ERDDAP | Agent 3 `fetch_erddap_dataset` | `certs/incois_cert.pem` (SSL cert pinned) | 2 KB | Runtime API — cert enables live connection to 16 datasets | ✅ |
-| T1-5 | INCOIS PFZ Advisories | Agent 3 `fetch_pfz_advisory`, Agent 5 `analyze_pfz_proximity` | `data/incois_osf_pfz/pfz/` (6 files) | 380 KB | 318 live advisory nodes for PS Query #1 (nearest PFZ) | ✅ |
-| T1-6 | INCOIS WW3 Wave Model | Agent 4, Agent 7 `evaluate_marine_safety` | `data/incois_osf_pfz/osf_ww3/rsmc_combined_ww3_20260829.nc` + CSVs | **6.43 GB** | Full 3D wave forecasts — PS Query #2 (safety), Query #6 (navigation) | ✅ |
-| T1-7 | INCOIS HYCOM Ocean Model | Agent 5 `get_sst_snapshot`, Agent 3 | `data/incois_osf_pfz/osf_hycom/RSMC_hycom_20260830.nc` + CSVs | **9.86 GB** | SST, currents, SSH, MLD — PS Queries #1, #5, #7 | ✅ |
+| T1-5 | INCOIS PFZ Advisories | Agent 3 `fetch_pfz_advisory`, Agent 5 `analyze_pfz_proximity` | `data/incois_osf_pfz/pfz/` | — | 353 nodes across 8 sectors; 6 sectors cloud-blocked incl. pilot SEC006. Per-sector status in `pfz_sector_status.json`; proxy fallback in `pfz_fallback_pilot_region.geojson` | ⚠️ See §0 C-2 |
+| T1-6 | INCOIS WW3 Wave Model | Agent 4, Agent 7 `evaluate_marine_safety` | `data/incois_osf_pfz/osf_ww3/rsmc_combined_ww3_20260829.nc` + CSVs | **6.43 GB** | Wave forecasts, PS Query #2/#6. Pilot CSV re-extracted: 7 ports × 56 steps, 0 missing | ✅ Fixed, §0 C-3 |
+| T1-7 | INCOIS HYCOM Ocean Model | Agent 5 `get_sst_snapshot`, Agent 3 | `data/incois_osf_pfz/osf_hycom/RSMC_hycom_20260830.nc` + CSVs | **9.86 GB** | SST, currents, SSH, MLD, PS Queries #1/#5/#7. Pilot CSV re-extracted: 7 ports × 28 steps, 0 missing | ✅ Fixed, §0 C-3 |
 | T1-8 | GEBCO 15" Bathymetry | Agent 6 `compute_safe_route` | `data/tier1/bathymetry/gebco_2026_n10.5_s7.5_w77.5_e80.5.nc` | 1.05 MB | 720×720 grid at 463m — PS Query #6 (route safety) | ✅ |
 | T1-8b | ETOPO Bathymetry (legacy) | Agent 6 (backup) | `data/tier1/bathymetry/etopo_south_india_bathymetry.nc` | ~500 KB | Lower-res backup (1 arc-min). GEBCO supersedes it. | ✅ |
-| T1-9 | VLIZ EEZ/IMBL Boundaries | Agent 6 `check_boundary_proximity`, `point_in_polygon` | `data/tier1/boundaries/india_eez_polygon.geojson` + `srilanka_eez_polygon.geojson` | 3.24 MB | Full MultiPolygons — PS Query #5 (boundary alerts) | ✅ |
-| T1-10 | WDPA Marine MPAs | Agent 6 `check_boundary_proximity` | `data/tier1/boundaries/india_marine_mpas.geojson` | varies | Gulf of Mannar MPA + 9 others — geofencing | ✅ |
+| T1-9 | VLIZ EEZ/IMBL Boundaries | Agent 6 `check_boundary_proximity`, `point_in_polygon` | `data/tier1/boundaries/india_eez_polygon.geojson` + `srilanka_eez_polygon.geojson` | 3.24 MB | Full MultiPolygons (71,782 / 56,019 vertices) — PS Query #5. Metadata sidecars corrected, §0 C-4 | ✅ |
+| T1-10 | WDPA Marine MPAs | Agent 6 `check_boundary_proximity` | `data/tier1/boundaries/india_marine_mpas.geojson` + `mpa_geofence_provenance.json` | — | Rebuilt: 15 features, 11 geofence-usable polygons incl. Gulf of Mannar MNP and Adam's Bridge NP | ✅ Fixed, §0 C-1 |
 | T1-11 | SOI Tide Tables | Agent 5 `get_tide_prediction` | `data/tier1/tides/soi_tide_tables_2026.csv` + `soi_tide_stations_metadata.json` | 29.5 KB | 189 predictions across 5 ports — PS Query #3 (tides) | ✅ |
 | T1-12 | INCOIS Tide Gauge | Agent 5 `get_tide_prediction` (cross-check) | `data/tier1/tides/incois_tide_gauge_telemetry.json` | 2.9 KB | Real-time observed vs predicted sea levels | ✅ |
 | T1-13 | NDMA SACHET CAP Alerts | Agent 4 `get_cyclone_status`, Agent 7 | `data/tier1/hazards/ndma_cap_alerts.json` | ~81 alerts | Active SACHET disaster warnings — PS Query #4 | ✅ |
