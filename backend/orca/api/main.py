@@ -1,7 +1,7 @@
-"""FastAPI app. /query now runs the real LangGraph pipeline (plan §Phase-1,
-S1 Day 5) — replaces the Phase 0 canned mock now that Agents 2, 4, 7, 12 and
-the graph itself all exist. Agents 6 and 9 are still fixture stubs (S5, S6
-not built yet); see orca/graph/graph.py for exactly which nodes that covers.
+"""FastAPI app. /query runs the real LangGraph pipeline (plan §Phase-1, S1
+Day 5) — Agents 2, 4, 7, 12 and the graph itself. S4/S5's Agent 3/6 surfaces
+are mounted as separate routers below; Agent 9 (S6) is still the graph's
+fixture stub — see orca/graph/graph.py for exactly which nodes that covers.
 """
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from orca.api.discovery_routes import router as discovery_router
+from orca.api.geospatial_routes import router as geospatial_router
 from orca.graph.graph import build_graph
 from orca.state import ORCAState
 
@@ -23,6 +25,12 @@ app = FastAPI(title="ORCA API")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
+
+# S4/S5 slice endpoints — separate routers (orca/api/discovery_routes.py,
+# orca/api/geospatial_routes.py) so this file stays a one-line touch for them.
+# Both mount under /api and don't collide with /query or /health (checked).
+app.include_router(discovery_router)
+app.include_router(geospatial_router)
 
 # Compiled once at import time — a LangGraph StateGraph is stateless
 # structure; compiling per-request would just waste cycles on every call.

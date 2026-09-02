@@ -34,8 +34,12 @@ jobs:
       - name: persona-leak guard
         run: |
           # Matches actual code usage (state["stakeholder_persona"], a
+          # `persona` kwarg/annotation, dict-key access) — not the English
+          # word "persona" in a comment/docstring. Excludes Agent 1's and
+          # Agent 9's real filenames (language.py, reporting.py) plus the
+          # older placeholder names in case anyone renames back to them.
           PATTERN='\bstakeholder_persona\b|\bpersona["'"'"']?\s*[:=]|\["persona"\]|\.get\(["'"'"']persona'
-          if [ -d orca/agents ] && grep -rlnE --include='*.py' "$PATTERN" orca/agents/ | grep -vE "(agent_1|agent_9|user_interaction|reporting)"; then
+          if [ -d orca/agents ] && grep -rlnE --include='*.py' "$PATTERN" orca/agents/ | grep -vE "(agent_1|agent_9|user_interaction|language|reporting)"; then
             echo "::error::persona referenced outside Agents 1/9 — this is the v1.0 routing bug (plan Ground Rule 1)"
             exit 1
           fi

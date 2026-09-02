@@ -1,6 +1,7 @@
-# Backend runtime deps. Data-processing libs (xarray, geopandas, etc.) live in
-# the repo-root requirements.txt for the procurement scripts — this is the API
-# service only, kept separate so the container stays small.
+# Backend runtime deps. Most data-processing libs (geopandas, etc.) still
+# live only in the repo-root requirements.txt for the procurement scripts —
+# but Agent 6 (Geospatial, plan §4 S5) queries boundary and bathymetry data
+# at request time, inside this service, so its libs have to be here too.
 
 fastapi>=0.115
 uvicorn[standard]>=0.32
@@ -12,6 +13,17 @@ httpx>=0.27            # live upstream calls (Open-Meteo) — declared directly,
 langgraph>=0.2          # orca/graph/ — the ONLY place this may be imported (plan §3.4)
 opentelemetry-api>=1.27
 opentelemetry-sdk>=1.27  # trace.py — spans feed audit_trace_log (plan §5.3/§9.18)
+
+# Agent 6 (Geospatial, plan §4 S5) — in-memory Shapely + STRtree rather than
+# the full GeoPandas stack (no DataFrame layer needed for containment/
+# proximity/STRtree queries); pyproj for WGS84 geodesic distance and bearing.
+# xarray + scipy (NetCDF-3 backend, same reason as the root requirements.txt)
+# + h5py to read the GEBCO bathymetry grid for depth-at-point.
+shapely>=2.0
+pyproj>=3.6
+xarray>=2024.1.0
+scipy>=1.11
+h5py>=3.10
 
 # LLM providers registered in orca/llm/registry.py (plan §3.1)
 anthropic>=0.40

@@ -1,0 +1,24 @@
+{
+  "agent_name": "discovery",
+  "confidence": {
+    "rationale": "deterministic registry lookup",
+    "score": "HIGH"
+  },
+  "error_detail": null,
+  "inputs_consumed": {
+    "data_type": "wave_height"
+  },
+  "outputs": {
+    "dataset": "Open-Meteo Marine API / ECMWF WAM Blend",
+    "reason": "Open-Meteo Marine API / ECMWF WAM Blend selected: Tier 1 authority, freshest of 2 Tier 1 candidates for 'wave_height' (typical freshness 60 min).",
+    "source_id": "open_meteo_marine"
+  },
+  "query_id": "fixture-wave-height",
+  "reasoning_depth": "SHALLOW",
+  "source_provenance": {
+    "acquisition_timestamp": "2026-09-02T00:00:00Z",
+    "dataset": "orca source registry",
+    "freshness_minutes": 0
+  },
+  "status": "ok"
+}
