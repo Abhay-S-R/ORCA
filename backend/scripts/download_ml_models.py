@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Pre-download offline ML models for speech-to-text (Whisper) and
 vernacular translation (IndicTrans2) for Phase 1/Phase 3 (Owner: S6).
 
