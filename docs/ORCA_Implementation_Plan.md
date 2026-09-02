@@ -1,10 +1,14 @@
-# 🗺️ ORCA — Implementation Plan (v1.1)
+# 🗺️ ORCA — Implementation Plan (v1.3)
 
 > **Status:** LIVING DOCUMENT — this is the execution plan the whole team works from.
 > **Authority:** [`ORCA_Agentic_Architecture_final.md`](./ORCA_Agentic_Architecture_final.md) (v4.0) is the design authority. This document does not re-litigate design decisions; it schedules them, assigns them, and adds the layers that architecture doc left thin (repo layout, UI information architecture, provider-agnosticism, team split).
 > **Requirements source:** [`ORCA_Master_Analysis_and_Requirements.md`](./ORCA_Master_Analysis_and_Requirements.md)
 > **Data status:** [`data_verification_audit.md`](./data_verification_audit.md) — procurement complete, 98 files, 25/25 datasets, 8/8 PS queries covered.
 > **Team:** 6 people · **Duration:** 4 weeks + 2 days buffer · **Pilot region:** South Tamil Nadu (Thoothukudi–Rameswaram–Kanyakumari, Palk Bay, Gulf of Mannar)
+
+**What changed in v1.3:** Phase 0 is reconciled with the code that actually exists. Three §0 claims were stale — infrastructure is written (compose, `Dockerfile`, CI with all three guards), the frontend is further along than "scaffold", and `MapView.tsx` carries real Leaflet layers rather than none. So the §4.1 map change is restated as a **port** with a per-construct mapping table, the design-system work names the token rename and its three call sites, `/design` + `axe-core`-in-CI and a reproducible-env task are added as explicit Phase 0 items, and the exit criteria become nine runnable commands including one that checks the ported layers lose no capability. Sections touched: §0, §4.1, §6 Phase 0, §10. No backend, agent or data decision changed.
+
+**What changed in v1.2:** the frontend is re-specified. Leaflet is replaced by MapLibre GL JS, the visualisation stack (charts, agent-graph renderer, icons, motion, theme tokens) is decided rather than left to each slice, the reasoning graph is designed down to node and edge semantics, and the design system moves into Phase 0 so six vertical slices inherit one UI instead of negotiating six. Sections touched: §4.1, §4.4, §4.7, §5 layout, §5.9, §6 (all phases), §7, §9, §10. No backend, agent or data decision changed.
 
 If this document and the architecture doc disagree, the architecture doc wins and this one gets fixed. If this document and the code disagree, that is a bug in one of them — resolve it before building further.
 
@@ -27,9 +31,10 @@ If this document and the architecture doc disagree, the architecture doc wins an
 | **Data** | ✅ Complete | 98 files / 18.72 GB, 25/25 datasets, 5 integrity defects fixed, PFZ fallback proxy built |
 | **Data tooling** | ✅ 5 scripts | `build_mpa_geofence.py`, `build_pfz_fallback.py`, `scrape_pfz_advisories.py`, `extract_osf_pilot.py`, `orca_grid_utils.py` |
 | **Architecture** | ✅ Committed | v4.0 — 12 agents, routing table, state schema, hand-off contract, failover, 19 optimizations |
-| **Application code** | ❌ **Zero** | No backend, no frontend, no agent implementations |
+| **Backend** | 🟡 In progress | FastAPI app, contracts/state, LLM registry, normalization, LangGraph skeleton and 9 agent modules exist under `backend/orca/` |
+| **Frontend** | 🟡 Ahead of the plan, on the wrong stack | Next.js 16 App Router, all ten §4.2 routes present, persona context + visibility matrix, four primitives (`Card`, `Badge`, `Field`, `SourceChip`), SSE `/query` client on `/`. **`MapView.tsx` is no longer a scaffold** — 163 lines of real Leaflet layers (EEZ/MPA GeoJSON with proximity styling, PFZ markers, click→depth/bearing) against four live backend routes. The §4.1 swap is therefore a **port, not an npm command** — still Phase 0, see §4.1 |
 | **Database schema** | ✅ Defined, not yet deployed | [`infra/db/001_init.sql`](../infra/db/001_init.sql) + [`migrate.sh`](../infra/db/migrate.sh) — §5.3 |
-| **Infrastructure** | ❌ None | No running Postgres/PostGIS, no Redis, no CI, no container setup |
+| **Infrastructure** | 🟡 Written, not yet proven | [`docker-compose.yml`](../docker-compose.yml) (PostGIS 16-3.4 on host `5433`, Redis 7, backend service), [`backend/Dockerfile`](../backend/Dockerfile) and [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) with the vendor-SDK, persona-leak and secret-scan guards all exist. What does not exist is evidence any of it has been run on six machines — that is Phase 0's job, §6 |
 | **Team environments** | ✅ Data in place | All 6 engineers already have the `data/` tree locally. Credentials still to confirm — §1.1 |
 
 **The honest read:** the hard research is done and the design is unusually well-specified for a hackathon. What remains is four weeks of disciplined engineering against a spec that already exists. The main risk is not "what do we build" — it is coordination, integration, and holding the line on scope.
@@ -187,11 +192,60 @@ That is the useful 90% of framework-agnosticism for one line of discipline. We a
 
 The architecture doc specifies *what* to render (§11) but not *where it lives* in the product. This section closes that gap.
 
-### 4.1 Design stance
+### 4.1 Design stance & frontend stack
 
 ORCA is not a chatbot with a map bolted on. It is a **map-first decision surface** with a conversational entry point. The map is the primary canvas on every screen that has a spatial answer; chat is one of several ways to drive it.
 
-Visual direction: dark marine theme, high-contrast safety colors (the GO/CAUTION/NO_GO badge must be legible in direct sunlight on a phone at sea), generous touch targets, icon-led for the fisherman surface. Accessibility is a stated cross-cutting requirement (Master doc §6.8), not a polish item: screen-reader labels and a high-contrast mode land in Phase 3, not Phase 4.
+**Visual direction — a maritime command centre, not a dashboard template.** Deep-ocean dark base, one accent family, glass-surfaced panels floating over the map rather than boxing it in, and a safety palette deliberately louder than everything else on screen. The GO / CAUTION / NO_GO badge must be legible in direct sunlight on a phone at sea; nothing else in the UI may compete with it for contrast. Generous touch targets, icon-led for the fisherman surface. Accessibility is a stated cross-cutting requirement (Master doc §6.8), not a polish item: screen-reader labels and a high-contrast mode land in Phase 3, not Phase 4.
+
+**The one rule that keeps the polish honest:** chrome may be beautiful, data may not be decorated. Gradients, blur and motion belong to panels, navigation and empty states. A wave height, a confidence tier and a boundary distance are rendered plainly, with their source one tap away. If a visual treatment makes a number look more certain than its confidence tier says it is, that is a bug (Ground Rule 3).
+
+#### The frontend stack — decided, with the reasoning
+
+The Phase-0 scaffold shipped Leaflet and raw Tailwind. Both are replaced here. Each row is a decision, not a preference:
+
+| Layer | Package | Why this one |
+|---|---|---|
+| **Framework** | `next` 16 (App Router), React 19, TypeScript | ✅ Keep. Already in place; server components for the static surfaces, client for the map and the graph |
+| **Map engine** | `maplibre-gl` + `@vis.gl/react-map-gl` | 🔄 **Replaces Leaflet.** GPU vector rendering holds 60 fps over the IMBL/MPA polygon set that drops frames in Leaflet's DOM renderer; GPU restyling makes a pulsing breach alert a paint-property change; open source, no API-key lock-in. Comparison and budget in §4.7 |
+| **Basemap** | CARTO Dark Matter (default) · MapTiler Ocean (bathymetry surfaces) | 🆕 Dark maritime styling with depth contours. Style URLs are config, never code — swapping the basemap must not be a code change |
+| **Flow fields** | `@deck.gl/core` + `@deck.gl/mapbox` overlay | 🆕 **Phase 3, conditional.** Animated wind/current vectors only. It does not replace MapLibre layers, and nothing in Phase 1–2 may depend on it |
+| **Charts** | `recharts` | 🆕 Wave-height areas, wind bars, SST/chlorophyll trends, confidence meters. Responsive, plain React, no imperative canvas to keep in sync with our state |
+| **Reasoning graph** | `@xyflow/react` (React Flow) | 🆕 The agent DAG at `/reasoning`. Pan/zoom, custom nodes, edge routing and selection are exactly the parts we would otherwise hand-roll badly. Design in §4.4 |
+| **Icons** | `lucide-react` | 🆕 Anchor, compass, waves, alert-triangle, radio. Tree-shaken; one consistent stroke weight across six slices built by six people |
+| **Motion** | `framer-motion` | 🆕 Panel transitions, activity-strip pulses, node state changes. **Gated on `prefers-reduced-motion` (§4.11)** — motion is never the only carrier of state |
+| **Styling** | Tailwind CSS v4 + ORCA theme tokens | 🔄 **Upgrade.** Ocean / glass / severity tokens defined once as CSS custom properties in `@theme`. Raw hex in a component is a review rejection |
+| **State** | React state + the SSE hook; URL for map view state | ✅ No state library. Results stream in and live in the page; map centre/zoom/layers live in the URL so a view is shareable and the back button works. Add one only when this measurably breaks |
+
+```bash
+cd frontend
+npm install maplibre-gl @vis.gl/react-map-gl recharts @xyflow/react lucide-react framer-motion
+npm uninstall leaflet react-leaflet @types/leaflet
+```
+
+**Migration cost, stated plainly — corrected in v1.3.** An earlier draft called `app/components/MapView.tsx` an empty scaffold. It is not: it is 163 lines carrying EEZ/MPA GeoJSON with proximity-gradient styling, PFZ circle markers, a click handler that reads GEBCO depth and bearing, and popups — all wired to `/api/map-layers`, `/api/zones-nearby`, `/api/zones`, `/api/depth`, `/api/bearing`. So the swap is a **half-day port of one file**, not the `npm install` above. What ports how:
+
+| Leaflet today | MapLibre equivalent | Note |
+|---|---|---|
+| `<MapContainer bounds>` | `<Map initialViewState={{bounds}}>` from `@vis.gl/react-map-gl/maplibre` | Still `ssr: false`; MapLibre touches `window` at module load exactly as Leaflet does |
+| OSM raster `<TileLayer>` | CARTO Dark Matter **style URL** | Style is config (`NEXT_PUBLIC_BASEMAP_STYLE`), never a literal in the component |
+| `<GeoJSON style={fn}>` | one `<Source type="geojson">` + `<Layer>` with a `case` paint expression on `properties.designation` / the near-set | The per-feature JS style function becomes a data-driven expression — this is the only genuinely new idea in the port, and it is what buys the 60 fps in §4.7 |
+| `<CircleMarker>` per PFZ point | one `circle` layer over a single FeatureCollection | N components → 1 layer |
+| `layer.bindPopup(html)` | `<Popup>` + `onClick` hit-test via `interactiveLayerIds` | Kills the raw HTML-string popups; provenance goes through `ProvenancePopover` |
+| Marker icon CDN patch (`L.Icon.Default`) | deleted | The bundler-path workaround has no MapLibre analogue — three fewer network requests |
+
+The port is still cheap *today* and expensive in Week 3, which is why it is a Day-1 task and why §4.7's budget is written against MapLibre rather than retrofitted onto it. **Nobody adds a layer to `MapView.tsx` until it has landed** — that, not the dependency list, is the thing the exit criterion protects.
+
+#### Design system — built once, in Phase 0
+
+S6 owns it; every other slice consumes it. Six people building six interpretations of "a card" is the predicted failure mode of vertical slicing (§7), and the defence is that the primitives exist before the surfaces do:
+
+- **Tokens** (`app/globals.css`, Tailwind v4 `@theme`): ocean surface ramp, glass elevation levels, the safety triad (`--go` / `--caution` / `--no-go`, each contrast-verified ≥4.5:1 on the dark base), confidence tiers, focus ring.
+  - **What is there now, and what it costs to change.** `globals.css` today is a **light theme** — `--background: #ffffff`, with dark handled by a `prefers-color-scheme` block — plus a safety triad named `--color-safety-{go,caution,danger}-{text,bg}` and *no* ocean ramp, glass, confidence or focus tokens. §4.1's direction is dark-*first*, so this is an inversion, not an extension: the dark values become the base and the light block goes away. The triad also loses its `-bg` half (badges become glass over the dark base, not light fills) and `danger` renames to `no-go` to match the verdict vocabulary the API already emits. **Three files consume the old names** — `Badge.tsx`, `SourceChip.tsx`, `MapView.tsx` — so the rename is a same-commit job with them, and `grep -r "color-safety-.*-bg" frontend/app` returning nothing is how it is checked. Do it before the surfaces multiply the call sites.
+- **Primitives:** `Panel` (glass), `Card`, `VerdictBadge` (S2 owns its safety semantics), `SourceChip`, `ProvenancePopover`, `ConfidenceMeter`, `AgentPill`, `LayerToggle`, `TimeSlider`, `Skeleton`, `EmptyState`, `ErrorState`.
+  - **Four exist** (`Card`, `Badge`, `Field`, `SourceChip`) and are kept, not rewritten: `Badge` becomes the base `VerdictBadge` wraps, `Field` stays as the form primitive the list above forgot to name. **Nine are new.** `lucide-react` icons and `framer-motion` transitions enter *through* these primitives — a surface importing either directly is a review rejection, same rule as raw hex.
+- **Every primitive ships keyboard-operable and labelled** (§4.11), so accessibility is inherited rather than retrofitted six times.
+- **A `/design` route** rendering every primitive in every state. It makes the Friday UI-consistency check (§8) mechanical, and it is where the `axe-core` pass runs first.
 
 ### 4.2 Information architecture — distributed navigation
 
@@ -235,12 +289,44 @@ This is the direct answer to "don't cluster everything in one place": nine capab
 
 ### 4.4 The reasoning graph (Requirement: persona-gated reasoning tree toggle)
 
+This is the most-scrutinised screen in the product: it is where a judge decides whether ORCA is genuinely multi-agent or a chatbot with agent-shaped labels. It gets built as a first-class surface, not as a debug panel.
+
 **Source of truth:** the OpenTelemetry span stream from §9.18 — the same stream that populates `audit_trace_log`. One pipeline, two views. The judge-facing trace panel and the compliance-facing audit log are never two systems to keep in sync.
+
+**Renderer: React Flow (`@xyflow/react`).** Hand-rolling DAG layout with pan, zoom, selection and edge routing is a week of work with a worse result. Layout is left-to-right by execution depth (Planning → parallel specialists → Risk → Reporting), computed once per trace with `dagre` and cached — the graph does not re-layout on every SSE frame.
+
+**Node anatomy — this is the part that carries the requirement.** A node is not a labelled box; it is a summary of that agent's reasoning, readable without clicking:
+
+```
+┌─────────────────────────────────────────────┐
+│ ⚓ Agent 7 · Risk Assessment      HIGH  1.2s │  ← icon, agent, confidence tier, latency
+│ ─────────────────────────────────────────── │
+│ Hs 2.4 m vs class band 2.0 m → exceeded     │  ← one-line reasoning summary
+│ 3 sources · deterministic · no LLM          │  ← provenance count + how it decided
+└─────────────────────────────────────────────┘
+```
+
+Clicking a node opens the inspector drawer with the full `AgentResult` envelope (Architecture §6): `inputs_consumed`, `outputs`, `source_provenance` with per-source timestamps and freshness, `confidence`, latency, and the model + tier for the agents that used one. Deterministic agents say **"deterministic — no LLM"** in the drawer, which is Ground Rule 2 made visible rather than claimed.
+
+**Encoding — every visual channel carries information, and none of it is colour alone:**
+
+| Channel | Encodes |
+|---|---|
+| Node border colour **+ tier label text** | Confidence: HIGH / MEDIUM / LOW / degraded |
+| Node fill | Execution state: pending (dim) · running (pulse) · done · cancelled (dashed) · failed (red border + ✗) |
+| Edge animation | A hand-off currently in flight |
+| Edge label | What crossed the edge — `verdict`, `hazards[3]`, `geofence_status` |
+| Edge style | Solid = data hand-off · dashed = Critic re-invocation loop · dotted = early-exit cancellation |
+| Group box | Parallel fan-out — WIA ∥ GRA sit in one bounding box, so parallelism is *seen*, not inferred |
+
+**Live and replay are the same component.** During a query, spans arrive over SSE and nodes light in real time; afterwards the same graph re-renders from `audit_trace_log` for any historical `query_id`. That is what makes differentiator 5 (visible Critic self-correction) and the §4.10 feedback drill-down nearly free: both are a stored trace opened in this view.
+
+**Motion, and its limit.** Node pulses and edge flow use Framer Motion, gated on `prefers-reduced-motion` (§4.11). Under reduced motion, state changes are instant and the running state is carried by a text label rather than a pulse.
 
 **Two renderings:**
 
-1. **Live activity strip** — during a query, a horizontal row of agent pills that light as spans open and close, with elapsed time. Shown to navigator / researcher / authority.
-2. **Reasoning graph** — an on-demand DAG. Nodes are agents; edges are hand-offs; node colour encodes confidence tier. Clicking a node opens `inputs_consumed`, `outputs`, `source_provenance`, `confidence`, and latency straight from the `AgentResult` envelope (Architecture §6). Multi-match fan-out, early-exit cancellations, and Critic re-invocation loops all render as real graph structure — because they are.
+1. **Live activity strip** — during a query, a horizontal row of agent pills that light as spans open and close, with elapsed time. Shown to navigator / researcher / authority. It is the same span stream, collapsed — not a second implementation.
+2. **Reasoning graph** — the full DAG above, at `/reasoning` and as an in-place expansion from any answer card.
 
 **Toggle defaults by persona:**
 
@@ -253,6 +339,8 @@ This is the direct answer to "don't cluster everything in one place": nine capab
 | unresolved | ✗ | reachable via "Show technical detail" | off |
 
 **Why the fisherman surface removes it rather than collapsing it:** on a small screen in bad conditions, a reasoning graph competes for attention with the GO/NO_GO badge. That is not clutter, it is a safety regression. The fisherman gets a plain progress line and, if they ever want more, the persona-correction tap (§2.5) re-renders the *already-computed* facts in a richer persona instantly — no re-query. That control is also the cleanest live demonstration that intent and persona are genuinely decoupled.
+
+**Owner:** S1 (span stream, node/edge payload), on S6's design tokens. **Lands:** Phase 1 (activity strip + trace capture), Phase 3 (full graph, inspector drawer, replay).
 
 ### 4.5 What makes the UI visibly agentic
 
@@ -320,9 +408,19 @@ That answer demonstrates we understood the design space and chose within it, whi
 
 ---
 
-### 4.7 Map performance budget & layer lifecycle
+### 4.7 Map engine, performance budget & layer lifecycle
 
-The map carries seven layer types over a 720×720 GEBCO grid, EEZ/MPA polygons with thousands of vertices, and PFZ point sets — on a phone, at sea, on a bad connection. Left alone that becomes an unusable map, and the fisherman persona is exactly the user who suffers first. Leaflet stays; nothing here is a framework change.
+The map carries seven layer types over a 720×720 GEBCO grid, EEZ/MPA polygons with thousands of vertices, and PFZ point sets — on a phone, at sea, on a bad connection. Left alone that becomes an unusable map, and the fisherman persona is exactly the user who suffers first.
+
+**Engine: MapLibre GL JS.** The Phase-0 scaffold used Leaflet; §4.1 replaces it, and this section is written against the replacement. What changes in practice:
+
+| Concern | Leaflet (was) | MapLibre GL JS (is) |
+|---|---|---|
+| Polygon rendering | DOM/SVG paths — frame drops past ~50 polygons | GPU-composited vector rendering, hundreds of geofence polygons at 60 fps |
+| Restyling on alert | Re-create the layer | `setPaintProperty` — a uniform change, no re-upload |
+| Raster fields | `L.tileLayer` XYZ | `raster` source, same XYZ pyramid — the tiling job below is unchanged |
+| Zoom-dependent detail | Manual layer swap per zoom band | Native zoom expressions in the style |
+| Bathymetry legibility | Flat 2D only | `pitch: 35°` on the researcher/navigator surfaces for depth reading |
 
 **Budget — measured on a mid-range Android over 3G, and treated as a build target, not an aspiration:**
 
@@ -331,18 +429,21 @@ The map carries seven layer types over a 720×720 GEBCO grid, EEZ/MPA polygons w
 | Payload per layer, over the wire | ≤ 300 KB gzipped |
 | Initial map interactive | ≤ 2.5 s |
 | Layer toggle → painted | ≤ 400 ms |
+| Sustained frame rate while panning, default layer set | ≥ 45 fps |
 | Concurrent heavy layers (raster/heatmap), mobile | **2** |
 | Concurrent heavy layers, desktop | 4 |
 
-**Raster and gridded fields (SST, chlorophyll, bathymetry, wave height).** Served as XYZ tiles, never as a whole grid pushed to the browser. The backend pre-renders the pilot-region grids to a tile pyramid at build time (zoom 5–11) and serves them statically; `L.tileLayer` handles viewport-and-zoom fetching for free. Where a source already publishes WMS (MOSDAC, Copernicus), proxy the WMS rather than re-tiling it. **Never** ship a 720×720 NetCDF slice to the client.
+**Raster and gridded fields (SST, chlorophyll, bathymetry, wave height).** Served as XYZ tiles, never as a whole grid pushed to the browser. The backend pre-renders the pilot-region grids to a tile pyramid at build time (zoom 5–11) and serves them statically; MapLibre's `raster` source handles viewport-and-zoom fetching for free. Where a source already publishes WMS (MOSDAC, Copernicus), proxy the WMS rather than re-tiling it. **Never** ship a 720×720 NetCDF slice to the client.
 
 **Vector layers (EEZ, IMBL, MPA, districts).** Pre-simplified per zoom band with Douglas–Peucker at generation time — tolerance ~0.01° for z≤7, ~0.002° for z8–10, full precision z≥11 — and coordinates truncated to 5 decimals (~1 m, well past what any of these decisions need). Simplification happens in the pipeline, not in the browser. **One carve-out, and it is load-bearing: geofence containment tests always run server-side against full-precision geometry in Agent 6.** The simplified polygon is a *drawing* of the boundary; it is never the thing we test a breach against. A simplified IMBL that shifts 200 m is a rendering artifact — treating it as truth would be a legal incident.
 
-**Layer lifecycle.** Layers mount on demand and unmount when deselected or scrolled out of the viewport; nothing stays resident "in case". Default-on sets are per persona (fisherman: hazards + PFZ + position; researcher: whatever they pick), and requesting a third heavy layer on mobile evicts the least-recently-used one with a visible notice rather than silently degrading the frame rate.
+**Layer lifecycle.** One map instance per surface, mounted once; layers are added to and removed from it, never by remounting the map. GeoJSON layers update through `source.setData()` rather than teardown-and-recreate — that is what keeps a toggle inside the 400 ms budget. Layers mount on demand and unmount when deselected or scrolled out of the viewport; nothing stays resident "in case". Default-on sets are per persona (fisherman: hazards + PFZ + position; researcher: whatever they pick), and requesting a third heavy layer on mobile evicts the least-recently-used one with a visible notice rather than silently degrading the frame rate.
 
-**Instrumentation.** `layer_load_ms`, `render_ms` and `payload_bytes` per layer, logged to the console in dev and to the existing OTel stream in staging. Engineering visibility only — this is a budget check, not an observability platform.
+**WebGL fallback — stated because the fisherman's phone is the one that fails.** If `maplibregl.supported()` returns false (no WebGL, blocklisted driver, GPU-less device), the map area renders a static tile snapshot of the region plus the full textual verdict, hazard list and distance/bearing readouts. **A missing map is never a missing answer** — every spatial fact the map shows is also stated in text on the same card, which is the §4.11 severity rule applied to geometry.
 
-**Owner:** S5, with the tiling job in the Phase 2 data pipeline. **Lands:** Phase 2 (tiles + simplification), Phase 4 (budget verification on a real device).
+**Instrumentation.** `layer_load_ms`, `render_ms`, `payload_bytes` and dropped-frame count per layer, logged to the console in dev and to the existing OTel stream in staging. Engineering visibility only — this is a budget check, not an observability platform.
+
+**Owner:** S5, with the tiling job in the Phase 2 data pipeline. **Lands:** Phase 1 (MapLibre shell + vector layers), Phase 2 (tiles + simplification + lifecycle), Phase 4 (budget verification on a real device).
 
 ### 4.8 Forecast time slider — how it actually works
 
@@ -470,11 +571,14 @@ orca/
 ├── frontend/                # Next.js (App Router)
 │   ├── app/                 # one directory per §4.2 route
 │   ├── components/
-│   │   ├── map/             # Leaflet layers, controls, time slider
-│   │   ├── reasoning/       # activity strip, DAG explorer
+│   │   ├── ui/              # design system primitives (§4.1) — the only place tokens are consumed
+│   │   ├── map/             # MapLibre shell, layer registry, controls, time slider
+│   │   ├── charts/          # Recharts wrappers — series, bands, confidence meters
+│   │   ├── reasoning/       # activity strip, React Flow DAG, node inspector drawer
 │   │   ├── persona/         # selector, correction control, visibility matrix
 │   │   └── evidence/        # provenance popovers, citation chips
-│   └── lib/                 # SSE client, typed API contracts
+│   ├── app/design/          # every primitive in every state — the UI consistency check (§8)
+│   └── lib/                 # SSE client, typed API contracts, prefers-reduced-motion hook
 ├── data/                    # gitignored — already present on every machine, kept in sync out-of-band
 ├── scripts/                 # existing procurement + new sync tooling
 ├── docs/                    # architecture, requirements, this plan
@@ -714,9 +818,9 @@ persona_visibility [], source_provenance [], result_refs []         # back to Ag
 ```
 
 **Layer types — unchanged from Architecture §11.1:** PointMarker · Polygon · Polyline · Heatmap · Raster (tiled/WMS) · Distress marker (non-dismissible) · Sentinel watch indicator.
-**Chart types — unchanged from §11.2:** TimeSeries · BarChart · RadarChart · WindRose.
+**Chart types — unchanged from §11.2:** TimeSeries · BarChart · RadarChart · WindRose. Each maps to a Recharts component (`AreaChart`/`LineChart`, `BarChart`, `RadarChart`, and a `RadialBarChart` for the wind rose), so a `ChartSpec` is data plus bounds plus a colour ramp key — never markup, and never a rendering decision made in the backend.
 
-**Validation is mandatory, not advisory.** `validate_payload` runs on everything before it leaves the backend: geometry structurally valid and correctly wound, coordinates within the declared bounds and inside plausible India-region ranges, `layer_type` in the enum, timestamps tz-aware and monotonic, feature count within the §4.7 budget (over budget → simplify or tile, never ship), `source_provenance` non-empty. A payload that fails validation is dropped with a logged error and a degraded response — a malformed GeoJSON that crashes Leaflet during a demo is a failure we can prevent in the backend.
+**Validation is mandatory, not advisory.** `validate_payload` runs on everything before it leaves the backend: geometry structurally valid and correctly wound, coordinates within the declared bounds and inside plausible India-region ranges, `layer_type` in the enum, timestamps tz-aware and monotonic, feature count within the §4.7 budget (over budget → simplify or tile, never ship), `source_provenance` non-empty. A payload that fails validation is dropped with a logged error and a degraded response — a malformed GeoJSON that blanks the MapLibre canvas during a demo is a failure we can prevent in the backend.
 
 **Provenance:** every layer and chart carries `source_provenance` and `result_refs` pointing back to the `AgentResult` (and thus the `query_id`) it was built from. That is what lets a click on a rendered feature open the provenance popover (differentiator 3) without a second query.
 
@@ -737,10 +841,26 @@ persona_visibility [], source_provenance [], result_refs []         # back to Ag
 - LLM provider abstraction (§3.1) with two providers registered
 - CI: lint, typecheck, test, the vendor-SDK-import guard, the persona-leak guard (§5.4) and a **secret scan** (§5.5)
 - Endpoint liveness sweep (§1.2)
-- Next.js app skeleton with the §4.2 nav shell rendering (dead links are fine), built on the §4.11 accessibility baseline from the first component
+- **Reproducible local envs — Day 1, first task, S1.** `pip install -r backend/requirements.txt` into a clean venv and `npm ci` in `frontend/`. Both trees are currently installed *partially* on at least one machine (backend venv has no `pandas`, so six test modules fail at import; `frontend/node_modules` predates the current `package.json`), which means "it passes in CI" and "it runs here" are already two different claims. Phase 0's whole point is that they stop being
+- **Frontend stack port (§4.1) — S5 + S6, Day 1, before anyone adds a layer.** Install MapLibre + `@vis.gl/react-map-gl`, Recharts, React Flow, lucide-react, Framer Motion; remove Leaflet, `react-leaflet` and `@types/leaflet`; **then port `MapView.tsx`'s existing layers** per the §4.1 table — GeoJSON style function → data-driven paint expression, `CircleMarker`s → one circle layer, `bindPopup` HTML → `<Popup>`. This is a port with a working before-state, so it is checked by behaviour, not by the diff: the five backend routes it calls must return the same picture afterwards
+- **Design system v0 (§4.1) — S6, Days 1–2, ahead of the surfaces.** Invert `globals.css` to the dark-first ocean base, add glass / confidence / focus tokens, drop the `-bg` half of the safety triad and rename `danger` → `no-go` **together with its three call sites** (§4.1); keep `Card`/`Badge`/`Field`/`SourceChip`, add the nine missing primitives, all keyboard-operable and labelled from the first commit
+- **`/design` route + `axe-core` in CI — S6, Day 2.** The route does not exist today. It renders every primitive in every state, and the frontend CI job gains an `axe-core` step that fails the build on a violation — an accessibility baseline nobody runs is not a baseline (§4.11)
+- Next.js app skeleton with the §4.2 nav shell rendering (dead links are fine) — **already true**, ten routes and the persona visibility matrix are in place; Phase 0 only re-bases them on the new tokens and primitives
 - **Assign the Cyclone Gaja procurement task to S3** (§1.3) — small, and it must not be discovered in Week 4
 
-**Exit criteria:** `docker compose up` works on all 6 machines · `migrate.sh` produces the full schema from empty on all 6 · CI green on an empty test · a mock `/query` SSE stream renders in the browser.
+**Exit criteria** — each one is a command someone runs, not a judgement call:
+
+| # | Criterion | Check |
+|---|---|---|
+| 1 | Compose stack up on all 6 machines | `docker compose up -d` then `pg_isready` and `redis-cli ping` |
+| 2 | Schema applies from empty on all 6 | `infra/db/migrate.sh` against a fresh volume; every §5.3 table present |
+| 3 | Envs reproducible, tests actually collect | `pytest -q` collects 0 errors locally *and* in CI; `npm ci && npm run build` clean |
+| 4 | CI green with all four guards firing | vendor-SDK, persona-leak, secret-scan, plus the new `axe-core` step |
+| 5 | Mock `/query` SSE renders in the browser | `/` streams tokens from `backend/orca/api/main.py`'s `text/event-stream` route |
+| 6 | Leaflet gone | `grep -ri leaflet frontend/app frontend/package.json` returns nothing |
+| 7 | MapLibre basemap on the pilot region | `/map` renders CARTO Dark Matter bounded to 77.5–80.5 E / 7.5–10.5 N |
+| 8 | **The ported layers still work** | EEZ/MPA polygons, PFZ points and click→depth/bearing behave as they did on Leaflet — the port loses no capability |
+| 9 | Design system is real | `/design` renders every primitive, `axe-core` clean, and `grep -rE "#[0-9a-fA-F]{6}" frontend/app --include=*.tsx` returns nothing (raw hex lives in `globals.css` only) |
 
 ---
 
@@ -757,7 +877,7 @@ Full detail and per-person assignment: **[`ORCA_Phase1_Plan.md`](./ORCA_Phase1_P
 - Agent 1 (Language) — Tamil + Hindi ingress/egress
 - LangGraph skeleton: Planning → [WIA ∥ GRA] → RAA → Reporting
 - Agent 8 (Visualization) — point and polygon layers with `validate_payload` (§5.9)
-- Frontend: nav shell, persona system, Ask + Safety surfaces, Leaflet map, streaming verdict card
+- Frontend: nav shell, persona system, Ask + Safety surfaces, **MapLibre map shell with vector hazard/PFZ/boundary layers** (§4.7), streaming verdict card, **live agent activity strip** (differentiator 1) — all built from the Phase 0 primitives, none re-invented per slice
 - **End-to-end fixture test skeleton (§5.8)** — stood up the day the graph first runs end-to-end, not later
 
 **Exit criteria:** the Tamil safety query returns a correct verdict end-to-end · the same query in Hindi and English works · SOS surfaces MRCC contact in under 2 seconds · every displayed number carries a source · the trace is captured (rendering it is Phase 3) · **the E2E fixture test passes in CI with no network access**.
@@ -778,7 +898,7 @@ Full detail and per-person assignment: **[`ORCA_Phase1_Plan.md`](./ORCA_Phase1_P
 - **Error handling (§5.7)** — timeouts, fallback cascade, arrival validation, agent exception boundary, degraded-response rendering. Built here, verified in Phase 4
 - **Map performance (§4.7)** — raster tile pyramid for the pilot region, per-zoom polygon simplification, layer lifecycle
 - **Forecast time slider (§4.8)** — `forecast_frames` payload over the 56 WW3 steps, no agent re-invocation
-- Agent 8: heatmap, raster, chart specs (§5.9)
+- Agent 8: heatmap, raster, chart specs (§5.9) — rendered through the shared Recharts wrappers, not per-surface chart code
 - Frontend: Map explorer with real layers, Fishing Zones, Trends, Data surfaces; **provenance popovers** (differentiator 3); **source-selection narration** (differentiator 4)
 - Redis caching with source-cadence-aware TTLs (§9.1, §9.11)
 - **LLM provider bake-off** (§3.3) — now that Agents 5 and 9 have real prompts to score against
@@ -800,12 +920,14 @@ Full detail and per-person assignment: **[`ORCA_Phase1_Plan.md`](./ORCA_Phase1_P
 - **Voice pipeline** — Bhashini ASR/TTS with local Whisper fallback, wired for the fisherman surface
 - Full language coverage across all named coastal languages
 - All four personas complete + persona-correction control (differentiator 7)
-- **Reasoning graph explorer** (differentiator 2) + Sentinel watch badges (differentiator 6)
+- **Reasoning graph explorer** (differentiator 2) — the full React Flow DAG of §4.4: per-agent reasoning summaries on the node face, confidence and execution state encoded in border/fill *and* text, parallel fan-out drawn as a group box, Critic loops and early-exit cancellations drawn as real edges, node click opening the `AgentResult` inspector, and the same component replaying any historical `query_id`. This is the screen the demo is judged on — it gets a whole slice-week, not an afternoon
+- Sentinel watch badges rendered live on the map (differentiator 6)
+- ⏸️ **deck.gl wind/current flow overlay (§4.1) — only if Phase 3 is ahead of schedule.** It is an overlay on a working map, so cutting it costs nothing; starting it before the reasoning graph is done would be the wrong trade
 - **Voyage planner: the constraint-aware corridor route** (§4.6) — the committed design, not a fallback. A* is explicitly out of scope
 - District Ops surface: threat matrix, CAP payload, broadcast composer — with the §5.5 aggregation rules (counts per sector, never plottable individual vessels)
 - **Accessibility audit against WCAG 2.1 AA (§4.11)** — keyboard-only and screen-reader passes over the six named flows, `axe-core` clean in CI. The baseline was built in from Phase 1; this week is where it gets *tested*
 
-**Exit criteria:** a Tamil voice query works end-to-end · Sentinel fires a real threshold-crossing alert to a registered subscriber · persona correction re-renders with zero re-query · the reasoning graph renders a real multi-agent trace · all six flows complete keyboard-only with a screen reader · a flagged advisory resolves to its full agent trace by `query_id`.
+**Exit criteria:** a Tamil voice query works end-to-end · Sentinel fires a real threshold-crossing alert to a registered subscriber · persona correction re-renders with zero re-query · the reasoning graph renders a real multi-agent trace **including one parallel fan-out and one Critic loop, with every node stating that agent's reasoning and its sources** · all six flows complete keyboard-only with a screen reader · a flagged advisory resolves to its full agent trace by `query_id`.
 
 ---
 
@@ -817,7 +939,7 @@ Full detail and per-person assignment: **[`ORCA_Phase1_Plan.md`](./ORCA_Phase1_P
 - Progressive/streaming rendering polish (§9.19) — safety badge populates **last**, never as an optimistic placeholder
 - **Cyclone Gaja historical replay mode** — makes hazard alerting demonstrable outside cyclone season. 🔗 **Conditional on the §1.3 data landing in Phase 2.** Every frame banners its provenance class (`HISTORICAL OBSERVED` / `LIVE` / `SIMULATED`). If the data does not arrive, the replay is cut and labelled deferred in the demo script — it is not reconstructed from invented values
 - **Circuit breakers, only where Phase 2 measurement justified one** (§5.7 item 8) — not on speculation
-- **Map performance budget verified on a real mid-range Android over 3G** (§4.7), not on a developer laptop
+- **Map performance budget verified on a real mid-range Android over 3G** (§4.7), not on a developer laptop — including the WebGL-unavailable fallback path
 - **Visible Critic self-correction** (differentiator 5)
 - Failure-mode rehearsal: kill each upstream source and confirm the degraded-response contract (§12.2) actually fires, including forced-amber on all-sources-down
 - Demo script: one query per persona, plus distress handoff and proactive geofence as the two centerpiece flows
@@ -844,9 +966,9 @@ This beats a backend/frontend split for us for one concrete reason: **the person
 | **S1** | **Platform & Orchestration** *(lead)* | 2 Planning | `/reasoning`, agent activity strip | Contracts, LangGraph, LLM provider layer, FastAPI + SSE, trace pipeline, CI, **deployment** |
 | **S2** | **Safety & Distress** | 7 Risk · 12 Distress | `/safety`, persistent SOS control | Safety palette + verdict-badge component |
 | **S3** | **Weather & Sentinel** | 4 Weather · 11 Sentinel | Hazard panels, `/watches` | The `orca/data/` loader layer |
-| **S4** | **Ocean & Discovery** | 5 Ocean Analytics · 3 Data Discovery | `/zones`, `/trends`, `/data` | Chart components + provenance popover |
-| **S5** | **Geospatial & Visualization** | 6 Geospatial · 8 Visualization | `/map`, `/voyage` | The Leaflet map shell everyone adds layers to |
-| **S6** | **Synthesis, Language & Personas** | 9 Reporting · 10 Critic · 1 User Interaction | `/` (Ask), persona system, nav IA, `/ops` | Design system + component library |
+| **S4** | **Ocean & Discovery** | 5 Ocean Analytics · 3 Data Discovery | `/zones`, `/trends`, `/data` | Recharts chart wrappers + provenance popover |
+| **S5** | **Geospatial & Visualization** | 6 Geospatial · 8 Visualization | `/map`, `/voyage` | The MapLibre map shell + layer registry everyone adds layers to |
+| **S6** | **Synthesis, Language & Personas** | 9 Reporting · 10 Critic · 1 User Interaction | `/` (Ask), persona system, nav IA, `/ops` | Design system, theme tokens, `/design` route, motion + a11y baseline |
 
 Twelve agents, six people, two each — except S1, which carries one agent but all of the platform, and S6, which carries three tightly-coupled ones. **S6's three are genuinely one concern:** Reporting synthesises, Critic validates what Reporting wrote, and User Interaction translates it out. That whole chain is "how the answer reaches a human", and splitting it across people would put a handoff in the middle of a feedback loop.
 
@@ -891,7 +1013,9 @@ Read **Phase 0–4** as the calendar and **S1–S6** as the people (§7) — the
 | Causal/diagnostic "why" reasoning | Ph2 → Ph4 with Critic | S4, S6 |
 | Deterministic confidence tiering | Ph1 | S2 |
 | Evidence citation on every claim | Ph1 backend → Ph2 UI popovers | S6 backend, S4 popover |
-| Interactive maps + charts | Ph1 base → Ph2 layers → Ph4 replay | S5, S4 |
+| Interactive maps + charts | Ph0 MapLibre shell → Ph1 vector layers → Ph2 raster/charts → Ph4 replay | S5, S4 |
+| **Frontend stack + design system** (§4.1) | **Ph0** — swap and tokens before surfaces | S6, S5 |
+| **Reasoning graph UI** (§4.4) | Ph1 activity strip → **Ph3 full DAG** | S1 |
 | Reasoning-trace, persona-differentiated | Ph1 capture → Ph3 render | S1 |
 | Proactive hazard alerting (simulated dispatch) | Ph3 (Sentinel) | S3 |
 | Geofencing as hard constraint | Ph1 | S5 |
@@ -933,6 +1057,10 @@ Read **Phase 0–4** as the calendar and **S1–S6** as the people (§7) — the
 | Live endpoint dies during demo | Medium | High | Every source already has a cached local fallback. Rehearse the air-gapped path in Phase 4 and be ready to demo fully offline |
 | Integration debt surfaces in Week 4 | Medium | High | Weekly Friday merge checkpoints; no branch older than 5 days |
 | UI polish crowds out the agentic differentiators | Medium | Medium | §4.5 priority order is explicit: differentiators 3, 4, 5, 7 beat visual polish |
+| The map stack port slips past Phase 0 and more layers get written against Leaflet | Medium | **High** — a Week-3 rewrite of every layer | §4.1 makes it a Day-1 task with two Phase 0 exit criteria: `grep -ri leaflet frontend/app` empty **and** the ported layers still behaving. `MapView.tsx` is already 163 lines of real layers, so the cost is a half-day now and grows with every layer added before it lands — no new layer goes in first |
+| The port silently drops a capability (a popup, the proximity styling, the depth read) | Medium | Medium — a Phase 1 bug blamed on the backend | Exit criterion 8 checks behaviour against the five existing `/api` routes, not the diff. The Leaflet version stays in git history as the reference |
+| WebGL unavailable or GPU-blocklisted on a target Android device | Low | **High** — the fisherman sees no map at all | §4.7 fallback: static snapshot plus the full textual verdict. Every spatial fact is also stated in text, so the answer survives the map failing. Verified on a real device in Phase 4 |
+| Six new frontend dependencies add weight and churn | Medium | Low | Each is named with a job in §4.1 and nothing else is added without the same justification. deck.gl is explicitly conditional and cuttable; no state library is adopted at all |
 | Six people, one graph, merge conflicts | High | Medium | Vertical slices with disjoint files by construction (§7); agents and surfaces are separate modules |
 | Vertical slices produce six inconsistent UIs | **High** | Medium | S6 owns the design system; every slice builds from its components. Friday checkpoint includes a UI consistency pass, not just a functional demo |
 | Deployment deferred, then rushed after the internal round | Medium | Medium | The Phase 0 `Dockerfile` and the clean degraded-response contract are the only two things that must exist during the month for the later deploy to be small (§5.1, §5.2) |
@@ -969,4 +1097,4 @@ Eleven scenarios. If they run clean, the product achieves what the problem state
 
 ---
 
-*Living document. Update it, dated, whenever a phase boundary or an owner changes. Last updated: 2026-09-02 — v1.1, incorporating the in-scope findings of [`verification_analysis.md`](../verification_analysis.md); change log in [`ORCA_Implementation_Updates.md`](./ORCA_Implementation_Updates.md).*
+*Living document. Update it, dated, whenever a phase boundary or an owner changes. Last updated: 2026-09-02 — v1.2, re-specifying the frontend stack, the design system and the reasoning-graph UI (§4.1, §4.4, §4.7); v1.1 incorporated the in-scope findings of [`verification_analysis.md`](../verification_analysis.md); change log in [`ORCA_Implementation_Updates.md`](./ORCA_Implementation_Updates.md).*
