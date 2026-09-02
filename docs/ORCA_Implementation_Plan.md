@@ -1,12 +1,10 @@
-# 🗺️ ORCA — Implementation Plan (v1.3)
+# 🗺️ ORCA — Implementation Plan (v1.2)
 
 > **Status:** LIVING DOCUMENT — this is the execution plan the whole team works from.
 > **Authority:** [`ORCA_Agentic_Architecture_final.md`](./ORCA_Agentic_Architecture_final.md) (v4.0) is the design authority. This document does not re-litigate design decisions; it schedules them, assigns them, and adds the layers that architecture doc left thin (repo layout, UI information architecture, provider-agnosticism, team split).
 > **Requirements source:** [`ORCA_Master_Analysis_and_Requirements.md`](./ORCA_Master_Analysis_and_Requirements.md)
 > **Data status:** [`data_verification_audit.md`](./data_verification_audit.md) — procurement complete, 98 files, 25/25 datasets, 8/8 PS queries covered.
 > **Team:** 6 people · **Duration:** 4 weeks + 2 days buffer · **Pilot region:** South Tamil Nadu (Thoothukudi–Rameswaram–Kanyakumari, Palk Bay, Gulf of Mannar)
-
-**What changed in v1.3:** Phase 0 is reconciled with the code that actually exists. Three §0 claims were stale — infrastructure is written (compose, `Dockerfile`, CI with all three guards), the frontend is further along than "scaffold", and `MapView.tsx` carries real Leaflet layers rather than none. So the §4.1 map change is restated as a **port** with a per-construct mapping table, the design-system work names the token rename and its three call sites, `/design` + `axe-core`-in-CI and a reproducible-env task are added as explicit Phase 0 items, and the exit criteria become nine runnable commands including one that checks the ported layers lose no capability. Sections touched: §0, §4.1, §6 Phase 0, §10. No backend, agent or data decision changed.
 
 **What changed in v1.2:** the frontend is re-specified. Leaflet is replaced by MapLibre GL JS, the visualisation stack (charts, agent-graph renderer, icons, motion, theme tokens) is decided rather than left to each slice, the reasoning graph is designed down to node and edge semantics, and the design system moves into Phase 0 so six vertical slices inherit one UI instead of negotiating six. Sections touched: §4.1, §4.4, §4.7, §5 layout, §5.9, §6 (all phases), §7, §9, §10. No backend, agent or data decision changed.
 
@@ -32,9 +30,9 @@ If this document and the architecture doc disagree, the architecture doc wins an
 | **Data tooling** | ✅ 5 scripts | `build_mpa_geofence.py`, `build_pfz_fallback.py`, `scrape_pfz_advisories.py`, `extract_osf_pilot.py`, `orca_grid_utils.py` |
 | **Architecture** | ✅ Committed | v4.0 — 12 agents, routing table, state schema, hand-off contract, failover, 19 optimizations |
 | **Backend** | 🟡 In progress | FastAPI app, contracts/state, LLM registry, normalization, LangGraph skeleton and 9 agent modules exist under `backend/orca/` |
-| **Frontend** | 🟡 Ahead of the plan, on the wrong stack | Next.js 16 App Router, all ten §4.2 routes present, persona context + visibility matrix, four primitives (`Card`, `Badge`, `Field`, `SourceChip`), SSE `/query` client on `/`. **`MapView.tsx` is no longer a scaffold** — 163 lines of real Leaflet layers (EEZ/MPA GeoJSON with proximity styling, PFZ markers, click→depth/bearing) against four live backend routes. The §4.1 swap is therefore a **port, not an npm command** — still Phase 0, see §4.1 |
+| **Frontend** | 🟡 Scaffold only | Next.js 16 App Router with the §4.2 routes stubbed, persona context, four primitives. Built on Leaflet — **replaced by the §4.1 stack in Phase 0, before real layers exist** |
 | **Database schema** | ✅ Defined, not yet deployed | [`infra/db/001_init.sql`](../infra/db/001_init.sql) + [`migrate.sh`](../infra/db/migrate.sh) — §5.3 |
-| **Infrastructure** | 🟡 Written, not yet proven | [`docker-compose.yml`](../docker-compose.yml) (PostGIS 16-3.4 on host `5433`, Redis 7, backend service), [`backend/Dockerfile`](../backend/Dockerfile) and [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) with the vendor-SDK, persona-leak and secret-scan guards all exist. What does not exist is evidence any of it has been run on six machines — that is Phase 0's job, §6 |
+| **Infrastructure** | ❌ None | No running Postgres/PostGIS, no Redis, no CI, no container setup |
 | **Team environments** | ✅ Data in place | All 6 engineers already have the `data/` tree locally. Credentials still to confirm — §1.1 |
 
 **The honest read:** the hard research is done and the design is unusually well-specified for a hackathon. What remains is four weeks of disciplined engineering against a spec that already exists. The main risk is not "what do we build" — it is coordination, integration, and holding the line on scope.
@@ -223,27 +221,14 @@ npm install maplibre-gl @vis.gl/react-map-gl recharts @xyflow/react lucide-react
 npm uninstall leaflet react-leaflet @types/leaflet
 ```
 
-**Migration cost, stated plainly — corrected in v1.3.** An earlier draft called `app/components/MapView.tsx` an empty scaffold. It is not: it is 163 lines carrying EEZ/MPA GeoJSON with proximity-gradient styling, PFZ circle markers, a click handler that reads GEBCO depth and bearing, and popups — all wired to `/api/map-layers`, `/api/zones-nearby`, `/api/zones`, `/api/depth`, `/api/bearing`. So the swap is a **half-day port of one file**, not the `npm install` above. What ports how:
-
-| Leaflet today | MapLibre equivalent | Note |
-|---|---|---|
-| `<MapContainer bounds>` | `<Map initialViewState={{bounds}}>` from `@vis.gl/react-map-gl/maplibre` | Still `ssr: false`; MapLibre touches `window` at module load exactly as Leaflet does |
-| OSM raster `<TileLayer>` | CARTO Dark Matter **style URL** | Style is config (`NEXT_PUBLIC_BASEMAP_STYLE`), never a literal in the component |
-| `<GeoJSON style={fn}>` | one `<Source type="geojson">` + `<Layer>` with a `case` paint expression on `properties.designation` / the near-set | The per-feature JS style function becomes a data-driven expression — this is the only genuinely new idea in the port, and it is what buys the 60 fps in §4.7 |
-| `<CircleMarker>` per PFZ point | one `circle` layer over a single FeatureCollection | N components → 1 layer |
-| `layer.bindPopup(html)` | `<Popup>` + `onClick` hit-test via `interactiveLayerIds` | Kills the raw HTML-string popups; provenance goes through `ProvenancePopover` |
-| Marker icon CDN patch (`L.Icon.Default`) | deleted | The bundler-path workaround has no MapLibre analogue — three fewer network requests |
-
-The port is still cheap *today* and expensive in Week 3, which is why it is a Day-1 task and why §4.7's budget is written against MapLibre rather than retrofitted onto it. **Nobody adds a layer to `MapView.tsx` until it has landed** — that, not the dependency list, is the thing the exit criterion protects.
+**Migration cost, stated plainly:** the existing map code is one scaffold component (`app/components/MapView.tsx`) carrying no real layers. This swap is cheap *today* and expensive in Week 3 — which is why it happens in Phase 0, and why §4.7's budget is written against MapLibre rather than retrofitted onto it.
 
 #### Design system — built once, in Phase 0
 
 S6 owns it; every other slice consumes it. Six people building six interpretations of "a card" is the predicted failure mode of vertical slicing (§7), and the defence is that the primitives exist before the surfaces do:
 
 - **Tokens** (`app/globals.css`, Tailwind v4 `@theme`): ocean surface ramp, glass elevation levels, the safety triad (`--go` / `--caution` / `--no-go`, each contrast-verified ≥4.5:1 on the dark base), confidence tiers, focus ring.
-  - **What is there now, and what it costs to change.** `globals.css` today is a **light theme** — `--background: #ffffff`, with dark handled by a `prefers-color-scheme` block — plus a safety triad named `--color-safety-{go,caution,danger}-{text,bg}` and *no* ocean ramp, glass, confidence or focus tokens. §4.1's direction is dark-*first*, so this is an inversion, not an extension: the dark values become the base and the light block goes away. The triad also loses its `-bg` half (badges become glass over the dark base, not light fills) and `danger` renames to `no-go` to match the verdict vocabulary the API already emits. **Three files consume the old names** — `Badge.tsx`, `SourceChip.tsx`, `MapView.tsx` — so the rename is a same-commit job with them, and `grep -r "color-safety-.*-bg" frontend/app` returning nothing is how it is checked. Do it before the surfaces multiply the call sites.
 - **Primitives:** `Panel` (glass), `Card`, `VerdictBadge` (S2 owns its safety semantics), `SourceChip`, `ProvenancePopover`, `ConfidenceMeter`, `AgentPill`, `LayerToggle`, `TimeSlider`, `Skeleton`, `EmptyState`, `ErrorState`.
-  - **Four exist** (`Card`, `Badge`, `Field`, `SourceChip`) and are kept, not rewritten: `Badge` becomes the base `VerdictBadge` wraps, `Field` stays as the form primitive the list above forgot to name. **Nine are new.** `lucide-react` icons and `framer-motion` transitions enter *through* these primitives — a surface importing either directly is a review rejection, same rule as raw hex.
 - **Every primitive ships keyboard-operable and labelled** (§4.11), so accessibility is inherited rather than retrofitted six times.
 - **A `/design` route** rendering every primitive in every state. It makes the Friday UI-consistency check (§8) mechanical, and it is where the `axe-core` pass runs first.
 
@@ -841,26 +826,12 @@ persona_visibility [], source_provenance [], result_refs []         # back to Ag
 - LLM provider abstraction (§3.1) with two providers registered
 - CI: lint, typecheck, test, the vendor-SDK-import guard, the persona-leak guard (§5.4) and a **secret scan** (§5.5)
 - Endpoint liveness sweep (§1.2)
-- **Reproducible local envs — Day 1, first task, S1.** `pip install -r backend/requirements.txt` into a clean venv and `npm ci` in `frontend/`. Both trees are currently installed *partially* on at least one machine (backend venv has no `pandas`, so six test modules fail at import; `frontend/node_modules` predates the current `package.json`), which means "it passes in CI" and "it runs here" are already two different claims. Phase 0's whole point is that they stop being
-- **Frontend stack port (§4.1) — S5 + S6, Day 1, before anyone adds a layer.** Install MapLibre + `@vis.gl/react-map-gl`, Recharts, React Flow, lucide-react, Framer Motion; remove Leaflet, `react-leaflet` and `@types/leaflet`; **then port `MapView.tsx`'s existing layers** per the §4.1 table — GeoJSON style function → data-driven paint expression, `CircleMarker`s → one circle layer, `bindPopup` HTML → `<Popup>`. This is a port with a working before-state, so it is checked by behaviour, not by the diff: the five backend routes it calls must return the same picture afterwards
-- **Design system v0 (§4.1) — S6, Days 1–2, ahead of the surfaces.** Invert `globals.css` to the dark-first ocean base, add glass / confidence / focus tokens, drop the `-bg` half of the safety triad and rename `danger` → `no-go` **together with its three call sites** (§4.1); keep `Card`/`Badge`/`Field`/`SourceChip`, add the nine missing primitives, all keyboard-operable and labelled from the first commit
-- **`/design` route + `axe-core` in CI — S6, Day 2.** The route does not exist today. It renders every primitive in every state, and the frontend CI job gains an `axe-core` step that fails the build on a violation — an accessibility baseline nobody runs is not a baseline (§4.11)
-- Next.js app skeleton with the §4.2 nav shell rendering (dead links are fine) — **already true**, ten routes and the persona visibility matrix are in place; Phase 0 only re-bases them on the new tokens and primitives
+- **Frontend stack swap (§4.1) — Day 1, before any real map layer exists.** Install MapLibre + `@vis.gl/react-map-gl`, Recharts, React Flow, lucide-react, Framer Motion; remove Leaflet and `react-leaflet`. Doing this after Phase 1 means rewriting every layer someone wrote in between
+- **Design system v0 (§4.1) — S6, Days 1–2, ahead of the surfaces.** Tailwind v4 `@theme` tokens (ocean ramp, glass elevations, safety triad, confidence tiers, focus ring) plus the primitive set, all keyboard-operable and labelled from the first commit, rendered on the `/design` route
+- Next.js app skeleton with the §4.2 nav shell rendering (dead links are fine), built on the §4.11 accessibility baseline and the design-system primitives from the first component
 - **Assign the Cyclone Gaja procurement task to S3** (§1.3) — small, and it must not be discovered in Week 4
 
-**Exit criteria** — each one is a command someone runs, not a judgement call:
-
-| # | Criterion | Check |
-|---|---|---|
-| 1 | Compose stack up on all 6 machines | `docker compose up -d` then `pg_isready` and `redis-cli ping` |
-| 2 | Schema applies from empty on all 6 | `infra/db/migrate.sh` against a fresh volume; every §5.3 table present |
-| 3 | Envs reproducible, tests actually collect | `pytest -q` collects 0 errors locally *and* in CI; `npm ci && npm run build` clean |
-| 4 | CI green with all four guards firing | vendor-SDK, persona-leak, secret-scan, plus the new `axe-core` step |
-| 5 | Mock `/query` SSE renders in the browser | `/` streams tokens from `backend/orca/api/main.py`'s `text/event-stream` route |
-| 6 | Leaflet gone | `grep -ri leaflet frontend/app frontend/package.json` returns nothing |
-| 7 | MapLibre basemap on the pilot region | `/map` renders CARTO Dark Matter bounded to 77.5–80.5 E / 7.5–10.5 N |
-| 8 | **The ported layers still work** | EEZ/MPA polygons, PFZ points and click→depth/bearing behave as they did on Leaflet — the port loses no capability |
-| 9 | Design system is real | `/design` renders every primitive, `axe-core` clean, and `grep -rE "#[0-9a-fA-F]{6}" frontend/app --include=*.tsx` returns nothing (raw hex lives in `globals.css` only) |
+**Exit criteria:** `docker compose up` works on all 6 machines · `migrate.sh` produces the full schema from empty on all 6 · CI green on an empty test · a mock `/query` SSE stream renders in the browser · **`grep -r leaflet frontend/` returns nothing** · a MapLibre basemap renders centred on the pilot region · `/design` renders every primitive and passes `axe-core` clean.
 
 ---
 
@@ -1057,8 +1028,7 @@ Read **Phase 0–4** as the calendar and **S1–S6** as the people (§7) — the
 | Live endpoint dies during demo | Medium | High | Every source already has a cached local fallback. Rehearse the air-gapped path in Phase 4 and be ready to demo fully offline |
 | Integration debt surfaces in Week 4 | Medium | High | Weekly Friday merge checkpoints; no branch older than 5 days |
 | UI polish crowds out the agentic differentiators | Medium | Medium | §4.5 priority order is explicit: differentiators 3, 4, 5, 7 beat visual polish |
-| The map stack port slips past Phase 0 and more layers get written against Leaflet | Medium | **High** — a Week-3 rewrite of every layer | §4.1 makes it a Day-1 task with two Phase 0 exit criteria: `grep -ri leaflet frontend/app` empty **and** the ported layers still behaving. `MapView.tsx` is already 163 lines of real layers, so the cost is a half-day now and grows with every layer added before it lands — no new layer goes in first |
-| The port silently drops a capability (a popup, the proximity styling, the depth read) | Medium | Medium — a Phase 1 bug blamed on the backend | Exit criterion 8 checks behaviour against the five existing `/api` routes, not the diff. The Leaflet version stays in git history as the reference |
+| The map stack swap slips past Phase 0 and layers get written against Leaflet | Medium | **High** — a Week-3 rewrite of every layer | §4.1 makes it a Day-1 task with a Phase 0 exit criterion (`grep -r leaflet frontend/` empty). It is cheap only while `MapView.tsx` is still a scaffold |
 | WebGL unavailable or GPU-blocklisted on a target Android device | Low | **High** — the fisherman sees no map at all | §4.7 fallback: static snapshot plus the full textual verdict. Every spatial fact is also stated in text, so the answer survives the map failing. Verified on a real device in Phase 4 |
 | Six new frontend dependencies add weight and churn | Medium | Low | Each is named with a job in §4.1 and nothing else is added without the same justification. deck.gl is explicitly conditional and cuttable; no state library is adopted at all |
 | Six people, one graph, merge conflicts | High | Medium | Vertical slices with disjoint files by construction (§7); agents and surfaces are separate modules |
