@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    environment:
+      POSTGRES_USER: orca
+      POSTGRES_PASSWORD: orca
+      POSTGRES_DB: orca
+    ports:
+      # ponytail: 5433 on the host, not 5432 — several dev machines (this one
+      # included) already run a native Postgres service on 5432, and Docker's
+      # forwarding silently loses that conflict rather than erroring, which
+      # reads as a wrong password instead of a port clash. Inside the compose
+      # network other services still reach it at postgres:5432, unaffected.
+      - "5433:5432"
+    volumes:
+      - orca_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orca"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://orca:orca@postgres:5432/orca
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+volumes:
+  orca_pgdata:

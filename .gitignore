@@ -1,5 +1,5 @@
 # Large Data & Satellite Models (18+ GB)
-data/
+/data/
 *.nc
 *.h5
 *.zip

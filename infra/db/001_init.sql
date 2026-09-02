@@ -97,6 +97,10 @@ CREATE INDEX conversation_turns_query_idx   ON conversation_turns (query_id);
 -- One row per agent execution. This is the compliance record AND the source of the
 -- reasoning-graph UI — one pipeline, two views (plan §4.4).
 -- ---------------------------------------------------------------------------
+-- NOTE: Postgres enums cannot contain hyphens. The architecture doc writes
+-- "LOW-DATA" for readability, but the canonical form everywhere in code is
+-- LOW_DATA (underscore). Python Literals, Pydantic models, and AgentResult
+-- must use 'LOW_DATA' to match this enum. Do not introduce 'LOW-DATA' anywhere.
 CREATE TYPE confidence_tier  AS ENUM ('HIGH', 'MEDIUM', 'LOW_DATA');
 CREATE TYPE execution_status AS ENUM ('ok', 'degraded', 'failed', 'skipped', 'cancelled');
 

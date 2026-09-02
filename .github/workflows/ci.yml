@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: ruff check .
+      - run: mypy orca
+      - run: pytest -q
+
+      # plan §3.1 — no file under orca/agents/ may import a vendor SDK.
+      - name: vendor-SDK-import guard
+        run: |
+          if [ -d orca/agents ] && grep -rlE "^\s*(import|from)\s+(anthropic|openai|google\.generativeai)" orca/agents/; then
+            echo "::error::vendor SDK imported under orca/agents/ — route it through orca/llm/ instead"
+            exit 1
+          fi
+
+      # plan §5.4 — persona must never reach a specialist agent or an intent
+      # classifier. Agents 1 (ingress/egress) and 9 (Reporting) are the only
+      # ones allowed to reference it.
+      - name: persona-leak guard
+        run: |
+          if [ -d orca/agents ] && grep -rl "persona" orca/agents/ | grep -vE "(agent_1|agent_9|user_interaction|reporting)"; then
+            echo "::error::persona referenced outside Agents 1/9 — this is the v1.0 routing bug (plan Ground Rule 1)"
+            exit 1
+          fi
+
+      # plan §5.5 — .env.example must stay zero-valued; no real secret ever committed.
+      - name: secret scan
+        run: |
+          if grep -E "=[A-Za-z0-9_\-]{12,}" ../.env.example; then
+            echo "::error::.env.example must stay zero-valued"
+            exit 1
+          fi
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build

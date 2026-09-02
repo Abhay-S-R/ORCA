@@ -1,0 +1,17 @@
+# Backend runtime deps. Data-processing libs (xarray, geopandas, etc.) live in
+# the repo-root requirements.txt for the procurement scripts — this is the API
+# service only, kept separate so the container stays small.
+
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.9
+python-dotenv>=1.0
+
+# LLM providers registered in orca/llm/registry.py (plan §3.1)
+anthropic>=0.40
+google-generativeai>=0.8
+
+# dev / CI only
+pytest>=8.3
+ruff>=0.7
+mypy>=1.13

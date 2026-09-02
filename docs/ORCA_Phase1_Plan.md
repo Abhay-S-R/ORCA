@@ -2,6 +2,8 @@
 
 > **Parent plan:** [`ORCA_Implementation_Plan.md`](./ORCA_Implementation_Plan.md) · **Design authority:** [`ORCA_Agentic_Architecture_final.md`](./ORCA_Agentic_Architecture_final.md)
 > **Duration:** 5 working days · **Team:** 6, all full-stack · **Precondition:** Phase 0 is closed (`.env` filled from `.env.example`, repo scaffold, infra, Dockerfile, contract freeze). `data/` is already present on every machine.
+>
+> **⚠️ Pre-Phase-1 action (S6):** Download IndicTrans2 weights and quantized Whisper model to the demo machine **before Day 3**. These are multi-GB downloads and will eat hours on a slow connection. The local translation/STT path is the Phase 1 primary (Bhashini access is still pending), so these models must be warm, not fetched mid-sprint.
 
 ---
 
@@ -47,6 +49,8 @@ Both land by **10:00 on Day 3**. Nothing else meaningful starts until they are o
 
 **Freeze the *full* `ORCAState` from Architecture §5, not a Phase-1 subset.** Fields we do not use this week simply stay unset. A subset now guarantees a painful widening later, and widening a TypedDict that six branches import is exactly the churn we are trying to avoid.
 
+**The snippet below is illustrative — it shows the `AgentResult` envelope shape, not the complete contract.** The actual `contracts.py` on Day 3 must include the full `ORCAState` TypedDict from Architecture §5 (all ~25 fields, including `critic_pass`, `distress_flag`, `sentinel_subscription`, `early_exit_triggered`, etc.) and the supporting types below.
+
 ```python
 # backend/orca/contracts.py  — frozen Day 3
 
@@ -58,7 +62,7 @@ class SourceProvenance:
 
 @dataclass(frozen=True)
 class Confidence:
-    score: Literal["HIGH", "MEDIUM", "LOW-DATA"]
+    score: Literal["HIGH", "MEDIUM", "LOW_DATA"]   # underscore, not hyphen — matches the DB enum
     rationale: str
 
 @dataclass(frozen=True)
