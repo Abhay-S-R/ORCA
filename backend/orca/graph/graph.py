@@ -108,7 +108,13 @@ def planning_node(state: ORCAState) -> dict:
 def weather_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("weather_intelligence", weather_intelligence.run, state)
     return {
-        "weather_data": result.outputs,
+        # Same shape the geospatial node stores: Agent 7's compute_confidence
+        # reads weather_data["confidence"], so dropping it here meant a cached
+        # or degraded weather feed could never degrade the verdict tier.
+        # An empty outputs dict means the agent failed, and downstream code
+        # tests weather_data for truthiness — so don't make it truthy with a
+        # lone confidence key.
+        "weather_data": {**result.outputs, "confidence": result.confidence} if result.outputs else {},
         "audit_trace_log": [entry],
         "completed_nodes": ["weather_intelligence"],
     }
@@ -142,7 +148,9 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         },
         source_provenance=SourceProvenance(
             dataset="Marine Regions VLIZ EEZ + UNEP-WCMC WDPA",
-            acquisition_timestamp="",  # static reference data — no live fetch timestamp
+            # Static reference data, but not undated: this is when the VLIZ /
+            # WDPA files were acquired (criterion 4 covers the IMBL distance).
+            acquisition_timestamp=geospatial.boundary_data_vintage(),
             freshness_minutes=0,
         ),
         # Real geometry, not a stub — but geodesic distance to a coarse
@@ -193,10 +201,11 @@ def reporting_run(state: ORCAState) -> AgentResult:
             agent_name="weather_intelligence", query_id=query_id, reasoning_depth=depth,
             inputs_consumed={}, outputs={"lightning_active": weather.get("lightning_active"), "cyclone_alert": weather.get("cyclone_alert")},
             source_provenance=SourceProvenance(
-                dataset="Open-Meteo Marine API + Forecast API",
-                acquisition_timestamp=weather.get("acquisition_timestamp", ""), freshness_minutes=0,
+                dataset=weather.get("dataset", "Open-Meteo Marine API + Forecast API"),
+                acquisition_timestamp=weather.get("acquisition_timestamp", ""),
+                freshness_minutes=weather.get("freshness_minutes", 0),
             ),
-            confidence=Confidence(score="HIGH", rationale="see weather_intelligence trace entry"),
+            confidence=weather.get("confidence") or Confidence(score="HIGH", rationale="see weather_intelligence trace entry"),
         ))
 
     geo = state.get("geospatial_data") or {}
@@ -207,7 +216,9 @@ def reporting_run(state: ORCAState) -> AgentResult:
             inputs_consumed={}, outputs={"imbl_distance_nm": geo.get("imbl_distance_nm"), "mpa_violation": geo.get("mpa_violation")},
             source_provenance=SourceProvenance(
                 dataset=geo.get("dataset", "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA"),
-                acquisition_timestamp="", freshness_minutes=0,
+                # Same vintage the geospatial node cites — the boundary files'
+                # own acquisition date, not a blank (criterion 4).
+                acquisition_timestamp=geospatial.boundary_data_vintage(), freshness_minutes=0,
             ),
             confidence=geo_confidence,
         ))

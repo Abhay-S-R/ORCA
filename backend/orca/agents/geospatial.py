@@ -101,6 +101,36 @@ def _load_geojson_features(path: Path, source_label: str) -> list[BoundaryFeatur
 
 
 @lru_cache(maxsize=1)
+def boundary_data_vintage() -> str:
+    """When the boundary set was acquired, read from the files themselves.
+
+    Static reference data still has an acquisition timestamp — the VLIZ WFS
+    response carries its own `timeStamp`, and the audited MPA set carries
+    `generated_at`. Exit criterion 4 ("every number on screen carries dataset
+    + timestamp") applies to the IMBL distance too, so this is what that
+    number cites. The OLDEST of the sources wins: a boundary set is only as
+    fresh as its stalest member.
+    """
+    stamps: list[str] = []
+    for name, key in (
+        ("india_eez_polygon.geojson", "timeStamp"),
+        ("srilanka_eez_polygon.geojson", "timeStamp"),
+        ("mpa_geofence_provenance.json", "generated_at"),
+    ):
+        path = BOUNDARIES_DIR / name
+        if not path.exists():
+            continue
+        value = json.loads(path.read_text(encoding="utf-8")).get(key)
+        if value:
+            stamps.append(str(value))
+    if not stamps:
+        return ""
+    # ISO-8601 UTC sorts lexicographically; normalise the millisecond form so
+    # "…15.288Z" and "…27Z" compare on the same axis.
+    return min(stamps, key=lambda t: t.replace("Z", "").split(".")[0])
+
+
+@lru_cache(maxsize=1)
 def load_boundaries() -> tuple[BoundaryFeature, ...]:
     features: list[BoundaryFeature] = []
     features += _load_geojson_features(BOUNDARIES_DIR / "india_eez_polygon.geojson", "India EEZ")

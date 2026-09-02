@@ -411,6 +411,11 @@ def run(state: ORCAState) -> AgentResult:
         # weather_data. Duplicated here at the top level so Agent 7 can
         # actually reach it instead of silently getting "".
         "acquisition_timestamp": weather["source_provenance"].acquisition_timestamp,
+        # Same reason: the reporting agent cites weather_data, and hardcoding a
+        # live dataset name with freshness 0 there described a 5-day-old cached
+        # snapshot as a live fetch.
+        "dataset": weather["source_provenance"].dataset,
+        "freshness_minutes": weather["source_provenance"].freshness_minutes,
     }
     # Conservative composite: if any input degraded, the whole result did.
     tiers = ["HIGH", "MEDIUM", "LOW_DATA"]

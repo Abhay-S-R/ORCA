@@ -241,3 +241,29 @@ def test_real_tamil_safety_query_end_to_end(monkeypatch):
     # Real Tamil script came back, not an untranslated passthrough.
     assert any(0x0B80 <= ord(ch) <= 0x0BFF for ch in result["final_vernacular_response"])
     assert result["final_vernacular_response"] != result["final_english_response"]
+
+
+def test_network_cut_returns_a_verdict_forced_to_low_data(monkeypatch):
+    # Plan §8 hardening check 2. The autouse offline_only fixture is the
+    # network cut, so every weather tool takes its cached-fixture fallback
+    # with no mocking beyond turning the block into the connection error a
+    # real cut raises. A verdict must still come back, the tier must be
+    # forced to LOW-DATA, and the citation must admit the data is cached and
+    # stale rather than describing it as a live fetch.
+    def cut(*a, **kw):
+        raise httpx.ConnectError("network cut")
+
+    monkeypatch.setattr(httpx, "get", cut)
+    monkeypatch.setattr(wia, "_fetch_open_meteo", cut)
+
+    graph = build_graph()
+    result = graph.invoke(_base_state("is it safe to go to sea"))
+
+    assert result["risk_assessment"]["go_no_go"] in {"GO", "CAUTION", "NO_GO"}
+    assert result["confidence_tier"] == "LOW_DATA"
+
+    weather_citation = next(
+        c for c in result["evidence_citations"] if "Open-Meteo" in c["dataset"]
+    )
+    assert "cached" in weather_citation["dataset"]
+    assert weather_citation["freshness_minutes"] > 0

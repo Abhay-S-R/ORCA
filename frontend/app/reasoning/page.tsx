@@ -1,11 +1,16 @@
+import { Workflow } from "lucide-react";
+import { Planned } from "../components/Planned";
+
+// Reasoning (§4.4) — the agent DAG. The renderer is chosen (React Flow) and
+// installed, but node and edge semantics come from real trace data, and the
+// trace stream that carries it is Phase 2.
 export default function ReasoningPage() {
   return (
-    <div>
-      <h1 className="text-xl font-semibold">Reasoning</h1>
-      <p className="mt-2 text-sm text-black/50">
-        Scaffolded in Phase 0 (plan §4.2 nav shell). Content lands per the slice
-        owner assigned in §7.
-      </p>
-    </div>
+    <Planned
+      icon={<Workflow className="size-6" />}
+      title="Reasoning"
+      lede="The full agent graph behind an answer: which agents ran, what each one read, and where a result came from."
+      needs="The graph is drawn from real execution traces. Until the trace stream lands in Phase 2, a diagram here would show a shape ORCA never actually ran."
+    />
   );
 }

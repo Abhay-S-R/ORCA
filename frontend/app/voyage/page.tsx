@@ -1,19 +1,16 @@
-import { Card } from "../components/Card";
+import { Navigation } from "lucide-react";
+import { Planned } from "../components/Planned";
 
-// Voyage (§4.2 `/voyage`): route planner, waypoints, ETA. Voyage routing —
-// the constraint-aware corridor — is explicitly out of scope entirely for
-// Phase 1-2 (parent plan §7: "Voyage routing | Phase 3 | A* is out of scope
-// entirely"). Honest stub, not a fake route.
+// Voyage (§4.2 `/voyage`) — the constraint-aware corridor. Explicitly out of
+// scope before Phase 3 (§7: "Voyage routing | Phase 3 | A* is out of scope
+// entirely"), so this is an honest stub rather than a drawn route.
 export default function VoyagePage() {
   return (
-    <div>
-      <h1 className="text-xl font-semibold mb-4">Voyage</h1>
-      <Card>
-        <p className="text-sm text-black/60">
-          Route planning is Phase 3 scope — the constraint-aware corridor algorithm doesn&apos;t exist yet
-          anywhere in the plan before then.
-        </p>
-      </Card>
-    </div>
+    <Planned
+      icon={<Navigation className="size-6" />}
+      title="Voyage"
+      lede="Route planning around your vessel draft, hazards and tidal berthing windows."
+      needs="Route planning needs the constraint-aware corridor algorithm, which is Phase 3 work. A drawn route before that exists would be a guess that looks like advice."
+    />
   );
 }

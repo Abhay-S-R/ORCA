@@ -32,3 +32,11 @@ graphify-out/
 .vscode/
 .DS_Store
 Thumbs.db
+
+.github/skills/
+.github/agents/
+.github/hooks/
+
+.agents/
+skills-lock.json
+.playwright-mcp/

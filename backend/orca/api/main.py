@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from orca.agents import distress as distress_agent
 from orca.agents.language import IndicTrans2Backend, register_translation_backend
 from orca.api.discovery_routes import router as discovery_router
 from orca.api.geospatial_routes import router as geospatial_router
@@ -54,7 +55,7 @@ _graph = build_graph()
 _DEFAULT_LAT, _DEFAULT_LON = 8.80, 78.14
 
 
-def _initial_state(query: str, lat: float, lon: float, vessel_class: str | None) -> ORCAState:
+def _initial_state(query: str, lat: float, lon: float, vessel_class: str | None, distress: bool = False) -> ORCAState:
     return {  # type: ignore[typeddict-item]
         "query_id": str(uuid.uuid4()),
         "raw_user_query": query,
@@ -64,7 +65,10 @@ def _initial_state(query: str, lat: float, lon: float, vessel_class: str | None)
         "reasoning_depth": "SHALLOW",
         "user_location": {"lat": lat, "lon": lon},
         "vessel_class": vessel_class,  # None -> risk_assessment.run() defaults to "small_fishing"
-        "distress_flag": False,
+        # True when the SOS control was tapped: Agent 12 treats an explicit
+        # control as sufficient on its own, with no text needed, and the
+        # graph then routes straight to END (Architecture §3.2 step 1).
+        "distress_flag": distress,
     }
 
 
@@ -73,8 +77,8 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-async def _query_stream(query: str, lat: float, lon: float, vessel_class: str | None) -> AsyncIterator[str]:
-    state = _initial_state(query, lat, lon, vessel_class)
+async def _query_stream(query: str, lat: float, lon: float, vessel_class: str | None, distress: bool = False) -> AsyncIterator[str]:
+    state = _initial_state(query, lat, lon, vessel_class, distress)
     emitted = 0  # every graph node appends exactly one completed_nodes entry
     # AND exactly one audit_trace_log entry in the same call (see graph.py) —
     # so the two lists grow in lockstep and index-pairing them is correct,
@@ -111,6 +115,15 @@ async def _query_stream(query: str, lat: float, lon: float, vessel_class: str | 
             "risk_assessment": final_state.get("risk_assessment"),
             "citations": final_state.get("evidence_citations", []),
             "distress_flag": final_state.get("distress_flag", False),
+            # Structured alongside the sentence, so the UI can render a
+            # dialable number rather than asking someone in a boat to
+            # retype one out of a paragraph. Pure dict lookup — recomputing
+            # it here costs nothing and keeps the frozen ORCAState frozen.
+            "mrcc_contact": (
+                distress_agent.surface_mrcc_contact(final_state.get("user_location"))
+                if final_state.get("distress_flag", False)
+                else None
+            ),
             # Raw values for /safety's gauges — the verdict answers "is it
             # safe", these answer "why", which a vessel-class-aware page
             # needs to show, not just the badge.
@@ -120,6 +133,11 @@ async def _query_stream(query: str, lat: float, lon: float, vessel_class: str | 
                 "lightning_active": weather.get("lightning_active", False),
                 "cyclone_alert": weather.get("cyclone_alert"),
             },
+            # Exit criterion 7 is "audit_trace_log captures every agent
+            # hand-off, verified by log inspection" — with no Postgres in
+            # Phase 1 the log lives only in state, so it ships with the
+            # response or it cannot be inspected at all.
+            "audit_trace_log": final_state.get("audit_trace_log", []),
             "hazard_breakdown": {
                 "imbl_distance_nm": geo.get("imbl_distance_nm"),
                 "imbl_alert_level": geo.get("imbl_alert_level"),
@@ -132,6 +150,7 @@ async def _query_stream(query: str, lat: float, lon: float, vessel_class: str | 
 
 @app.get("/query")
 async def query(
-    q: str = "", lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON, vessel_class: str | None = None
+    q: str = "", lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON, vessel_class: str | None = None,
+    distress: bool = False,
 ) -> StreamingResponse:
-    return StreamingResponse(_query_stream(q, lat, lon, vessel_class), media_type="text/event-stream")
+    return StreamingResponse(_query_stream(q, lat, lon, vessel_class, distress), media_type="text/event-stream")

@@ -1,44 +1,71 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Barlow, IBM_Plex_Mono, Noto_Sans_Tamil } from "next/font/google";
 import { NavRail, SosButton } from "./nav";
+import { StatusBar } from "./components/StatusBar";
 import { PersonaProvider } from "./persona/context";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Barlow: a slightly condensed grotesque from transit-signage lineage —
+// built to be read fast, at a glance, at an angle, which is the actual
+// reading condition on a boat. Its narrow set width also keeps bilingual
+// English/Tamil labels on one line in a 60px rail.
+const barlow = Barlow({
+  variable: "--font-barlow",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+// Mono is for numeric readouts ONLY — depths, bearings, coordinates, wave
+// heights. Tabular figures so a streaming value does not reflow its column.
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
   subsets: ["latin"],
+  weight: ["400", "500"],
+});
+
+// Tamil is a product requirement, not a nicety: the primary persona reads it.
+const notoTamil = Noto_Sans_Tamil({
+  variable: "--font-noto-tamil",
+  subsets: ["tamil"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
-  title: "ORCA",
-  description: "Marine decision support for the Tamil Nadu coast",
+  title: "ORCA — Marine decision support",
+  description: "Go / no-go verdicts, fishing zones and hazard charts for the Tamil Nadu coast.",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#04121c",
+  // The chart is edge-to-edge; let it run under the notch.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${barlow.variable} ${plexMono.variable} ${notoTamil.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        {/* Skip link — §4.11 accessibility baseline, keyboard nav requirement */}
+      <body className="h-full overflow-hidden">
+        {/* §4.11 — keyboard users reach content without tabbing the rail. */}
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-white focus:p-2"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-100 focus:rounded-sm focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-abyss"
         >
           Skip to content
         </a>
         <PersonaProvider>
-          <div className="flex flex-1">
+          <div className="flex h-full">
             <NavRail />
-            <main id="main-content" className="flex-1 p-6">
-              {children}
-            </main>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <StatusBar />
+              {/* The only scroll container in the app. The shell is fixed so
+                  a full-bleed chart can fill the viewport exactly. */}
+              <main id="main-content" className="min-h-0 flex-1 overflow-y-auto pb-16 sm:pb-0">
+                {children}
+              </main>
+            </div>
           </div>
           <SosButton />
         </PersonaProvider>

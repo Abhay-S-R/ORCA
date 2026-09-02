@@ -1,19 +1,16 @@
-import { Card } from "../components/Card";
+import { LineChart } from "lucide-react";
+import { Planned } from "../components/Planned";
 
-// Trends (§4.2 `/trends`): time-series, anomalies, "why has catch declined"
-// workspace — all driven by Agent 5 (Ocean Analytics), which the plan
-// explicitly defers to Phase 2 (plan §4 S4 intro — "Agent 5 is a Phase 2
-// deliverable"). Honest stub over a fake chart with no data behind it.
+// Trends (§4.2 `/trends`) — time-series, anomalies, the "why has catch
+// declined" workspace. All of it is driven by Agent 5 (Ocean Analytics),
+// which the plan defers to Phase 2.
 export default function TrendsPage() {
   return (
-    <div>
-      <h1 className="text-xl font-semibold mb-4">Trends</h1>
-      <Card>
-        <p className="text-sm text-black/60">
-          Time-series and anomaly analysis need Agent 5 (Ocean Analytics), which is Phase 2 scope. This
-          surface renders once that agent lands.
-        </p>
-      </Card>
-    </div>
+    <Planned
+      icon={<LineChart className="size-6" />}
+      title="Trends"
+      lede="Sea surface temperature, chlorophyll and catch-decline analysis over time."
+      needs="Trends are produced by the Ocean Analytics agent, which lands in Phase 2. Rather than draw a chart with nothing behind it, this surface stays empty until that agent returns real series."
+    />
   );
 }

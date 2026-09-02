@@ -1,19 +1,22 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { Skeleton } from "../components/States";
 
-// Leaflet touches `window` at import time, so the map shell is client-only
-// (plan §4 S5 Day 3-6: boundaries, PFZ pins, depth/bearing readout).
+// MapLibre touches `window` at module load, so the chart is client-only —
+// same constraint Leaflet had, same fix.
 const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapView), {
   ssr: false,
-  loading: () => <p className="text-sm text-black/50">Loading map…</p>,
+  loading: () => <Skeleton className="h-full w-full rounded-none" />,
 });
 
+// The chart explorer goes edge to edge. No page header, no padding: this
+// surface IS the map, and framing it in a card would make it a widget.
 export default function MapPage() {
   return (
-    <div>
-      <h1 className="text-xl font-semibold mb-4">Map</h1>
-      <MapView />
+    <div className="h-full">
+      <h1 className="sr-only">Chart</h1>
+      <MapView className="h-full w-full rounded-none border-0" />
     </div>
   );
 }

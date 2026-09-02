@@ -1,40 +1,60 @@
 "use client";
 
+// Ask (§4.2 `/`) — the conversational entry point to a map-first product.
+// Two columns: the question and its answer on the left, the live chart on the
+// right, because almost every answer here is spatial and a user should never
+// have to navigate somewhere else to see where the answer applies.
 import { useRef, useState } from "react";
-import { Badge, confidenceTone } from "./components/Badge";
-import { Card } from "./components/Card";
+import dynamic from "next/dynamic";
+import { Mic, Send } from "lucide-react";
+import { AgentPill, AgentStrip, type AgentStatus } from "./components/AgentPill";
+import { Button } from "./components/Button";
+import { ConfidenceMeter } from "./components/ConfidenceMeter";
+import { Panel } from "./components/Panel";
 import { SourceChip } from "./components/SourceChip";
+import { EmptyState, ErrorState, Skeleton } from "./components/States";
+import { type ConfidenceTier } from "./components/Badge";
 
-type AgentSpan = { agent_name: string; status: string };
-type Citation = { agent_name: string; dataset: string; acquisition_timestamp: string };
-type FinalResponse = {
-  final_english_response: string;
-  confidence_tier: "HIGH" | "MEDIUM" | "LOW_DATA";
-  citations?: Citation[];
-};
+const MapView = dynamic(() => import("./components/MapView").then((m) => m.MapView), {
+  ssr: false,
+  loading: () => <Skeleton className="h-full w-full" />,
+});
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
-// Ask (§4.2 `/`): conversational entry point, agent activity strip,
-// progressively-rendering answer card (plan §4 S6 Day 5). SSE consumption
-// against S1's `/query` endpoint; real routing and citations arrive once
-// S1 wires the live graph in — this renders whatever shape lands, citations
-// included when present, so the swap from mock to real payload is silent.
+type AgentSpan = { agent_name: string; status: AgentStatus };
+type Citation = { agent_name: string; dataset: string; acquisition_timestamp: string };
+type FinalResponse = {
+  final_english_response: string;
+  confidence_tier: ConfidenceTier;
+  citations?: Citation[];
+};
+
+// Real questions in the users' own words, not feature names. These double as
+// the fastest way to try the product with no typing on a phone at sea.
+const EXAMPLES = [
+  "Is it safe to go out tomorrow morning near Thoothukudi?",
+  "Where are the fishing zones closest to my port?",
+  "How far am I from the maritime boundary?",
+];
+
 export default function AskPage() {
   const [query, setQuery] = useState("");
   const [spans, setSpans] = useState<AgentSpan[]>([]);
   const [answer, setAnswer] = useState<FinalResponse | null>(null);
   const [streaming, setStreaming] = useState(false);
+  const [failed, setFailed] = useState(false);
   const sourceRef = useRef<EventSource | null>(null);
 
-  function ask(e: React.FormEvent) {
-    e.preventDefault();
+  function ask(q: string) {
+    if (!q.trim()) return;
     sourceRef.current?.close();
     setSpans([]);
     setAnswer(null);
+    setFailed(false);
     setStreaming(true);
 
-    const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(query)}`);
+    const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(q)}`);
     sourceRef.current = es;
     es.onmessage = (ev) => {
       const data = JSON.parse(ev.data);
@@ -48,63 +68,135 @@ export default function AskPage() {
     };
     es.onerror = () => {
       setStreaming(false);
+      setFailed(true);
       es.close();
     };
   }
 
   return (
-    <div className="max-w-2xl">
-      <h1 className="text-xl font-semibold mb-4">Ask ORCA</h1>
-      <form onSubmit={ask} className="flex gap-2 mb-6">
-        <label htmlFor="query" className="sr-only">
-          Ask a question about marine conditions
-        </label>
-        <input
-          id="query"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Is it safe to go to sea tomorrow morning near Thoothukudi?"
-          className="flex-1 rounded border border-black/20 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2"
-        />
-        <button
-          type="submit"
-          disabled={streaming}
-          className="rounded bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-        >
-          {streaming ? "Asking…" : "Ask"}
-        </button>
-      </form>
-
-      {/* Live activity strip (§4.4) — simplified pending Phase 3's real span/trace UI */}
-      {spans.length > 0 && (
-        <ul aria-live="polite" className="mb-4 flex flex-wrap gap-2">
-          {spans.map((s, i) => (
-            <li key={i} className="rounded-full bg-black/5 px-3 py-1 text-xs">
-              {s.agent_name}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {answer && (
-        <Card className="[&_*]:motion-safe:transition-opacity">
-          <p aria-live="polite" className="text-sm">
-            {answer.final_english_response}
+    <div className="grid h-full grid-rows-[auto_1fr] gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-1">
+      <div className="flex min-h-0 flex-col gap-4 lg:overflow-y-auto lg:pr-1">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">
+            Ask about conditions at sea
+          </h1>
+          <p className="mt-1 max-w-[58ch] text-sm text-ink-muted">
+            Ask in plain English or Tamil. ORCA reads live weather, boundaries, depth and fishing
+            advisories, then tells you what it found and where the numbers came from.
           </p>
-          <div className="mt-3 flex items-center gap-2">
-            <Badge tone={confidenceTone(answer.confidence_tier)}>{answer.confidence_tier.replace("_", "-")}</Badge>
-          </div>
-          {answer.citations && answer.citations.length > 0 && (
-            <ul className="mt-3 flex flex-col gap-1">
-              {answer.citations.map((c, i) => (
-                <li key={i}>
-                  <SourceChip dataset={c.dataset} acquisitionTimestamp={c.acquisition_timestamp} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      )}
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            ask(query);
+          }}
+          className="flex gap-2"
+        >
+          <label htmlFor="query" className="sr-only">
+            Your question about marine conditions
+          </label>
+          <input
+            id="query"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Is it safe to go out tomorrow morning?"
+            className="min-w-0 flex-1 rounded-md border border-hairline bg-shelf-1/80 px-3.5 py-3 text-sm text-ink placeholder:text-ink-dim transition-colors hover:border-hairline-strong focus:border-accent/60"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            aria-label="Ask by voice"
+            icon={<Mic className="size-4" />}
+            className="px-3"
+          >
+            <span className="sr-only">Ask by voice</span>
+          </Button>
+          <Button type="submit" variant="primary" disabled={streaming || !query.trim()} icon={<Send className="size-4" />}>
+            {streaming ? "Asking" : "Ask"}
+          </Button>
+        </form>
+
+        {/* Differentiator 1 (§4.5): twelve agents run per query, and this is
+            where a user watches that happen instead of a spinner. */}
+        {spans.length > 0 && (
+          <AgentStrip>
+            {spans.map((s, i) => (
+              <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} />
+            ))}
+            {streaming && <AgentPill name="working" status="running" />}
+          </AgentStrip>
+        )}
+
+        {failed && (
+          <ErrorState
+            title="ORCA could not reach the backend"
+            body="The answer service did not respond. Check that the API is running, then ask again."
+            action={
+              <Button variant="ghost" onClick={() => ask(query)}>
+                Ask again
+              </Button>
+            }
+          />
+        )}
+
+        {streaming && !answer && (
+          <Panel>
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="mt-2 h-4 w-full" />
+            <Skeleton className="mt-2 h-4 w-5/6" />
+          </Panel>
+        )}
+
+        {answer && (
+          <Panel title="Answer">
+            <p className="text-[15px] leading-relaxed text-ink">{answer.final_english_response}</p>
+            <div className="mt-4 border-t border-hairline pt-3">
+              <ConfidenceMeter tier={answer.confidence_tier} />
+            </div>
+            {answer.citations && answer.citations.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {answer.citations.map((c, i) => (
+                  <SourceChip
+                    key={i}
+                    dataset={c.dataset}
+                    acquisitionTimestamp={c.acquisition_timestamp}
+                    detail={`Read by ${c.agent_name}.`}
+                  />
+                ))}
+              </div>
+            )}
+          </Panel>
+        )}
+
+        {!answer && !streaming && !failed && (
+          <EmptyState
+            title="Start with one of these"
+            body="Every answer carries the dataset it came from and how fresh that data is, so you can check the reasoning rather than trust it."
+            action={
+              <div className="flex flex-col items-start gap-1.5">
+                {EXAMPLES.map((ex) => (
+                  <button
+                    key={ex}
+                    type="button"
+                    onClick={() => {
+                      setQuery(ex);
+                      ask(ex);
+                    }}
+                    className="border-l border-hairline-strong py-0.5 pl-2.5 text-left text-sm text-ink-muted transition-colors hover:border-accent hover:text-ink"
+                  >
+                    {ex}
+                  </button>
+                ))}
+              </div>
+            }
+          />
+        )}
+      </div>
+
+      <div className="min-h-75 lg:min-h-0">
+        <MapView className="h-full w-full" showPanels={false} />
+      </div>
     </div>
   );
 }

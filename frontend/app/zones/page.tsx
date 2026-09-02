@@ -1,9 +1,16 @@
 "use client";
 
+// Fishing Zones (§4.2 `/zones`) — nearest potential fishing zones with the
+// distance and bearing from each home port, because "which way and how far"
+// is the only form of this answer that is usable from a boat.
 import { useEffect, useState } from "react";
+import { Compass, Fish } from "lucide-react";
 import { Badge } from "../components/Badge";
-import { Card } from "../components/Card";
+import { PageBody, PageHeader } from "../components/PageHeader";
+import { Panel } from "../components/Panel";
+import { Readout, ReadoutGrid } from "../components/Readout";
 import { SourceChip } from "../components/SourceChip";
+import { EmptyState, ErrorState, Skeleton } from "../components/States";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -23,8 +30,6 @@ type ZonesResponse = {
   orca_metadata: { generated_at: string; not_an_advisory: string; applies_to_sector: string };
 };
 
-// Fishing Zones (§4.2 `/zones`): nearest PFZ, distance + bearing from home
-// port (plan §4 S4 Day 6 — "rendering PFZ from cached advisories").
 export default function ZonesPage() {
   const [data, setData] = useState<ZonesResponse | null>(null);
   const [error, setError] = useState(false);
@@ -36,60 +41,97 @@ export default function ZonesPage() {
       .catch(() => setError(true));
   }, []);
 
-  if (error) {
-    return (
-      <div>
-        <h1 className="text-xl font-semibold mb-4">Fishing Zones</h1>
-        <p className="text-sm text-black/50">Could not reach the ORCA API — is the backend running?</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="max-w-2xl">
-      <h1 className="text-xl font-semibold mb-4">Fishing Zones</h1>
+    <PageBody className="mx-auto max-w-3xl">
+      <PageHeader
+        title="Fishing zones"
+        lede="Thermal-front zones near the pilot sector, with the heading and distance to each one from your port."
+      />
 
-      {data && (
-        <Card className="mb-4 bg-safety-caution-bg/40" title="About this data">
-          <div className="mb-2">
-            <Badge tone="caution">LOW-DATA</Badge>
-          </div>
-          <p className="text-sm">{data.orca_metadata.not_an_advisory}</p>
-        </Card>
+      {error && (
+        <ErrorState
+          title="Could not reach the ORCA API"
+          body="The zones service did not respond. Start the backend, then reload this page."
+        />
       )}
 
-      {!data && <p className="text-sm text-black/50">Loading…</p>}
+      {/* The caveat leads, because this data is a proxy and a user who reads
+          only the first panel must still come away knowing that. */}
+      {data && (
+        <Panel className="mb-4 border-caution/30" title="What this is">
+          <div className="mb-2">
+            <Badge tone="caution">Not an official advisory</Badge>
+          </div>
+          <p className="text-sm text-ink-muted">{data.orca_metadata.not_an_advisory}</p>
+        </Panel>
+      )}
+
+      {!data && !error && (
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      )}
+
+      {data?.features.length === 0 && (
+        <EmptyState
+          icon={<Fish className="size-6" />}
+          title="No zones in this sector right now"
+          body="Thermal fronts come and go. ORCA reports none rather than showing a stale one."
+        />
+      )}
 
       <ul className="flex flex-col gap-3">
         {data?.features.map((f, i) => (
           <li key={i}>
-            <Card title={`Zone ${i + 1} — ${f.properties.cell_count} cells, ~${f.properties.approx_area_km2} km²`}>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                <dt className="text-black/50">Mean SST</dt>
-                <dd>{f.properties.mean_sst_c} °C</dd>
-                <dt className="text-black/50">Mean depth</dt>
-                <dd>{f.properties.mean_depth_m} m</dd>
-              </dl>
-              <ul className="mt-2 text-sm text-black/70">
-                {Object.entries(f.properties.bearings_from_ports).map(([port, b]) => (
-                  <li key={port}>
-                    {port}: {b.distance_km} km, {b.compass} ({b.bearing_deg}°)
-                  </li>
-                ))}
-              </ul>
+            <Panel
+              title={`Zone ${i + 1}`}
+              action={
+                <span className="text-[11px] text-ink-dim">
+                  ~{f.properties.approx_area_km2} km² · {f.properties.cell_count} cells
+                </span>
+              }
+            >
+              <ReadoutGrid cols={3}>
+                <Readout label="Sea surface temp" value={f.properties.mean_sst_c} unit="°C" />
+                <Readout label="Mean depth" value={f.properties.mean_depth_m} unit="m" />
+                <Readout
+                  label="Centre"
+                  value={`${f.geometry.coordinates[1].toFixed(2)}, ${f.geometry.coordinates[0].toFixed(2)}`}
+                />
+              </ReadoutGrid>
+
+              <div className="mt-4 border-t border-hairline pt-3">
+                <p className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-ink-dim">
+                  <Compass className="size-3.5" aria-hidden="true" />
+                  From your ports
+                </p>
+                <ul className="flex flex-col gap-1">
+                  {Object.entries(f.properties.bearings_from_ports).map(([port, b]) => (
+                    <li key={port} className="flex items-baseline justify-between gap-3 text-sm">
+                      <span className="text-ink-muted">{port}</span>
+                      <span data-readout className="text-ink">
+                        {b.compass} {b.bearing_deg}° · {b.distance_km} km
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
               {data && (
                 <div className="mt-3">
                   <SourceChip
-                    dataset={`ORCA thermal-front proxy — ${data.orca_metadata.applies_to_sector}`}
+                    dataset={`Thermal-front proxy · ${data.orca_metadata.applies_to_sector}`}
                     acquisitionTimestamp={data.orca_metadata.generated_at}
                     confidenceTier="LOW_DATA"
+                    detail={data.orca_metadata.not_an_advisory}
                   />
                 </div>
               )}
-            </Card>
+            </Panel>
           </li>
         ))}
       </ul>
-    </div>
+    </PageBody>
   );
 }

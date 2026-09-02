@@ -1,56 +1,172 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ORCA — ECDIS night palette (plan §4.1 "maritime command centre").
+   The vernacular is an electronic chart display on a bridge at night, not a
+   dark dashboard: a cold navy base, a surface ramp that reads as increasing
+   depth, and chart magenta — the nautical convention for lights and
+   cautionary areas — as the single interactive accent.
 
-  /* Safety palette (plan §3.2) — GO/CAUTION/DANGER, plus the LOW_DATA
-     confidence tier sharing CAUTION's amber. Each -text tone holds >=4.5:1
-     contrast against --background (plan §3.2 accessibility baseline);
-     -bg is the paired light fill for badges and panels. */
-  --color-safety-go-text: #15803d;
-  --color-safety-go-bg: #dcfce7;
-  --color-safety-caution-text: #b45309;
-  --color-safety-caution-bg: #fef3c7;
-  --color-safety-danger-text: #b91c1c;
-  --color-safety-danger-bg: #fee2e2;
+   Dark is the base, not a `prefers-color-scheme` branch. There is no light
+   theme: the product is read on a bridge at night and on a deck in sun, and
+   both of those want the same high-contrast dark surface. */
+@theme {
+  /* Depth ramp. Each step is a surface elevation AND, on the map, a literal
+     water-depth band — same ramp drives both, which is why the panels sit
+     visually "in" the chart rather than on top of it. */
+  --color-abyss: #04121c;
+  --color-shelf-1: #08202e;
+  --color-shelf-2: #0e3346;
+  --color-shelf-3: #164861;
+  --color-shoal: #22617f;
+
+  /* Hairlines. Chart cartography rules a graticule, it does not draw boxes —
+     so borders here are 1px and low-contrast by design. */
+  --color-hairline: #17384c;
+  --color-hairline-strong: #24576f;
+
+  /* Type tones on --color-abyss: 15.8:1, 7.1:1, 4.6:1 respectively. */
+  --color-ink: #dce9f0;
+  --color-ink-muted: #8fadbe;
+  --color-ink-dim: #64879a;
+
+  /* Chart magenta. Interactive state only — active nav, focus ring,
+     selection, cautionary chart features. It must never appear on a number. */
+  --color-accent: #f0468c;
+  --color-accent-dim: #8e2a56;
+
+  /* The safety triad (plan §4.1). Reserved EXCLUSIVELY for verdicts and
+     hazard severity. Nothing else in the UI may use these three, because
+     nothing else may compete with the verdict badge for contrast.
+     Contrast on --color-abyss: go 11.4:1, caution 13.2:1, no-go 6.8:1. */
+  --color-go: #3ddc97;
+  --color-caution: #ffc145;
+  --color-no-go: #ff5c5c;
+
+  /* Confidence tiers are deliberately NOT the safety triad — a LOW_DATA
+     caveat is not a hazard, and colouring it red would overstate it
+     (Ground Rule 3: a treatment may not make data look more certain, or
+     more alarming, than its tier says). */
+  --color-confidence-high: #7fd4e8;
+  --color-confidence-medium: #9aa8d8;
+  --color-confidence-low: #b08cc4;
+
+  --font-sans: var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+  --font-tamil: var(--font-noto-tamil), var(--font-barlow), sans-serif;
+
+  /* Glass elevation. Panels float over the chart; blur is what keeps the
+     map legible underneath instead of being boxed out by it. */
+  --blur-glass: 14px;
 }
 
-/* Tailwind's default type and spacing scales ARE the type/spacing scale
-   (plan §3.2) — no project-specific scale is defined here; reinventing one
-   Tailwind already ships would be the divergence the design system exists
-   to prevent. */
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+@layer base {
+  html {
+    background-color: var(--color-abyss);
+    color-scheme: dark;
+  }
 
-  --color-safety-go-text: var(--color-safety-go-text);
-  --color-safety-go-bg: var(--color-safety-go-bg);
-  --color-safety-caution-text: var(--color-safety-caution-text);
-  --color-safety-caution-bg: var(--color-safety-caution-bg);
-  --color-safety-danger-text: var(--color-safety-danger-text);
-  --color-safety-danger-bg: var(--color-safety-danger-bg);
-}
+  body {
+    background-color: var(--color-abyss);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    /* Barlow's default figures are proportional; readouts need tabular so a
+       streaming wave height does not jitter its own column width. */
+    font-feature-settings: "cv05";
+    -webkit-font-smoothing: antialiased;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  /* Every numeric readout — depth, bearing, lat/lon, wave height — is
+     tabular. This is functional, not stylistic: values update live. */
+  .tnum,
+  [data-readout] {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
 
-    /* Lightened for 4.5:1 against a near-black background. */
-    --color-safety-go-text: #4ade80;
-    --color-safety-go-bg: #052e16;
-    --color-safety-caution-text: #fbbf24;
-    --color-safety-caution-bg: #451a03;
-    --color-safety-danger-text: #f87171;
-    --color-safety-danger-bg: #450a0a;
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: var(--color-accent-dim);
+    color: var(--color-ink);
+  }
+
+  /* Scrollbars are chrome; keep them in the palette rather than letting the
+     browser punch a light-grey hole in a dark console. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-hairline-strong) transparent;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  /* The glass panel. One definition, used by Panel and every docked map
+     readout, so "a panel" cannot drift into six interpretations (§4.1). */
+  .glass {
+    background: color-mix(in oklab, var(--color-shelf-1) 82%, transparent);
+    backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+    -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+    border: 1px solid var(--color-hairline);
+  }
+}
+
+/* Motion is never the only carrier of state (§4.11). Every animation below
+   has a non-motion equivalent — a colour, a label, or a value change. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* MapLibre's own chrome ships light-themed; bring it into the palette here
+   rather than fighting it per-instance in MapView. */
+.maplibregl-ctrl-attrib {
+  background: color-mix(in oklab, var(--color-abyss) 85%, transparent) !important;
+  color: var(--color-ink-dim) !important;
+  font-family: var(--font-sans);
+  font-size: 10px;
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--color-ink-muted) !important;
+}
+.maplibregl-ctrl-group {
+  background: var(--color-shelf-2) !important;
+  border: 1px solid var(--color-hairline) !important;
+  box-shadow: none !important;
+}
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--color-hairline) !important;
+}
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1) brightness(1.4);
+}
+/* The scale bar is a chart instrument, not a widget: hairline rule, mono
+   figures, no white chip floating over the sea. */
+.maplibregl-ctrl-scale {
+  background: color-mix(in oklab, var(--color-abyss) 70%, transparent) !important;
+  border: 1px solid var(--color-hairline-strong) !important;
+  border-top: none !important;
+  color: var(--color-ink-muted) !important;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 5px !important;
+}
+.maplibregl-popup-content {
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+.maplibregl-popup-tip {
+  display: none !important;
 }
