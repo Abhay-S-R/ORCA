@@ -1,11 +1,23 @@
-# Backend runtime deps. Data-processing libs (xarray, geopandas, etc.) live in
-# the repo-root requirements.txt for the procurement scripts — this is the API
-# service only, kept separate so the container stays small.
+# Backend runtime deps. Most data-processing libs (geopandas, etc.) still
+# live only in the repo-root requirements.txt for the procurement scripts —
+# but Agent 6 (Geospatial, plan §4 S5) queries boundary and bathymetry data
+# at request time, inside this service, so its libs have to be here too.
 
 fastapi>=0.115
 uvicorn[standard]>=0.32
 pydantic>=2.9
 python-dotenv>=1.0
+
+# Agent 6 (Geospatial, plan §4 S5) — in-memory Shapely + STRtree rather than
+# the full GeoPandas stack (no DataFrame layer needed for containment/
+# proximity/STRtree queries); pyproj for WGS84 geodesic distance and bearing.
+# xarray + scipy (NetCDF-3 backend, same reason as the root requirements.txt)
+# + h5py to read the GEBCO bathymetry grid for depth-at-point.
+shapely>=2.0
+pyproj>=3.6
+xarray>=2024.1.0
+scipy>=1.11
+h5py>=3.10
 
 # LLM providers registered in orca/llm/registry.py (plan §3.1)
 anthropic>=0.40

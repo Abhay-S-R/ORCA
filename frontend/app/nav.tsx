@@ -2,40 +2,53 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { NAV_ROUTES, visibilityFor } from "./persona/config";
+import { usePersona } from "./persona/context";
+import { PersonaSelector } from "./persona/PersonaSelector";
 
-// Plan §4.2 — ten destinations plus one persistent control. Left rail here;
-// dead links are fine for Phase 0 (exit criterion), content lands per-slice
-// through Phase 1-3. Route list intentionally matches §4.2's table order.
-const NAV_ITEMS = [
-  { href: "/", label: "Ask" },
-  { href: "/safety", label: "Safety" },
-  { href: "/map", label: "Map" },
-  { href: "/zones", label: "Fishing Zones" },
-  { href: "/voyage", label: "Voyage" },
-  { href: "/trends", label: "Trends" },
-  { href: "/data", label: "Data" },
-  { href: "/ops", label: "District Ops" },
-  { href: "/watches", label: "Watches" },
-  { href: "/reasoning", label: "Reasoning" },
-];
+// Plan §4.2 — ten destinations plus one persistent control. Route list
+// intentionally matches §4.2's table order; visibility per persona comes
+// from the declarative matrix (parent plan §4.3), not a conditional here.
+const NAV_LABELS: Record<(typeof NAV_ROUTES)[number], string> = {
+  "/": "Ask",
+  "/safety": "Safety",
+  "/map": "Map",
+  "/zones": "Fishing Zones",
+  "/voyage": "Voyage",
+  "/trends": "Trends",
+  "/data": "Data",
+  "/ops": "District Ops",
+  "/watches": "Watches",
+  "/reasoning": "Reasoning",
+};
 
 export function NavRail() {
   const pathname = usePathname();
+  const { persona } = usePersona();
+
   return (
     <nav aria-label="Primary" className="w-52 shrink-0 border-r border-black/10 p-4">
+      <PersonaSelector />
       <ul className="flex flex-col gap-1">
-        {NAV_ITEMS.map((item) => {
-          const active = pathname === item.href;
+        {NAV_ROUTES.map((href) => {
+          // Nav visibility is a rendering concern only, never a capability
+          // gate (parent plan §4.3) — a "hidden" item is simply not listed
+          // here; the route at `href` still renders at full depth on a
+          // direct visit, since Next's router never consults this matrix.
+          const visibility = visibilityFor(href, persona);
+          if (visibility === "hidden") return null;
+
+          const active = pathname === href;
           return (
-            <li key={item.href}>
+            <li key={href}>
               <Link
-                href={item.href}
+                href={href}
                 aria-current={active ? "page" : undefined}
                 className={`block rounded px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
                   active ? "bg-black/10 font-medium" : "hover:bg-black/5"
-                }`}
+                } ${visibility === "secondary" ? "opacity-60" : ""}`}
               >
-                {item.label}
+                {NAV_LABELS[href]}
               </Link>
             </li>
           );

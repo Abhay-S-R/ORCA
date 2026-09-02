@@ -1,0 +1,27 @@
+{
+  "agent_name": "geospatial",
+  "confidence": {
+    "rationale": "static reference geometry, geodesic computation",
+    "score": "HIGH"
+  },
+  "error_detail": null,
+  "inputs_consumed": {
+    "lat": 8.7,
+    "lon": 78.5
+  },
+  "outputs": {
+    "contained_boundaries": [
+      "Indian Exclusive Economic Zone"
+    ],
+    "imbl_alert_level": "INSIDE",
+    "imbl_distance_nm": 16.29
+  },
+  "query_id": "fixture-thoothukudi-gulf-of-mannar",
+  "reasoning_depth": "STANDARD",
+  "source_provenance": {
+    "acquisition_timestamp": "2026-09-01T00:00:00Z",
+    "dataset": "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA",
+    "freshness_minutes": 0
+  },
+  "status": "ok"
+}

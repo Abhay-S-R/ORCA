@@ -1,11 +1,19 @@
+import { Card } from "../components/Card";
+
+// Voyage (§4.2 `/voyage`): route planner, waypoints, ETA. Voyage routing —
+// the constraint-aware corridor — is explicitly out of scope entirely for
+// Phase 1-2 (parent plan §7: "Voyage routing | Phase 3 | A* is out of scope
+// entirely"). Honest stub, not a fake route.
 export default function VoyagePage() {
   return (
     <div>
-      <h1 className="text-xl font-semibold">Voyage</h1>
-      <p className="mt-2 text-sm text-black/50">
-        Scaffolded in Phase 0 (plan §4.2 nav shell). Content lands per the slice
-        owner assigned in §7.
-      </p>
+      <h1 className="text-xl font-semibold mb-4">Voyage</h1>
+      <Card>
+        <p className="text-sm text-black/60">
+          Route planning is Phase 3 scope — the constraint-aware corridor algorithm doesn&apos;t exist yet
+          anywhere in the plan before then.
+        </p>
+      </Card>
     </div>
   );
 }

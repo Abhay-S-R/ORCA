@@ -3,19 +3,49 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Safety palette (plan §3.2) — GO/CAUTION/DANGER, plus the LOW_DATA
+     confidence tier sharing CAUTION's amber. Each -text tone holds >=4.5:1
+     contrast against --background (plan §3.2 accessibility baseline);
+     -bg is the paired light fill for badges and panels. */
+  --color-safety-go-text: #15803d;
+  --color-safety-go-bg: #dcfce7;
+  --color-safety-caution-text: #b45309;
+  --color-safety-caution-bg: #fef3c7;
+  --color-safety-danger-text: #b91c1c;
+  --color-safety-danger-bg: #fee2e2;
 }
 
+/* Tailwind's default type and spacing scales ARE the type/spacing scale
+   (plan §3.2) — no project-specific scale is defined here; reinventing one
+   Tailwind already ships would be the divergence the design system exists
+   to prevent. */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --color-safety-go-text: var(--color-safety-go-text);
+  --color-safety-go-bg: var(--color-safety-go-bg);
+  --color-safety-caution-text: var(--color-safety-caution-text);
+  --color-safety-caution-bg: var(--color-safety-caution-bg);
+  --color-safety-danger-text: var(--color-safety-danger-text);
+  --color-safety-danger-bg: var(--color-safety-danger-bg);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+
+    /* Lightened for 4.5:1 against a near-black background. */
+    --color-safety-go-text: #4ade80;
+    --color-safety-go-bg: #052e16;
+    --color-safety-caution-text: #fbbf24;
+    --color-safety-caution-bg: #451a03;
+    --color-safety-danger-text: #f87171;
+    --color-safety-danger-bg: #450a0a;
   }
 }
 

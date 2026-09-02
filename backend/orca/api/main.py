@@ -14,6 +14,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from orca.api.discovery_routes import router as discovery_router
+from orca.api.geospatial_routes import router as geospatial_router
+
 app = FastAPI(title="ORCA API")
 
 # ponytail: wide-open CORS for local dev only. Tighten to the deployed
@@ -21,6 +24,11 @@ app = FastAPI(title="ORCA API")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
+
+# S4/S5 slice endpoints — separate routers (orca/api/discovery_routes.py,
+# orca/api/geospatial_routes.py) so this file stays a one-line touch for them.
+app.include_router(discovery_router)
+app.include_router(geospatial_router)
 
 
 @app.get("/health")

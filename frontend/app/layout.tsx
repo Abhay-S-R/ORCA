@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { NavRail, SosButton } from "./nav";
+import { PersonaProvider } from "./persona/context";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
   description: "Marine decision support for the Tamil Nadu coast",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="en"
@@ -32,13 +33,15 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         >
           Skip to content
         </a>
-        <div className="flex flex-1">
-          <NavRail />
-          <main id="main-content" className="flex-1 p-6">
-            {children}
-          </main>
-        </div>
-        <SosButton />
+        <PersonaProvider>
+          <div className="flex flex-1">
+            <NavRail />
+            <main id="main-content" className="flex-1 p-6">
+              {children}
+            </main>
+          </div>
+          <SosButton />
+        </PersonaProvider>
       </body>
     </html>
   );

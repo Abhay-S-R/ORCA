@@ -1,15 +1,25 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Badge, confidenceTone } from "./components/Badge";
+import { Card } from "./components/Card";
+import { SourceChip } from "./components/SourceChip";
 
 type AgentSpan = { agent_name: string; status: string };
-type FinalResponse = { final_english_response: string; confidence_tier: string };
+type Citation = { agent_name: string; dataset: string; acquisition_timestamp: string };
+type FinalResponse = {
+  final_english_response: string;
+  confidence_tier: "HIGH" | "MEDIUM" | "LOW_DATA";
+  citations?: Citation[];
+};
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
-// Ask (§4.2 `/`): conversational entry point, agent activity strip, answer
-// card. Phase 0 wires this to the mock SSE stream only — real routing,
-// persona-aware rendering and the mini-map land in Phase 1 (§6).
+// Ask (§4.2 `/`): conversational entry point, agent activity strip,
+// progressively-rendering answer card (plan §4 S6 Day 5). SSE consumption
+// against S1's `/query` endpoint; real routing and citations arrive once
+// S1 wires the live graph in — this renders whatever shape lands, citations
+// included when present, so the swap from mock to real payload is silent.
 export default function AskPage() {
   const [query, setQuery] = useState("");
   const [spans, setSpans] = useState<AgentSpan[]>([]);
@@ -77,10 +87,23 @@ export default function AskPage() {
       )}
 
       {answer && (
-        <div aria-live="polite" className="rounded border border-black/10 p-4">
-          <p className="text-sm">{answer.final_english_response}</p>
-          <p className="mt-2 text-xs text-black/50">confidence: {answer.confidence_tier}</p>
-        </div>
+        <Card className="[&_*]:motion-safe:transition-opacity">
+          <p aria-live="polite" className="text-sm">
+            {answer.final_english_response}
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <Badge tone={confidenceTone(answer.confidence_tier)}>{answer.confidence_tier.replace("_", "-")}</Badge>
+          </div>
+          {answer.citations && answer.citations.length > 0 && (
+            <ul className="mt-3 flex flex-col gap-1">
+              {answer.citations.map((c, i) => (
+                <li key={i}>
+                  <SourceChip dataset={c.dataset} acquisitionTimestamp={c.acquisition_timestamp} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
       )}
     </div>
   );
