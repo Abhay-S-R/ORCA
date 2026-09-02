@@ -87,6 +87,8 @@ Because the team is sliced vertically, six people build UI this week. Without a 
 
 Minimum on Day 3: colour tokens (including the safety palette), type scale, spacing scale, and the four primitives every surface needs — `Card`, `Field`, `Badge`, `SourceChip`. Not a full library; the smallest set that stops divergence.
 
+**The accessibility baseline ships inside these primitives, not as a Phase 3 retrofit** (parent plan §4.11). Semantic elements, an accessible name on every control, a visible focus ring at ≥3:1, and ≥4.5:1 body contrast are properties of `Card`/`Field`/`Badge` — so six slices inherit them instead of six people each remembering. `Badge` in particular **always renders a text severity token** (`DANGER`, `CAUTION`, `GO`), with colour as reinforcement: severity is never carried by colour alone. Phase 3 audits this; Phase 1 builds it.
+
 ---
 
 ## 4. Slice Assignments
@@ -140,6 +142,7 @@ Sentinel is Phase 3, so this week is Agent 4 plus the loader layer. **The loader
 | Day | Work |
 |---|---|
 | 3 | `orca/data/` loaders — JSON, CSV, GeoJSON, NetCDF via xarray. **Reuse `scripts/orca_grid_utils.py`; do not re-implement wet-cell snapping** |
+| 3–4 | **`normalize_to_common_frame` (parent plan §5.6) — every loader exits through it.** CRS, `(lon, lat)` axis order, UTC timestamps, units, sentinel-value handling, and provenance carried forward. Ship the round-trip check the same day. This is a hard gate: S4 and S5 build their tools on top of it, and retrofitting it later means rewriting every loader |
 | 4 | `get_marine_weather` — live Open-Meteo with cached `tier1/` fallback. `resolve_temporal_expression` ("tomorrow morning" → ISO range) |
 | 5 | `get_cyclone_status` (NDMA SACHET CAP), `get_lightning_nowcast` (Damini + cached), `get_incois_hazard_alerts` |
 | 6 | `check_data_freshness` with real staleness tiers feeding S2's confidence scoring. Hazard panel components consumed by S2's `/safety` |
@@ -171,7 +174,9 @@ Sentinel is Phase 3, so this week is Agent 4 plus the loader layer. **The loader
 
 **Owns:** Agents 6 (Geospatial) + 8 (Visualization) · `/map`, `/voyage` · the Leaflet map shell everyone adds layers to.
 
-**Use in-memory GeoPandas this week. Do not stand up PostGIS yet.** Five boundary files and a 720×720 bathymetry grid load in under a second and fit comfortably in memory. PostGIS earns its place in Phase 2 when session persistence and `audit_trace_log` need a database — adding it now is a day spent on infrastructure we would not use.
+**Use in-memory GeoPandas for spatial computation this week.** Five boundary files and a 720×720 bathymetry grid load in under a second and fit comfortably in memory — geofence and proximity math has no reason to go through a database.
+
+**This is not the same as "no database".** The schema is applied in Phase 0 (`infra/db/migrate.sh`, parent plan §5.3) and S1 writes `audit_trace_log` from Day 3, because the trace has to be captured before Phase 3 can render it. What waits for Phase 2 is *using* Postgres for anything spatial: users, vessels and Sentinel subscriptions land with auth (parent plan §5.4). Nobody in Phase 1 should be loading a boundary polygon out of PostGIS.
 
 | Day | Work |
 |---|---|
@@ -248,7 +253,12 @@ Named explicitly so nobody quietly starts them:
 | Deferred | To | Why |
 |---|---|---|
 | Agents 3 (full), 5, 8, 10, 11 | Phase 2–3 | One slice through the safety path first |
-| PostGIS | Phase 2 | GeoPandas in memory is sufficient for 5 files; the DB earns its place when sessions persist |
+| PostGIS **for spatial computation** | Phase 2+ | GeoPandas in memory is sufficient for 5 files. The schema itself is applied in Phase 0 and `audit_trace_log` is written from Day 3 (parent §5.3) |
+| User accounts, login, vessel registration | Phase 2 | Parent §5.4. Phase 1 sessions are anonymous; persona is inferred, exactly as today |
+| Advisory feedback control | Phase 3 | Parent §4.10 — needs an advisory worth flagging first |
+| SMS / IVR / USSD channels | Phase 3 (SMS 🟡 simulated) / ⏸️ deferred (IVR, USSD) | Parent §4.9. The `Dispatcher` and renderer interfaces are what make this a later addition rather than a rewrite |
+| Forecast time slider | Phase 2 | Parent §4.8. Phase 1 renders a single valid time |
+| Map tiling and polygon simplification | Phase 2 | Parent §4.7. Pilot-region layers are small enough to ship raw for one week — but do not let that become the pattern |
 | Any deployment work | After the internal round | The month targets a local demo. Phase 0's Dockerfile is the only deployment-adjacent thing that exists |
 | PWA manifest / offline caching | After the internal round | Keep the degraded-response contract clean and it drops in later as a small addition |
 | Voice STT/TTS | Phase 3 | Text-first this week — *but pre-download the models now* (S6) |

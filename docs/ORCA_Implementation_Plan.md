@@ -1,4 +1,4 @@
-# 🗺️ ORCA — Implementation Plan (v1.0)
+# 🗺️ ORCA — Implementation Plan (v1.1)
 
 > **Status:** LIVING DOCUMENT — this is the execution plan the whole team works from.
 > **Authority:** [`ORCA_Agentic_Architecture_final.md`](./ORCA_Agentic_Architecture_final.md) (v4.0) is the design authority. This document does not re-litigate design decisions; it schedules them, assigns them, and adds the layers that architecture doc left thin (repo layout, UI information architecture, provider-agnosticism, team split).
@@ -7,6 +7,16 @@
 > **Team:** 6 people · **Duration:** 4 weeks + 2 days buffer · **Pilot region:** South Tamil Nadu (Thoothukudi–Rameswaram–Kanyakumari, Palk Bay, Gulf of Mannar)
 
 If this document and the architecture doc disagree, the architecture doc wins and this one gets fixed. If this document and the code disagree, that is a bug in one of them — resolve it before building further.
+
+**Status vocabulary — used consistently throughout this document.** An interface existing is not the same thing as a capability working, and the difference is exactly where demo-day surprises come from:
+
+| Marker | Means |
+|---|---|
+| ✅ **Implemented** | Working in this repository today. Someone can run it. |
+| 🟡 **Partially implemented** | The internal half works; an external integration is simulated or stubbed behind a real interface. Named explicitly, never rounded up to ✅. |
+| ⏸️ **Deferred** | A known requirement we are deliberately not building in this phase, with the reason stated. |
+| 🔗 **Dependency** | Cannot be completed until an external dataset or service is obtained. Blocked on procurement, not on engineering. |
+| 📋 **Specified** | Designed and scheduled in this plan; no code yet. Most of this document is here on Day 0. |
 
 ---
 
@@ -18,7 +28,8 @@ If this document and the architecture doc disagree, the architecture doc wins an
 | **Data tooling** | ✅ 5 scripts | `build_mpa_geofence.py`, `build_pfz_fallback.py`, `scrape_pfz_advisories.py`, `extract_osf_pilot.py`, `orca_grid_utils.py` |
 | **Architecture** | ✅ Committed | v4.0 — 12 agents, routing table, state schema, hand-off contract, failover, 19 optimizations |
 | **Application code** | ❌ **Zero** | No backend, no frontend, no agent implementations |
-| **Infrastructure** | ❌ None | No Postgres/PostGIS, no Redis, no CI, no container setup |
+| **Database schema** | ✅ Defined, not yet deployed | [`infra/db/001_init.sql`](../infra/db/001_init.sql) + [`migrate.sh`](../infra/db/migrate.sh) — §5.3 |
+| **Infrastructure** | ❌ None | No running Postgres/PostGIS, no Redis, no CI, no container setup |
 | **Team environments** | ✅ Data in place | All 6 engineers already have the `data/` tree locally. Credentials still to confirm — §1.1 |
 
 **The honest read:** the hard research is done and the design is unusually well-specified for a hackathon. What remains is four weeks of disciplined engineering against a spec that already exists. The main risk is not "what do we build" — it is coordination, integration, and holding the line on scope.
@@ -55,6 +66,29 @@ The data audit verified files on disk. It did not re-verify that every **live** 
 Every one of these has a cached local fallback already on disk, so a dead endpoint is a degradation, not a stoppage — but we need to know *which* are degraded before we demo, not during.
 
 **Already resolved from architecture §16.1:** the MOSDAC access-tier ambiguity is closed in practice — real MOSDAC `.h5` SST and `.nc` chlorophyll products are downloaded and verified in `data/tier3/mosdac/`. Update §16.1 of the architecture doc to reflect this.
+
+### 1.3 🔗 Cyclone Gaja replay data — verified missing, and it is a procurement task
+
+Status: **🔗 Dependency.** The Phase 4 replay (§6, Definition of Done #7) assumes historical Cyclone Gaja data. It is **not on disk.** A repository-wide search for `Gaja` across every text dataset returns hits only in the three docs that *plan* the replay — `data/` contains none.
+
+What is actually there, and why none of it substitutes:
+
+| On disk | Why it does not cover Gaja |
+|---|---|
+| `data/tier1/hazards/ndma_cap_alerts.json` | Current CAP alerts only. No 2018 archive. |
+| `data/tier1/hazards/imd_nowcast_alerts.json` | Nowcast — hours, not history. |
+| `data/tier1/weather/era5_historical_thoothukudi_30d.json` | ERA5, but a **30-day window in 2026**. Right product, wrong dates. |
+| `data/incois_osf_pfz/osf_ww3/*.nc` | Forecast cycles from Aug–Sep 2026. |
+
+**What the replay actually needs** (Gaja made landfall near Vedaranyam, 15–16 November 2018):
+
+1. **IMD best-track** — 6-hourly position, pressure, max sustained wind for the full lifecycle. Source: IMD RSMC New Delhi best-track archive, or IBTrACS (NOAA NCEI), which is open, machine-readable, and needs no credential. IBTrACS is the pragmatic pick.
+2. **Wind and wave fields over the landfall window** — ERA5 hourly single-levels (`u10`, `v10`, `swh`, `mwp`) for 12–18 Nov 2018 over the pilot bbox. Same Copernicus CDS credential path already in `.env.example`; only the date range changes.
+3. **Warning text**, optional — IMD bulletins for the period, to make the alert cascade quote real language rather than generated prose.
+
+**Owner: S3. Due: end of Phase 2** — early enough that Phase 4 is assembly, not procurement. Roughly two hours of download against known endpoints, so the risk is that nobody starts it, not that it is hard.
+
+**The rule that keeps this honest:** the replay UI must banner every frame with its provenance class — `HISTORICAL OBSERVED (IMD/ERA5, Nov 2018)` versus `LIVE` versus `SIMULATED`. If item 1 or 2 does not land, the replay ships **⏸️ deferred and labelled as such in the demo script.** We do not synthesise a cyclone track and present it as Gaja.
 
 ---
 
@@ -286,7 +320,128 @@ That answer demonstrates we understood the design space and chose within it, whi
 
 ---
 
-## 5. Repository Layout & Deployment
+### 4.7 Map performance budget & layer lifecycle
+
+The map carries seven layer types over a 720×720 GEBCO grid, EEZ/MPA polygons with thousands of vertices, and PFZ point sets — on a phone, at sea, on a bad connection. Left alone that becomes an unusable map, and the fisherman persona is exactly the user who suffers first. Leaflet stays; nothing here is a framework change.
+
+**Budget — measured on a mid-range Android over 3G, and treated as a build target, not an aspiration:**
+
+| Metric | Budget |
+|---|---|
+| Payload per layer, over the wire | ≤ 300 KB gzipped |
+| Initial map interactive | ≤ 2.5 s |
+| Layer toggle → painted | ≤ 400 ms |
+| Concurrent heavy layers (raster/heatmap), mobile | **2** |
+| Concurrent heavy layers, desktop | 4 |
+
+**Raster and gridded fields (SST, chlorophyll, bathymetry, wave height).** Served as XYZ tiles, never as a whole grid pushed to the browser. The backend pre-renders the pilot-region grids to a tile pyramid at build time (zoom 5–11) and serves them statically; `L.tileLayer` handles viewport-and-zoom fetching for free. Where a source already publishes WMS (MOSDAC, Copernicus), proxy the WMS rather than re-tiling it. **Never** ship a 720×720 NetCDF slice to the client.
+
+**Vector layers (EEZ, IMBL, MPA, districts).** Pre-simplified per zoom band with Douglas–Peucker at generation time — tolerance ~0.01° for z≤7, ~0.002° for z8–10, full precision z≥11 — and coordinates truncated to 5 decimals (~1 m, well past what any of these decisions need). Simplification happens in the pipeline, not in the browser. **One carve-out, and it is load-bearing: geofence containment tests always run server-side against full-precision geometry in Agent 6.** The simplified polygon is a *drawing* of the boundary; it is never the thing we test a breach against. A simplified IMBL that shifts 200 m is a rendering artifact — treating it as truth would be a legal incident.
+
+**Layer lifecycle.** Layers mount on demand and unmount when deselected or scrolled out of the viewport; nothing stays resident "in case". Default-on sets are per persona (fisherman: hazards + PFZ + position; researcher: whatever they pick), and requesting a third heavy layer on mobile evicts the least-recently-used one with a visible notice rather than silently degrading the frame rate.
+
+**Instrumentation.** `layer_load_ms`, `render_ms` and `payload_bytes` per layer, logged to the console in dev and to the existing OTel stream in staging. Engineering visibility only — this is a budget check, not an observability platform.
+
+**Owner:** S5, with the tiling job in the Phase 2 data pipeline. **Lands:** Phase 2 (tiles + simplification), Phase 4 (budget verification on a real device).
+
+### 4.8 Forecast time slider — how it actually works
+
+**It never re-runs the agent graph.** Dragging a slider must not fire twelve agents; it is a frame swap over data already fetched.
+
+**The real temporal resolution, from the data on disk — not assumed:** `ww3_pilot_forecasts.csv` carries **56 time steps at 3-hour spacing**, `2026-09-01T00:00Z` → `2026-09-07T21:00Z` — a 7-day horizon. That is the WW3 cadence and the slider inherits it. Nothing here is hard-coded to 3h in application logic: the frontend reads the timestamp axis the backend returns and renders whatever steps exist.
+
+**Flow:**
+
+1. A forecast query returns, alongside the answer, a `forecast_frames` block: `{layer, frames: [{t, tile_url | geojson_ref}], t_min, t_max, step_seconds, source_provenance}`.
+2. The frontend holds the frame index in client state. Vector frames for the pilot region are small enough to prefetch whole; raster frames prefetch the current frame ±2 and fetch the rest lazily.
+3. Moving the slider swaps the rendered frame. **No API call for a prefetched frame, no agent invocation ever.**
+4. The selected time is displayed in full — absolute local time *and* relative ("+18 h") — because "which forecast hour am I looking at" is a safety-relevant question, not a nicety.
+
+**Mixed cadences — the synchronisation rule.** WW3 waves are 3-hourly, Open-Meteo weather is hourly, HYCOM currents are daily, MOSDAC SST is daily. **The slider's axis is the coarsest layer currently displayed**, and every finer layer is sampled at the selected instant (nearest-neighbour within half a step; otherwise the layer greys out rather than extrapolating). A layer with no frame within tolerance renders as unavailable at that time — never as the nearest value pretending to be current. A "sampled at 12:00, source step 00:00" note appears in the layer legend, so the mismatch is visible rather than silently smoothed.
+
+**Owner:** S5 (frontend + frame payload), S3 (`forecast_frames` assembly in the loader layer). **Lands:** Phase 2.
+
+### 4.9 Delivery channels — one response, many renderers
+
+The master requirements name web, Android, SMS bot and IVR for the lowest-connectivity zones. The plan builds the web app. Rather than leave the rest unmentioned, the pipeline is structured so that the channel is a rendering decision at the edge, not an assumption baked through the system:
+
+```
+ORCA response (Agent 9, structured)
+   → channel renderer   (how much fits, and in what form)
+   → dispatcher         (how it physically leaves the building)
+```
+
+**Channel status — stated plainly:**
+
+| Channel | Status | Notes |
+|---|---|---|
+| Web | 📋 Specified → Phase 1 | The build target |
+| PWA (installable, offline verdict cache) | ⏸️ Deferred to after the internal round | §5.2; the degraded-response contract keeps it cheap |
+| In-app notification | 📋 Specified → Phase 3 | The Sentinel dispatch path we actually ship |
+| SMS | 🟡 Simulated | Renders the exact Sagar-Vani payload; no gateway. See below |
+| IVR (voice callback) | ⏸️ Deferred | Renderer defined, no telephony provider |
+| USSD | ⏸️ Deferred | Renderer defined, requires a telecom partnership |
+
+WhatsApp is **not** an ORCA channel and is not planned.
+
+**Renderers are cheap and worth defining now**, because they force the response to stay structured rather than becoming a wall of HTML: `render_web()` (full payload with map and provenance), `render_sms()` (≤160 GSM-7 chars, verdict + one hazard + timestamp, vernacular), `render_ivr()` (TTS script — short sentences, no numerals-as-digits, one repeat), `render_ussd()` (≤182 chars, menu-structured). Each is a pure function of the same `ORCAState`.
+
+**Dispatch — the honest statement, and the one to use in Q&A:**
+
+> The ORCA notification layer is gateway-agnostic. The current implementation uses a simulated in-app dispatcher that renders the exact payload that would have been transmitted; a production deployment connects the same `Dispatcher` interface to a compliant SMS/IVR gateway. Indian SMS delivery additionally requires DLT template registration, which is a commercial and regulatory process rather than an engineering one.
+
+```
+Dispatcher (protocol)      send(recipient, rendered_payload, channel) -> DispatchResult
+  ├── InAppDispatcher      ✅ ships — writes to the notification feed, shows the payload verbatim
+  ├── SMSDispatcher        ⏸️ interface only — raises NotImplemented, documented as gateway-pending
+  └── IVRDispatcher        ⏸️ interface only
+```
+
+Sentinel calls `Dispatcher`, never a gateway. `sentinel_subscriptions.channels` already records the user's preference, so introducing a real gateway later is registering one class — not touching Agent 11. **Nothing anywhere claims a message was delivered when it was rendered.** A simulated dispatch is labelled `SIMULATED` in the UI and stored with `status = 'degraded'` in the audit log.
+
+**Owner:** S3 (dispatcher, Sentinel), S6 (renderers). **Lands:** Phase 3.
+
+### 4.10 Advisory feedback — "this looks wrong"
+
+Distinct from the persona-correction tap, which only changes how an already-computed answer is rendered. This is about the answer being **wrong**, and the requirements ask for it explicitly.
+
+Every advisory card carries three controls: **Helpful** · **Not accurate** · **Report issue**. One tap, no dialog; "Report issue" additionally opens an optional free-text box. On the fisherman surface these are icons with visible text labels, placed below the verdict badge — never competing with it.
+
+Stored in `advisory_feedback` (§5.3) with `query_id`, `advisory_ref`, `session_id`, `user_id` where authenticated, `kind`, optional `comment`, timestamp. Because `query_id` is the same key `audit_trace_log` is written under, a single join reconstructs the complete agent trace, every source, and every confidence tier behind a flagged answer. That traceability *is* the feature.
+
+**Explicitly not doing:** no automatic retraining, no threshold auto-tuning, no model updates from feedback events. A fisherman disagreeing with a wave-height threshold is a signal to review, not an instruction to move the threshold. Analysis is manual and out of scope for the month.
+
+**Owner:** S6 (control + API), S4 (surfacing it on analytic cards). **Lands:** Phase 3.
+
+### 4.11 Accessibility — WCAG 2.1 AA is the target, and it is testable
+
+Stated as the target rather than "an accessibility pass", so it can be failed rather than felt. Baseline, applied as surfaces are built rather than retrofitted:
+
+- **Semantic HTML** — real `<button>`, `<nav>`, `<main>`, `<h1..h3>` hierarchy. No `<div onclick>`.
+- **Labels** — every control has an accessible name; icon-only buttons (including SOS) carry `aria-label`. Form fields use `<label for>`, never placeholder-as-label.
+- **Keyboard** — every interactive element reachable and operable by keyboard, logical tab order, no traps, a skip-to-content link. Map controls: zoom, layer toggles and the time slider are all keyboard-operable; the slider responds to arrow keys with `role="slider"` and `aria-valuetext` announcing the forecast time.
+- **Focus** — a visible focus ring at ≥3:1 against its background. Never `outline: none`.
+- **Contrast** — ≥4.5:1 body text, ≥3:1 large text and UI boundaries. The sunlight-legibility requirement pushes the safety palette well past this anyway.
+- **Live regions** — streaming answers and incoming Sentinel alerts announce via `aria-live="polite"`; a distress state uses `assertive`.
+- **Motion** — honour `prefers-reduced-motion` for the activity strip and any map animation.
+
+**The rule that matters most here: severity is never carried by colour alone.** Every alert leads with a text severity token, and colour reinforces it:
+
+```
+✗  a red card
+✓  DANGER — Lightning detected within 8 km of your position    (red, ⚡ icon, text token)
+✓  CAUTION — Wave height 2.4 m exceeds your vessel class band   (amber, ▲ icon, text token)
+```
+
+This is not only an accessibility fix. It is the same discipline as Ground Rule 3: the screen must state what it means, not encode it.
+
+**Testing — six flows, and they are the exit criterion**: Ask, Safety, Map (including layer toggles and the time slider), Fishing Zones, alert interaction, feedback interaction. Each verified by (1) keyboard only, no mouse; (2) NVDA on Windows or VoiceOver on iOS; (3) an automated `axe-core` pass in CI, zero criticals.
+
+**Owner:** S6 (design system, so the baseline is inherited by every slice rather than reimplemented six times). **Lands:** built in from Phase 1, audited in Phase 3.
+
+---
+
+## 5. Repository Layout, Platform & Deployment
 
 Fixed in Phase 0, Day 1. Everyone branches from this; changing it later is expensive.
 
@@ -299,11 +454,19 @@ orca/
 │   │   ├── graph/           # LangGraph wiring — the ONLY place langgraph is imported
 │   │   ├── llm/             # provider protocol, registry, tier config (§3.1)
 │   │   ├── data/            # loaders over data/ — NetCDF, GeoJSON, CSV, cached JSON
+│   │   │   └── normalize.py # the common data frame (§5.6) — every loader exits through it
+│   │   ├── db/              # SQLAlchemy models + repositories over the §5.3 schema
+│   │   ├── auth/            # registration, login, sessions, RBAC dependencies (§5.4)
+│   │   ├── channels/        # channel renderers + Dispatcher implementations (§4.9)
+│   │   ├── resilience.py    # timeouts, fallback cascade, degraded responses (§5.7)
 │   │   ├── state.py         # ORCAState (Architecture §5) — frozen contract
 │   │   ├── contracts.py     # AgentResult envelope (Architecture §6) — frozen contract
 │   │   ├── trace.py         # OTel spans -> audit_trace_log
 │   │   └── api/             # FastAPI routes, SSE streaming
 │   └── tests/
+│       ├── unit/
+│       ├── fixtures/        # recorded upstream responses — the only data E2E touches
+│       └── e2e/             # full-graph fixture replays (§5.8)
 ├── frontend/                # Next.js (App Router)
 │   ├── app/                 # one directory per §4.2 route
 │   ├── components/
@@ -316,6 +479,7 @@ orca/
 ├── scripts/                 # existing procurement + new sync tooling
 ├── docs/                    # architecture, requirements, this plan
 └── infra/                   # docker-compose (Postgres+PostGIS, Redis), CI
+    └── db/                  # ✅ numbered SQL migrations + migrate.sh (§5.3)
 ```
 
 ### 5.1 Deployment topology — Vercel + PWA (after the internal round)
@@ -354,6 +518,210 @@ That last point is the one to get right: **a cached verdict must never render li
 
 **Lands:** after the internal round, alongside the first deploy. The design constraint it places on us *now* is only this — the offline path must reuse the existing degraded-response contract, so keep that contract clean and the PWA is a small addition later rather than a second set of staleness rules.
 
+### 5.3 Persistent state — the PostgreSQL + PostGIS schema
+
+**Status: ✅ defined and committed** — [`infra/db/001_init.sql`](../infra/db/001_init.sql), applied by [`infra/db/migrate.sh`](../infra/db/migrate.sh). It lands in **Phase 0**, not Phase 2, for one reason: S1 needs `audit_trace_log` on Day 1 and S3 needs `sentinel_subscriptions` in Week 3, and two people improvising two schemas for the same entities is an expensive Week-4 discovery.
+
+**The scope rule, which is the important decision here:** this database holds ORCA's *operational* state — who the user is, what they own, what they asked, what we answered, what we monitor. **Scientific source data never enters it.** The 18.72 GB `data/` tree stays on the filesystem (object storage after deployment) and is read by the loader layer. Postgres stores *references* to datasets, never copies of them. Putting a GEBCO grid in a table would be slower than reading the NetCDF and would fork the provenance story.
+
+| Table | Holds | Notes |
+|---|---|---|
+| `users` | identity, role, `default_persona`, language, `home_port` (Point), status | Identity is phone-or-email; `password_hash` is argon2id |
+| `vessels` | owner FK, class, `draft_m`, registration, `last_position` (Point) | 1..n per user via `owner_user_id` — no join table needed |
+| `sessions` | user (nullable — anonymous allowed), persona, language, channel | Anonymous sessions remain first-class |
+| `conversation_turns` | per-turn original + normalized-English text, `query_id` | Architecture §5 `session_history` |
+| `audit_trace_log` | `query_id`, agent, event, span ids, `inputs_consumed`, `outputs`, `source_provenance`, `confidence`, `status`, latency | Architecture §6 envelope, one row per agent execution |
+| `sentinel_subscriptions` | user/vessel, `watch_point`/`watch_area`, thresholds, channels, enabled | Agent 11's subscriber list |
+| `advisory_feedback` | `query_id`, kind, comment | §4.10 |
+
+**PostGIS is used where geography is actually queried**, not decoratively: `users.home_port`, `vessels.last_position`, `sentinel_subscriptions.watch_point` / `watch_area`. All SRID 4326; distance comparisons cast to `geography` so they are metres rather than degrees. GIST index on every geometry column — Sentinel's hot loop is "which subscriptions fall inside this hazard polygon", which is a spatial join and nothing else.
+
+**Constraints and lifecycle, since they encode real rules:** `ON DELETE CASCADE` from users to vessels, sessions and subscriptions (deleting an account removes their tracked locations — that is the privacy behaviour we want); `ON DELETE SET NULL` from feedback and audit rows to sessions (the compliance record survives account deletion, de-linked). `users_identity_present` requires phone or email. `sentinel_has_geometry` forbids a watch that watches nowhere. `draft_m > 0`, because a zero draft would silently pass every depth check in §4.6.
+
+**Indexed:** every FK, `audit_trace_log(query_id, created_at)` for trace reconstruction, `audit_trace_log(status) WHERE status <> 'ok'` as a partial index for failure review, `sentinel_subscriptions(watch_type) WHERE enabled`, and the four GIST indexes.
+
+**Sensitive columns — enumerated once, here, and referenced by §5.5:** `users.phone_e164`, `users.email`, `users.password_hash`, `users.home_port`, `vessels.registration_no`, `vessels.last_position`, `sentinel_subscriptions.watch_point`/`watch_area`. Every one of them either identifies a person or says where their boat is.
+
+**Migration strategy:** numbered SQL files, applied in filename order, recorded in `schema_migrations`. No Alembic while there are no ORM models — adopt it if and when SQLAlchemy models become the source of truth. Migrations are forward-only; a mistake is corrected by `002_*.sql`, never by editing `001`.
+
+**Owner:** S1. **Lands:** Phase 0.
+
+### 5.4 Identity — registration, authentication, vessels
+
+**FLAG 7 was the load-bearing gap.** The architecture assumes registered users throughout — Sentinel's "registered home port", persona resolution from "registered account role", `vessel_id` on distress handoff — and none of it existed. Without identity, Sentinel has nobody to notify and every session re-infers persona from scratch.
+
+**This is an MVP, deliberately.** The goal is to make the architecture's assumptions real, not to build an identity platform.
+
+**What ships:**
+
+- **Registration / login** — phone (or email) + password, argon2id hashed. A short OTP flow is the realistic Indian pattern but needs the same SMS gateway we do not have (§4.9), so password it is, and the swap is one adapter later.
+- **Sessions** — a signed HTTP-only cookie or bearer JWT (15-min access, 30-day refresh), `sessions` row per login. Anonymous use continues to work for everything that does not need identity; the fisherman who has not signed up still gets a safety verdict.
+- **Profile** — persona/role, preferred language, home port (map picker → `users.home_port`).
+- **Vessel registration** — name, class, draft, registration number; a user may register several and pick an active one. Draft flows straight into §4.6 corridor routing, which is why this is not cosmetic.
+- **Authorization** — three roles, no more: `user` (own resources only), `authority` (district rollups, `/ops`, CAP composer, distress queue), `admin` (operational). Enforced as a FastAPI dependency at the route boundary. **Not** a permission matrix, not per-object ACLs — a hackathon RBAC that grows into one has already failed.
+
+**The boundary that must not be crossed.** Being authenticated changes *rendering and access*, never *routing*. Agent 2 classifies intent from the query text alone; specialist agents still never see a persona; `AgentResult` still has no persona field. Authentication may populate `ORCAState.persona` as a resolved value instead of an inferred one — it may never reach an intent classifier or a specialist agent's inputs. This is the exact bug Architecture v2.0 fixed, and identity is the most tempting place to reintroduce it. **Enforced the same way as the vendor-SDK rule: a CI grep for `persona` under `orca/agents/` excluding Agents 1 and 9.**
+
+**Sentinel uses this model, and does not get its own.** Agent 11 reads `sentinel_subscriptions` joined to `users` and `vessels` — subscriber, monitored geometry, associated vessel, notification channels. There is no separate Sentinel user table and no shadow profile store.
+
+**Owner:** S1 (auth core, RBAC), S6 (registration and profile surfaces), S3 (Sentinel wiring). **Lands:** Phase 2 — auth core and vessel registration early in the week, so Phase 3's Sentinel has real subscribers to notify.
+
+### 5.5 Security Considerations
+
+**Read this section as scoped to a prototype.** ORCA as built during this month is **demo-grade**, and the table below says exactly which line falls where. Claiming otherwise about a system that stores where fishing boats are would be the worst kind of overstatement.
+
+**Threat model, briefly.** The asset worth protecting is not the science — SST is public. It is **the association between a person and a position**: home port, last known vessel position, watch locations, registration number. That data is a physical-safety concern, not merely a privacy one, and it drives every rule below.
+
+| Control | This build | Production would additionally need |
+|---|---|---|
+| Authentication | ✅ password + JWT/session cookie (§5.4) | OTP/2FA, lockout, breach-password screening |
+| Authorization | ✅ three roles at the route boundary | Per-object ACLs, delegated district scoping |
+| Transport | ✅ HTTPS in deployment | HSTS, cert pinning on mobile |
+| Secrets | ✅ env vars only, `.env` gitignored, `.env.example` zero-valued | Managed secret store, rotation |
+| Input validation | ✅ Pydantic on every request | Fuzzing, schema-diff regression |
+| Location privacy | ✅ owner-only reads, coarsened aggregates | Retention automation, k-anonymity on rollups |
+| Logging hygiene | ✅ coordinates/identifiers redacted | Central log pipeline with DLP |
+| Audit | ✅ security events into `audit_trace_log` | Tamper-evident append-only store |
+| Rate limiting | ⏸️ deferred | Per-IP and per-account throttles, WAF |
+| Encryption at rest | ⏸️ deferred (host-level only) | Column-level encryption on position data |
+| Penetration test | ⏸️ not performed | Third-party assessment before public launch |
+
+**Location privacy — the rules, concretely:**
+
+1. **Nobody reads another user's exact position.** Vessel position and home port are returned only to the owner. There are exactly two exceptions, both narrow: an `authority` role during an **active distress** (Agent 12 has fired, and the read is itself audited), and the user's own Sentinel evaluations.
+2. **Aggregates are coarsened.** District rollups on `/ops` report counts per sector, never plottable individual vessels. If a cell contains fewer than 5 vessels it reports "<5" rather than a number that could be de-anonymised against a known fleet.
+3. **Positions are not written unless a feature needs them.** A one-off safety query uses a coordinate in the request and does not persist it. `vessels.last_position` is written only when the user has an active Sentinel watch or an open voyage.
+4. **Retention.** Position history is not accumulated at all in this build — `last_position` is a single overwritten value. That is a data-minimisation decision, not an omission.
+
+**API security.** Nothing from the client is trusted: every request body and query parameter is validated by a Pydantic model; coordinates are range-checked (`-90..90`, `-180..180`) and rejected outside the pilot/India bbox where the endpoint is region-scoped; `user_id` and `vessel_id` are **never accepted from the client as a subject** — the subject comes from the verified token, and any supplied vessel id is checked for ownership before use. `persona` from the client is a *rendering hint only*, validated against the enum, and is never permitted to reach routing (§5.4). SQL is parameterised throughout; PostGIS geometries are constructed from validated numerics, never from client-supplied WKT.
+
+**Secrets.** No API key, database password, token or credential is ever hard-coded, committed, or logged. `.env.example` stays zero-valued and is the only credential file in git. A CI secret-scan step fails the build on a committed key — cheap, and it catches the mistake on the day it is made rather than after the repo is public.
+
+**Logging.** Application logs carry `query_id`, agent name, status and latency. They do **not** carry coordinates, phone numbers, registration marks or tokens; a redaction filter drops these before the formatter, so a careless `logger.info(payload)` cannot leak position. Where a position genuinely must be traced, it goes to `audit_trace_log` under access control — not to stdout.
+
+**Audit.** Login, failed login, registration, role change, vessel registration, subscription change and any authority read of another user's position are all written to `audit_trace_log` with `agent_name = 'security'`. One trace mechanism, not two.
+
+**Owner:** S1. **Lands:** Phase 2 alongside auth; secret-scan and validation from Phase 0.
+
+### 5.6 The common data frame — one normalization layer, not twelve
+
+**FLAG 1.** The master requirements call harmonization "prerequisite infrastructure, not a bonus feature", and the failure mode if every agent normalizes for itself is specific and nasty: Agent 6 reads `(lon, lat)` from GeoJSON while Agent 5 reads `(lat, lon)` from a CSV, and a boundary-distance answer is silently wrong by hundreds of kilometres. Six engineers writing six transposes is how that ships.
+
+**Every loader exits through one function.** Agents consume normalized objects; no agent implements its own CRS or time handling.
+
+```python
+# backend/orca/data/normalize.py
+def normalize_to_common_frame(
+    data,                          # xr.Dataset | gpd.GeoDataFrame | pd.DataFrame | dict (GeoJSON)
+    *,
+    source: SourceDescriptor,      # dataset id, authority, acquisition time, native CRS/units
+    target_crs: str = "EPSG:4326",
+    target_time_resolution: str | None = None,   # "1H" | "3H" | "1D" | None = keep native
+    target_units: dict[str, str] | None = None,
+) -> NormalizedFrame: ...
+```
+
+**What it fixes, and the ORCA convention for each:**
+
+| Concern | Convention |
+|---|---|
+| CRS | EPSG:4326 internally. Reprojection is pyproj, never a hand-rolled formula |
+| Axis order | **`(lon, lat)` in every internal payload and GeoJSON.** The single most likely silent bug in this system |
+| Longitude range | −180..180 (HYCOM's 0..360 is converted on load) |
+| Timestamps | tz-aware UTC, ISO-8601 with `Z`. IST appears only at the rendering edge |
+| Temporal resampling | Explicit and downsample-only. Never interpolate a forecast to a finer grid than the model produced |
+| Units | m, m/s, °C, hPa, metres depth positive-down. Knots and °F exist only in rendering |
+| Missing values | `NaN`, never `-999`/`9999`/`0`. Sentinel values are mapped on load, and the count is recorded |
+| Extents | Clipped to the pilot bbox where the caller asks; the clip is recorded in provenance |
+
+**Provenance survives normalization — that is a hard requirement, not a nicety.** `NormalizedFrame` carries `.data` plus `.provenance`: source dataset id, authority tier, acquisition timestamp, native CRS, native units, the ordered list of operations applied (`reproject`, `resample`, `unit_convert`, `clip`, `fill_sentinel`), and the missing-value count. Agent 7 needs the acquisition time to compute a freshness-based confidence tier, and Ground Rule 3 needs the dataset name to reach the UI, so a normalizer that dropped metadata would break both. **Normalization is additive to metadata and never subtractive.**
+
+**Runnable check** (Ground Rule 6): a round-trip test asserting that a known Thoothukudi coordinate survives GeoJSON → normalize → distance-to-IMBL with the same answer as the raw path, and that a 0..360 HYCOM longitude lands in the right hemisphere. That single test catches the axis-order and longitude-range bugs, which are the two that would otherwise reach a demo.
+
+**Owner:** S3 (owns the loader layer already). **Lands:** Phase 1, Days 3–4 — before Agents 4, 5 and 6 build their tools on top of it. This is the one item on this list that cannot slip, because retrofitting it means rewriting every loader.
+
+### 5.7 Error handling — built in Phase 2, verified in Phase 4
+
+**FLAG 22.** Architecture §12 specifies a nine-scenario failover hierarchy; the plan only scheduled *rehearsing* it in Phase 4. You cannot rehearse code that was never written. The handling is built with the agents; Phase 4 keeps only the adversarial verification.
+
+**Layered, in the order failures actually arrive:**
+
+1. **Timeouts, everywhere.** Every upstream call carries an explicit timeout (default 5 s; 3 s on the safety path, where late is the same as absent). No unbounded external call exists anywhere in the codebase. A slow INCOIS never becomes a hung graph.
+2. **Fallback cascade, declared not improvised.** Each source declares its ordered fallbacks in the catalog (Architecture §12.1) — INCOIS → cached local → Open-Meteo, and so on. Agent 3 walks the cascade; **each step down lowers the confidence tier and appends to `source_provenance`.** A degraded answer says which rung it came from.
+3. **Validation on arrival.** A 200 response is not a valid dataset. Empty payloads, all-NaN grids, out-of-range values and stale timestamps beyond the source's own cadence are rejected as failures and fall through to the next rung. Silent garbage is worse than a clean error.
+4. **Agent exception boundary.** Every agent node is wrapped: an unhandled exception becomes `AgentResult(status='failed', confidence='LOW_DATA', error_detail=...)`, written to the audit log, and the graph continues. **One specialist agent failing degrades the answer; it never takes down the request.**
+5. **Conflicting sources** keep the architecture's existing behaviour: both values are surfaced with their provenance, confidence drops to MEDIUM, and the *conservative* value drives any safety verdict.
+6. **All sources down.** An explicit degraded response — the last cached verdict with its age, forced to LOW-DATA amber, plus a plain statement that live data is unavailable. **No number is ever invented to fill a hole.**
+7. **Safety path fails conservative.** If deterministic safety logic cannot obtain an input it requires, the result is CAUTION or NO_GO with the missing input named — never GO, and never an LLM asked to estimate the value. Ground Rule 2 applies hardest exactly here, because a fabricated wave height that reads GO is the one failure in this system that can kill someone.
+8. **Circuit breakers — only where measured.** Deferred until Phase 4 and applied only to a source that demonstrably flaps under load. Adding five breakers on speculation buys latency and complexity we cannot justify.
+
+Timeouts, the cascade and the exception boundary live in `orca/resilience.py` as decorators, so an agent opts in with one line rather than reimplementing the pattern.
+
+**Owner:** S3 (cascade, since it owns the loaders), S1 (exception boundary and graph-level behaviour), S2 (the safety-path conservative rules). **Lands:** Phase 2 build → Phase 4 adversarial verification (kill each source in turn and confirm §12.2 fires).
+
+### 5.8 Testing — one real end-to-end path, replayable in CI
+
+**FLAG 13.** Unit checks per module (Ground Rule 6) do not tell us the graph works. One fixture-replayed end-to-end test does, and it is the regression net for the entire month.
+
+**The flagship scenario, and it is deliberately the safety query:**
+
+```
+"நாளை காலை தூத்துக்குடி அருகில் கடலுக்கு போவது பாதுகாப்பானதா?"
+  → Agent 1 ingress (language ID, translation)
+  → Agent 2 planning (intent → routing)
+  → Agents 4 + 6 in parallel (weather, geospatial)
+  → Agent 7 risk assessment (deterministic verdict)
+  → Agent 8 visualization
+  → Agent 9 reporting (persona rendering)
+  → Agent 1 egress (translation back to Tamil)
+```
+
+**Every upstream is a recorded fixture.** `tests/fixtures/` holds captured Open-Meteo, INCOIS, WW3 and boundary responses; the loader layer is patched to read them. The test runs offline, on any machine, at any time, and is byte-deterministic — an LLM is stubbed for the two prose steps, because prose wording is not what this test is asserting.
+
+**Asserted, explicitly:** the routing decision matches the expected agent set; every hand-off writes into `ORCAState` as contracted; every `AgentResult` validates against the envelope schema (required fields present, no persona field on a specialist result); `source_provenance` is non-empty on every claim; the confidence tier matches the expected value for the fixture's freshness; the verdict is the exact expected `GO`/`CAUTION`/`NO_GO`; the map payload is valid GeoJSON with the expected layers; the final response is in Tamil.
+
+**Plus three degradation variants** over the same fixtures, because §5.7 needs a net too: INCOIS returns 503 (expect fallback used, confidence dropped, provenance shows the rung), all sources down (expect degraded response, forced amber, no invented numbers), one agent raises (expect controlled `AgentResult`, graph completes).
+
+**CI:** unit and E2E run on every PR alongside lint, typecheck, the vendor-SDK-import guard, the persona-leak guard (§5.4), secret scan (§5.5) and `axe-core` (§4.11). Nothing here needs a live API key, so CI stays green when an upstream is down — which is also the point.
+
+**Owner:** S1 (harness and CI), each slice contributes its own fixtures. **Lands:** skeleton in Phase 1 as soon as the graph runs end-to-end; degradation variants in Phase 2 with §5.7.
+
+### 5.9 Agent 8 (Visualization) — the tool specification the other agents already had
+
+**FLAG 23.** Every other agent has an itemised tool table; Agent 8 had a sentence. Architecture §11 lists layer and chart *types* without an interface. Closed here at parity, preserving §11's types exactly.
+
+**Separation of concerns, stated first because it is the design constraint:** Agent 8 performs **no scientific reasoning**. It transforms results other agents computed into renderable structures. Ocean Agent decides whether SST is anomalous; Visualization decides it becomes a heatmap with these bounds and this colour ramp. `Ocean Agent → scientific result`, then `Visualization Agent → GeoJSON/chart spec` — never `Visualization Agent → decides whether the sea is safe`. Agent 8 makes zero LLM calls (§3.2) and reads no raw dataset that a specialist has not already interpreted.
+
+| Tool | Inputs | Output |
+|---|---|---|
+| `generate_map_layers` | `agent_results: list[AgentResult]` (required) · `intent` (required) · `persona` (required — complexity only) · `viewport_bounds` (optional) · `time_range` (optional) | `list[MapLayer]` |
+| `generate_chart_specs` | `series_data` (required) · `chart_hint` (optional) · `persona` (required) | `list[ChartSpec]` |
+| `generate_route_layer` | `route_segments` from Agent 6 (required) · `vessel_class` (optional) | `MapLayer` (Polyline, per-segment `CLEAR`/`CAUTION`/`BLOCKED` styling) |
+| `generate_distress_layer` | `distress_event` from Agent 12 (required) | `MapLayer` (non-dismissible Distress marker) |
+| `generate_sentinel_badges` | `active_subscriptions` (required) · `triggered: bool` | `list[MapLayer]` (watch indicators) |
+| `validate_payload` | any `MapLayer`/`ChartSpec` | `(bool, list[str])` — called on every payload before egress |
+
+**Coordinate and time contract:** inputs arrive as `NormalizedFrame` (§5.6) — EPSG:4326, `(lon, lat)`, UTC. Agent 8 reprojects nothing and converts no timezone; if a payload arrives unnormalized that is a bug in the producing agent, not something Agent 8 patches over.
+
+**`MapLayer` output:**
+
+```
+layer_id, layer_type, geojson (FeatureCollection | null), tile_url (raster/tiled | null),
+bounds [w,s,e,n], timestamps [] | null, forecast_frames [] | null   # §4.8
+style_hints {palette, opacity, min_zoom, max_zoom, simplify_tolerance}
+weight: heavy | light                                               # §4.7 lifecycle budget
+persona_visibility [], source_provenance [], result_refs []         # back to AgentResult
+```
+
+**Layer types — unchanged from Architecture §11.1:** PointMarker · Polygon · Polyline · Heatmap · Raster (tiled/WMS) · Distress marker (non-dismissible) · Sentinel watch indicator.
+**Chart types — unchanged from §11.2:** TimeSeries · BarChart · RadarChart · WindRose.
+
+**Validation is mandatory, not advisory.** `validate_payload` runs on everything before it leaves the backend: geometry structurally valid and correctly wound, coordinates within the declared bounds and inside plausible India-region ranges, `layer_type` in the enum, timestamps tz-aware and monotonic, feature count within the §4.7 budget (over budget → simplify or tile, never ship), `source_provenance` non-empty. A payload that fails validation is dropped with a logged error and a degraded response — a malformed GeoJSON that crashes Leaflet during a demo is a failure we can prevent in the backend.
+
+**Provenance:** every layer and chart carries `source_provenance` and `result_refs` pointing back to the `AgentResult` (and thus the `query_id`) it was built from. That is what lets a click on a rendered feature open the provenance popover (differentiator 3) without a second query.
+
+**Owner:** S5. **Lands:** Phase 1 (map + point/polygon layers), Phase 2 (heatmap, raster tiles, charts, validation), Phase 3 (route, distress, Sentinel layers).
+
 ---
 
 ## 6. Phase Plan
@@ -365,12 +733,14 @@ That last point is the one to get right: **a cached verdict must never render li
 - Confirm credentials across all six machines (§1.1)
 - Repo scaffolding per §5; `docker-compose` with Postgres+PostGIS and Redis; a working backend `Dockerfile` (reproducible envs now, deployable later)
 - **Freeze the contracts:** `ORCAState`, `AgentResult`, tool signatures. Everything downstream depends on these; they land before feature work, not alongside it
+- **Apply the database schema** (§5.3) — `infra/db/migrate.sh` against the compose Postgres. It exists already; Phase 0 is where it starts being used, so nobody improvises a second one
 - LLM provider abstraction (§3.1) with two providers registered
-- CI: lint, typecheck, test, plus the vendor-SDK-import guard
+- CI: lint, typecheck, test, the vendor-SDK-import guard, the persona-leak guard (§5.4) and a **secret scan** (§5.5)
 - Endpoint liveness sweep (§1.2)
-- Next.js app skeleton with the §4.2 nav shell rendering (dead links are fine)
+- Next.js app skeleton with the §4.2 nav shell rendering (dead links are fine), built on the §4.11 accessibility baseline from the first component
+- **Assign the Cyclone Gaja procurement task to S3** (§1.3) — small, and it must not be discovered in Week 4
 
-**Exit criteria:** `docker compose up` works on all 6 machines · CI green on an empty test · a mock `/query` SSE stream renders in the browser.
+**Exit criteria:** `docker compose up` works on all 6 machines · `migrate.sh` produces the full schema from empty on all 6 · CI green on an empty test · a mock `/query` SSE stream renders in the browser.
 
 ---
 
@@ -380,14 +750,17 @@ That last point is the one to get right: **a cached verdict must never render li
 
 Full detail and per-person assignment: **[`ORCA_Phase1_Plan.md`](./ORCA_Phase1_Plan.md)**
 
+- **`normalize_to_common_frame` (§5.6) — Days 3–4, before any agent tool is written on top of it.** This is the one item in Phase 1 that cannot slip; retrofitting it means rewriting every loader
 - Agent 7 (Risk Assessment) with vessel-class deltas and confidence tiers, properly tested
 - Agents 4 (Weather) + 6 (Geospatial) — minimum viable tool set for the safety path
 - Agent 12 (Distress) — pattern detection + MRCC surfacing. **Built now, not deferred**; it is the highest-severity gap the architecture audit found
 - Agent 1 (Language) — Tamil + Hindi ingress/egress
 - LangGraph skeleton: Planning → [WIA ∥ GRA] → RAA → Reporting
+- Agent 8 (Visualization) — point and polygon layers with `validate_payload` (§5.9)
 - Frontend: nav shell, persona system, Ask + Safety surfaces, Leaflet map, streaming verdict card
+- **End-to-end fixture test skeleton (§5.8)** — stood up the day the graph first runs end-to-end, not later
 
-**Exit criteria:** the Tamil safety query returns a correct verdict end-to-end · the same query in Hindi and English works · SOS surfaces MRCC contact in under 2 seconds · every displayed number carries a source · the trace is captured (rendering it is Phase 3).
+**Exit criteria:** the Tamil safety query returns a correct verdict end-to-end · the same query in Hindi and English works · SOS surfaces MRCC contact in under 2 seconds · every displayed number carries a source · the trace is captured (rendering it is Phase 3) · **the E2E fixture test passes in CI with no network access**.
 
 ---
 
@@ -400,11 +773,19 @@ Full detail and per-person assignment: **[`ORCA_Phase1_Plan.md`](./ORCA_Phase1_P
 - Multi-intent: union resolution (§4.1), no-match fallback (§4.2)
 - Agent 9 (Reporting) — full persona rendering matrix, evidence citations, export-formatter mode
 - Researcher persona end-to-end: structured report, CSV/NetCDF export
+- **Identity: registration, login, profile, vessel registration, three-role RBAC (§5.4)** — early in the week, so Phase 3's Sentinel has real subscribers rather than a mock list
+- **Security controls (§5.5)** — Pydantic validation on every route, ownership checks, log redaction, security events into the audit log
+- **Error handling (§5.7)** — timeouts, fallback cascade, arrival validation, agent exception boundary, degraded-response rendering. Built here, verified in Phase 4
+- **Map performance (§4.7)** — raster tile pyramid for the pilot region, per-zoom polygon simplification, layer lifecycle
+- **Forecast time slider (§4.8)** — `forecast_frames` payload over the 56 WW3 steps, no agent re-invocation
+- Agent 8: heatmap, raster, chart specs (§5.9)
 - Frontend: Map explorer with real layers, Fishing Zones, Trends, Data surfaces; **provenance popovers** (differentiator 3); **source-selection narration** (differentiator 4)
 - Redis caching with source-cadence-aware TTLs (§9.1, §9.11)
 - **LLM provider bake-off** (§3.3) — now that Agents 5 and 9 have real prompts to score against
+- **Cyclone Gaja data procured (§1.3)** — IBTrACS best-track + ERA5 Nov-2018 fields. Due end of Phase 2
+- E2E degradation variants (§5.8): source 503, all-sources-down, agent raises
 
-**Exit criteria:** all 8 PS sample queries return substantive answers · researcher export produces a valid CSV with full metadata · multi-intent queries visibly activate the union of agents.
+**Exit criteria:** all 8 PS sample queries return substantive answers · researcher export produces a valid CSV with full metadata · multi-intent queries visibly activate the union of agents · a user can register, add a vessel, and see their own home port — and cannot see anyone else's · killing INCOIS in a fixture yields a degraded answer with the fallback rung named, not a crash · the time slider moves through 56 frames with zero agent invocations.
 
 ---
 
@@ -412,17 +793,19 @@ Full detail and per-person assignment: **[`ORCA_Phase1_Plan.md`](./ORCA_Phase1_P
 
 **Goal:** the capabilities that separate ORCA from a RAG chatbot. This is the week that wins or loses the demo.
 
-- **Agent 11 (Sentinel)** — background monitor, threshold-crossing detection. **Dispatch is simulated in-app**: the alert lands in the UI and renders the exact Sagar-Vani SMS payload that would have been sent, rather than sending it. Build behind a `Dispatcher` interface with one `InAppDispatcher` implementation, so a real gateway is a new class and not a refactor. (A real Indian SMS gateway also needs DLT registration, which does not fit a four-week window.) Fixed polling first; adaptive frequency (§9.17) only if ahead
+- **Agent 11 (Sentinel)** — background monitor, threshold-crossing detection, reading **real subscribers** from `sentinel_subscriptions` (§5.3/§5.4). **Dispatch is simulated in-app** and labelled `SIMULATED`: the alert lands in the UI and renders the exact Sagar-Vani SMS payload that would have been sent, rather than sending it. Behind the `Dispatcher` interface of §4.9, so a real gateway is a registered class and not a refactor. (A real Indian SMS gateway also needs DLT registration, which does not fit a four-week window.) Fixed polling first; adaptive frequency (§9.17) only if ahead
+- **Channel renderers (§4.9)** — `render_web`, `render_sms`, `render_ivr`, `render_ussd` over the same response. SMS is simulated; IVR and USSD ship as renderers with no delivery mechanism and are documented as deferred, not as working
+- **Advisory feedback (§4.10)** — Helpful / Not accurate / Report issue on every advisory card, joined to the audit trace by `query_id`
 - **Agent 10 (Critic)** — depth-triggered, with the async-upgrade carve-out so it never blocks a safety verdict
 - **Voice pipeline** — Bhashini ASR/TTS with local Whisper fallback, wired for the fisherman surface
 - Full language coverage across all named coastal languages
 - All four personas complete + persona-correction control (differentiator 7)
 - **Reasoning graph explorer** (differentiator 2) + Sentinel watch badges (differentiator 6)
 - **Voyage planner: the constraint-aware corridor route** (§4.6) — the committed design, not a fallback. A* is explicitly out of scope
-- District Ops surface: threat matrix, CAP payload, broadcast composer
-- Accessibility pass: screen-reader labels, high-contrast mode
+- District Ops surface: threat matrix, CAP payload, broadcast composer — with the §5.5 aggregation rules (counts per sector, never plottable individual vessels)
+- **Accessibility audit against WCAG 2.1 AA (§4.11)** — keyboard-only and screen-reader passes over the six named flows, `axe-core` clean in CI. The baseline was built in from Phase 1; this week is where it gets *tested*
 
-**Exit criteria:** a Tamil voice query works end-to-end · Sentinel fires a real threshold-crossing alert · persona correction re-renders with zero re-query · the reasoning graph renders a real multi-agent trace.
+**Exit criteria:** a Tamil voice query works end-to-end · Sentinel fires a real threshold-crossing alert to a registered subscriber · persona correction re-renders with zero re-query · the reasoning graph renders a real multi-agent trace · all six flows complete keyboard-only with a screen reader · a flagged advisory resolves to its full agent trace by `query_id`.
 
 ---
 
@@ -432,7 +815,9 @@ Full detail and per-person assignment: **[`ORCA_Phase1_Plan.md`](./ORCA_Phase1_P
 
 - Optimizations, now that the graph is stable — never before: cost-based short-circuit (§9.3), early-cancel (§9.4), request coalescing (§9.9), semantic cache (§9.1), stale-while-revalidate (§9.14, scoped away from safety-gating data)
 - Progressive/streaming rendering polish (§9.19) — safety badge populates **last**, never as an optimistic placeholder
-- **Cyclone Gaja historical replay mode** — makes hazard alerting demonstrable outside cyclone season
+- **Cyclone Gaja historical replay mode** — makes hazard alerting demonstrable outside cyclone season. 🔗 **Conditional on the §1.3 data landing in Phase 2.** Every frame banners its provenance class (`HISTORICAL OBSERVED` / `LIVE` / `SIMULATED`). If the data does not arrive, the replay is cut and labelled deferred in the demo script — it is not reconstructed from invented values
+- **Circuit breakers, only where Phase 2 measurement justified one** (§5.7 item 8) — not on speculation
+- **Map performance budget verified on a real mid-range Android over 3G** (§4.7), not on a developer laptop
 - **Visible Critic self-correction** (differentiator 5)
 - Failure-mode rehearsal: kill each upstream source and confirm the degraded-response contract (§12.2) actually fires, including forced-amber on all-sources-down
 - Demo script: one query per persona, plus distress handoff and proactive geofence as the two centerpiece flows
@@ -518,9 +903,21 @@ Read **Phase 0–4** as the calendar and **S1–S6** as the people (§7) — the
 | Data-freshness indicators | Ph1 | S3 |
 | Degraded-response contract | Ph2 → verified Ph4 | S3 |
 | Offline / low-connectivity access (PWA) | **After internal round** — degraded-response contract kept clean in Ph2 so it drops in | S6 |
-| Accessibility | Ph3 | S6 |
+| Accessibility (**WCAG 2.1 AA**, §4.11) | Ph1 baseline built in → Ph3 audited | S6 |
 | Audit trail / explainability | Ph1 capture → Ph3 surface | S1 |
 | Deployment (Vercel + backend container) | Ph0 Dockerfile only → **after internal round** | S1 |
+| **Data harmonization / normalization** (§5.6) | **Ph1 Days 3–4** — blocks agent tools | S3 |
+| **Persistent state schema** (§5.3) | ✅ defined → applied Ph0 | S1 |
+| **User registration / auth / vessel profiles** (§5.4) | Ph2 | S1, S6 |
+| **Security & location-data handling** (§5.5) | Ph0 (secrets, validation) → Ph2 (auth, privacy rules) | S1 |
+| **Error handling & degraded responses** (§5.7) | **Ph2 build** → Ph4 verify | S3, S1, S2 |
+| **End-to-end fixture test in CI** (§5.8) | Ph1 skeleton → Ph2 degradation variants | S1 + all |
+| **Map performance & layer lifecycle** (§4.7) | Ph2 → Ph4 device verification | S5 |
+| **Forecast time slider** (§4.8) | Ph2 | S5, S3 |
+| **Delivery channels & Dispatcher** (§4.9) | Ph3 — in-app ✅, SMS 🟡 simulated, IVR/USSD ⏸️ deferred | S3, S6 |
+| **Advisory feedback loop** (§4.10) | Ph3 | S6, S4 |
+| **Agent 8 tool specification** (§5.9) | Ph1 → Ph2 → Ph3 by layer type | S5 |
+| **Cyclone Gaja replay data** (§1.3) | 🔗 procure by end of Ph2, replay Ph4 | S3 |
 
 ---
 
@@ -541,6 +938,12 @@ Read **Phase 0–4** as the calendar and **S1–S6** as the people (§7) — the
 | Deployment deferred, then rushed after the internal round | Medium | Medium | The Phase 0 `Dockerfile` and the clean degraded-response contract are the only two things that must exist during the month for the later deploy to be small (§5.1, §5.2) |
 | LLM provider decision drifts unowned | Medium | Low | §3.3 names S1 as owner with a Phase 2 bake-off deadline. Tiers are fixed now; only providers are open |
 | Scope creep from the architecture's own optimization list | Medium | Medium | §9 optimizations are Phase 4 *only*. Implementing them before the graph is stable is explicitly forbidden by the architecture |
+| Normalization layer slips past Day 4 and agents build their own transforms | Medium | **High** — silent coordinate bugs found in Week 4 | §5.6 is a hard Day 3–4 gate for S3; the round-trip check is written the same day |
+| Auth slips, so Sentinel has no real subscribers in Week 3 | Medium | High — the headline proactive-alert demo weakens | §5.4 lands *early* in Phase 2, not late; the schema it needs already exists |
+| Cyclone Gaja data never procured, replay cut late | **Medium** | Medium — one Definition-of-Done scenario lost | §1.3 assigns S3 with an end-of-Phase-2 date and names IBTrACS + ERA5 as the concrete sources. Cut-and-label is the accepted outcome, not fabrication |
+| A simulated dispatch or a stubbed channel gets described as working | Low | **High** — a credibility failure in front of judges | The §4.9 status table is the single source of truth; simulated dispatches are labelled `SIMULATED` in the UI and stored `degraded` in the audit log |
+| Persona re-enters routing through the new auth layer | Medium | High — reintroduces the v1.0 bug the architecture fixed | CI persona-leak grep under `orca/agents/` (§5.4), same mechanism as the vendor-SDK guard |
+| Location data leaks through ordinary logs | Medium | High | Redaction filter ahead of the formatter (§5.5); positions go to the access-controlled audit log or nowhere |
 
 ---
 
@@ -554,11 +957,16 @@ The build is done when a stranger can sit down and, without help:
 4. Trigger SOS and watch a structured distress handoff emit with MRCC contact surfaced
 5. Plan a route from Thoothukudi toward Palk Bay and watch the IMBL treated as a hard barrier
 6. Watch a Sentinel alert fire on a threshold crossing they did not ask for
-7. Replay Cyclone Gaja and see the hazard cascade
+7. Replay Cyclone Gaja and see the hazard cascade — 🔗 conditional on §1.3 data landing; cut and labelled if it does not
 8. Pull the network cable and still get a correct, honestly-amber-flagged answer
+9. Register an account and a vessel, set a watch on a location, and receive the alert it fires — while being unable to see any other user's position
+10. Tap "Not accurate" on an advisory and have that feedback resolve to the full agent trace behind it
+11. Complete the Ask, Safety and Map flows with a keyboard and a screen reader only
 
-Eight scenarios. If all eight run clean, the product achieves what the problem statement asked for.
+Eleven scenarios. If they run clean, the product achieves what the problem statement asked for.
+
+**And one negative criterion, which matters as much as the eleven above:** nothing in the demo, the UI or these documents describes a capability we did not build. Simulated dispatch is labelled simulated. Deferred channels are labelled deferred. A missing dataset is labelled missing. A verdict computed from a fallback rung says so. The §4.9 and §5.5 status tables are the reference, and they are written to be failed rather than admired.
 
 ---
 
-*Living document. Update it, dated, whenever a phase boundary or an owner changes. Last updated: 2026-09-02.*
+*Living document. Update it, dated, whenever a phase boundary or an owner changes. Last updated: 2026-09-02 — v1.1, incorporating the in-scope findings of [`verification_analysis.md`](../verification_analysis.md); change log in [`ORCA_Implementation_Updates.md`](./ORCA_Implementation_Updates.md).*
