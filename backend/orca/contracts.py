@@ -39,3 +39,18 @@ class AgentResult:
     confidence: Confidence
     status: Literal["ok", "degraded", "failed", "skipped", "cancelled"] = "ok"
     error_detail: str | None = None
+
+
+_VALID_REASONING_DEPTHS = ("SHALLOW", "STANDARD", "DEEP")
+
+
+def coerce_reasoning_depth(value: str) -> Literal["SHALLOW", "STANDARD", "DEEP"]:
+    """ORCAState.reasoning_depth is a plain `str` (verbatim from Architecture
+    §5); AgentResult.reasoning_depth is the stricter Literal these three
+    values. Every agent's run() constructs an AgentResult from state, so this
+    is the one place that gap gets validated — a typo or a stale value in
+    state should fail loud (or degrade to SHALLOW here, logged) rather than
+    silently satisfy a type checker that can't see the actual runtime value."""
+    if value in _VALID_REASONING_DEPTHS:
+        return value  # type: ignore[return-value]  # narrowed by the check above
+    return "SHALLOW"

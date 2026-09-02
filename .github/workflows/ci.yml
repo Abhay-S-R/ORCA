@@ -33,7 +33,9 @@ jobs:
       # ones allowed to reference it.
       - name: persona-leak guard
         run: |
-          if [ -d orca/agents ] && grep -rl "persona" orca/agents/ | grep -vE "(agent_1|agent_9|user_interaction|reporting)"; then
+          # Matches actual code usage (state["stakeholder_persona"], a
+          PATTERN='\bstakeholder_persona\b|\bpersona["'"'"']?\s*[:=]|\["persona"\]|\.get\(["'"'"']persona'
+          if [ -d orca/agents ] && grep -rlnE --include='*.py' "$PATTERN" orca/agents/ | grep -vE "(agent_1|agent_9|user_interaction|reporting)"; then
             echo "::error::persona referenced outside Agents 1/9 — this is the v1.0 routing bug (plan Ground Rule 1)"
             exit 1
           fi

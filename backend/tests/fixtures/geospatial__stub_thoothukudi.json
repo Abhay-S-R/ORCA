@@ -1,0 +1,5 @@
+{
+  "_comment": "STUB FIXTURE, not a measurement. Agent 6 (Geospatial, owned by S5) is not built yet. imbl_distance_nm here is an illustrative placeholder for a Thoothukudi-area query, chosen to be unambiguously far from the boundary so the Phase 1 graph-wiring demo doesn't accidentally produce an alarming NO_GO off a fabricated number. Per plan §7 (S5's exit criterion): 'The IMBL distance is the single highest-consequence number in the product... never let it be interpolated, approximated, or LLM-generated.' This stub exists only so S1's graph has something to wire against before S5 lands the real check_boundary_proximity — swap this node for the real one the moment Agent 6 exists, do not tune this number to look more precise than it is.",
+  "imbl_distance_nm": 15.0,
+  "mpa_violation": false
+}
