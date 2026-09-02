@@ -23,7 +23,7 @@ from typing import Any
 import xarray as xr
 from pyproj import Geod
 from shapely import to_geojson
-from shapely.geometry import Point, shape
+from shapely.geometry import Point, box, shape
 from shapely.geometry.base import BaseGeometry
 from shapely.strtree import STRtree
 
@@ -39,6 +39,19 @@ _PROXIMITY_BANDS: tuple[tuple[float, str], ...] = ((1.0, "DANGER"), (5.0, "CAUTI
 
 # Static per pilot region for Phase 1; a per-vessel-draft threshold is Phase 2 scope.
 SHALLOW_HAZARD_THRESHOLD_M = 10.0
+
+# Pilot bbox (matches the GEBCO extract's own extent) + a margin so a boundary
+# just outside the strict box — e.g. the Sri Lanka EEZ line near Rameswaram —
+# still clips in with context rather than getting cut off at the viewport edge.
+_MAP_CLIP_MARGIN_DEG = 1.5
+_MAP_CLIP_BOX = box(77.5 - _MAP_CLIP_MARGIN_DEG, 7.5 - _MAP_CLIP_MARGIN_DEG,
+                     80.5 + _MAP_CLIP_MARGIN_DEG, 10.5 + _MAP_CLIP_MARGIN_DEG)
+
+# Douglas-Peucker tolerance for map DISPLAY only (plan §4.7) — ~100m, well
+# past what a Leaflet pixel can resolve at any zoom this app uses. This never
+# touches the geometry check_boundary_proximity/point_in_polygon measure
+# against — those always use the full-precision load_boundaries() output.
+_MAP_SIMPLIFY_TOLERANCE_DEG = 0.001
 
 
 @dataclass(frozen=True)
@@ -194,16 +207,31 @@ def generate_map_layers(user_lat: float | None = None, user_lon: float | None = 
     """Named GeoJSON FeatureCollections for the Leaflet shell. Only
     geofence-usable boundaries render as polygons — a non-usable centroid
     record has no shape worth drawing as one.
+
+    Clipped to the pilot region and simplified before serialization (plan
+    §4.7: "Never ship [full-precision geometry] to the client"). Before this,
+    generate_map_layers sent India's and Sri Lanka's ENTIRE EEZ boundaries —
+    71,782 and 56,019 coordinate points respectively, ~3.3MB uncompressed for
+    one response — which is enough to hang Leaflet's GeoJSON renderer on a
+    normal machine long past the point it looks like the map failed to load
+    at all. Clipping to the pilot bbox also correctly drops boundaries that
+    have nothing to do with this region at all (Chilika Lake, Thane Creek,
+    the Sundarbans — all loaded from a national MPA file, not filtered by
+    region until now).
     """
-    boundary_features = [
-        {
+    boundary_features = []
+    for f in load_boundaries():
+        if not f.geofence_usable:
+            continue
+        clipped = f.geometry.intersection(_MAP_CLIP_BOX)
+        if clipped.is_empty:
+            continue  # outside the pilot region entirely — not this map's business
+        simplified = clipped.simplify(_MAP_SIMPLIFY_TOLERANCE_DEG, preserve_topology=True)
+        boundary_features.append({
             "type": "Feature",
-            "geometry": json.loads(to_geojson(f.geometry)),
+            "geometry": json.loads(to_geojson(simplified)),
             "properties": {"name": f.name, "designation": f.designation, "source_file": f.source_file},
-        }
-        for f in load_boundaries()
-        if f.geofence_usable
-    ]
+        })
     layers: dict[str, Any] = {
         "boundaries": {"type": "FeatureCollection", "features": boundary_features}
     }

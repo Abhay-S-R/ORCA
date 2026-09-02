@@ -54,3 +54,19 @@ def coerce_reasoning_depth(value: str) -> Literal["SHALLOW", "STANDARD", "DEEP"]
     if value in _VALID_REASONING_DEPTHS:
         return value  # type: ignore[return-value]  # narrowed by the check above
     return "SHALLOW"
+
+
+_VALID_CONFIDENCE_SCORES = ("HIGH", "MEDIUM", "LOW_DATA")
+
+
+def coerce_confidence_score(value: str) -> Literal["HIGH", "MEDIUM", "LOW_DATA"]:
+    """Same gap as coerce_reasoning_depth, for confidence_tier — ORCAState
+    carries it as a plain `str` (e.g. reconstructing a Confidence from
+    state["confidence_tier"] when the graph needs one), Confidence.score is
+    the stricter Literal. An invalid/stale value degrades to the most
+    conservative reading (LOW_DATA), never the most confident one — the
+    failure direction that matters here is never claiming more certainty
+    than actually validated."""
+    if value in _VALID_CONFIDENCE_SCORES:
+        return value  # type: ignore[return-value]  # narrowed by the check above
+    return "LOW_DATA"

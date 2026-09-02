@@ -1,46 +1,53 @@
-"""LangGraph skeleton (plan §Phase-1, S1 Day 4):
+"""LangGraph pipeline:
 
     distress_check --[distress_flag]--> END (response built in this node)
-                   --[else]-----------> planning
+                   --[else]-----------> language_ingress
+                                            |
+                                         planning
                                             |
                               +-------------+-------------+
                               v                            v
-                      weather_intelligence          geospatial_stub
+                      weather_intelligence          geospatial
                               |                            |
                               +-------------+-------------+
                                             v
                                      risk_assessment
                                             |
                                             v
-                                     reporting_stub --> END
+                                       reporting
+                                            |
+                                            v
+                                    language_egress --> END
 
-Fixed shape for Phase 1 — Planning's execution_plan is computed and recorded
-in state/trace (visible, narratable) but does not yet dynamically drive graph
-routing; that is a Phase 2 sophistication, not specified for this slice
-(plan §Phase-1 Day 4: "stub nodes: Planning -> [WIA || GRA] -> RAA ->
-Reporting", a fixed pipeline). geospatial_stub and reporting_stub stand in
-for Agents 6 and 9 (S5, S6 — not built yet), per the plan's own fixture
-strategy: "S1 wires the graph against fixtures before real agents exist."
+geospatial and reporting are the real Agents 6/9 (S5/S6) — no longer
+fixtures. language_ingress/egress are Agent 1, run twice per query (before
+Planning, after Reporting), matching "Ingress & Egress" in its own name.
 """
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from langgraph.graph import END, START, StateGraph
 
-from orca.agents import distress, planning, risk_assessment, weather_intelligence
-from orca.contracts import Confidence
+from orca.agents import (
+    distress,
+    geospatial,
+    language,
+    planning,
+    reporting,
+    risk_assessment,
+    weather_intelligence,
+)
+from orca.contracts import AgentResult, Confidence, coerce_confidence_score
 from orca.state import ORCAState
-from orca.trace import make_stub_entry, run_traced_node
+from orca.trace import run_traced_node
 
-FIXTURES_DIR = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
-
-
-def _load_geospatial_stub() -> dict:
-    with open(FIXTURES_DIR / "geospatial__stub_thoothukudi.json", encoding="utf-8") as f:
-        data = json.load(f)
-    return {k: v for k, v in data.items() if not k.startswith("_")}
+# Boundary names geospatial.py actually loaded these under (checked against
+# the real GeoJSON `name` properties, not assumed) — see plan §4 S5 exit
+# note: "The IMBL distance is the single highest-consequence number in the
+# product." There is no dedicated IMBL treaty-line geometry in the data;
+# the Sri Lanka EEZ boundary is the practical stand-in in this region, named
+# explicitly here rather than left implicit in a magic string at the call site.
+_IMBL_PROXY_BOUNDARY = "Sri Lankan Exclusive Economic Zone"
+_MPA_BOUNDARY = "Gulf of Mannar Marine National Park"
 
 
 def distress_check_node(state: ORCAState) -> dict:
@@ -75,7 +82,17 @@ def _route_after_distress(state: ORCAState) -> str:
     # END is untyped (a plain interned str, not a Literal) in langgraph's own
     # stubs, so this can't be a Literal return type without mypy complaining
     # about the exact thing that makes END work at all.
-    return END if state.get("distress_flag") else "planning"
+    return END if state.get("distress_flag") else "language_ingress"
+
+
+def language_ingress_node(state: ORCAState) -> dict:
+    result, entry = run_traced_node("language_ingress", language.run_ingress, state)
+    return {
+        "detected_language": result.outputs["detected_language"],
+        "normalized_english_query": result.outputs["normalized_english_query"],
+        "audit_trace_log": [entry],
+        "completed_nodes": ["language_ingress"],
+    }
 
 
 def planning_node(state: ORCAState) -> dict:
@@ -97,19 +114,50 @@ def weather_node(state: ORCAState) -> dict:
     }
 
 
-def geospatial_stub_node(state: ORCAState) -> dict:
-    """STUB — Agent 6 is S5's Phase 1 work, not yet built. See
-    tests/fixtures/geospatial__stub_thoothukudi.json for why the number in
-    here must never be treated as a real measurement."""
-    stub_data = _load_geospatial_stub()
-    entry = make_stub_entry("geospatial", state.get("query_id", ""), "STUB — Agent 6 (S5) not yet built")
-    return {
-        "geospatial_data": {
-            **stub_data,
-            "confidence": Confidence(score="LOW_DATA", rationale="STUB fixture — Agent 6 (S5) not yet built"),
+def geospatial_run(state: ORCAState) -> AgentResult:
+    """Not exported from orca/agents/geospatial.py as run(state) — S5 built
+    tool-level functions (check_boundary_proximity, point_in_polygon), not
+    an agent-level wrapper matching the S1-S3 convention. This is that
+    wrapper, kept in graph.py rather than geospatial.py so the adapter (see
+    below) sits next to the graph that actually needs this exact shape."""
+    from orca.contracts import SourceProvenance, coerce_reasoning_depth
+
+    location = state.get("user_location") or {}
+    lat, lon = location.get("lat", 8.80), location.get("lon", 78.14)
+
+    imbl = geospatial.check_boundary_proximity(lat, lon, _IMBL_PROXY_BOUNDARY)
+    mpa = geospatial.check_boundary_proximity(lat, lon, _MPA_BOUNDARY)
+
+    return AgentResult(
+        agent_name="geospatial",
+        query_id=state.get("query_id", ""),
+        reasoning_depth=coerce_reasoning_depth(state.get("reasoning_depth", "SHALLOW")),
+        inputs_consumed={"lat": lat, "lon": lon},
+        outputs={
+            "imbl_distance_nm": imbl.distance_nm,
+            "imbl_alert_level": imbl.alert_level,
+            "mpa_violation": mpa.alert_level == "INSIDE",
+            "mpa_alert_level": mpa.alert_level,
+            "dataset": "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA (via Agent 6)",
         },
+        source_provenance=SourceProvenance(
+            dataset="Marine Regions VLIZ EEZ + UNEP-WCMC WDPA",
+            acquisition_timestamp="",  # static reference data — no live fetch timestamp
+            freshness_minutes=0,
+        ),
+        # Real geometry, not a stub — but geodesic distance to a coarse
+        # boundary proxy (not the literal IMBL treaty line) stays MEDIUM
+        # until that's independently verified (plan §4 S5 exit note).
+        confidence=Confidence(score="MEDIUM", rationale=f"Real boundary check against {_IMBL_PROXY_BOUNDARY} (IMBL proxy) and {_MPA_BOUNDARY}"),
+    )
+
+
+def geospatial_node(state: ORCAState) -> dict:
+    result, entry = run_traced_node("geospatial", geospatial_run, state)
+    return {
+        "geospatial_data": {**result.outputs, "confidence": result.confidence},
         "audit_trace_log": [entry],
-        "completed_nodes": ["geospatial_stub"],
+        "completed_nodes": ["geospatial"],
     }
 
 
@@ -123,36 +171,124 @@ def risk_assessment_node(state: ORCAState) -> dict:
     }
 
 
-def reporting_stub_node(state: ORCAState) -> dict:
-    """STUB — Agent 9 is S6's Phase 1 work. Plain English sentence from the
-    risk verdict; no persona rendering, no citation formatting, no
-    translation. Real Reporting replaces this node wholesale, not this
-    function's internals — swap the node, not patch it."""
+def reporting_run(state: ORCAState) -> AgentResult:
+    """Not exported from orca/agents/reporting.py as run(state) either —
+    assemble_response(query_id, results: list[AgentResult]) expects the full
+    envelope objects, but this graph only ever stores each specialist's
+    flattened `.outputs` dict into state (weather_data, geospatial_data,
+    risk_assessment), not the AgentResult it came from — nobody tracks that
+    list end to end yet. Reconstructing full AgentResults here from what's
+    actually in state is the pragmatic bridge; unifying this properly (the
+    graph tracking a real list[AgentResult]) is a fair Phase 2 cleanup, not
+    done here to avoid widening this change into a state-schema rework."""
+    from orca.contracts import SourceProvenance, coerce_reasoning_depth
+
+    query_id = state.get("query_id", "")
+    depth = coerce_reasoning_depth(state.get("reasoning_depth", "SHALLOW"))
+    results: list[AgentResult] = []
+
+    weather = state.get("weather_data") or {}
+    if weather:
+        results.append(AgentResult(
+            agent_name="weather_intelligence", query_id=query_id, reasoning_depth=depth,
+            inputs_consumed={}, outputs={"lightning_active": weather.get("lightning_active"), "cyclone_alert": weather.get("cyclone_alert")},
+            source_provenance=SourceProvenance(
+                dataset="Open-Meteo Marine API + Forecast API",
+                acquisition_timestamp=weather.get("acquisition_timestamp", ""), freshness_minutes=0,
+            ),
+            confidence=Confidence(score="HIGH", rationale="see weather_intelligence trace entry"),
+        ))
+
+    geo = state.get("geospatial_data") or {}
+    if geo:
+        geo_confidence = geo.get("confidence") or Confidence(score="MEDIUM", rationale="geospatial")
+        results.append(AgentResult(
+            agent_name="geospatial", query_id=query_id, reasoning_depth=depth,
+            inputs_consumed={}, outputs={"imbl_distance_nm": geo.get("imbl_distance_nm"), "mpa_violation": geo.get("mpa_violation")},
+            source_provenance=SourceProvenance(
+                dataset=geo.get("dataset", "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA"),
+                acquisition_timestamp="", freshness_minutes=0,
+            ),
+            confidence=geo_confidence,
+        ))
+
     verdict = state.get("risk_assessment") or {}
-    text = f"{verdict.get('go_no_go', 'UNKNOWN')}: {verdict.get('reason', 'no verdict computed')}"
-    entry = make_stub_entry("reporting", state.get("query_id", ""), "STUB — Agent 9 (S6) not yet built")
+    if verdict:
+        results.append(AgentResult(
+            agent_name="risk_assessment", query_id=query_id, reasoning_depth=depth,
+            inputs_consumed={}, outputs=verdict,
+            source_provenance=SourceProvenance(
+                dataset="Deterministic rules over Agent 4 + Agent 6 outputs",
+                acquisition_timestamp=weather.get("acquisition_timestamp", ""), freshness_minutes=0,
+            ),
+            confidence=Confidence(
+                score=coerce_confidence_score(state.get("confidence_tier", "LOW_DATA")),
+                rationale="risk_assessment verdict",
+            ),
+        ))
+
+    assembled = reporting.assemble_response(query_id, results)
+    verdict_line = f"{verdict.get('go_no_go', 'UNKNOWN')}: {verdict.get('reason', 'no verdict computed')}"
+
+    return AgentResult(
+        agent_name="reporting", query_id=query_id, reasoning_depth=depth,
+        inputs_consumed={"contributing_agents": [r.agent_name for r in results]},
+        outputs={
+            "final_english_response": verdict_line,
+            "citations": [
+                {
+                    "agent_name": c.agent_name, "dataset": c.dataset,
+                    "acquisition_timestamp": c.acquisition_timestamp, "freshness_minutes": c.freshness_minutes,
+                }
+                for c in assembled.citations
+            ],
+        },
+        source_provenance=SourceProvenance(dataset="ORCA synthesis (Agent 9, thin — no LLM pass, plan §4 S6)", acquisition_timestamp="", freshness_minutes=0),
+        confidence=Confidence(
+            score=coerce_confidence_score(assembled.confidence_tier),
+            rationale=f"Worst of {len(results)} contributing agents",
+        ),
+    )
+
+
+def reporting_node(state: ORCAState) -> dict:
+    result, entry = run_traced_node("reporting", reporting_run, state)
     return {
-        "final_english_response": text,
-        "confidence_tier": state.get("confidence_tier", "LOW_DATA"),
+        "final_english_response": result.outputs["final_english_response"],
+        "evidence_citations": result.outputs["citations"],
+        "confidence_tier": result.confidence.score,
         "audit_trace_log": [entry],
-        "completed_nodes": ["reporting_stub"],
+        "completed_nodes": ["reporting"],
+    }
+
+
+def language_egress_node(state: ORCAState) -> dict:
+    result, entry = run_traced_node("language_egress", language.run_egress, state)
+    return {
+        "final_vernacular_response": result.outputs["final_vernacular_response"],
+        "audit_trace_log": [entry],
+        "completed_nodes": ["language_egress"],
     }
 
 
 def build_graph():
     g = StateGraph(ORCAState)
     g.add_node("distress_check", distress_check_node)
+    g.add_node("language_ingress", language_ingress_node)
     g.add_node("planning", planning_node)
     g.add_node("weather_intelligence", weather_node)
-    g.add_node("geospatial_stub", geospatial_stub_node)
+    g.add_node("geospatial", geospatial_node)
     g.add_node("risk_assessment", risk_assessment_node)
-    g.add_node("reporting_stub", reporting_stub_node)
+    g.add_node("reporting", reporting_node)
+    g.add_node("language_egress", language_egress_node)
 
     g.add_edge(START, "distress_check")
-    g.add_conditional_edges("distress_check", _route_after_distress, {END: END, "planning": "planning"})
+    g.add_conditional_edges("distress_check", _route_after_distress, {END: END, "language_ingress": "language_ingress"})
+    g.add_edge("language_ingress", "planning")
     g.add_edge("planning", "weather_intelligence")
-    g.add_edge("planning", "geospatial_stub")
-    g.add_edge(["weather_intelligence", "geospatial_stub"], "risk_assessment")
-    g.add_edge("risk_assessment", "reporting_stub")
-    g.add_edge("reporting_stub", END)
+    g.add_edge("planning", "geospatial")
+    g.add_edge(["weather_intelligence", "geospatial"], "risk_assessment")
+    g.add_edge("risk_assessment", "reporting")
+    g.add_edge("reporting", "language_egress")
+    g.add_edge("language_egress", END)
     return g.compile()

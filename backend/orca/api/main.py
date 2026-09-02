@@ -1,24 +1,37 @@
-"""FastAPI app. /query runs the real LangGraph pipeline (plan §Phase-1, S1
-Day 5) — Agents 2, 4, 7, 12 and the graph itself. S4/S5's Agent 3/6 surfaces
-are mounted as separate routers below; Agent 9 (S6) is still the graph's
-fixture stub — see orca/graph/graph.py for exactly which nodes that covers.
+"""FastAPI app. /query runs the full LangGraph pipeline — Agents 1, 2, 4, 6,
+7, 9, 12, and the graph itself. S4/S5's Agent 3/6 surfaces are additionally
+mounted as separate routers below for direct map/zone queries outside the
+main graph. See orca/graph/graph.py for the exact node wiring.
 """
 from __future__ import annotations
 
 import json
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from orca.agents.language import IndicTrans2Backend, register_translation_backend
 from orca.api.discovery_routes import router as discovery_router
 from orca.api.geospatial_routes import router as geospatial_router
 from orca.graph.graph import build_graph
 from orca.state import ORCAState
 
-app = FastAPI(title="ORCA API")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # Registered once at startup, not per-request — IndicTrans2Backend loads
+    # its models lazily on first actual translate() call, so this itself is
+    # cheap; the first Tamil/Hindi query after a cold start pays the model
+    # load cost, not every query.
+    register_translation_backend(IndicTrans2Backend())
+    yield
+
+
+app = FastAPI(title="ORCA API", lifespan=_lifespan)
 
 # ponytail: wide-open CORS for local dev only. Tighten to the deployed
 # frontend origin when §5.1 deployment actually happens.
@@ -41,13 +54,16 @@ _graph = build_graph()
 _DEFAULT_LAT, _DEFAULT_LON = 8.80, 78.14
 
 
-def _initial_state(query: str, lat: float, lon: float) -> ORCAState:
+def _initial_state(query: str, lat: float, lon: float, vessel_class: str | None) -> ORCAState:
     return {  # type: ignore[typeddict-item]
         "query_id": str(uuid.uuid4()),
         "raw_user_query": query,
-        "normalized_english_query": query,  # Agent 1 (S6) not built yet — English-only for now
+        # Overwritten by language_ingress_node once the graph runs — this is
+        # only the value used if that node is somehow skipped.
+        "normalized_english_query": query,
         "reasoning_depth": "SHALLOW",
         "user_location": {"lat": lat, "lon": lon},
+        "vessel_class": vessel_class,  # None -> risk_assessment.run() defaults to "small_fishing"
         "distress_flag": False,
     }
 
@@ -57,8 +73,8 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-async def _query_stream(query: str, lat: float, lon: float) -> AsyncIterator[str]:
-    state = _initial_state(query, lat, lon)
+async def _query_stream(query: str, lat: float, lon: float, vessel_class: str | None) -> AsyncIterator[str]:
+    state = _initial_state(query, lat, lon, vessel_class)
     emitted = 0  # every graph node appends exactly one completed_nodes entry
     # AND exactly one audit_trace_log entry in the same call (see graph.py) —
     # so the two lists grow in lockstep and index-pairing them is correct,
@@ -78,17 +94,44 @@ async def _query_stream(query: str, lat: float, lon: float) -> AsyncIterator[str
         emitted = len(completed)
 
     if final_state is not None:
+        weather = final_state.get("weather_data") or {}
+        hourly = weather.get("hourly") or [{}]
+        geo = final_state.get("geospatial_data") or {}
+        # A distress response has no vernacular translation pass (it bypasses
+        # Reporting/language_egress entirely) — final_vernacular_response
+        # falls back to the English text in that case, never a blank string.
         final = {
             "type": "final_response",
             "query_id": final_state.get("query_id"),
             "final_english_response": final_state.get("final_english_response", ""),
+            "final_vernacular_response": final_state.get("final_vernacular_response")
+            or final_state.get("final_english_response", ""),
+            "detected_language": final_state.get("detected_language", "en"),
             "confidence_tier": final_state.get("confidence_tier", "LOW_DATA"),
             "risk_assessment": final_state.get("risk_assessment"),
+            "citations": final_state.get("evidence_citations", []),
             "distress_flag": final_state.get("distress_flag", False),
+            # Raw values for /safety's gauges — the verdict answers "is it
+            # safe", these answer "why", which a vessel-class-aware page
+            # needs to show, not just the badge.
+            "weather_summary": {
+                "wave_height_m": hourly[0].get("wave_height"),
+                "wind_speed_ms": hourly[0].get("wind_speed_10m"),
+                "lightning_active": weather.get("lightning_active", False),
+                "cyclone_alert": weather.get("cyclone_alert"),
+            },
+            "hazard_breakdown": {
+                "imbl_distance_nm": geo.get("imbl_distance_nm"),
+                "imbl_alert_level": geo.get("imbl_alert_level"),
+                "mpa_violation": geo.get("mpa_violation", False),
+                "mpa_alert_level": geo.get("mpa_alert_level"),
+            },
         }
         yield f"data: {json.dumps(final)}\n\n"
 
 
 @app.get("/query")
-async def query(q: str = "", lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON) -> StreamingResponse:
-    return StreamingResponse(_query_stream(q, lat, lon), media_type="text/event-stream")
+async def query(
+    q: str = "", lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON, vessel_class: str | None = None
+) -> StreamingResponse:
+    return StreamingResponse(_query_stream(q, lat, lon, vessel_class), media_type="text/event-stream")

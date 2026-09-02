@@ -33,10 +33,21 @@ google-generativeai>=0.8
 # not a fallback, while Bhashini access is pending (Implementation Plan §1.1
 # risk register). huggingface_hub is also all backend/scripts/download_ml_models.py
 # needs to cache the weights; faster-whisper NOT openai-whisper — must stay the
-# quantized (int8) path (Architecture §9.15). transformers + torch land when
-# Agent 1's actual IndicTrans2 inference code does, not before.
+# quantized (int8) path (Architecture §9.15).
 huggingface_hub>=0.26
 faster-whisper>=1.0
+
+# Real IndicTrans2 inference (orca/agents/language.py). transformers PINNED —
+# confirmed 5.16.1 breaks IndicTransToolkit (removed PreTrainedTokenizerBase
+# from transformers.tokenization_utils, which the toolkit imports directly
+# with no version guard); 4.46.3 confirmed working end-to-end, both
+# directions, both languages, while building this.
+transformers==4.46.3
+torch>=2.0            # CPU build is enough; install with
+                       #   pip install torch --index-url https://download.pytorch.org/whl/cpu
+                       # to skip the much larger CUDA wheel on a machine with no GPU
+sentencepiece>=0.2
+IndicTransToolkit>=1.1
 
 # dev / CI only
 pytest>=8.3
