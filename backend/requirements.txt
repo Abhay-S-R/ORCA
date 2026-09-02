@@ -11,6 +11,15 @@ python-dotenv>=1.0
 anthropic>=0.40
 google-generativeai>=0.8
 
+# Local STT/translation — Phase 1 PRIMARY path for Agent 1 (User Interaction),
+# not a fallback, while Bhashini access is pending (Implementation Plan §1.1
+# risk register). huggingface_hub is also all backend/scripts/download_ml_models.py
+# needs to cache the weights; faster-whisper NOT openai-whisper — must stay the
+# quantized (int8) path (Architecture §9.15). transformers + torch land when
+# Agent 1's actual IndicTrans2 inference code does, not before.
+huggingface_hub>=0.26
+faster-whisper>=1.0
+
 # dev / CI only
 pytest>=8.3
 ruff>=0.7

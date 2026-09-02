@@ -14,6 +14,6 @@ numpy>=1.26
 pandas>=2.0
 scipy>=1.11          # ndimage.label for PFZ zone clustering; NetCDF-3 backend
 h5py>=3.10           # HDF5-backed products (Copernicus, MOSDAC INSAT SST)
-requests>=2.31       # INCOIS, UNEP-WCMC, Marine Regions, Nominatim
+requests>=2.31       # INCOIS, UNEP-WCMC, Marine Regions, Nominatim; endpoint_liveness_check.py
 shapely>=2.0         # geofence geometry, point-in-polygon
 pyproj>=3.6          # geodesic distance and area on WGS84
