@@ -11,6 +11,14 @@
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 -- ---------------------------------------------------------------------------
+-- schema_migrations (migration tracking table)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    filename   text PRIMARY KEY,
+    applied_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- ---------------------------------------------------------------------------
 -- users
 -- ---------------------------------------------------------------------------
 CREATE TYPE persona AS ENUM (
