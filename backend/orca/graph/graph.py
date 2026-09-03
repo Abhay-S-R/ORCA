@@ -102,9 +102,18 @@ def _route_after_distress(state: ORCAState) -> str:
 
 def language_ingress_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("language_ingress", language.run_ingress, state)
+    # run_traced_node's exception boundary degrades any agent failure (e.g. a
+    # missing optional translation dependency) to outputs={} — indexing into
+    # it unconditionally would turn that documented degrade-not-crash contract
+    # into a KeyError that aborts the whole streamed response (matches the
+    # `if result.outputs else {}` guard weather_node already uses below).
+    outputs = result.outputs or {
+        "detected_language": "en",
+        "normalized_english_query": state.get("raw_user_query", ""),
+    }
     return {
-        "detected_language": result.outputs["detected_language"],
-        "normalized_english_query": result.outputs["normalized_english_query"],
+        "detected_language": outputs["detected_language"],
+        "normalized_english_query": outputs["normalized_english_query"],
         "audit_trace_log": [entry],
         "completed_nodes": ["language_ingress"],
     }
@@ -366,8 +375,11 @@ def critic_node(state: ORCAState) -> dict:
 
 def language_egress_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("language_egress", language.run_egress, state)
+    # Same degrade-not-crash guard as language_ingress_node — fall back to the
+    # English answer already in state rather than KeyError on an empty outputs.
+    vernacular = (result.outputs or {}).get("final_vernacular_response") or state.get("final_english_response", "")
     return {
-        "final_vernacular_response": result.outputs["final_vernacular_response"],
+        "final_vernacular_response": vernacular,
         "audit_trace_log": [entry],
         "completed_nodes": ["language_egress"],
     }
