@@ -4,6 +4,7 @@
 # at request time, inside this service, so its libs have to be here too.
 
 fastapi>=0.115
+python-multipart>=0.0.9  # FastAPI File()/Form() (orca/api/voice_routes.py's /voice/transcribe upload)
 uvicorn[standard]>=0.32
 pydantic>=2.9
 python-dotenv>=1.0

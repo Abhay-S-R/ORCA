@@ -10,7 +10,8 @@
     "copy:maplibre": "node scripts/copy-maplibre-worker.mjs",
     "predev": "npm run copy:maplibre",
     "prebuild": "npm run copy:maplibre",
-    "test:a11y": "axe http://localhost:3000/design --exit"
+    "test:a11y": "axe http://localhost:3000/design --exit",
+    "test:a11y:e2e": "playwright test"
   },
   "dependencies": {
     "@deck.gl/core": "^9.3.11",
@@ -27,6 +28,8 @@
   },
   "devDependencies": {
     "@axe-core/cli": "^4.13.0",
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

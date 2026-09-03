@@ -134,3 +134,17 @@ def coerce_confidence_score(value: str) -> Literal["HIGH", "MEDIUM", "LOW_DATA"]
     if value in _VALID_CONFIDENCE_SCORES:
         return value  # type: ignore[return-value]  # narrowed by the check above
     return "LOW_DATA"
+
+
+_VALID_STATUSES = ("ok", "degraded", "failed", "skipped", "cancelled")
+
+
+def coerce_status(value: str) -> Literal["ok", "degraded", "failed", "skipped", "cancelled"]:
+    """Same gap as coerce_reasoning_depth/coerce_confidence_score, for
+    AgentResult.status — a row read back from audit_trace_log carries it as
+    a plain `str` column, not the stricter Literal. An invalid/stale value
+    degrades to "failed" (never "ok"), the same never-overclaim direction
+    coerce_confidence_score takes."""
+    if value in _VALID_STATUSES:
+        return value  # type: ignore[return-value]  # narrowed by the check above
+    return "failed"

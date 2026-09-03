@@ -22,6 +22,8 @@ from orca.api.analytics_routes import router as analytics_router
 from orca.api.auth_routes import router as auth_router
 from orca.api.discovery_routes import router as discovery_router
 from orca.api.geospatial_routes import router as geospatial_router
+from orca.api.trace_routes import router as trace_router
+from orca.api.voice_routes import router as voice_router
 from orca.data.loaders import resolve_port_from_text
 from orca.graph.graph import build_graph
 from orca.logging_utils import configure_logging
@@ -56,6 +58,8 @@ app.include_router(discovery_router)
 app.include_router(geospatial_router)
 app.include_router(auth_router)  # D1 — /register, /login, /profile, /vessels (Phase 2 D1)
 app.include_router(analytics_router)  # Agent 5 — /zones, /trends, /tides, /data (Phase 2 D2)
+app.include_router(trace_router)  # D1 Phase 3 — /trace/{query_id} replay, /render persona re-render
+app.include_router(voice_router)  # D1 Phase 3 Day 16-17 — /voice/transcribe, /voice/speak
 
 # Agent 8 raster tile pyramid (orca/tiles.py) — serves the PNGs
 # scripts/generate_tiles.py writes offline, at the same "/tiles/{layer_id}/
@@ -78,9 +82,12 @@ _DEFAULT_LAT, _DEFAULT_LON = 8.80, 78.14
 _PERSONAS = ("fisherman", "commercial_navigator", "researcher", "coastal_authority")
 
 
+_DEPTHS = ("SHALLOW", "STANDARD", "DEEP")
+
+
 def _initial_state(
     query: str, lat: float, lon: float, vessel_class: str | None,
-    distress: bool = False, persona: str | None = None,
+    distress: bool = False, persona: str | None = None, depth: str | None = None,
 ) -> ORCAState:
     return {  # type: ignore[typeddict-item]
         "query_id": str(uuid.uuid4()),
@@ -88,7 +95,14 @@ def _initial_state(
         # Overwritten by language_ingress_node once the graph runs — this is
         # only the value used if that node is somehow skipped.
         "normalized_english_query": query,
-        "reasoning_depth": "SHALLOW",
+        # A real query-complexity classifier for reasoning_depth is Agent 2's
+        # job (plan §9.5's rules-tier routing) and is not built yet — this
+        # accepts an explicit override so DEEP-only paths (ocean_analytics'
+        # causal diagnosis, the Critic) are reachable and testable via the
+        # API today rather than permanently unreachable until that
+        # classifier lands. It is a testing knob, not a persona- or
+        # intent-routing decision (Ground Rule 1 is untouched by it).
+        "reasoning_depth": depth if depth in _DEPTHS else "SHALLOW",
         "user_location": {"lat": lat, "lon": lon},
         "vessel_class": vessel_class,  # None -> risk_assessment.run() defaults to "small_fishing"
         # An explicit persona choice (the selector, or a logged-in user's
@@ -111,9 +125,9 @@ def health() -> dict[str, str]:
 
 async def _query_stream(
     query: str, lat: float, lon: float, vessel_class: str | None,
-    distress: bool = False, persona: str | None = None,
+    distress: bool = False, persona: str | None = None, depth: str | None = None,
 ) -> AsyncIterator[str]:
-    state = _initial_state(query, lat, lon, vessel_class, distress, persona)
+    state = _initial_state(query, lat, lon, vessel_class, distress, persona, depth)
     emitted = 0  # every graph node appends exactly one completed_nodes entry
     # AND exactly one audit_trace_log entry in the same call (see graph.py) —
     # so the two lists grow in lockstep and index-pairing them is correct,
@@ -227,7 +241,7 @@ def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
 @app.get("/query")
 async def query(
     q: str = "", lat: float | None = None, lon: float | None = None, vessel_class: str | None = None,
-    distress: bool = False, persona: str | None = None,
+    distress: bool = False, persona: str | None = None, depth: str | None = None,
 ) -> StreamingResponse:
     # An explicit lat/lon from the caller always wins — a resolved GPS fix or
     # a registered home port (Phase 2 D1) is real; a port name in free text is
@@ -239,5 +253,5 @@ async def query(
         lat = resolved[1] if resolved else _DEFAULT_LAT
         lon = resolved[2] if resolved else _DEFAULT_LON
     return StreamingResponse(
-        _query_stream(q, lat, lon, vessel_class, distress, persona), media_type="text/event-stream"
+        _query_stream(q, lat, lon, vessel_class, distress, persona, depth), media_type="text/event-stream"
     )

@@ -159,7 +159,7 @@ export default function SafetyPage() {
       {answer && (
         <div aria-live="polite" className="flex flex-col gap-4">
           {answer.risk_assessment && (
-            <VerdictBadge verdict={answer.risk_assessment.go_no_go} summary={answer.risk_assessment.reason}>
+            <VerdictBadge verdict={answer.risk_assessment.go_no_go} summary={answer.risk_assessment.reason} confidenceTier={answer.confidence_tier}>
               <div className="mt-3">
                 <ConfidenceMeter tier={answer.confidence_tier} />
               </div>

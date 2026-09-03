@@ -1,0 +1,255 @@
+[graphify watch] Watching D:\ORCA - press Ctrl+C to stop
+[graphify watch] Code changes rebuild graph automatically. Doc/image changes require /graphify --update.
+[graphify watch] Debounce: 3.0s
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 13 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 10 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 7 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 59/59 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 59/59 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 3 file(s) changed
+  AST extraction: 59/59 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] community set changed since labeling (187 saved labels, 173 communities now; renamed 36 community(ies) by their hub). Run `graphify label` to refresh names with the LLM.
+[graphify] backed up curated graph (4 files) -> 2026-09-03/
+[graphify watch] Rebuilt: 2740 nodes, 6524 edges, 173 communities
+[graphify watch] graph.json, graph.html and GRAPH_REPORT.md updated in graphify-out
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 12 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 59/59 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] 2 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 89 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 7 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+  warning: 1 .sql file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_sql not installed. Install it with: pip install "graphifyy[sql]" (#1745)
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 62 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] Rebuild failed: [Errno 2] No such file or directory: 'graphify-out\\.graph.tmp.json'
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1310 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 13 file(s) changed
+  AST extraction: 59/59 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 59/59 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 9 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 4 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 3 file(s) changed
+  AST extraction: 59/59 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 2 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 2 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+onger cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 2 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify] backed up curated graph (4 files) -> 2026-09-03/
+[graphify watch] Rebuild failed: [WinError 5] Access is denied: 'graphify-out\\.graph.tmp.json' -> 'graphify-out\\graph.json'
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 58/58 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).

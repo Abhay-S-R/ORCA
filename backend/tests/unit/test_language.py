@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from orca.agents.language import (
+    _ALL_LANGUAGES,
+    _FLORES_CODE,
     IndicTrans2Backend,
     detect_language,
     register_translation_backend,
@@ -38,6 +40,33 @@ def test_detect_language_hindi() -> None:
 
 def test_detect_language_english() -> None:
     assert detect_language("Is it safe to go to sea tomorrow morning?") == "en"
+
+
+# Phase 3 D1 Day 16 — exit criterion 7's "all ten coastal languages", each
+# with a real Unicode script it does not share with any other language in
+# this table (Marathi is the deliberate exception, covered separately below).
+@pytest.mark.parametrize("text,expected", [
+    ("క్రొత్త రోజు మొదలైంది", "te"),
+    ("ನಾಳೆ ಸಮುದ್ರಕ್ಕೆ ಹೋಗುವುದು ಸುರಕ್ಷಿತವೇ", "kn"),
+    ("നാളെ കടലിൽ പോകുന്നത് സുരക്ഷിതമാണോ", "ml"),
+    ("আগামীকাল সমুদ্রে যাওয়া কি নিরাপদ", "bn"),
+    ("ଆସନ୍ତାକାଲି ସମୁଦ୍ରକୁ ଯିବା ସୁରକ୍ଷିତ କି", "or"),
+    ("આવતીકાલે દરિયામાં જવું સલામત છે", "gu"),
+])
+def test_detect_language_covers_every_remaining_coastal_language(text, expected) -> None:
+    assert detect_language(text) == expected
+
+
+def test_devanagari_resolves_to_hindi_marathi_is_a_stated_approximation() -> None:
+    # Marathi and Hindi share the Devanagari block; script detection alone
+    # cannot disambiguate them, and this asserts the documented fallback
+    # (module docstring) rather than leaving the ambiguity untested.
+    assert detect_language("आज समुद्रात जाणे सुरक्षित आहे का") == "hi"
+
+
+def test_every_supported_language_has_a_flores_code() -> None:
+    assert set(_FLORES_CODE) == set(_ALL_LANGUAGES)
+    assert len(_ALL_LANGUAGES) == 10
 
 
 def test_translate_to_english_is_identity_when_already_english() -> None:
