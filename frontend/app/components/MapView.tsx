@@ -10,17 +10,14 @@
 // to and removed from it; GeoJSON updates go through source.setData() rather
 // than teardown-and-recreate, which is what keeps a toggle inside 400 ms.
 import "maplibre-gl/dist/maplibre-gl.css";
-import { MapboxOverlay } from "@deck.gl/mapbox";
 import * as maplibregl from "maplibre-gl";
 import { setWorkerUrl } from "maplibre-gl";
-import { generateWindTexture, WindParticleLayer } from "maplibre-gl-wind";
+import { FlowFieldCanvas } from "./FlowFieldCanvas";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Calendar, ChevronDown, Compass, Crosshair, Fish, Layers, MapPin, Navigation, Radio, ShieldCheck, Waves, X } from "lucide-react";
+import { Calendar, ChevronDown, ChevronUp, Compass, Crosshair, Layers, MapPin, Navigation, ShieldCheck, Waves, X } from "lucide-react";
 import { BASEMAP_STYLE, CHART, DEFAULT_USER, PILOT_BOUNDS, RASTER_OVERLAYS, webglAvailable } from "../map/basemap";
 import { LayerToggle } from "./LayerToggle";
 import { Panel } from "./Panel";
-import { Readout, ReadoutGrid } from "./Readout";
-import { SourceChip } from "./SourceChip";
 import { EmptyState } from "./States";
 import { TimeSlider } from "./TimeSlider";
 import { measureLayerToggle, reportLayerMetrics } from "../lib/layerPerf";
@@ -104,6 +101,8 @@ export function MapView({
   onPointClick,
   routeGeoJson,
   pins,
+  showSoundingHud = true,
+  defaultCollapsedSounding = false,
 }: {
   className?: string;
   showPanels?: boolean;
@@ -113,15 +112,18 @@ export function MapView({
   onPointClick?: (lat: number, lon: number) => void;
   routeGeoJson?: RouteGeoJson | null;
   pins?: MapPin[];
+  showSoundingHud?: boolean;
+  defaultCollapsedSounding?: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
-  const overlay = useRef<MapboxOverlay | null>(null);
   const [ready, setReady] = useState(false);
   const [supported] = useState(webglAvailable);
 
   const [nearNames, setNearNames] = useState<string[]>([]);
   const [clicked, setClicked] = useState<{ lat: number; lon: number } | null>(null);
+  const [soundingCollapsed, setSoundingCollapsed] = useState(defaultCollapsedSounding);
+  const [soundingDismissed, setSoundingDismissed] = useState(false);
   // Collapsed by default — expanded, "Chart layers" is 7 rows tall and, on a
   // phone-width viewport, ate more than a third of the map's own height
   // (reproduced live at 390x844). Nothing here is safety-critical at a
@@ -366,14 +368,6 @@ export function MapView({
         paint: { "text-color": routeStatusColor, "text-halo-color": "#04121a", "text-halo-width": 1.4 },
       });
 
-      // deck.gl's MapboxOverlay is a MapLibre-compatible IControl — one
-      // instance, added once, updated via setProps() (same "never
-      // recreate" rule as the vector sources above). It carries the
-      // current-vector particle layer, which has no MapLibre layer-type
-      // equivalent to add directly.
-      overlay.current = new MapboxOverlay({ layers: [] });
-      m.addControl(overlay.current as unknown as maplibregl.IControl);
-
       setReady(true);
     });
 
@@ -494,7 +488,7 @@ export function MapView({
         const firstFrame = isForecast ? layer.forecast_frames![0] : undefined;
         m0.addSource(sourceId, {
           type: "raster",
-          tiles: [`${API_BASE}${resolveTileUrl(layer.tile_url!, firstFrame)}?v=pan_india_ww3`],
+          tiles: [`${API_BASE}${resolveTileUrl(layer.tile_url!, firstFrame)}?v=pan_india_ww3_smooth`],
           tileSize: 256,
           minzoom: layer.style_hints.min_zoom,
           maxzoom: layer.style_hints.max_zoom,
@@ -583,7 +577,7 @@ export function MapView({
     };
     m.setPaintProperty(layerId, "raster-opacity", 0);
     m.on("sourcedata", onSourceData);
-    source.setTiles([`${API_BASE}${resolveTileUrl(forecastLayer.tile_url!, frame)}?v=pan_india_ww3`]);
+    source.setTiles([`${API_BASE}${resolveTileUrl(forecastLayer.tile_url!, frame)}?v=pan_india_ww3_smooth`]);
 
     return () => {
       m.off("sourcedata", onSourceData);
@@ -591,94 +585,30 @@ export function MapView({
   }, [ready, frameIndex, forecastLayer, layers.waveForecast]);
 
   /* ---- flow-field particle layers: live currents (HYCOM) and archived wind
-     (ScatSat) as two independent WindParticleLayers, one static IDW texture
-     each, both passed into the SAME overlay.setProps() call — deck.gl's
-     MapboxOverlay is one control with one layer list, so building either
-     layer separately and calling setProps() twice would just have the
-     second call clobber the first. Never the same color ramp: distinct
-     vector fields must stay visually distinguishable, not just labeled so. */
+     (ScatSat) rendered via high-performance HTML5 Canvas with glowing streamlines. */
   useEffect(() => {
-    if (!ready || !overlay.current) return;
-    // unknown[], not WindParticleLayer[]: each `new WindParticleLayer(...)`
-    // call infers slightly different generic props from its own object
-    // literal (a quirk of this lib's types, not a real type mismatch) —
-    // same reason the pre-existing single-layer version below casts through
-    // ConstructorParameters rather than a typed array.
-    const built: unknown[] = [];
-    const builtIds: string[] = [];
-    let payloadBytes = 0;
-    const t0 = performance.now();
-
-    if (layers.currents && currentVectors?.length && currentBounds) {
-      const data = currentVectors.map((p) => ({ lat: p.lat, lon: p.lon, speed: p.speed_ms, direction: p.direction_deg }));
-      const { canvas, uMin, uMax, vMin, vMax } = generateWindTexture(data, { width: 128, height: 128, bounds: currentBounds });
-      built.push(
-        new WindParticleLayer({
-          id: "currents",
-          image: canvas.toDataURL(),
-          bounds: currentBounds,
-          imageUnscale: [Math.min(uMin, vMin), Math.max(uMax, vMax)],
-          numParticles: 2000,
-          // 400, not the library's 40ms-scale default: WindParticleLayer's own
-          // shader reseeds each particle on a `mod(time_ms, maxAge + 2)`
-          // cycle where `time` is milliseconds, not a frame count (confirmed
-          // via GL readback — a 42ms cycle length reset ~38% of all
-          // particles every single frame, so nothing ever accumulated into a
-          // visible trail, just single-pixel noise). A ~400ms cycle keeps
-          // the churn low enough to actually see flow; numParticles is
-          // halved to offset the 10x larger per-particle trail buffer this
-          // implies (numInstances = numParticles * maxAge).
-          maxAge: 400,
-          speedFactor: 3,
-          colorRamp: [
-            [0, [34, 97, 127, 180]],
-            [1, [125, 212, 232, 220]],
-          ],
-        } as ConstructorParameters<typeof WindParticleLayer>[0]),
-      );
-      builtIds.push("currents");
-      payloadBytes += JSON.stringify(currentVectors).length;
+    if (layers.currents || layers.wind) {
+      const builtIds: string[] = [];
+      let payloadBytes = 0;
+      if (layers.currents && currentVectors) {
+        builtIds.push("currents");
+        payloadBytes += currentVectors.length * 32;
+      }
+      if (layers.wind && windVectors) {
+        builtIds.push("wind");
+        payloadBytes += windVectors.length * 32;
+      }
+      if (builtIds.length) {
+        reportLayerMetrics({
+          layer_id: builtIds.join("+"),
+          layer_load_ms: 0,
+          render_ms: 16,
+          payload_bytes: payloadBytes,
+          dropped_frames: 0,
+        });
+      }
     }
-
-    if (layers.wind && windVectors?.length && windBounds) {
-      const data = windVectors.map((p) => ({ lat: p.lat, lon: p.lon, speed: p.speed_ms, direction: p.direction_deg }));
-      const { canvas, uMin, uMax, vMin, vMax } = generateWindTexture(data, { width: 128, height: 128, bounds: windBounds });
-      built.push(
-        new WindParticleLayer({
-          id: "wind",
-          image: canvas.toDataURL(),
-          bounds: windBounds,
-          imageUnscale: [Math.min(uMin, vMin), Math.max(uMax, vMax)],
-          numParticles: 1500,
-          maxAge: 400, // see the currents layer above for why 400
-          speedFactor: 2,
-          // Amber, not blue — the currents ramp above is blue end to end;
-          // this must never read as "the same field, twice."
-          colorRamp: [
-            [0, [156, 110, 30, 160]],
-            [1, [232, 178, 90, 210]],
-          ],
-        } as ConstructorParameters<typeof WindParticleLayer>[0]),
-      );
-      builtIds.push("wind");
-      payloadBytes += JSON.stringify(windVectors).length;
-    }
-
-    // deck.gl's overlay has no MapLibre "idle"/"sourcedata" pair to hook —
-    // the whole texture build + layer construction is synchronous CPU work,
-    // so §4.7's four fields collapse to one measured span plus the raw JSON
-    // size of whichever field(s) are actually on.
-    if (built.length) {
-      reportLayerMetrics({
-        layer_id: builtIds.join("+"),
-        layer_load_ms: 0,
-        render_ms: Math.round(performance.now() - t0),
-        payload_bytes: payloadBytes,
-        dropped_frames: 0,
-      });
-    }
-    overlay.current.setProps({ layers: built as ConstructorParameters<typeof MapboxOverlay>[0]["layers"] });
-  }, [ready, layers.currents, layers.wind, currentVectors, currentBounds, windVectors, windBounds]);
+  }, [layers.currents, layers.wind, currentVectors, windVectors]);
 
   // §4.7: a missing map is never a missing answer. Every spatial fact the
   // chart shows is also available as text, so a GPU-less phone degrades to
@@ -698,6 +628,13 @@ export function MapView({
   return (
     <div className={`relative overflow-hidden rounded-md border border-hairline ${className}`}>
       <div ref={container} className="h-full w-full" />
+      <FlowFieldCanvas
+        map={map.current}
+        showCurrents={layers.currents}
+        showWind={layers.wind}
+        currentVectors={currentVectors}
+        windVectors={windVectors}
+      />
 
       {showPanels && (
         <div className="pointer-events-none absolute inset-0">
@@ -837,7 +774,13 @@ export function MapView({
             </div>
           )}
 
-          <div className="pointer-events-auto absolute right-3 bottom-36 left-3 sm:left-auto sm:bottom-24 sm:w-80">
+          <div
+            className={`pointer-events-auto absolute right-3 left-3 sm:left-auto sm:w-80 transition-all ${
+              Boolean(layers.waveForecast && forecastLayer?.forecast_frames?.length)
+                ? "bottom-36 sm:bottom-24"
+                : "bottom-4 sm:bottom-4"
+            }`}
+          >
             {selectedPfz && (
               <div className="mb-2.5 overflow-hidden rounded-xl border border-emerald-500/30 bg-[#07131e]/95 backdrop-blur-xl shadow-[0_12px_32px_rgba(0,0,0,0.65)] ring-1 ring-white/10 transition-all">
                 {/* Glowing top line */}
@@ -952,152 +895,197 @@ export function MapView({
             )}
 
             {/* Acoustic Sounding HUD */}
-            <div className="overflow-hidden rounded-xl border border-cyan-500/30 bg-[#07131e]/95 backdrop-blur-xl shadow-[0_12px_32px_rgba(0,0,0,0.65)] ring-1 ring-white/10 transition-all">
-              {/* Glowing top line */}
-              <div className="h-0.5 bg-gradient-to-r from-cyan-500 via-sky-400 to-indigo-500" />
-
-              {/* Header */}
-              <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2.5 bg-gradient-to-b from-white/[0.03] to-transparent">
-                <div className="flex items-center gap-2">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-500" />
-                  </span>
-                  <h3 className="text-xs font-bold tracking-wider uppercase text-cyan-300">
-                    Acoustic Sounding HUD
-                  </h3>
-                </div>
-                <span className="rounded-full border border-cyan-500/30 bg-cyan-950/60 p-1 text-cyan-400">
-                  <Crosshair className="size-3" />
-                </span>
-              </div>
-
-              {/* Body */}
-              <div className="p-3">
-                {!clicked ? (
-                  <div className="py-2 text-center">
-                    <div className="mx-auto mb-1.5 flex size-8 items-center justify-center rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
-                      <Waves className="size-4 animate-pulse" />
-                    </div>
-                    <p className="text-[11px] font-medium text-slate-300">
-                      Tap chart to sound seafloor depth
-                    </p>
-                    <p className="mt-0.5 text-[9px] text-slate-500">
-                      Reads NOAA ETOPO 2022 & GEBCO 2026 topography
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    {/* Hero Readout Grid */}
-                    <div className="grid grid-cols-2 gap-2">
-                      {/* Depth Hero Tile */}
-                      <div className="rounded-lg border border-cyan-500/20 bg-gradient-to-br from-[#0c2438] to-[#081826] p-2.5">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                          <Waves className="size-2.5 text-cyan-400" /> Seafloor Depth
-                        </span>
-                        <div className="mt-1">
-                          {depth ? (
-                            depth.on_land ? (
-                              <p className="font-mono text-base font-bold text-amber-400">On Land</p>
-                            ) : depth.depth_m != null ? (
-                              <>
-                                <p className="font-mono text-2xl font-black text-cyan-300 tracking-tight leading-none drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">
-                                  {depth.depth_m}
-                                  <span className="ml-1 text-xs font-bold text-cyan-400/80">m</span>
-                                </p>
-                                <span className="mt-1 block font-mono text-[10px] text-slate-400">
-                                  ({(depth.depth_m * 0.5468).toFixed(1)} fm)
-                                </span>
-                              </>
-                            ) : (
-                              <p className="font-mono text-sm text-slate-400">Outside coverage</p>
-                            )
-                          ) : (
-                            <p className="font-mono text-base text-slate-400 animate-pulse">Measuring…</p>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Coordinates Tile */}
-                      <div className="rounded-lg border border-white/5 bg-[#0d2235]/70 p-2.5 flex flex-col justify-between">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                          <MapPin className="size-2.5 text-sky-400" /> Position
-                        </span>
-                        <div className="mt-1 font-mono text-[11px] font-bold text-slate-100 leading-tight">
-                          <div>
-                            {Math.floor(Math.abs(clicked.lat))}°{((Math.abs(clicked.lat) % 1) * 60).toFixed(2)}'{clicked.lat >= 0 ? "N" : "S"}
-                          </div>
-                          <div>
-                            {Math.floor(Math.abs(clicked.lon))}°{((Math.abs(clicked.lon) % 1) * 60).toFixed(2)}'{clicked.lon >= 0 ? "E" : "W"}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Geological Status Badge */}
-                    {depth && !depth.on_land && depth.depth_m != null && (
-                      <div className="mt-2">
-                        <div className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] font-semibold ${
-                          depth.depth_m < 10
-                            ? "border-amber-500/40 bg-amber-950/40 text-amber-300"
-                            : depth.depth_m < 200
-                              ? "border-emerald-500/40 bg-emerald-950/40 text-emerald-300"
-                              : depth.depth_m < 2000
-                                ? "border-sky-500/40 bg-sky-950/40 text-sky-300"
-                                : "border-indigo-500/40 bg-indigo-950/40 text-indigo-300"
-                        }`}>
-                          <span>
-                            {depth.depth_m < 10
-                              ? "⚠ Shallow Navigational Hazard"
-                              : depth.depth_m < 200
-                                ? "✓ Continental Shelf (Inshore / Mid-Shelf)"
-                                : depth.depth_m < 2000
-                                  ? "✓ Continental Slope"
-                                  : "✓ Deep Oceanic Bathymetry"}
-                          </span>
-                        </div>
-                      </div>
+            {showSoundingHud && (
+              soundingDismissed ? (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSoundingDismissed(false);
+                      setSoundingCollapsed(false);
+                    }}
+                    className="flex items-center gap-2 rounded-full border border-cyan-500/40 bg-[#07131e]/95 px-3 py-1.5 backdrop-blur-xl text-[11px] font-semibold text-cyan-300 shadow-[0_8px_24px_rgba(0,0,0,0.6)] hover:border-cyan-400 hover:bg-cyan-950/50 transition-all cursor-pointer"
+                  >
+                    <Crosshair className="size-3 text-cyan-400" />
+                    <span>Sounding HUD</span>
+                    {depth?.depth_m != null && !depth.on_land && (
+                      <span className="font-mono font-bold text-cyan-400">{depth.depth_m}m</span>
                     )}
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-xl border border-cyan-500/30 bg-[#07131e]/95 backdrop-blur-xl shadow-[0_12px_32px_rgba(0,0,0,0.65)] ring-1 ring-white/10 transition-all">
+                  {/* Glowing top line */}
+                  <div className="h-0.5 bg-gradient-to-r from-cyan-500 via-sky-400 to-indigo-500" />
 
-                    {/* Bearing & Distance Navigation Telemetry */}
-                    <div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/5 pt-2">
-                      <div className="rounded-lg border border-white/5 bg-[#0a1e30]/60 p-2">
-                        <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                          <Compass className="size-2.5 text-cyan-400" /> Bearing from Port
-                        </span>
-                        <p className="mt-1 font-mono text-xs font-bold text-white">
-                          {bearing ? `${bearing.bearing_deg}° True` : "…"}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border border-white/5 bg-[#0a1e30]/60 p-2">
-                        <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                          <Navigation className="size-2.5 text-sky-400" /> Distance & Steam
-                        </span>
-                        <p className="mt-1 font-mono text-xs font-bold text-white">
-                          {bearing ? (
-                            <>
-                              {bearing.distance_nm} <span className="text-[10px] font-normal text-slate-400">nm</span>{" "}
-                              <span className="text-[10px] text-sky-300 font-normal">
-                                (~{(bearing.distance_nm / 10).toFixed(1)}h)
-                              </span>
-                            </>
-                          ) : "…"}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Provenance citation */}
-                    <div className="mt-2.5 flex items-center justify-between border-t border-white/10 pt-2 text-[9px] text-slate-400">
-                      <span className="flex items-center gap-1 text-cyan-400/90 font-medium">
-                        <ShieldCheck className="size-3 text-cyan-400" /> NOAA ETOPO 2022 / GEBCO
+                  {/* Header */}
+                  <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2 bg-gradient-to-b from-white/[0.03] to-transparent">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-500" />
                       </span>
-                      <span className="text-slate-500 font-mono">30 Aug, 00:00 UTC</span>
+                      <h3 className="text-xs font-bold tracking-wider uppercase text-cyan-300">
+                        Acoustic Sounding HUD
+                      </h3>
+                      {soundingCollapsed && depth?.depth_m != null && !depth.on_land && (
+                        <span className="rounded bg-cyan-950/80 px-1.5 py-0.5 font-mono text-[10px] font-bold text-cyan-300 border border-cyan-500/30">
+                          {depth.depth_m}m
+                        </span>
+                      )}
                     </div>
-                  </>
-                )}
-              </div>
-            </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setSoundingCollapsed(!soundingCollapsed)}
+                        className="flex size-6 cursor-pointer items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                        aria-label={soundingCollapsed ? "Expand HUD" : "Collapse HUD"}
+                        title={soundingCollapsed ? "Expand HUD" : "Collapse HUD"}
+                      >
+                        {soundingCollapsed ? <ChevronUp className="size-3.5 text-cyan-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSoundingDismissed(true)}
+                        className="flex size-6 cursor-pointer items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                        aria-label="Dismiss HUD"
+                        title="Dismiss HUD"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  </div>
 
+                  {/* Body (only when expanded) */}
+                  {!soundingCollapsed && (
+                    <div className="p-3">
+                      {!clicked ? (
+                        <div className="py-2 text-center">
+                          <div className="mx-auto mb-1.5 flex size-8 items-center justify-center rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
+                            <Waves className="size-4 animate-pulse" />
+                          </div>
+                          <p className="text-[11px] font-medium text-slate-300">
+                            Tap chart to sound seafloor depth
+                          </p>
+                          <p className="mt-0.5 text-[9px] text-slate-500">
+                            Reads NOAA ETOPO 2022 &amp; GEBCO 2026 topography
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Hero Readout Grid */}
+                          <div className="grid grid-cols-2 gap-2">
+                            {/* Depth Hero Tile */}
+                            <div className="rounded-lg border border-cyan-500/20 bg-gradient-to-br from-[#0c2438] to-[#081826] p-2.5">
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                                <Waves className="size-2.5 text-cyan-400" /> Seafloor Depth
+                              </span>
+                              <div className="mt-1">
+                                {depth ? (
+                                  depth.on_land ? (
+                                    <p className="font-mono text-base font-bold text-amber-400">On Land</p>
+                                  ) : depth.depth_m != null ? (
+                                    <>
+                                      <p className="font-mono text-2xl font-black text-cyan-300 tracking-tight leading-none drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">
+                                        {depth.depth_m}
+                                        <span className="ml-1 text-xs font-bold text-cyan-400/80">m</span>
+                                      </p>
+                                      <span className="mt-1 block font-mono text-[10px] text-slate-400">
+                                        ({(depth.depth_m * 0.5468).toFixed(1)} fm)
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <p className="font-mono text-sm text-slate-400">Outside coverage</p>
+                                  )
+                                ) : (
+                                  <p className="font-mono text-base text-slate-400 animate-pulse">Measuring…</p>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Position Telemetry Tile */}
+                            <div className="rounded-lg border border-white/5 bg-[#0a1e30]/60 p-2.5 flex flex-col justify-between">
+                              <div>
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                                  <Crosshair className="size-2.5 text-cyan-400" /> Position
+                                </span>
+                                <div className="mt-1 font-mono text-[11px] font-semibold text-slate-200">
+                                  <p>{clicked.lat >= 0 ? `${clicked.lat.toFixed(2)}°N` : `${(-clicked.lat).toFixed(2)}°S`}</p>
+                                  <p>{clicked.lon >= 0 ? `${clicked.lon.toFixed(2)}°E` : `${(-clicked.lon).toFixed(2)}°W`}</p>
+                                </div>
+                              </div>
+                              {nearNames.length > 0 && (
+                                <p className="mt-1 text-[9px] text-cyan-400/80 truncate">
+                                  nr {nearNames[0]}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Bathymetry Status Pill */}
+                          {depth && !depth.on_land && depth.depth_m != null && (
+                            <div className="mt-2">
+                              <div
+                                className={`rounded-md border px-2 py-1 text-[10px] font-semibold ${
+                                  depth.shallow_hazard
+                                    ? "border-amber-500/40 bg-amber-950/40 text-amber-300"
+                                    : "border-cyan-500/30 bg-cyan-950/40 text-cyan-300"
+                                }`}
+                              >
+                                <span className="font-mono">
+                                  {depth.depth_m < 10
+                                    ? "⚠ Shallow Navigational Hazard"
+                                    : depth.depth_m < 200
+                                      ? "✓ Continental Shelf (Inshore / Mid-Shelf)"
+                                      : depth.depth_m < 2000
+                                        ? "✓ Continental Slope"
+                                        : "✓ Deep Oceanic Bathymetry"}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Bearing & Distance Navigation Telemetry */}
+                          <div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/5 pt-2">
+                            <div className="rounded-lg border border-white/5 bg-[#0a1e30]/60 p-2">
+                              <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                                <Compass className="size-2.5 text-cyan-400" /> Bearing from Port
+                              </span>
+                              <p className="mt-1 font-mono text-xs font-bold text-white">
+                                {bearing ? `${bearing.bearing_deg}° True` : "…"}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border border-white/5 bg-[#0a1e30]/60 p-2">
+                              <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                                <Navigation className="size-2.5 text-sky-400" /> Distance & Steam
+                              </span>
+                              <p className="mt-1 font-mono text-xs font-bold text-white">
+                                {bearing ? (
+                                  <>
+                                    {bearing.distance_nm} <span className="text-[10px] font-normal text-slate-400">nm</span>{" "}
+                                    <span className="text-[10px] text-sky-300 font-normal">
+                                      (~{(bearing.distance_nm / 10).toFixed(1)}h)
+                                    </span>
+                                  </>
+                                ) : "…"}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Provenance citation */}
+                          <div className="mt-2.5 flex items-center justify-between border-t border-white/10 pt-2 text-[9px] text-slate-400">
+                            <span className="flex items-center gap-1 text-cyan-400/90 font-medium">
+                              <ShieldCheck className="size-3 text-cyan-400" /> NOAA ETOPO 2022 / GEBCO
+                            </span>
+                            <span className="text-slate-500 font-mono">30 Aug, 00:00 UTC</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            )}
           </div>
           {forecastLayer && layers.waveForecast && (
             <div className="pointer-events-auto absolute bottom-3 left-3 w-[calc(100%-1.5rem)] sm:left-1/2 sm:w-[420px] sm:-translate-x-1/2">

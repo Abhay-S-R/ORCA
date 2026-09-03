@@ -113,13 +113,13 @@ export default function VoyagePage() {
   const routeProvenance = plan?.route_layer?.source_provenance?.[0];
 
   return (
-    <PageBody className="mx-auto max-w-6xl">
+    <PageBody className="mx-auto max-w-7xl">
       <PageHeader
         title="Plan a voyage"
         lede="Tap the chart to drop an origin and destination, or type coordinates. ORCA classifies every leg — shallows, boundaries, protected areas, rough sea and lightning — at that leg's own arrival time, not just conditions right now."
       />
 
-      <div className="grid gap-5 lg:grid-cols-[360px_1fr]">
+      <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
         <div className="flex flex-col gap-4">
           <Panel title="Route">
             <form onSubmit={submit} className="flex flex-col gap-1">
@@ -227,7 +227,13 @@ export default function VoyagePage() {
         </div>
 
         <div className="flex flex-col gap-4">
-          <MapView className="h-[420px] w-full" onPointClick={handlePointClick} routeGeoJson={plan?.route_layer?.geojson} pins={pins} />
+          <MapView
+            className="h-[520px] min-h-[460px] lg:h-[580px] w-full rounded-2xl shadow-xl ring-1 ring-white/10 overflow-hidden"
+            defaultCollapsedSounding={true}
+            onPointClick={handlePointClick}
+            routeGeoJson={plan?.route_layer?.geojson}
+            pins={pins}
+          />
 
           {error && <ErrorState title="Voyage plan failed" body={error} />}
 
