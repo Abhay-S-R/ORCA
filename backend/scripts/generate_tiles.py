@@ -65,9 +65,8 @@ def generate_wave_height_forecast_tiles():
             for h in ds["TIME"].values
         ]
 
-        # Pilot bbox + margin (matches orca/agents/geospatial.py's own clip
-        # box) — IOYAXIS ascends south-to-north, IOXAXIS ascends west-to-east.
-        west, south, east, north = 76.0, 6.0, 82.0, 12.0
+        # Pan-India maritime bounds matching INCOIS RSMC domain & user's reference image
+        west, south, east, north = 65.0, 2.0, 96.0, 25.0
         cropped = ds["HS"].sel(IOXAXIS=slice(west, east), IOYAXIS=slice(south, north))
         cropped = cropped.rename({"IOXAXIS": "lon", "IOYAXIS": "lat"})
 
@@ -75,6 +74,8 @@ def generate_wave_height_forecast_tiles():
             ts: cropped.isel(TIME=i).where(np.isfinite(cropped.isel(TIME=i)))
             for i, ts in enumerate(timestamps)
         }
+        import shutil
+        shutil.rmtree(TILES_ROOT / "wave_height_forecast", ignore_errors=True)
         meta = generate_forecast_tiles(
             frames, layer_id="wave_height_forecast", out_dir=TILES_ROOT / "wave_height_forecast",
             cmap_name="wave_height", unit="m",
@@ -93,20 +94,32 @@ def generate_wave_height_forecast_tiles():
 
 
 def generate_bathymetry_tiles():
-    print("\n[1/1] Building the bathymetry raster tile pyramid (GEBCO, cmocean 'deep')...")
+    print("\n[1/1] Building the bathymetry raster tile pyramid (ETOPO Pan-India, cmocean 'deep')...")
     try:
-        from orca.agents.geospatial import _bathymetry
+        import xarray as xr
         from orca.tiles import generate_layer_tiles
 
-        elevation = _bathymetry()["elevation"]
+        pan_india = DATA_ROOT / "tier1" / "bathymetry" / "etopo_all_india_bathymetry.nc"
+        etopo_file = DATA_ROOT / "tier1" / "bathymetry" / "etopo_south_india_bathymetry.nc"
+        if pan_india.exists():
+            ds = xr.open_dataset(pan_india)
+            da = ds["altitude"].rename({"latitude": "lat", "longitude": "lon"})
+        elif etopo_file.exists():
+            ds = xr.open_dataset(etopo_file)
+            da = ds["altitude"].rename({"latitude": "lat", "longitude": "lon"})
+        else:
+            from orca.agents.geospatial import _bathymetry
+            da = _bathymetry()["elevation"]
+
         meta = generate_layer_tiles(
-            elevation,
+            da,
             layer_id="bathymetry",
             out_dir=TILES_ROOT / "bathymetry",
             cmap_name="bathymetry",
             unit="m",
-            valid_predicate=lambda v: v < 0,  # GEBCO: negative elevation = ocean
+            valid_predicate=lambda v: v < 0,  # Negative elevation/altitude = ocean
             to_display=lambda v: -v,  # legend reads positive depth, not signed elevation
+            zoom_range=(5, 8),
         )
         print(
             f"[OK] {meta['tile_count']} tiles written, zoom {meta['min_zoom']}-{meta['max_zoom']}, "

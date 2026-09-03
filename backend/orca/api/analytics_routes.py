@@ -23,6 +23,7 @@ from orca.agents.discovery import (
     select_source_with_fallback,
 )
 from orca.contracts import ChartSpec, SourceProvenance
+from orca.data import analytics_loaders as al
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["ocean-analytics"])
@@ -168,6 +169,8 @@ def zones(
     )
 
     proxy = load_pfz_advisories() if status.get("is_data_gap") else {"type": "FeatureCollection", "features": []}
+    live_pfz = al.load_pfz_live_geojson()
+    combined_features = list(live_pfz.get("features", [])) + list(proxy.get("features", []))
 
     return {
         "measured_from": origin,
@@ -179,6 +182,7 @@ def zones(
         "nearest_pfz": asdict(near),
         "persistence": {k: (asdict(v) if k == "confidence" else v) for k, v in persistence.items()},
         "thermal_front_proxy": proxy,
+        "features": combined_features,
         "source_selection": _source_selection("pfz", None),
     }
 

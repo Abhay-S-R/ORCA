@@ -31,6 +31,8 @@ from shapely.strtree import STRtree
 DATA_ROOT = Path(__file__).resolve().parents[3] / "data"
 BOUNDARIES_DIR = DATA_ROOT / "tier1" / "boundaries"
 BATHYMETRY_FILE = DATA_ROOT / "tier1" / "bathymetry" / "gebco_2026_n10.5_s7.5_w77.5_e80.5.nc"
+ETOPO_ALL_FILE = DATA_ROOT / "tier1" / "bathymetry" / "etopo_all_india_bathymetry.nc"
+ETOPO_FILE = ETOPO_ALL_FILE if ETOPO_ALL_FILE.exists() else DATA_ROOT / "tier1" / "bathymetry" / "etopo_south_india_bathymetry.nc"
 
 _GEOD = Geod(ellps="WGS84")
 NM_PER_METER = 1.0 / 1852.0
@@ -41,16 +43,10 @@ _PROXIMITY_BANDS: tuple[tuple[float, str], ...] = ((1.0, "DANGER"), (5.0, "CAUTI
 # Static per pilot region for Phase 1; a per-vessel-draft threshold is Phase 2 scope.
 SHALLOW_HAZARD_THRESHOLD_M = 10.0
 
-# Pilot bbox (matches the GEBCO extract's own extent) + a margin so a boundary
-# just outside the strict box — e.g. the Sri Lanka EEZ line near Rameswaram —
-# still clips in with context rather than getting cut off at the viewport edge.
-_MAP_CLIP_MARGIN_DEG = 1.5
-_MAP_CLIP_BOX = box(77.5 - _MAP_CLIP_MARGIN_DEG, 7.5 - _MAP_CLIP_MARGIN_DEG,
-                     80.5 + _MAP_CLIP_MARGIN_DEG, 10.5 + _MAP_CLIP_MARGIN_DEG)
-# (west, south, east, north) — the one pilot-region extent every map layer
-# (Agent 6's own and Agent 8's, plan §5.9) should cite as `bounds` rather
-# than each recomputing/hardcoding the same four numbers.
-PILOT_BBOX_WSEN: tuple[float, float, float, float] = _MAP_CLIP_BOX.bounds
+# Pan-India maritime bounds covering Arabian Sea, Indian Ocean, and Bay of Bengal (65-95 E, 4-26 N).
+# No longer artificially clips the Indian EEZ into a small rectangle around Thoothukudi.
+_MAP_CLIP_BOX = box(65.0, 4.0, 95.0, 26.0)
+PILOT_BBOX_WSEN: tuple[float, float, float, float] = (76.0, 6.0, 82.0, 12.0)
 
 # Douglas-Peucker tolerance for map DISPLAY only (plan §4.7/§5.10 Day 10) —
 # never touches the geometry check_boundary_proximity/point_in_polygon
@@ -232,20 +228,47 @@ def _bathymetry() -> xr.Dataset:
     return xr.open_dataset(BATHYMETRY_FILE)
 
 
+@lru_cache(maxsize=1)
+def _etopo_bathymetry() -> xr.Dataset | None:
+    if ETOPO_FILE.exists():
+        return xr.open_dataset(ETOPO_FILE)
+    return None
+
+
 def depth_at_point(lat: float, lon: float) -> DepthResult:
-    """GEBCO 2026 nearest-cell depth. GEBCO elevation is signed relative to
-    sea level: positive is land, negative is below sea level. Nearest-cell
-    (not interpolated) matches the grid's own stated resolution (~15 arcsec)
-    and keeps this consistent with `bearing_and_distance`'s "cite the point
-    you actually used" provenance requirement.
+    """Bathymetry depth reading with GEBCO 2026 pilot priority and Pan-India ETOPO fallback.
+
+    1. GEBCO 2026 extract (15" grid, 7.5-10.5 N, 77.5-80.5 E) for high-precision
+       pilot sounding in Gulf of Mannar and Palk Bay.
+    2. NOAA ETOPO grid (5.0-22.0 N, 70.0-92.0 E) covering all of South and Peninsular
+       India (Kerala, Karnataka, Goa, Maharashtra, Tamil Nadu, Andhra Pradesh, Bay of Bengal).
     """
-    elevation = float(_bathymetry()["elevation"].sel(lat=lat, lon=lon, method="nearest").item())
-    if elevation >= 0:
-        return DepthResult(depth_m=None, on_land=True, shallow_hazard=False)
-    depth = -elevation
-    return DepthResult(
-        depth_m=round(depth, 1), on_land=False, shallow_hazard=depth < SHALLOW_HAZARD_THRESHOLD_M
-    )
+    gebco = _bathymetry()
+    lat_min, lat_max = float(gebco.lat.min()), float(gebco.lat.max())
+    lon_min, lon_max = float(gebco.lon.min()), float(gebco.lon.max())
+    if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+        elevation = float(gebco["elevation"].sel(lat=lat, lon=lon, method="nearest").item())
+        if elevation >= 0:
+            return DepthResult(depth_m=None, on_land=True, shallow_hazard=False)
+        depth = -elevation
+        return DepthResult(
+            depth_m=round(depth, 1), on_land=False, shallow_hazard=depth < SHALLOW_HAZARD_THRESHOLD_M
+        )
+
+    etopo = _etopo_bathymetry()
+    if etopo is not None:
+        e_lat_min, e_lat_max = float(etopo.latitude.min()), float(etopo.latitude.max())
+        e_lon_min, e_lon_max = float(etopo.longitude.min()), float(etopo.longitude.max())
+        if e_lat_min <= lat <= e_lat_max and e_lon_min <= lon <= e_lon_max:
+            alt = float(etopo["altitude"].sel(latitude=lat, longitude=lon, method="nearest").item())
+            if alt >= 0:
+                return DepthResult(depth_m=None, on_land=True, shallow_hazard=False)
+            depth = -alt
+            return DepthResult(
+                depth_m=round(depth, 1), on_land=False, shallow_hazard=depth < SHALLOW_HAZARD_THRESHOLD_M
+            )
+
+    return DepthResult(depth_m=None, on_land=False, shallow_hazard=False)
 
 
 def bathymetry_heatmap_points(stride: int = 16) -> list[dict[str, float]]:

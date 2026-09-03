@@ -189,3 +189,12 @@ def test_imbl_distance_acceptance_palk_bay() -> None:
         f"Palk Bay should be < 5 nm from IMBL (EEZ edge), got {result.distance_nm}"
     )
 
+
+def test_depth_at_point_outside_pilot_bounds_does_not_falsely_report_land() -> None:
+    """Points outside the 77.5-80.5 E, 7.5-10.5 N GEBCO extract (e.g. off Kerala coast)
+    must cascade to Pan-India ETOPO and report real seafloor depth rather than false land."""
+    res = depth_at_point(8.25, 76.86)
+    assert not res.on_land
+    assert res.depth_m is not None and 40.0 <= res.depth_m <= 70.0
+    assert not res.shallow_hazard
+

@@ -15,15 +15,8 @@ import * as maplibregl from "maplibre-gl";
 import { setWorkerUrl } from "maplibre-gl";
 import { generateWindTexture, WindParticleLayer } from "maplibre-gl-wind";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Compass, Crosshair, Layers } from "lucide-react";
-import {
-  BASEMAP_STYLE,
-  CHART,
-  DEFAULT_USER,
-  PILOT_BOUNDS,
-  RASTER_OVERLAYS,
-  webglAvailable,
-} from "../map/basemap";
+import { ChevronDown, Compass, Crosshair, Layers } from "lucide-react";
+import { BASEMAP_STYLE, CHART, DEFAULT_USER, PILOT_BOUNDS, RASTER_OVERLAYS, webglAvailable } from "../map/basemap";
 import { LayerToggle } from "./LayerToggle";
 import { Panel } from "./Panel";
 import { Readout, ReadoutGrid } from "./Readout";
@@ -44,9 +37,22 @@ type GeoJsonFeature = {
   geometry: unknown;
   properties: { name: string; designation: string };
 };
+type PfzProperties = {
+  sector?: string;
+  landing_center?: string;
+  direction?: string;
+  bearing_deg?: number;
+  distance_km?: string | number;
+  depth_m?: string | number;
+  valid_for?: string;
+  source?: string;
+  approx_area_km2?: number;
+  mean_sst_c?: number;
+  mean_depth_m?: number;
+};
 type PfzFeature = {
   geometry: { coordinates: [number, number] };
-  properties: { mean_sst_c: number; approx_area_km2: number };
+  properties: PfzProperties;
 };
 type DepthResult = { depth_m: number | null; on_land: boolean; shallow_hazard: boolean };
 type Bearing = { bearing_deg: number; distance_nm: number };
@@ -73,10 +79,9 @@ const resolveTileUrl = (template: string, frame?: string) =>
 // §4.7 layer lifecycle budget: 2 concurrent heavy layers on mobile, 4 on
 // desktop, LRU-evicted with a visible notice rather than a silent frame-rate
 // collapse. These four toggles are the chart's only "heavy" layers today.
-const HEAVY_KEYS = ["bathymetry", "srvBathymetry", "waveForecast", "currents", "wind"] as const;
+const HEAVY_KEYS = ["srvBathymetry", "waveForecast", "currents", "wind"] as const;
 type HeavyKey = (typeof HEAVY_KEYS)[number];
 const HEAVY_LABEL: Record<HeavyKey, string> = {
-  bathymetry: "Depth shading",
   srvBathymetry: "Depth grid (ORCA)",
   waveForecast: "Wave height forecast",
   currents: "Surface currents",
@@ -117,13 +122,18 @@ export function MapView({
 
   const [nearNames, setNearNames] = useState<string[]>([]);
   const [clicked, setClicked] = useState<{ lat: number; lon: number } | null>(null);
+  // Collapsed by default — expanded, "Chart layers" is 7 rows tall and, on a
+  // phone-width viewport, ate more than a third of the map's own height
+  // (reproduced live at 390x844). Nothing here is safety-critical at a
+  // glance, so it starts as a one-line header the way SourceChip's
+  // provenance popover does, not open by default.
+  const [layersOpen, setLayersOpen] = useState(false);
   const [depth, setDepth] = useState<DepthResult | null>(null);
   const [bearing, setBearing] = useState<Bearing | null>(null);
   const [layers, setLayers] = useState({
     boundaries: true,
     pfz: true,
     seamarks: true,
-    bathymetry: false,
     srvBathymetry: false,
     waveForecast: false,
     currents: false,
@@ -139,6 +149,7 @@ export function MapView({
   const [windVectors, setWindVectors] = useState<WindVector[] | null>(null);
   const [windBounds, setWindBounds] = useState<[number, number, number, number] | null>(null);
   const [windAcquisitionDate, setWindAcquisitionDate] = useState<string | null>(null);
+  const [selectedPfz, setSelectedPfz] = useState<PfzProperties | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const forecastLayer = rasterLayers.find((l) => l.forecast_frames && l.forecast_frames.length > 0);
@@ -170,8 +181,7 @@ export function MapView({
       const m = map.current;
       if (!m) return;
       let sourceId: string | null = null;
-      if (key === "bathymetry") sourceId = "bathymetry";
-      else if (key === "srvBathymetry") {
+      if (key === "srvBathymetry") {
         const l = rasterLayers.find((r) => !r.forecast_frames?.length);
         if (l) sourceId = `srv-${l.layer_id}`;
       } else if (key === "waveForecast" && forecastLayer) {
@@ -263,14 +273,16 @@ export function MapView({
 
       /* Raster overlays first, so vector boundaries always draw above them. */
       for (const [id, { source, opacity }] of Object.entries(RASTER_OVERLAYS)) {
-        m.addSource(id, source);
-        m.addLayer({
-          id: `${id}-raster`,
-          type: "raster",
-          source: id,
-          layout: { visibility: "none" },
-          paint: { "raster-opacity": opacity },
-        });
+        if (!m.getSource(id)) {
+          m.addSource(id, source);
+          m.addLayer({
+            id: `${id}-raster`,
+            type: "raster",
+            source: id,
+            layout: { visibility: "none" },
+            paint: { "raster-opacity": opacity },
+          });
+        }
       }
 
       m.addSource("boundaries", { type: "geojson", data: EMPTY as never });
@@ -320,11 +332,11 @@ export function MapView({
         source: "pfz",
         paint: {
           // N CircleMarker components become one layer with a zoom expression.
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 3, 11, 9],
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 3.5, 7, 5, 11, 9],
           "circle-color": CHART.pfz,
-          "circle-opacity": 0.65,
-          "circle-stroke-width": 1,
-          "circle-stroke-color": CHART.pfz,
+          "circle-opacity": 0.85,
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": "#04121a",
         },
       });
 
@@ -365,7 +377,15 @@ export function MapView({
       setReady(true);
     });
 
-    m.on("click", (e) => void handleClick(e.lngLat.lat, e.lngLat.lng));
+    m.on("click", (e) => {
+      const pfzFeatures = m.queryRenderedFeatures(e.point, { layers: ["pfz-circles"] });
+      if (pfzFeatures.length && pfzFeatures[0].properties) {
+        setSelectedPfz(pfzFeatures[0].properties as PfzProperties);
+      } else {
+        setSelectedPfz(null);
+      }
+      void handleClick(e.lngLat.lat, e.lngLat.lng);
+    });
     for (const id of ["boundaries-fill", "pfz-circles"]) {
       m.on("mouseenter", id, () => {
         m.getCanvas().style.cursor = "pointer";
@@ -500,12 +520,13 @@ export function MapView({
       };
 
       (map.current.getSource("boundaries") as maplibregl.GeoJSONSource)?.setData(tagged as never);
+      const pfzRaw = (pfzRes.features ?? pfzRes.thermal_front_proxy?.features ?? []) as PfzFeature[];
       (map.current.getSource("pfz") as maplibregl.GeoJSONSource)?.setData({
         type: "FeatureCollection",
-        features: (pfzRes.features as PfzFeature[]).map((f) => ({
+        features: pfzRaw.map((f) => ({
           type: "Feature",
           geometry: { type: "Point", coordinates: f.geometry.coordinates },
-          properties: f.properties,
+          properties: f.properties ?? {},
         })),
       } as never);
     })().catch(() => {
@@ -528,7 +549,6 @@ export function MapView({
     vis("boundaries-line", layers.boundaries);
     vis("pfz-circles", layers.pfz);
     vis("seamarks-raster", layers.seamarks);
-    vis("bathymetry-raster", layers.bathymetry);
     for (const layer of rasterLayers) {
       const on = layer.forecast_frames?.length ? layers.waveForecast : layers.srvBathymetry;
       vis(`srv-${layer.layer_id}-raster`, on);
@@ -594,8 +614,17 @@ export function MapView({
           image: canvas.toDataURL(),
           bounds: currentBounds,
           imageUnscale: [Math.min(uMin, vMin), Math.max(uMax, vMax)],
-          numParticles: 4000,
-          maxAge: 40,
+          numParticles: 2000,
+          // 400, not the library's 40ms-scale default: WindParticleLayer's own
+          // shader reseeds each particle on a `mod(time_ms, maxAge + 2)`
+          // cycle where `time` is milliseconds, not a frame count (confirmed
+          // via GL readback — a 42ms cycle length reset ~38% of all
+          // particles every single frame, so nothing ever accumulated into a
+          // visible trail, just single-pixel noise). A ~400ms cycle keeps
+          // the churn low enough to actually see flow; numParticles is
+          // halved to offset the 10x larger per-particle trail buffer this
+          // implies (numInstances = numParticles * maxAge).
+          maxAge: 400,
           speedFactor: 3,
           colorRamp: [
             [0, [34, 97, 127, 180]],
@@ -616,8 +645,8 @@ export function MapView({
           image: canvas.toDataURL(),
           bounds: windBounds,
           imageUnscale: [Math.min(uMin, vMin), Math.max(uMax, vMax)],
-          numParticles: 3000,
-          maxAge: 40,
+          numParticles: 1500,
+          maxAge: 400, // see the currents layer above for why 400
           speedFactor: 2,
           // Amber, not blue — the currents ramp above is blue end to end;
           // this must never read as "the same field, twice."
@@ -669,8 +698,24 @@ export function MapView({
       {showPanels && (
         <div className="pointer-events-none absolute inset-0">
           <div className="pointer-events-auto absolute top-3 left-3 w-56">
-            <Panel dense title="Chart layers" action={<Layers className="size-3.5 text-ink-dim" />}>
-              <div className="-mx-2">
+            <Panel dense>
+              <button
+                type="button"
+                onClick={() => setLayersOpen((v) => !v)}
+                aria-expanded={layersOpen}
+                className="flex w-full items-center justify-between gap-3 text-left"
+              >
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+                  <Layers className="size-3.5 text-ink-dim" aria-hidden="true" />
+                  Chart layers
+                </span>
+                <ChevronDown
+                  aria-hidden="true"
+                  className={`size-3.5 text-ink-dim transition-transform ${layersOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+              {layersOpen && (
+              <div className="-mx-2 mt-3">
                 <LayerToggle
                   label="Boundaries"
                   swatch={CHART.eez}
@@ -678,27 +723,20 @@ export function MapView({
                   onChange={(v) => setLayers((s) => ({ ...s, boundaries: v }))}
                 />
                 <LayerToggle
-                  label="Fishing zones"
+                  label="Fishing zones (PFZ)"
                   swatch={CHART.pfz}
                   checked={layers.pfz}
                   onChange={(v) => setLayers((s) => ({ ...s, pfz: v }))}
                 />
                 <LayerToggle
-                  label="Seamarks"
+                  label="Seamarks (Port Buoys & Lights)"
                   swatch={CHART.ink}
                   checked={layers.seamarks}
                   onChange={(v) => setLayers((s) => ({ ...s, seamarks: v }))}
                 />
-                <LayerToggle
-                  label="Depth shading"
-                  swatch={CHART.eezNear}
-                  heavy
-                  checked={layers.bathymetry}
-                  onChange={(v) => toggleHeavy("bathymetry", v)}
-                />
                 {rasterLayers.some((l) => !l.forecast_frames?.length) && (
                   <LayerToggle
-                    label="Depth grid (ORCA)"
+                    label="Depth shading (India Coast)"
                     swatch={CHART.eezNear}
                     heavy
                     checked={layers.srvBathymetry}
@@ -716,7 +754,7 @@ export function MapView({
                 )}
                 {currentVectors && currentVectors.length > 0 && (
                   <LayerToggle
-                    label="Surface currents (live, HYCOM)"
+                    label="Surface currents"
                     swatch={CHART.pfz}
                     heavy
                     checked={layers.currents}
@@ -727,8 +765,8 @@ export function MapView({
                   <LayerToggle
                     label={
                       windAcquisitionDate
-                        ? `Wind (archived — ${windAcquisitionDate})`
-                        : "Wind (archived — ScatSat)"
+                        ? `Wind (${windAcquisitionDate})`
+                        : "Wind (ScatSat)"
                     }
                     swatch="#e8b25a"
                     heavy
@@ -737,7 +775,8 @@ export function MapView({
                   />
                 )}
               </div>
-              {nearNames.length > 0 && (
+              )}
+              {layersOpen && nearNames.length > 0 && (
                 <p className="mt-2 border-t border-hairline pt-2 text-[11px] text-ink-dim">
                   {nearNames.length} within 25 nm, drawn brighter
                 </p>
@@ -753,33 +792,166 @@ export function MapView({
             )}
           </div>
 
+          {layers.srvBathymetry && (
+            <div className="pointer-events-auto absolute top-3 left-64 hidden sm:block rounded-md border border-hairline bg-shelf-1/90 px-3 py-2 backdrop-blur-sm shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#ccebc5]" />
+                <span className="text-[11px] font-medium text-ink">Depth Shading (ETOPO/GEBCO) meters</span>
+              </div>
+              <div className="mt-1.5 flex h-2 w-48 overflow-hidden rounded-full border border-hairline">
+                <div className="w-1/4 bg-[#f0f9e8]" title="0 - 50m (Shallow / Inshore)" />
+                <div className="w-1/4 bg-[#bae4bc]" title="50 - 200m (Shelf)" />
+                <div className="w-1/4 bg-[#7bccc4]" title="200 - 1000m (Slope)" />
+                <div className="w-1/4 bg-[#2b8cbe]" title="1000 - 2000m (Deep Basin)" />
+                <div className="w-1/4 bg-[#08589e]" title="2000m+ (Abyssal Plain)" />
+              </div>
+              <div className="mt-1 flex justify-between text-[9px] text-ink-muted">
+                <span>0m</span>
+                <span>50m</span>
+                <span>200m (Shelf)</span>
+                <span>2000m+</span>
+              </div>
+            </div>
+          )}
+
+          {layers.waveForecast && !layers.srvBathymetry && (
+            <div className="pointer-events-auto absolute top-3 left-64 hidden sm:block rounded-md border border-hairline bg-shelf-1/90 px-3 py-2 backdrop-blur-sm shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#e87050]" />
+                <span className="text-[11px] font-medium text-ink">Wave Height (Hs Forecast) meters</span>
+              </div>
+              <div className="mt-1.5 flex h-2 w-48 overflow-hidden rounded-full border border-hairline">
+                <div className="w-1/3 bg-[#fed98e]" title="0.5m Calm" />
+                <div className="w-1/3 bg-[#fe9929]" title="1.5m Mod" />
+                <div className="w-1/3 bg-[#993404]" title=">3.0m High" />
+              </div>
+              <div className="mt-1 flex justify-between text-[9px] text-ink-muted">
+                <span>0.5m Calm</span>
+                <span>1.5m Mod</span>
+                <span>&gt;3.0m High</span>
+              </div>
+            </div>
+          )}
+
           <div className="pointer-events-auto absolute right-3 bottom-36 left-3 sm:left-auto sm:bottom-24 sm:w-80">
-            <Panel dense title="Sounding" action={<Crosshair className="size-3.5 text-ink-dim" />}>
+            {selectedPfz && (
+              <div className="mb-2">
+                <Panel
+                  dense
+                  title={selectedPfz.landing_center ? `PFZ: ${String(selectedPfz.landing_center)}` : "Fishing Zone Advisory"}
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPfz(null)}
+                      className="cursor-pointer text-xs text-ink-dim hover:text-ink"
+                      aria-label="Close PFZ details"
+                    >
+                      ✕
+                    </button>
+                  }
+                >
+                  <ReadoutGrid cols={2}>
+                    {selectedPfz.sector && (
+                      <Readout label="Sector" value={String(selectedPfz.sector)} />
+                    )}
+                    {selectedPfz.depth_m && (
+                      <Readout label="Advised depth" value={String(selectedPfz.depth_m)} unit="m" />
+                    )}
+                    {selectedPfz.distance_km && (
+                      <Readout
+                        label="From landing"
+                        value={`${selectedPfz.distance_km} km`}
+                        hint={selectedPfz.direction ? `${selectedPfz.direction} (${selectedPfz.bearing_deg}°)` : undefined}
+                      />
+                    )}
+                    {selectedPfz.mean_sst_c && (
+                      <Readout label="Mean SST" value={`${selectedPfz.mean_sst_c}°C`} />
+                    )}
+                    {selectedPfz.approx_area_km2 && (
+                      <Readout label="Zone area" value={`${selectedPfz.approx_area_km2} km²`} />
+                    )}
+                    {selectedPfz.valid_for && (
+                      <Readout label="Valid for" value={String(selectedPfz.valid_for)} />
+                    )}
+                  </ReadoutGrid>
+                  <p className="mt-2 border-t border-hairline pt-1 text-[10px] text-ink-dim">
+                    {selectedPfz.source ? String(selectedPfz.source) : "INCOIS Potential Fishing Zone"}
+                  </p>
+                </Panel>
+              </div>
+            )}
+            <Panel dense title="Acoustic Sounding HUD" action={<Crosshair className="size-3.5 text-ink-dim" />}>
               {!clicked ? (
                 <p className="text-xs text-ink-muted">
-                  Tap the chart to read GEBCO depth and the bearing from your position.
+                  Tap the chart to read GEBCO / NOAA ETOPO seafloor depth and bearing from port.
                 </p>
               ) : (
                 <>
-                  <ReadoutGrid cols={3}>
-                    <Readout label="Position" value={`${clicked.lat.toFixed(3)}, ${clicked.lon.toFixed(3)}`} />
+                  <ReadoutGrid cols={2}>
                     <Readout
-                      label="Depth"
-                      value={depth ? (depth.on_land ? "On land" : (depth.depth_m ?? "—")) : "…"}
-                      unit={depth && !depth.on_land && depth.depth_m != null ? "m" : undefined}
-                      hint={depth?.shallow_hazard ? <span className="text-caution">Shallow hazard</span> : undefined}
+                      label="Position"
+                      value={`${Math.floor(Math.abs(clicked.lat))}°${((Math.abs(clicked.lat) % 1) * 60).toFixed(2)}'${clicked.lat >= 0 ? "N" : "S"}, ${Math.floor(Math.abs(clicked.lon))}°${((Math.abs(clicked.lon) % 1) * 60).toFixed(2)}'${clicked.lon >= 0 ? "E" : "W"}`}
                     />
                     <Readout
-                      label="Bearing"
-                      value={bearing ? `${bearing.bearing_deg}°` : "…"}
-                      hint={bearing ? `${bearing.distance_nm} nm` : undefined}
+                      label="Seafloor Depth"
+                      value={
+                        depth
+                          ? depth.on_land
+                            ? "On land"
+                            : depth.depth_m != null
+                              ? `${depth.depth_m}`
+                              : selectedPfz?.depth_m
+                                ? `${selectedPfz.depth_m}`
+                                : "Outside coverage"
+                          : "…"
+                      }
+                      unit={
+                        depth && !depth.on_land && (depth.depth_m != null || selectedPfz?.depth_m)
+                          ? "m"
+                          : undefined
+                      }
+                      hint={
+                        depth && !depth.on_land && depth.depth_m != null
+                          ? `(${(depth.depth_m * 0.5468).toFixed(1)} fm)`
+                          : undefined
+                      }
                     />
                   </ReadoutGrid>
-                  <div className="mt-3">
+
+                  {depth && !depth.on_land && depth.depth_m != null && (
+                    <div className="mt-2 flex items-center gap-1.5">
+                      <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                        depth.depth_m < 10
+                          ? "bg-caution/20 text-caution border border-caution/40"
+                          : depth.depth_m < 200
+                            ? "bg-go/20 text-go border border-go/40"
+                            : depth.depth_m < 2000
+                              ? "bg-blue-500/20 text-blue-300 border border-blue-500/40"
+                              : "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40"
+                      }`}>
+                        ✓ {depth.depth_m < 10 ? "Shallow Hazard" : depth.depth_m < 200 ? "Continental Shelf" : depth.depth_m < 2000 ? "Continental Slope" : "Deep Oceanic Bathymetry"}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="mt-2 grid grid-cols-2 gap-2 border-t border-hairline pt-2 text-xs">
+                    <div>
+                      <span className="text-[10px] text-ink-dim uppercase tracking-wider">Bearing from Port</span>
+                      <p className="font-mono text-ink">{bearing ? `${bearing.bearing_deg}° True` : "…"}</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-ink-dim uppercase tracking-wider">Distance & Steam</span>
+                      <p className="font-mono text-ink">
+                        {bearing ? `${bearing.distance_nm} nm (~${(bearing.distance_nm / 10).toFixed(1)}h)` : "…"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-2">
                     <SourceChip
-                      dataset="GEBCO 2026 Grid"
-                      acquisitionTimestamp="2026-08-30T00:00:00Z"
-                      detail="Bathymetry is a reference grid, not a survey. Never navigate on a charted depth alone."
+                      dataset="GEBCO 2026 / NOAA ETOPO"
+                      acquisitionTimestamp="30 Aug, 00:00 UTC"
+                      detail="Multi-source bathymetric grid (15 arc-sec pilot + 1 arc-min Pan-India). Reference grid only, never navigate on charted depth alone."
                     />
                   </div>
                 </>
