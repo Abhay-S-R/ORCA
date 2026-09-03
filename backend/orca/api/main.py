@@ -19,6 +19,7 @@ from orca.agents.language import IndicTrans2Backend, register_translation_backen
 from orca.api.auth_routes import router as auth_router
 from orca.api.discovery_routes import router as discovery_router
 from orca.api.geospatial_routes import router as geospatial_router
+from orca.data.loaders import resolve_port_from_text
 from orca.graph.graph import build_graph
 from orca.state import ORCAState
 
@@ -146,6 +147,9 @@ async def _query_stream(query: str, lat: float, lon: float, vessel_class: str | 
                 "mpa_violation": geo.get("mpa_violation", False),
                 "mpa_alert_level": geo.get("mpa_alert_level"),
             },
+            # Agent 8 (Phase 2 D3) — map_layers/chart_specs, already
+            # validate_payload-clean plain dicts (graph.py's visualization_node).
+            "visualization_payload": final_state.get("visualization_payload"),
         }
         _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []))
         yield f"data: {json.dumps(final)}\n\n"
@@ -176,7 +180,16 @@ def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
 
 @app.get("/query")
 async def query(
-    q: str = "", lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON, vessel_class: str | None = None,
+    q: str = "", lat: float | None = None, lon: float | None = None, vessel_class: str | None = None,
     distress: bool = False,
 ) -> StreamingResponse:
+    # An explicit lat/lon from the caller always wins — a resolved GPS fix or
+    # a registered home port (Phase 2 D1) is real; a port name in free text is
+    # a fallback for the caller that has no location at all yet. Only when
+    # neither is given do we try to name a pilot port in the query text (e.g.
+    # "near Pamban"), and only then fall back to the Thoothukudi default.
+    if lat is None or lon is None:
+        resolved = resolve_port_from_text(q)
+        lat = resolved[1] if resolved else _DEFAULT_LAT
+        lon = resolved[2] if resolved else _DEFAULT_LON
     return StreamingResponse(_query_stream(q, lat, lon, vessel_class, distress), media_type="text/event-stream")

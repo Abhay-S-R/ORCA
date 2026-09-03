@@ -44,6 +44,7 @@ from orca.data.loaders import (
     cached_ndma_cap_alerts_path,
     cached_weather_path,
     load_json,
+    port_coordinates,
 )
 from orca.data.normalize import SourceDescriptor, normalize_to_common_frame, to_utc_iso
 from orca.state import ORCAState
@@ -54,25 +55,6 @@ NDMA_SACHET_URL = "https://sachet.ndma.gov.in/cap_public_website/FetchAllAlertDe
 
 # §5.7 — 3s on the safety path, where late is the same as absent.
 SAFETY_PATH_TIMEOUT_S = 3.0
-
-# Known port locations, read from the cached fixtures themselves rather than
-# a separate hand-maintained registry — each file already carries its own
-# latitude/longitude.
-_PORT_COORDS: dict[str, tuple[float, float]] | None = None
-
-
-def _port_coords() -> dict[str, tuple[float, float]]:
-    global _PORT_COORDS
-    if _PORT_COORDS is None:
-        coords = {}
-        for port in CACHED_WEATHER_PORTS:
-            path = cached_weather_path(port)
-            if path.exists():
-                d = load_json(path)
-                coords[port] = (d["latitude"], d["longitude"])
-        _PORT_COORDS = coords
-    return _PORT_COORDS
-
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     # Nearest-cached-port lookup over ~6 known points — a plain haversine is
@@ -88,7 +70,7 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def _nearest_port(lat: float, lon: float, candidates: tuple[str, ...]) -> str:
-    coords = _port_coords()
+    coords = port_coordinates()
     available = [p for p in candidates if p in coords]
     if not available:
         raise RuntimeError("No cached port fixtures available for fallback")

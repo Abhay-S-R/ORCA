@@ -10,9 +10,12 @@
                       weather_intelligence          geospatial
                               |                            |
                               +-------------+-------------+
-                                            v
-                                     risk_assessment
                                             |
+                              +-------------+-------------+
+                              v                            v
+                      risk_assessment              visualization
+                              |                            |
+                              +-------------+-------------+
                                             v
                                        reporting
                                             |
@@ -22,8 +25,13 @@
 geospatial and reporting are the real Agents 6/9 (S5/S6) — no longer
 fixtures. language_ingress/egress are Agent 1, run twice per query (before
 Planning, after Reporting), matching "Ingress & Egress" in its own name.
+visualization (Agent 8, Phase 2 D3) is a sibling of risk_assessment, not
+downstream of it — it shapes weather_data/geospatial_data into map layers
+and charts, and never reads the safety verdict to do so.
 """
 from __future__ import annotations
+
+from dataclasses import asdict
 
 from langgraph.graph import END, START, StateGraph
 
@@ -34,6 +42,7 @@ from orca.agents import (
     planning,
     reporting,
     risk_assessment,
+    visualization,
     weather_intelligence,
 )
 from orca.contracts import AgentResult, Confidence, coerce_confidence_score
@@ -179,6 +188,22 @@ def risk_assessment_node(state: ORCAState) -> dict:
     }
 
 
+def visualization_node(state: ORCAState) -> dict:
+    result, entry = run_traced_node("visualization", visualization.run, state)
+    return {
+        # Plain dicts (asdict), same reason geospatial_routes.py does it for
+        # ProximityResult/DepthResult — visualization_payload has to survive
+        # json.dumps() in main.py's SSE stream, and a frozen dataclass doesn't.
+        "visualization_payload": {
+            "map_layers": [asdict(layer) for layer in result.outputs["map_layers"]],
+            "chart_specs": [asdict(chart) for chart in result.outputs["chart_specs"]],
+            "validation_dropped": result.outputs["validation_dropped"],
+        },
+        "audit_trace_log": [entry],
+        "completed_nodes": ["visualization"],
+    }
+
+
 def reporting_run(state: ORCAState) -> AgentResult:
     """Not exported from orca/agents/reporting.py as run(state) either —
     assemble_response(query_id, results: list[AgentResult]) expects the full
@@ -292,6 +317,7 @@ def build_graph():
     g.add_node("weather_intelligence", weather_node)
     g.add_node("geospatial", geospatial_node)
     g.add_node("risk_assessment", risk_assessment_node)
+    g.add_node("visualization", visualization_node)
     g.add_node("reporting", reporting_node)
     g.add_node("language_egress", language_egress_node)
 
@@ -301,7 +327,8 @@ def build_graph():
     g.add_edge("planning", "weather_intelligence")
     g.add_edge("planning", "geospatial")
     g.add_edge(["weather_intelligence", "geospatial"], "risk_assessment")
-    g.add_edge("risk_assessment", "reporting")
+    g.add_edge(["weather_intelligence", "geospatial"], "visualization")
+    g.add_edge(["risk_assessment", "visualization"], "reporting")
     g.add_edge("reporting", "language_egress")
     g.add_edge("language_egress", END)
     return g.compile()
