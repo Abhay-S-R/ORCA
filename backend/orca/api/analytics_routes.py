@@ -170,7 +170,16 @@ def zones(
 
     proxy = load_pfz_advisories() if status.get("is_data_gap") else {"type": "FeatureCollection", "features": []}
     live_pfz = al.load_pfz_live_geojson()
-    combined_features = list(live_pfz.get("features", [])) + list(proxy.get("features", []))
+    seen_coords: set[tuple[float, float]] = set()
+    combined_features = []
+    for f in list(live_pfz.get("features", [])) + list(proxy.get("features", [])):
+        coords = f.get("geometry", {}).get("coordinates")
+        if coords and len(coords) >= 2:
+            key = (round(coords[0], 5), round(coords[1], 5))
+            if key in seen_coords:
+                continue
+            seen_coords.add(key)
+        combined_features.append(f)
 
     return {
         "measured_from": origin,

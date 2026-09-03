@@ -161,7 +161,8 @@ def load_pfz_master() -> list[dict[str, Any]]:
 
 def load_pfz_live_geojson() -> dict[str, Any]:
     """All INCOIS live advisory points formatted as GeoJSON."""
-    path = PFZ_DIR / "incois_pfz_live_advisories.geojson"
+    all_india = PFZ_DIR / "all_india_pfz_advisories.geojson"
+    path = all_india if all_india.exists() else (PFZ_DIR / "incois_pfz_live_advisories.geojson")
     if not path.exists():
         return {"type": "FeatureCollection", "features": []}
     with open(path, encoding="utf-8") as f:

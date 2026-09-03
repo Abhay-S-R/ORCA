@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from orca.agents.geospatial import (
+    DATA_ROOT,
     PILOT_BBOX_WSEN,
     bearing_and_distance,
     check_boundary_proximity,
@@ -53,21 +54,34 @@ def raster_layers(lat: float | None = None, lon: float | None = None) -> dict:
 
 
 @router.get("/current-vectors")
-def current_vectors_route() -> dict:
+def current_vectors_route(pan_india: bool = True) -> dict:
     """Real HYCOM surface current vectors (plan's revised D3 stack — the
-    `maplibre-gl-wind` particle layer). Points, not a MapLayer: a vector
-    field the frontend turns into a texture client-side has no slot in the
-    frozen MapLayer contract's 7 layer types, so this is a standalone REST
-    surface, the same pattern as `/raster-layers` above."""
+    flow particle layer). Points, not a MapLayer: a vector field the frontend
+    turns into an animated flow field client-side."""
+    cache_path = DATA_ROOT / "tier1" / "vectors" / "pan_india_currents.json"
+    if pan_india and cache_path.exists():
+        import json
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
     return {"points": current_vectors(), "bounds": list(PILOT_BBOX_WSEN)}
 
 
 @router.get("/wind-vectors")
-def wind_vectors_route() -> dict:
-    """Archived ScatSat 10m wind (D3 flow overlay's second vector field,
-    alongside `/current-vectors` above). NOT live — one snapshot per day —
+def wind_vectors_route(pan_india: bool = True) -> dict:
+    """Archived ScatSat 10m wind. NOT live — one snapshot per day —
     so `acquisition_date` ships in the response for the frontend to render
-    as an honest freshness label, never silently presented as "now"."""
+    as an honest freshness label, never silently presented as 'now'."""
+    cache_path = DATA_ROOT / "tier1" / "vectors" / "pan_india_wind.json"
+    if pan_india and cache_path.exists():
+        import json
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
     return wind_vectors()
 
 
