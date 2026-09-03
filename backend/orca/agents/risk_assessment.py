@@ -14,6 +14,7 @@ from typing import Literal, TypedDict
 
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.data.normalize import ms_to_kmh
+from orca.resilience import conservative_or, safety_floor_for_missing_inputs
 from orca.state import ORCAState
 
 VesselClass = Literal["small_fishing", "mechanized_trawler", "cargo_vessel"]
@@ -142,23 +143,49 @@ def run(state: ORCAState) -> AgentResult:
     hourly = weather.get("hourly") or [{}]
     current = hourly[0]
 
+    # Resilience §5.7 safety-path rule: a wholly-failed weather agent (an
+    # empty `weather_data`, current == {}) must not read as "0.0 m waves,
+    # 0.0 km/h wind" — that is indistinguishable from genuinely calm
+    # conditions and would silently produce a GO verdict on missing data.
+    # conservative_or records the field name in `missing` without altering
+    # the value passed to evaluate_marine_safety; the None -> 0.0 fallback
+    # below is only for the arithmetic call, never for the confidence/verdict
+    # decision, which is driven by `missing` instead.
+    missing: list[str] = []
+    wave_height_m = conservative_or(current.get("wave_height"), missing_field_name="wave_height_m", missing=missing)
+    wind_speed_ms = conservative_or(current.get("wind_speed_10m"), missing_field_name="wind_speed_10m", missing=missing)
+    # Same rule for Agent 6's output: a missing geospatial_data must not
+    # silently read as "999nm from every boundary" (the safest possible
+    # number) — that is a fabricated GO-shaped value, exactly what §5.7
+    # forbids, so a genuinely-absent distance is tracked as missing too.
+    imbl_distance_nm = conservative_or(geospatial.get("imbl_distance_nm"), missing_field_name="imbl_distance_nm", missing=missing)
+
     verdict = evaluate_marine_safety(
-        wave_height_m=current.get("wave_height", 0.0) or 0.0,
+        wave_height_m=wave_height_m or 0.0,
         # state carries m/s (normalize.py convention); evaluate_marine_safety's
         # reference signature (Architecture §3.1) is fixed in km/h — ms_to_kmh
         # is the same conversion normalize.py uses in the other direction, not
         # an independently hardcoded factor.
-        wind_speed_kmh=ms_to_kmh(current.get("wind_speed_10m", 0.0) or 0.0),
+        wind_speed_kmh=ms_to_kmh(wind_speed_ms or 0.0),
         lightning_active=weather.get("lightning_active", False),
         cyclone_alert=weather.get("cyclone_alert"),
-        imbl_distance_nm=geospatial.get("imbl_distance_nm", 999.0),
+        imbl_distance_nm=imbl_distance_nm if imbl_distance_nm is not None else 999.0,
         mpa_violation=geospatial.get("mpa_violation", False),
         vessel_class=vessel_class,
     )
 
+    floor = safety_floor_for_missing_inputs(missing)
+    if floor is not None and verdict["go_no_go"] == "GO":
+        go_no_go, reason = floor
+        verdict = {"status": "CAUTION_MISSING_DATA", "go_no_go": go_no_go, "reason": reason}
+
     confidence = compute_confidence(
         [c for c in [weather.get("confidence"), geospatial.get("confidence")] if c is not None]
     )
+    if missing:
+        # Missing required telemetry is never a HIGH- or MEDIUM-confidence
+        # answer, whatever the upstream agents individually reported.
+        confidence = Confidence(score="LOW_DATA", rationale=f"Missing required input(s): {', '.join(missing)}")
 
     return AgentResult(
         agent_name="risk_assessment",

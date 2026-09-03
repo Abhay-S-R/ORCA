@@ -1,20 +1,26 @@
-"""Agent 9 (Reporting), thin — plan §4 S6 Day 6.
+"""Agent 9 (Reporting) — plan §4 S6 Day 6 (thin core), extended §5 D1 Day 12
+(4-persona rendering matrix, result_refs, export formatter).
 
 Assembles the AgentResults already sitting in ORCAState into one
-citation-backed payload. Deliberately thin: narrative generation is a
-fuller Agent 9 job for later phases. Phase 1 has no LLM pass here, so this
-concatenates outputs and mints one citation per contributing agent —
+citation-backed payload, mints one citation per contributing agent —
 exit criterion 4 ("every number on screen carries dataset + timestamp")
-depends on citations existing, not on prose.
+depends on citations existing, not on prose — and links each citation back
+to its full AgentResult via `result_refs` so a provenance popover can
+resolve without a second query.
 """
 from __future__ import annotations
 
+import csv
+import io
+import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from orca.contracts import AgentResult
 
 _CONFIDENCE_RANK = {"HIGH": 0, "MEDIUM": 1, "LOW_DATA": 2}
+
+Persona = Literal["fisherman", "commercial_navigator", "researcher", "coastal_authority"]
 
 
 @dataclass(frozen=True)
@@ -31,6 +37,10 @@ class AssembledResponse:
     summary_lines: tuple[str, ...]
     citations: tuple[Citation, ...]
     confidence_tier: str  # worst of the contributing agents' confidence scores
+    # One dict per citation, same order, linking it back to the AgentResult
+    # that produced it (Architecture §6 `source_provenance` + §13 traceability)
+    # — a frontend provenance popover reads this instead of a second query.
+    result_refs: tuple[dict[str, Any], ...] = ()
 
 
 def assemble_response(query_id: str, results: list[AgentResult]) -> AssembledResponse:
@@ -50,18 +60,55 @@ def assemble_response(query_id: str, results: list[AgentResult]) -> AssembledRes
         )
         for r in usable
     )
+    result_refs = tuple(
+        {"agent_name": r.agent_name, "outputs": r.outputs, "confidence": r.confidence.score}
+        for r in usable
+    )
     worst = max(
         (r.confidence.score for r in usable),
         key=lambda s: _CONFIDENCE_RANK.get(s, 2),
         default="LOW_DATA",
     )
     return AssembledResponse(
-        query_id=query_id, summary_lines=summary_lines, citations=citations, confidence_tier=worst
+        query_id=query_id, summary_lines=summary_lines, citations=citations,
+        confidence_tier=worst, result_refs=result_refs,
     )
 
 
 def _format_outputs(outputs: dict[str, Any]) -> str:
     return ", ".join(f"{k}={v}" for k, v in outputs.items())
+
+
+# Architecture §2.6 output rendering matrix — one instruction block per
+# persona, appended to the shared prompt skeleton in synthesize_narrative.
+# Each entry describes *how* to say it; the verdict itself (*what* to say)
+# is fixed above this and never touched here (Ground Rule 2).
+_PERSONA_RENDERING_INSTRUCTIONS: dict[str, str] = {
+    "fisherman": (
+        "Plain, simple language a fisherman reads at a glance. 2-3 short "
+        "sentences. Lead with the GO/CAUTION/NO_GO banner, then one distance "
+        "and direction if relevant (e.g. 'boundary is 12nm east'). No jargon, "
+        "no numbers beyond what changes the decision."
+    ),
+    "commercial_navigator": (
+        "Waypoint-style and ETA-relevant. Reference bathymetry and tidal "
+        "timing where the telemetry supports it. More technical than the "
+        "fisherman rendering — assume the reader plans a route, not just a "
+        "yes/no trip decision. 3-5 sentences."
+    ),
+    "researcher": (
+        "Full statistical summary: report exact measured values with units, "
+        "sensor/dataset provenance, and freshness for each figure cited. "
+        "State uncertainty or discrepancy explicitly where the telemetry "
+        "shows it (e.g. cross-source deltas). Citable, methodology-first tone."
+    ),
+    "coastal_authority": (
+        "District-level threat summary in CAP-alert structure: severity, "
+        "affected area, recommended action, and effective time window. "
+        "Broadcast/SMS-template tone — terse, unambiguous, suitable for "
+        "onward relay to an IVR or SMS channel without further editing."
+    ),
+}
 
 
 def synthesize_narrative(
@@ -96,6 +143,10 @@ def synthesize_narrative(
             facts.append(f"- {r.agent_name} ({r.source_provenance.dataset}): {outputs_str}")
     facts_block = "\n".join(facts) if facts else "No active sensor inputs."
 
+    rendering_instruction = _PERSONA_RENDERING_INSTRUCTIONS.get(
+        persona, _PERSONA_RENDERING_INSTRUCTIONS["fisherman"]
+    )
+
     prompt = f"""You are ORCA Reporting Agent (Agent 9), communicating critical marine safety advice to a {persona} in South Tamil Nadu (Thoothukudi / Gulf of Mannar).
 
 USER QUERY: "{query}"
@@ -110,7 +161,7 @@ MEASURED TELEMETRY & FACTS:
 CRITICAL RULES:
 1. Your response MUST begin with the exact verdict header: "{verdict_str}: {reason_str}".
 2. You MUST NOT alter, contradict, soften, or question the verdict. The arithmetic is final.
-3. In 2-3 sentences directly addressing the {persona}, explain the conditions (wave height, wind speed, lightning/cyclone, and distance to Sri Lanka EEZ/boundary) based strictly on the telemetry.
+3. Rendering for this persona: {rendering_instruction}
 4. Keep the tone calm, practical, direct, and authoritative for sea navigation. Do not use generic AI disclaimers."""
 
     try:
@@ -120,6 +171,43 @@ CRITICAL RULES:
         return narrative
     except Exception:  # noqa: BLE001
         return fallback_line
+
+
+def format_export(assembled: AssembledResponse, fmt: Literal["csv", "json"]) -> str:
+    """Export-formatter mode (Architecture §2.6 researcher rendering: 'CSV/
+    NetCDF export'; NetCDF is out of scope — it needs gridded array data no
+    agent here produces, CSV/JSON cover the same tabular citations). Every
+    row carries its own dataset + timestamp + freshness metadata columns,
+    the same provenance fields exit criterion 4 requires on-screen."""
+    if fmt == "json":
+        return json.dumps(
+            {
+                "query_id": assembled.query_id,
+                "confidence_tier": assembled.confidence_tier,
+                "citations": [
+                    {
+                        "agent_name": c.agent_name,
+                        "dataset": c.dataset,
+                        "acquisition_timestamp": c.acquisition_timestamp,
+                        "freshness_minutes": c.freshness_minutes,
+                    }
+                    for c in assembled.citations
+                ],
+                "result_refs": list(assembled.result_refs),
+            },
+            indent=2,
+        )
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["agent_name", "dataset", "acquisition_timestamp", "freshness_minutes", "outputs"])
+    refs_by_agent = {ref["agent_name"]: ref["outputs"] for ref in assembled.result_refs}
+    for c in assembled.citations:
+        writer.writerow([
+            c.agent_name, c.dataset, c.acquisition_timestamp, c.freshness_minutes,
+            json.dumps(refs_by_agent.get(c.agent_name, {})),
+        ])
+    return buf.getvalue()
 
 
 if __name__ == "__main__":

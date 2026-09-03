@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 
 from orca.agents import distress as distress_agent
 from orca.agents.language import IndicTrans2Backend, register_translation_backend
+from orca.api.auth_routes import router as auth_router
 from orca.api.discovery_routes import router as discovery_router
 from orca.api.geospatial_routes import router as geospatial_router
 from orca.graph.graph import build_graph
@@ -45,6 +46,7 @@ app.add_middleware(
 # Both mount under /api and don't collide with /query or /health (checked).
 app.include_router(discovery_router)
 app.include_router(geospatial_router)
+app.include_router(auth_router)
 
 # Compiled once at import time — a LangGraph StateGraph is stateless
 # structure; compiling per-request would just waste cycles on every call.
@@ -145,7 +147,31 @@ async def _query_stream(query: str, lat: float, lon: float, vessel_class: str | 
                 "mpa_alert_level": geo.get("mpa_alert_level"),
             },
         }
+        _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []))
         yield f"data: {json.dumps(final)}\n\n"
+
+
+def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
+    """Exit criterion 7 (Phase 2 plan §3): rows land in Postgres, not just
+    ORCAState. Best-effort — a DB outage degrades to Phase-1 behaviour
+    (in-memory only, shipped with the SSE response above) rather than
+    failing the user-facing request; the trace itself already reached the
+    client either way."""
+    if not entries:
+        return
+    try:
+        from orca.db.engine import get_sessionmaker
+        from orca.db.repositories import persist_trace_entries
+
+        db = get_sessionmaker()()
+        try:
+            persist_trace_entries(db, query_id=query_id, session_id=None, entries=entries)
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001, S110 — same exception-boundary rule as trace.py; a DB
+        # outage here must never fail the request, and there is nothing more to do
+        # than degrade to Phase-1 behaviour (the trace already shipped in the SSE body).
+        pass
 
 
 @app.get("/query")

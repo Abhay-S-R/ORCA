@@ -28,6 +28,9 @@ dist/
 
 # Local Dev, IDE & Knowledge Graphs
 graphify-out/
+
+# Generated bake-off output (backend/scripts/bakeoff.py) — a run report, not source
+backend/scripts/bakeoff_results.md
 .claude/
 .vscode/
 .DS_Store

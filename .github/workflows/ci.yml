@@ -32,7 +32,10 @@ jobs:
 
       # plan §5.4 — persona must never reach a specialist agent or an intent
       # classifier. Agents 1 (ingress/egress) and 9 (Reporting) are the only
-      # ones allowed to reference it.
+      # ones allowed to reference it. orca/auth/ is scanned too (plan §5.4
+      # Day 10: "identity is the most tempting place to reintroduce the
+      # v1.0 routing bug") and gets no exclusion — auth resolves identity,
+      # not persona, so a real match there is always a bug, not a false positive.
       - name: persona-leak guard
         run: |
           # Matches actual code usage (state["stakeholder_persona"], a
@@ -41,7 +44,8 @@ jobs:
           # Agent 9's real filenames (language.py, reporting.py) plus the
           # older placeholder names in case anyone renames back to them.
           PATTERN='\bstakeholder_persona\b|\bpersona["'"'"']?\s*[:=]|\["persona"\]|\.get\(["'"'"']persona'
-          if [ -d orca/agents ] && grep -rlnE --include='*.py' "$PATTERN" orca/agents/ | grep -vE "(agent_1|agent_9|user_interaction|language|reporting)"; then
+          if { [ -d orca/agents ] && grep -rlnE --include='*.py' "$PATTERN" orca/agents/ | grep -vE "(agent_1|agent_9|user_interaction|language|reporting)"; } \
+             || { [ -d orca/auth ] && grep -rlnE --include='*.py' "$PATTERN" orca/auth/; }; then
             echo "::error::persona referenced outside Agents 1/9 — this is the v1.0 routing bug (plan Ground Rule 1)"
             exit 1
           fi

@@ -5,5 +5,10 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 
+[tool.ruff.lint]
+# B008 (Depends(...) in a default arg) is FastAPI's own required DI pattern,
+# not a bug — every route in orca/api/ and orca/auth/rbac.py uses it.
+ignore = ["B008"]
+
 [tool.mypy]
 ignore_missing_imports = true

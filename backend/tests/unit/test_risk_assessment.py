@@ -287,3 +287,37 @@ def test_run_missing_geospatial_data_degrades_conservative_not_crashes():
     }
     result = run(state)
     assert result.confidence.score == "LOW_DATA"  # compute_confidence([]) — no inputs supplied
+    # §5.7 safety-path rule: missing imbl_distance_nm must not silently read
+    # as "999nm from every boundary" (a fabricated GO-shaped default) — the
+    # verdict is forced to CAUTION and names the missing field.
+    assert result.outputs["go_no_go"] == "CAUTION"
+    assert "imbl_distance_nm" in result.outputs["reason"]
+
+
+def test_run_missing_weather_data_forces_caution_not_a_silent_go():
+    # Regression: Agent 4 failed entirely (weather_data == {}), so
+    # current.get("wave_height", 0.0) used to default to 0.0m / 0 wind —
+    # indistinguishable from genuinely calm seas — and returned GO on no
+    # data at all. §5.7 requires CAUTION/NO_GO naming the missing input.
+    state: ORCAState = {  # type: ignore[typeddict-item]
+        "query_id": "q-4", "reasoning_depth": "SHALLOW",
+        "weather_data": {},
+        "geospatial_data": {"imbl_distance_nm": 50.0, "mpa_violation": False},
+    }
+    result = run(state)
+    assert result.outputs["go_no_go"] == "CAUTION"
+    assert "wave_height_m" in result.outputs["reason"]
+    assert "wind_speed_10m" in result.outputs["reason"]
+    assert result.confidence.score == "LOW_DATA"
+
+
+def test_run_missing_data_never_downgrades_an_already_worse_verdict():
+    # A NO_GO from real hazardous data must not be softened to CAUTION just
+    # because a different field also happens to be missing.
+    state: ORCAState = {  # type: ignore[typeddict-item]
+        "query_id": "q-5", "reasoning_depth": "SHALLOW",
+        "weather_data": {"hourly": [{"wave_height": 5.0, "wind_speed_10m": 1.0}], "lightning_active": False},
+        # geospatial missing entirely — must not water down the wave-driven NO_GO.
+    }
+    result = run(state)
+    assert result.outputs["go_no_go"] == "NO_GO"

@@ -49,6 +49,16 @@ torch>=2.0            # CPU build is enough; install with
 sentencepiece>=0.2
 # IndicTransToolkit>=1.1  # Optional: Requires MSVC C++ Build Tools on Windows to compile Cython extensions
 
+# orca/db/ + orca/auth/ (Phase 2, plan §5.3/§5.4, D1) — psycopg[binary] not
+# psycopg2: prebuilt wheel, no C++ Build Tools needed on Windows (same
+# constraint that blocked IndicTransToolkit, see orca/agents/language.py).
+sqlalchemy>=2.0
+psycopg[binary]>=3.1
+geoalchemy2>=0.15
+argon2-cffi>=23.1        # password hashing — argon2id, never plaintext (infra/db/001_init.sql)
+pyjwt>=2.9                # access/refresh tokens — pure python, no compiler needed
+redis>=5.0                 # orca/resilience.py cache TTLs (plan §9.1/§9.11)
+
 # dev / CI only
 pytest>=8.3
 ruff>=0.7
