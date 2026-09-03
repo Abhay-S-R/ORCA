@@ -29,6 +29,7 @@ const STATUS_FILL: Record<AgentStatus, string> = {
   pending: "bg-shelf-1/30 opacity-60",
   running: "bg-accent/10",
   ok: "bg-shelf-1/85",
+  degraded: "border-caution/40 bg-caution/10",
   failed: "border-dashed bg-no-go/10",
   skipped: "border-dashed bg-shelf-1/20 opacity-50",
 };
