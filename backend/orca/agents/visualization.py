@@ -71,7 +71,7 @@ def _raster_layers() -> list[MapLayer]:
     generated yet on this checkout (scripts/generate_tiles.py not run) means
     an empty list, not an error, matching every other generator's
     degrade-gracefully posture in this module."""
-    layers = []
+    layers: list[MapLayer] = []
     if not _TILES_ROOT.is_dir():
         return layers
     for layer_dir in sorted(_TILES_ROOT.iterdir()):

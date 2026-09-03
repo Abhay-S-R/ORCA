@@ -155,31 +155,35 @@ export function MapView({
     [rasterLayers, forecastLayer],
   );
 
+  // Plain callback, not a setState updater — `lru.current` mutations must
+  // run exactly once per toggle. React 18 Strict Mode (Next dev's default)
+  // can invoke a setState *updater* function twice to surface impurities;
+  // mutating a ref inside one (the previous shape here) silently double-
+  // applied the LRU filter/push, corrupting eviction order and letting a
+  // 3rd heavy layer stay on past the mobile cap of 2 — reproduced live.
   const toggleHeavy = useCallback(
     (key: HeavyKey, on: boolean) => {
-      setLayers((s) => {
-        const next = { ...s, [key]: on };
-        if (on) {
-          lru.current = [...lru.current.filter((k) => k !== key), key];
-          const onCount = HEAVY_KEYS.filter((k) => next[k]).length;
-          if (onCount > heavyLimit) {
-            const evict = lru.current.find((k) => k !== key && next[k]);
-            if (evict) {
-              next[evict] = false;
-              lru.current = lru.current.filter((k) => k !== evict);
-              setEvictionNotice(
-                `${HEAVY_LABEL[evict]} turned off — only ${heavyLimit} heavy layers can run at once`,
-              );
-            }
+      const next = { ...layers, [key]: on };
+      if (on) {
+        lru.current = [...lru.current.filter((k) => k !== key), key];
+        const onCount = HEAVY_KEYS.filter((k) => next[k]).length;
+        if (onCount > heavyLimit) {
+          const evict = lru.current.find((k) => k !== key && next[k]);
+          if (evict) {
+            next[evict] = false;
+            lru.current = lru.current.filter((k) => k !== evict);
+            setEvictionNotice(
+              `${HEAVY_LABEL[evict]} turned off — only ${heavyLimit} heavy layers can run at once`,
+            );
           }
-        } else {
-          lru.current = lru.current.filter((k) => k !== key);
         }
-        return next;
-      });
+      } else {
+        lru.current = lru.current.filter((k) => k !== key);
+      }
+      setLayers(next);
       if (on) measureHeavyToggle(key);
     },
-    [heavyLimit, measureHeavyToggle],
+    [layers, heavyLimit, measureHeavyToggle],
   );
 
   const handleClick = useCallback(async (lat: number, lon: number) => {

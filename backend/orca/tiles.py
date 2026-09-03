@@ -90,7 +90,7 @@ def _global_percentiles(
 
 
 def _colorize_tile(
-    display_values: np.ma.MaskedArray,
+    display_values: np.ndarray,
     valid_mask: np.ndarray,
     data_min: float,
     data_max: float,
