@@ -135,7 +135,20 @@ class IndicTrans2Backend:
 
     def _get_processor(self):
         if self._processor is None:
-            from IndicTransToolkit.processor import IndicProcessor
+            try:
+                from IndicTransToolkit.processor import IndicProcessor
+            except ModuleNotFoundError as exc:
+                # Optional native dependency (requires MSVC C++ Build Tools on
+                # Windows — requirements.txt leaves it commented out on a dev
+                # machine without them). Surfaced as RuntimeError so it degrades
+                # through the same "no translation backend" path as an
+                # unregistered backend, rather than crashing run_ingress/
+                # run_egress with an exception their narrower except clause
+                # doesn't catch.
+                raise RuntimeError(
+                    "IndicTransToolkit is not installed (optional dependency, "
+                    "requires MSVC C++ Build Tools on Windows — see requirements.txt)."
+                ) from exc
 
             self._processor = IndicProcessor(inference=True)
         return self._processor

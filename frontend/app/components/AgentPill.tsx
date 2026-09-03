@@ -8,14 +8,18 @@
 // motion on top — three redundant channels, so reduced-motion and colour
 // blindness each still leave two.
 import { motion, useReducedMotion } from "framer-motion";
-import { Check, Minus, X } from "lucide-react";
+import { AlertTriangle, Check, Minus, X } from "lucide-react";
 
-export type AgentStatus = "pending" | "running" | "ok" | "failed" | "skipped";
+export type AgentStatus = "pending" | "running" | "ok" | "degraded" | "failed" | "skipped";
 
 const STATUS: Record<AgentStatus, { cls: string; label: string }> = {
   pending: { cls: "border-hairline text-ink-dim", label: "queued" },
   running: { cls: "border-accent/50 text-accent", label: "running" },
   ok: { cls: "border-hairline-strong text-ink-muted", label: "done" },
+  // Agent completed but fell back (e.g. a missing optional model dependency
+  // degrading translation to a pass-through) — distinct from "failed", which
+  // is what run_traced_node's own exception boundary reports.
+  degraded: { cls: "border-caution/45 text-caution", label: "degraded" },
   failed: { cls: "border-no-go/45 text-no-go", label: "failed" },
   skipped: { cls: "border-hairline text-ink-dim", label: "skipped" },
 };
@@ -46,6 +50,8 @@ export function AgentPill({
         />
       ) : status === "ok" ? (
         <Check className="size-3" aria-hidden="true" />
+      ) : status === "degraded" ? (
+        <AlertTriangle className="size-3" aria-hidden="true" />
       ) : status === "failed" ? (
         <X className="size-3" aria-hidden="true" />
       ) : (
