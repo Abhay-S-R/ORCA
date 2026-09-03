@@ -12,6 +12,7 @@ import httpx
 import pytest
 
 from orca.agents import language
+from orca.agents import ocean_analytics as oaa
 from orca.agents import weather_intelligence as wia
 from orca.graph.graph import build_graph
 from orca.state import ORCAState
@@ -273,3 +274,55 @@ def test_network_cut_returns_a_verdict_forced_to_low_data(monkeypatch):
     )
     assert "cached" in weather_citation["dataset"]
     assert weather_citation["freshness_minutes"] > 0
+
+
+def test_incois_503_degrades_ocean_analytics_without_crashing(monkeypatch):
+    # Plan §5.8 Day 14 variant 2: the live INCOIS PFZ endpoint answers with
+    # 503 (out of service). ocean_analytics is sibling to weather/geospatial
+    # (graph.py fan-out) — its exception boundary must degrade the same way
+    # weather's does, not take the rest of the graph down with it.
+    def raise_503(*a, **kw):
+        request = httpx.Request("GET", "https://incois.gov.in/pfz")
+        response = httpx.Response(503, request=request)
+        raise httpx.HTTPStatusError("INCOIS PFZ service unavailable", request=request, response=response)
+
+    monkeypatch.setattr(oaa, "nearest_pfz", raise_503)
+    _mock_calm_weather(monkeypatch)
+
+    graph = build_graph()
+    result = graph.invoke(_base_state("is it safe to go to sea"))
+
+    assert result["completed_nodes"][-1] == "language_egress"
+    ocean_trace = next(e for e in result["audit_trace_log"] if e["agent_name"] == "ocean_analytics")
+    assert ocean_trace["status"] == "failed"
+    # The safety path (weather + geospatial) is untouched by ocean_analytics'
+    # own outage — a PFZ lookup failing must not force the safety verdict down.
+    assert result["risk_assessment"]["go_no_go"] in {"GO", "CAUTION", "NO_GO"}
+
+
+def test_all_sources_down_still_returns_a_forced_low_data_verdict(monkeypatch):
+    # Plan §5.8 Day 14 variant 3: every external source the graph fans out
+    # to (weather AND ocean_analytics) fails in the same run — not just one
+    # agent, per §5.8's "one agent raises" variant above. The graph must
+    # still complete and the safety-path conservative rule (resilience.py)
+    # must still force CAUTION/NO_GO, never a silent GO from two simultaneous
+    # outages compounding into "no data means calm data."
+    def raise_error(*a, **kw):
+        raise RuntimeError("simulated total source outage")
+
+    monkeypatch.setattr(wia, "get_marine_weather", raise_error)
+    monkeypatch.setattr(oaa, "nearest_pfz", raise_error)
+    monkeypatch.setattr(oaa, "predict_tides", raise_error)
+
+    graph = build_graph()
+    result = graph.invoke(_base_state("is it safe to go to sea"))
+
+    assert result["completed_nodes"][-1] == "language_egress"
+    weather_trace = next(e for e in result["audit_trace_log"] if e["agent_name"] == "weather_intelligence")
+    ocean_trace = next(e for e in result["audit_trace_log"] if e["agent_name"] == "ocean_analytics")
+    assert weather_trace["status"] == "failed"
+    assert ocean_trace["status"] == "failed"
+    assert result["risk_assessment"]["go_no_go"] in {"CAUTION", "NO_GO"}
+    assert result["confidence_tier"] == "LOW_DATA"
+    # The user still gets a real sentence back, not a stack trace or a blank response.
+    assert result["final_english_response"]

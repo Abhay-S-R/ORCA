@@ -58,6 +58,38 @@ def test_generate_chart_specs_empty_when_no_weather_data() -> None:
     assert generate_chart_specs(_state(weather_data={})) == []
 
 
+_WIND_ROSE = {
+    "available": True, "port": "Thoothukudi", "hours_counted": 4,
+    "bins": ["calm_0_5", "moderate_5_10", "strong_10_plus"],
+    "petals": [{"compass": "N", "calm_0_5": 2, "moderate_5_10": 1, "strong_10_plus": 0}],
+    "dataset": "Open-Meteo Forecast API (cached, port=Thoothukudi)",
+}
+
+
+def test_generate_chart_specs_builds_a_wind_rose_from_ocean_analytics_data() -> None:
+    charts = generate_chart_specs(_state(ocean_data={"wind_rose": _WIND_ROSE}))
+    rose = next(c for c in charts if c.chart_type == "WindRose")
+    assert rose.series == tuple(_WIND_ROSE["petals"])
+    assert rose.x_key == "compass"
+    assert rose.y_keys == tuple(_WIND_ROSE["bins"])
+    # A practical operating chart, kept off the researcher surface until a
+    # real climatological (not forecast-window) source backs it.
+    assert rose.persona_visibility == ("fisherman", "commercial_navigator", "coastal_authority")
+
+
+def test_generate_chart_specs_skips_wind_rose_when_unavailable() -> None:
+    charts = generate_chart_specs(_state(ocean_data={"wind_rose": {"available": False}}))
+    assert not any(c.chart_type == "WindRose" for c in charts)
+
+
+def test_bathymetry_raster_layer_restricts_persona_visibility() -> None:
+    layers = generate_map_layers(_state())
+    bathymetry = [l for l in layers if l.layer_id == "bathymetry"]
+    if not bathymetry:  # only present once scripts/generate_tiles.py has run on this checkout
+        return
+    assert bathymetry[0].persona_visibility == ("commercial_navigator", "researcher", "coastal_authority")
+
+
 def test_validate_payload_drops_an_unknown_layer_type_but_keeps_the_rest() -> None:
     good = MapLayer(
         layer_id="ok", layer_type="PointMarker", geojson=None, tile_url=None,

@@ -24,11 +24,15 @@ from orca.api.discovery_routes import router as discovery_router
 from orca.api.geospatial_routes import router as geospatial_router
 from orca.data.loaders import resolve_port_from_text
 from orca.graph.graph import build_graph
+from orca.logging_utils import configure_logging
 from orca.state import ORCAState
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    # Log redaction ahead of the formatter (plan §5.4 Day 10) — configured
+    # once here, before any request can log a coordinate or identity value.
+    configure_logging()
     # Registered once at startup, not per-request — IndicTrans2Backend loads
     # its models lazily on first actual translate() call, so this itself is
     # cheap; the first Tamil/Hindi query after a cold start pays the model

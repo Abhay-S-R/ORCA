@@ -13,10 +13,13 @@
     "test:a11y": "axe http://localhost:3000/design --exit"
   },
   "dependencies": {
+    "@deck.gl/core": "^9.3.11",
+    "@deck.gl/mapbox": "^9.3.11",
     "@xyflow/react": "^12.11.6",
     "framer-motion": "^13.2.0",
     "lucide-react": "^1.39.0",
     "maplibre-gl": "^6.7.0",
+    "maplibre-gl-wind": "^0.2.1",
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",

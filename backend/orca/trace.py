@@ -81,6 +81,24 @@ def run_traced_node(
     return result, entry
 
 
+def record_layer_metric(
+    layer_id: str, layer_load_ms: float, render_ms: float, payload_bytes: int, dropped_frames: int
+) -> None:
+    """§4.7 `/map` instrumentation: `layer_load_ms`, `render_ms`, `payload_bytes`,
+    dropped-frame count per layer toggle. "Logged to the console in dev and to
+    the existing OTel stream in staging" — the frontend does the dev console.log
+    itself; this is that same stream's staging half, reusing the tracer already
+    set up above rather than standing up a second metrics pipeline. Engineering
+    visibility only, a budget check against §4.7's table, not an observability
+    platform — so no audit_trace_log entry, no AgentResult, just a span."""
+    with _tracer.start_as_current_span("layer_paint") as span:
+        span.set_attribute("layer_id", layer_id)
+        span.set_attribute("layer_load_ms", layer_load_ms)
+        span.set_attribute("render_ms", render_ms)
+        span.set_attribute("payload_bytes", payload_bytes)
+        span.set_attribute("dropped_frames", dropped_frames)
+
+
 def make_stub_entry(agent_name: str, query_id: str, note: str) -> dict[str, Any]:
     """Trace entry for a fixture-backed stub node (plan §6 Fixture Strategy)
     — an agent that hasn't been built yet, standing in so the graph can be

@@ -24,6 +24,72 @@ if sys.platform == "win32":
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend/ on sys.path, matches download_ml_models.py's peers
 
 TILES_ROOT = Path(__file__).resolve().parents[2] / "data" / "tier1" / "tiles"
+DATA_ROOT = Path(__file__).resolve().parents[2] / "data"
+
+
+def generate_wave_height_forecast_tiles():
+    """Plan §5.10 Day 12: `forecast_frames` over the 56 WW3 3-hourly steps
+    (2026-09-01T00:00Z -> 2026-09-07T21:00Z), real data — the significant
+    wave height (`HS`) variable off `data/incois_osf_pfz/osf_ww3/`.
+
+    ponytail: cropped to the pilot bbox + margin before tiling (the source
+    grid is basin-wide, 901x901 at every one of 56 steps) and built at zoom
+    5-8 rather than the static layers' 5-11 — a moving 56-frame pyramid at
+    z11 is a multi-hour offline job for a demo-scale pilot region; z8 is
+    already well past what a phone screen resolves for a whole-basin wave
+    field. Upgrade path: widen to DEFAULT_ZOOM_RANGE once this runs on a
+    real build machine, not a laptop.
+    """
+    print("\n[1/1] Building the wave-height forecast tile pyramid (WW3, cmocean 'amp')...")
+    try:
+        import datetime
+
+        import numpy as np
+        import xarray as xr
+
+        from orca.tiles import generate_forecast_tiles
+
+        ww3_files = sorted((DATA_ROOT / "incois_osf_pfz" / "osf_ww3").glob("*.nc"))
+        if not ww3_files:
+            print("[WARN] No WW3 .nc file found under data/incois_osf_pfz/osf_ww3/ — skipping.")
+            return
+        ds = xr.open_dataset(ww3_files[0], decode_times=False)
+
+        # TIME units are "hours since 0001-01-01" (proleptic Gregorian) —
+        # cftime isn't a project dependency and pandas' datetime64 overflows
+        # trying to represent year-1 references, so decode by hand. The
+        # actual offsets land in 2026, well inside plain datetime's range.
+        ref = datetime.datetime(1, 1, 1, tzinfo=datetime.timezone.utc)
+        timestamps = [
+            (ref + datetime.timedelta(hours=float(h))).strftime("%Y-%m-%dT%H:%M:%SZ")
+            for h in ds["TIME"].values
+        ]
+
+        # Pilot bbox + margin (matches orca/agents/geospatial.py's own clip
+        # box) — IOYAXIS ascends south-to-north, IOXAXIS ascends west-to-east.
+        west, south, east, north = 76.0, 6.0, 82.0, 12.0
+        cropped = ds["HS"].sel(IOXAXIS=slice(west, east), IOYAXIS=slice(south, north))
+        cropped = cropped.rename({"IOXAXIS": "lon", "IOYAXIS": "lat"})
+
+        frames = {
+            ts: cropped.isel(TIME=i).where(np.isfinite(cropped.isel(TIME=i)))
+            for i, ts in enumerate(timestamps)
+        }
+        meta = generate_forecast_tiles(
+            frames, layer_id="wave_height_forecast", out_dir=TILES_ROOT / "wave_height_forecast",
+            cmap_name="wave_height", unit="m",
+            valid_predicate=lambda v: np.isfinite(v) & (v >= 0) & (v < 30),  # HS fill values read as huge negatives/positives
+            zoom_range=(5, 8),
+        )
+        print(
+            f"[OK] {meta['tile_count']} tiles across {len(meta['timestamps'])} frames written, "
+            f"zoom {meta['min_zoom']}-{meta['max_zoom']}, "
+            f"wave height range {meta['color_ramp']['data_min']:.1f}-{meta['color_ramp']['data_max']:.1f}m."
+        )
+    except ImportError as e:
+        print(f"[WARN] Missing dependency for forecast tile generation: {e}. Run: pip install -r requirements.txt")
+    except Exception as e:  # noqa: BLE001 — best-effort setup script, report and continue
+        print(f"[ERROR] Error building wave-height forecast tiles: {e}")
 
 
 def generate_bathymetry_tiles():
@@ -57,4 +123,5 @@ if __name__ == "__main__":
     print("ORCA — Building Raster Tile Pyramids (Phase 2 D3)")
     print("=" * 60)
     generate_bathymetry_tiles()
+    generate_wave_height_forecast_tiles()
     print(f"\nDone! Tiles written under {TILES_ROOT}")
