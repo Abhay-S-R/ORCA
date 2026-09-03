@@ -47,7 +47,7 @@ torch>=2.0            # CPU build is enough; install with
                        #   pip install torch --index-url https://download.pytorch.org/whl/cpu
                        # to skip the much larger CUDA wheel on a machine with no GPU
 sentencepiece>=0.2
-IndicTransToolkit>=1.1
+# IndicTransToolkit>=1.1  # Optional: Requires MSVC C++ Build Tools on Windows to compile Cython extensions
 
 # dev / CI only
 pytest>=8.3
