@@ -1,0 +1,30 @@
+{
+  "scenario": "a notification dispatched to an sms-channel watch — stored 'simulated', the exact Sagar-Vani SMS payload kept verbatim, audit row status 'degraded'",
+  "notification": {
+    "severity": "warning",
+    "title": "Conditions worsened to CAUTION",
+    "body": "Rough Sea State / Boundary Proximity",
+    "channel": "sms",
+    "status": "simulated",
+    "rendered_payload": {
+      "alert": {
+        "text": "WARNING: Conditions worsened to CAUTION near your watch point.",
+        "sms": "[ORCA WARNING] Conditions worsened to CAUTION near your watch point. Seek safety.",
+        "sagar_vani_sms": "[ORCA WARNING] Conditions worsened to CAUTION near your watch point. Seek safety.",
+        "language": "en"
+      },
+      "snapshot": {
+        "go_no_go": "CAUTION",
+        "wave_height_m": 3.1,
+        "confidence": "HIGH"
+      },
+      "channels_requested": ["sms"],
+      "dispatch_detail": "SMS delivery is not implemented in Phase 3. The message is rendered and stored (shown as SIMULATED in the feed), but no SMS transport exists."
+    }
+  },
+  "expected_audit_trace_log": {
+    "agent_name": "sentinel",
+    "event": "fallback",
+    "status": "degraded"
+  }
+}
