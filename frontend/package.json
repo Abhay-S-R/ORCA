@@ -9,7 +9,8 @@
     "lint": "eslint",
     "copy:maplibre": "node scripts/copy-maplibre-worker.mjs",
     "predev": "npm run copy:maplibre",
-    "prebuild": "npm run copy:maplibre"
+    "prebuild": "npm run copy:maplibre",
+    "test:a11y": "axe http://localhost:3000/design --exit"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.6",
@@ -22,6 +23,7 @@
     "recharts": "^3.10.1"
   },
   "devDependencies": {
+    "@axe-core/cli": "^4.13.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -30,5 +32,9 @@
     "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "allowScripts": {
+    "chromedriver@152.0.3": true,
+    "unrs-resolver@1.12.2": true
   }
 }
