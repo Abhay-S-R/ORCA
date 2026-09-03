@@ -64,6 +64,64 @@ def _format_outputs(outputs: dict[str, Any]) -> str:
     return ", ".join(f"{k}={v}" for k, v in outputs.items())
 
 
+def synthesize_narrative(
+    query: str,
+    verdict: dict[str, Any],
+    results: list[AgentResult],
+    persona: str = "fisherman",
+) -> str:
+    """Synthesizes a persona-tailored narrative using the mid-tier LLM.
+
+    CRITICAL INVARIANTS:
+    1. Ground Rule 2: The safety verdict (GO / CAUTION / NO_GO) is predetermined by
+       deterministic Python arithmetic (Agent 7) and MUST NOT be altered.
+    2. Ground Rule 1: Intent decides what fires; persona decides how it's said.
+    3. Fallback: If the LLM is not configured, errors out, or attempts to
+       change the verdict, degrade immediately to the deterministic verdict line.
+    """
+    verdict_str = verdict.get("go_no_go", "UNKNOWN")
+    reason_str = verdict.get("reason", "no verdict computed")
+    fallback_line = f"{verdict_str}: {reason_str}"
+
+    try:
+        from orca.llm.tiers import llm
+        client = llm("mid")
+    except Exception:
+        return fallback_line
+
+    facts = []
+    for r in results:
+        if r.status in ("ok", "degraded"):
+            outputs_str = ", ".join(f"{k}={v}" for k, v in r.outputs.items() if v is not None)
+            facts.append(f"- {r.agent_name} ({r.source_provenance.dataset}): {outputs_str}")
+    facts_block = "\n".join(facts) if facts else "No active sensor inputs."
+
+    prompt = f"""You are ORCA Reporting Agent (Agent 9), communicating critical marine safety advice to a {persona} in South Tamil Nadu (Thoothukudi / Gulf of Mannar).
+
+USER QUERY: "{query}"
+
+DETERMINISTIC SAFETY ASSESSMENT (ALREADY COMPUTED BY SAFETY RULES):
+- VERDICT: {verdict_str}
+- REASON: {reason_str}
+
+MEASURED TELEMETRY & FACTS:
+{facts_block}
+
+CRITICAL RULES:
+1. Your response MUST begin with the exact verdict header: "{verdict_str}: {reason_str}".
+2. You MUST NOT alter, contradict, soften, or question the verdict. The arithmetic is final.
+3. In 2-3 sentences directly addressing the {persona}, explain the conditions (wave height, wind speed, lightning/cyclone, and distance to Sri Lanka EEZ/boundary) based strictly on the telemetry.
+4. Keep the tone calm, practical, direct, and authoritative for sea navigation. Do not use generic AI disclaimers."""
+
+    try:
+        narrative = client.complete([{"role": "user", "content": prompt}]).strip()
+        if verdict_str not in narrative:
+            return f"{fallback_line}\n\n{narrative}"
+        return narrative
+    except Exception:
+        return fallback_line
+
+
 if __name__ == "__main__":
     from orca.contracts import Confidence, SourceProvenance
 

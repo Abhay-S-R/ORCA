@@ -239,13 +239,15 @@ def reporting_run(state: ORCAState) -> AgentResult:
         ))
 
     assembled = reporting.assemble_response(query_id, results)
-    verdict_line = f"{verdict.get('go_no_go', 'UNKNOWN')}: {verdict.get('reason', 'no verdict computed')}"
+    query_text = state.get("normalized_english_query") or state.get("raw_user_query") or ""
+    persona = state.get("stakeholder_persona") or "fisherman"
+    final_english = reporting.synthesize_narrative(query_text, verdict, results, persona=persona)
 
     return AgentResult(
         agent_name="reporting", query_id=query_id, reasoning_depth=depth,
         inputs_consumed={"contributing_agents": [r.agent_name for r in results]},
         outputs={
-            "final_english_response": verdict_line,
+            "final_english_response": final_english,
             "citations": [
                 {
                     "agent_name": c.agent_name, "dataset": c.dataset,

@@ -12,6 +12,14 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Auto-load .env from repository root or backend folder
+for _p in [Path(__file__).resolve().parents[3] / ".env", Path(__file__).resolve().parents[2] / ".env"]:
+    if _p.exists():
+        load_dotenv(_p)
+
 from orca.llm.registry import get_provider
 
 Tier = Literal["cheap", "mid", "reasoning"]
@@ -33,8 +41,14 @@ def llm(tier: Tier) -> _TieredClient:
     provider = os.environ.get(f"ORCA_LLM_{tier.upper()}_PROVIDER")
     model = os.environ.get(f"ORCA_LLM_{tier.upper()}_MODEL")
     if not provider or not model:
-        raise RuntimeError(
-            f"ORCA_LLM_{tier.upper()}_PROVIDER / _MODEL not set. "
-            "Not decided yet — bake-off is Phase 2 (plan §3.3). Set both in .env to unblock locally."
-        )
+        if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+            provider = "gemini"
+            model = "gemini-3.5-flash-lite"
+        elif os.environ.get("ANTHROPIC_API_KEY"):
+            provider = "anthropic"
+            model = "claude-3-5-haiku-latest"
+        else:
+            raise RuntimeError(
+                f"ORCA_LLM_{tier.upper()}_PROVIDER / _MODEL not set, and no default API keys found in .env."
+            )
     return _TieredClient(provider, model)
