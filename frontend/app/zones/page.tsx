@@ -32,6 +32,8 @@ type Sector = {
 };
 
 type ZonesResponse = {
+  measured_from: string; // "registered home port" | "supplied position"
+  origin: { lat: number; lon: number };
   sector_status: Sector & { nearest_advisory_out_of_sector: boolean };
   all_sectors: Sector[];
   nearest_pfz: {
@@ -128,12 +130,17 @@ export default function ZonesPage() {
                 ) : null
               }
             >
-              <div className="mb-3 flex items-center gap-2 text-lg">
+              <div className="mb-1 flex items-center gap-2 text-lg">
                 <Compass className="size-5 text-ink-dim" aria-hidden="true" />
                 <span data-readout className="text-ink">
                   {data.nearest_pfz.compass} {data.nearest_pfz.bearing_deg}° · {data.nearest_pfz.distance_km} km
                 </span>
               </div>
+              <p className="mb-3 text-[11px] text-ink-dim">
+                measured from your {data.measured_from}
+                {data.measured_from === "supplied position" &&
+                  ` (${data.origin.lat.toFixed(2)}, ${data.origin.lon.toFixed(2)}) — log in to use your home port`}
+              </p>
               <ReadoutGrid cols={3}>
                 <Readout label="Landing centre ref" value={data.nearest_pfz.landing_center ?? "—"} />
                 <Readout label="Advised depth" value={data.nearest_pfz.depth_m ?? "—"} unit="m" />

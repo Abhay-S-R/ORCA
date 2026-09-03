@@ -60,7 +60,13 @@ _graph = build_graph()
 _DEFAULT_LAT, _DEFAULT_LON = 8.80, 78.14
 
 
-def _initial_state(query: str, lat: float, lon: float, vessel_class: str | None, distress: bool = False) -> ORCAState:
+_PERSONAS = ("fisherman", "commercial_navigator", "researcher", "coastal_authority")
+
+
+def _initial_state(
+    query: str, lat: float, lon: float, vessel_class: str | None,
+    distress: bool = False, persona: str | None = None,
+) -> ORCAState:
     return {  # type: ignore[typeddict-item]
         "query_id": str(uuid.uuid4()),
         "raw_user_query": query,
@@ -70,6 +76,12 @@ def _initial_state(query: str, lat: float, lon: float, vessel_class: str | None,
         "reasoning_depth": "SHALLOW",
         "user_location": {"lat": lat, "lon": lon},
         "vessel_class": vessel_class,  # None -> risk_assessment.run() defaults to "small_fishing"
+        # An explicit persona choice (the selector, or a logged-in user's
+        # resolved role — plan §4 D1 Day 10). It is a *resolved value* only:
+        # Agent 9 renders with it, no intent classifier ever reads it
+        # (Ground Rule 1, CI persona-leak guard).
+        "stakeholder_persona": persona if persona in _PERSONAS else "fisherman",
+        "stakeholder_persona_source": "explicit" if persona in _PERSONAS else "inferred_low",
         # True when the SOS control was tapped: Agent 12 treats an explicit
         # control as sufficient on its own, with no text needed, and the
         # graph then routes straight to END (Architecture §3.2 step 1).
@@ -82,8 +94,11 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-async def _query_stream(query: str, lat: float, lon: float, vessel_class: str | None, distress: bool = False) -> AsyncIterator[str]:
-    state = _initial_state(query, lat, lon, vessel_class, distress)
+async def _query_stream(
+    query: str, lat: float, lon: float, vessel_class: str | None,
+    distress: bool = False, persona: str | None = None,
+) -> AsyncIterator[str]:
+    state = _initial_state(query, lat, lon, vessel_class, distress, persona)
     emitted = 0  # every graph node appends exactly one completed_nodes entry
     # AND exactly one audit_trace_log entry in the same call (see graph.py) —
     # so the two lists grow in lockstep and index-pairing them is correct,
@@ -106,6 +121,8 @@ async def _query_stream(query: str, lat: float, lon: float, vessel_class: str | 
         weather = final_state.get("weather_data") or {}
         hourly = weather.get("hourly") or [{}]
         geo = final_state.get("geospatial_data") or {}
+        ocean = final_state.get("ocean_data") or {}
+        discovery = final_state.get("discovery_data") or {}
         # A distress response has no vernacular translation pass (it bypasses
         # Reporting/language_egress entirely) — final_vernacular_response
         # falls back to the English text in that case, never a blank string.
@@ -152,6 +169,18 @@ async def _query_stream(query: str, lat: float, lon: float, vessel_class: str | 
             # Agent 8 (Phase 2 D3) — map_layers/chart_specs, already
             # validate_payload-clean plain dicts (graph.py's visualization_node).
             "visualization_payload": final_state.get("visualization_payload"),
+            # Agent 5 (Phase 2 D2) — tide / nearest-PFZ / sector status / the
+            # DEEP catch-decline diagnosis, for a card that shows the ocean
+            # facts behind the verdict, not just the badge.
+            "ocean_summary": {
+                "tide": ocean.get("tide"),
+                "nearest_pfz": ocean.get("nearest_pfz"),
+                "sector_status": ocean.get("sector_status"),
+                "productivity_diagnosis": ocean.get("productivity_diagnosis"),
+            },
+            # Agent 3's source-selection narratives (differentiator 4) — on
+            # the answer card and the activity strip, not buried in the trace.
+            "source_selections": discovery.get("source_selections", []),
         }
         _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []))
         yield f"data: {json.dumps(final)}\n\n"
@@ -183,7 +212,7 @@ def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
 @app.get("/query")
 async def query(
     q: str = "", lat: float | None = None, lon: float | None = None, vessel_class: str | None = None,
-    distress: bool = False,
+    distress: bool = False, persona: str | None = None,
 ) -> StreamingResponse:
     # An explicit lat/lon from the caller always wins — a resolved GPS fix or
     # a registered home port (Phase 2 D1) is real; a port name in free text is
@@ -194,4 +223,6 @@ async def query(
         resolved = resolve_port_from_text(q)
         lat = resolved[1] if resolved else _DEFAULT_LAT
         lon = resolved[2] if resolved else _DEFAULT_LON
-    return StreamingResponse(_query_stream(q, lat, lon, vessel_class, distress), media_type="text/event-stream")
+    return StreamingResponse(
+        _query_stream(q, lat, lon, vessel_class, distress, persona), media_type="text/event-stream"
+    )

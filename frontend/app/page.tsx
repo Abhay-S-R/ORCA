@@ -12,8 +12,10 @@ import { Button } from "./components/Button";
 import { ConfidenceMeter } from "./components/ConfidenceMeter";
 import { Panel } from "./components/Panel";
 import { SourceChip } from "./components/SourceChip";
+import { SourceNarration, type SourceSelection } from "./components/SourceNarration";
 import { EmptyState, ErrorState, Skeleton } from "./components/States";
 import { type ConfidenceTier } from "./components/Badge";
+import { usePersona } from "./persona/context";
 
 const MapView = dynamic(() => import("./components/MapView").then((m) => m.MapView), {
   ssr: false,
@@ -30,6 +32,7 @@ type FinalResponse = {
   detected_language?: string;
   confidence_tier: ConfidenceTier;
   citations?: Citation[];
+  source_selections?: SourceSelection[];
 };
 
 // Real questions in the users' own words, not feature names. These double as
@@ -41,6 +44,7 @@ const EXAMPLES = [
 ];
 
 export default function AskPage() {
+  const { persona } = usePersona();
   const [query, setQuery] = useState("");
   const [spans, setSpans] = useState<AgentSpan[]>([]);
   const [answer, setAnswer] = useState<FinalResponse | null>(null);
@@ -56,7 +60,10 @@ export default function AskPage() {
     setFailed(false);
     setStreaming(true);
 
-    const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(q)}`);
+    // Persona is an explicit rendering choice only — Agent 9 renders with it,
+    // no classifier reads it (Ground Rule 1). "unresolved" = don't send one.
+    const personaParam = persona !== "unresolved" ? `&persona=${persona}` : "";
+    const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}`);
     sourceRef.current = es;
     es.onmessage = (ev) => {
       const data = JSON.parse(ev.data);
@@ -166,6 +173,15 @@ export default function AskPage() {
             <div className="mt-4 border-t border-hairline pt-3">
               <ConfidenceMeter tier={answer.confidence_tier} />
             </div>
+            {/* Differentiator 4 — Agent 3's source-selection reasoning, on
+                the card, not buried in the trace. */}
+            {answer.source_selections && answer.source_selections.length > 0 && (
+              <div className="mt-3 flex flex-col gap-1.5">
+                {answer.source_selections.map((s) => (
+                  <SourceNarration key={s.data_type} selection={s} />
+                ))}
+              </div>
+            )}
             {answer.citations && answer.citations.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {answer.citations.map((c, i) => (

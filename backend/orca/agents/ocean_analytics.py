@@ -664,6 +664,25 @@ def run(state: ORCAState) -> AgentResult:
 
     tide = predict_tides(lat, lon, when=when)
     near = nearest_pfz(lat, lon)
+
+    # Agent 3's source-selection reasoning for the data types this agent
+    # actually consumed — a first-class output surfaced on the answer card
+    # and the activity strip (differentiator 4), not buried in the trace.
+    from orca.agents.discovery import select_source_with_fallback
+
+    source_selections = []
+    for dtype in ("pfz", "tide", "catch_statistics"):
+        d = select_source_with_fallback(dtype)
+        if d is not None:
+            source_selections.append({
+                "data_type": dtype,
+                "chosen": d.chosen.id,
+                "chosen_dataset": d.chosen.dataset,
+                "narrative": d.narrative,
+                "considered": [s.id for s in d.considered],
+                "fallback_chain": list(d.fallback_chain),
+            })
+
     # The user's own sector governs the status they see. Pilot deployment is
     # SEC006 (South Tamil Nadu); a full point→sector lookup is Agent 6's
     # boundary domain, out of scope here.
@@ -701,6 +720,7 @@ def run(state: ORCAState) -> AgentResult:
         "pfz_persistence": {k: v for k, v in persistence.items() if k != "confidence"},
         "sector_status": sec_status,
         "sst_chlorophyll_correlation": {k: v for k, v in correlation.items() if k != "confidence"},
+        "source_selections": source_selections,
     }
 
     contributing = [tide.confidence, persistence["confidence"], correlation["confidence"]]

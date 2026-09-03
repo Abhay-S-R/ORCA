@@ -34,24 +34,50 @@ function freshness(min: number): string {
   return `refreshed roughly every ${Math.round(min / 1440)} d`;
 }
 
+// Researcher export (plan §4 D2 Day 13 / exit criterion 2) — the same facts
+// as the fisherman verdict, as a cited table whose every row carries dataset
+// + acquisition timestamp + freshness. Built by Agent 9's export formatter.
 function ExportButton() {
-  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function download(fmt: "csv" | "json") {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch(`${API_BASE}/api/data/export?fmt=${fmt}`);
+      if (!r.ok) throw new Error(`export failed (${r.status})`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `orca_export.${fmt}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setErr("Export service did not respond.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div>
-      <button
-        type="button"
-        onClick={() =>
-          fetch(`${API_BASE}/api/data/export?source_id=incois_pfz&fmt=csv`)
-            .then((r) => r.json())
-            .then((d) => setMsg(d.detail ?? "Export is not available yet."))
-            .catch(() => setMsg("Export service did not respond."))
-        }
-        className="inline-flex items-center gap-1.5 rounded-sm border border-hairline px-2.5 py-1 text-xs text-ink-muted hover:border-hairline-strong hover:text-ink"
-      >
-        <Download className="size-3.5" aria-hidden="true" />
-        Export catalogue (CSV)
-      </button>
-      {msg && <p className="mt-1.5 max-w-[52ch] text-[11px] text-ink-dim">{msg}</p>}
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex gap-1.5">
+        {(["csv", "json"] as const).map((fmt) => (
+          <button
+            key={fmt}
+            type="button"
+            disabled={busy}
+            onClick={() => download(fmt)}
+            className="inline-flex items-center gap-1.5 rounded-sm border border-hairline px-2.5 py-1 text-xs text-ink-muted hover:border-hairline-strong hover:text-ink disabled:opacity-50"
+          >
+            <Download className="size-3.5" aria-hidden="true" />
+            {busy ? "Preparing…" : `Cited facts (${fmt.toUpperCase()})`}
+          </button>
+        ))}
+      </div>
+      {err && <p className="text-[11px] text-no-go">{err}</p>}
     </div>
   );
 }
@@ -194,8 +220,11 @@ export default function DataPage() {
           ))}
           <p className="text-[11px] text-ink-dim">
             Per-query drill-down opens from any number in the product via its provenance popover.
-            Researcher CSV / NetCDF export with the full metadata block is Agent 9&rsquo;s deliverable
-            (Phase 2, team D1) and is wired to this surface but not yet returning files.
+            The export above is Agent&nbsp;9&rsquo;s formatter — every row carries its dataset,
+            acquisition time and freshness. For the same facts as a written report, set your persona
+            to <span className="text-ink-muted">Researcher</span> and ask a question on the home
+            screen; Agent&nbsp;9 renders the methodology-first version. NetCDF export needs gridded
+            arrays no agent produces yet.
           </p>
         </div>
       )}

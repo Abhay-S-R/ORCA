@@ -1,10 +1,11 @@
 "use client";
 
 // Trends (§4.2 `/trends`) — PS #3 (the tide axis) and PS #7 (why has catch
-// declined). Driven by Agent 5 (Ocean Analytics). The catch-decline workspace
-// is the point: it shows the recorded series, the year-on-year move, and the
-// factors it can and cannot corroborate — "correlated with", never "caused
-// by", and "insufficient data" where ORCA has no independent measurement.
+// declined). Driven by Agent 5 (Ocean Analytics). Charts arrive as
+// frozen-contract ChartSpec objects; the catch-decline workspace is the
+// point — it shows the recorded series, the ±2σ band, the year-on-year move,
+// and the factors it can and cannot corroborate ("correlated with", never
+// "caused by", "insufficient data" where ORCA has no independent measurement).
 import { useEffect, useState } from "react";
 import { LineChart } from "lucide-react";
 import { Badge } from "../components/Badge";
@@ -23,20 +24,19 @@ type Confidence = { score: "HIGH" | "MEDIUM" | "LOW_DATA"; rationale: string };
 type Factor = { factor: string; year: number | null; relationship: string; evidence: string };
 
 type TrendsResponse = {
-  tide_series: Array<{ t: string; height_m: number; event: string }>;
+  chart_specs: ChartSpec[];
+  catch_baseline: {
+    label: string;
+    mean_tonnes: number;
+    std_tonnes: number;
+    band_low: number;
+    band_high: number;
+  } | null;
   catch_decline: {
     district: string;
     verdict: string;
     year_on_year_pct?: number;
     declined?: boolean;
-    series?: Array<{ year: number; total_tonnes: number; trend: string; z: number | null; anomalous: boolean }>;
-    baseline?: {
-      label: string;
-      mean_tonnes: number;
-      std_tonnes: number;
-      band_low: number;
-      band_high: number;
-    };
     factors?: Factor[];
     confidence: Confidence;
     detail?: string;
@@ -48,28 +48,14 @@ type TrendsResponse = {
     relationship?: string;
     confidence: Confidence;
   };
-  wind_rose: {
-    available: boolean;
-    note?: string;
-    port?: string;
-    hours_counted?: number;
-    bins?: string[];
-    petals?: Array<Record<string, string | number>>;
-    dataset?: string;
-    confidence: Confidence;
-  };
   source_selection: SourceSelection | null;
 };
 
-const WIND_BIN_LABEL: Record<string, string> = {
-  calm_0_5: "0–5 m/s",
-  moderate_5_10: "5–10 m/s",
-  strong_10_plus: "10+ m/s",
+const CHART_TITLES: Record<string, string> = {
+  tide_height: "Predicted tide height",
+  catch_landings: "Marine fish landings",
+  wind_rose: "Wind rose",
 };
-
-function shortDay(iso: string): string {
-  return new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
-}
 
 export default function TrendsPage() {
   const [data, setData] = useState<TrendsResponse | null>(null);
@@ -82,59 +68,15 @@ export default function TrendsPage() {
       .catch(() => setError(true));
   }, []);
 
-  const tideSpec: ChartSpec | null = data
-    ? {
-        kind: "time_series",
-        title: "Predicted tide height",
-        x_key: "day",
-        y_label: "m above chart datum",
-        series: [{ key: "height_m", label: "Tide height" }],
-        data: data.tide_series.map((e) => ({ day: shortDay(e.t), height_m: e.height_m })),
-      }
+  const band = data?.catch_baseline
+    ? { from: data.catch_baseline.band_low, to: data.catch_baseline.band_high, label: data.catch_baseline.label }
     : null;
-
-  // Landings as a time series so the ±2σ anomaly band can be drawn behind it
-  // — a band is a statement about a trend, and a bar chart has no trend line
-  // to state it against.
-  const catchSpec: ChartSpec | null =
-    data?.catch_decline.series && data.catch_decline.series.length > 0
-      ? {
-          kind: "time_series",
-          title: `Marine fish landings — ${data.catch_decline.district}`,
-          x_key: "year",
-          y_label: `tonnes · band = ${data.catch_decline.baseline?.label ?? "baseline"}`,
-          series: [{ key: "total_tonnes", label: "Total landings" }],
-          data: data.catch_decline.series.map((r) => ({ year: String(r.year), total_tonnes: r.total_tonnes })),
-          anomaly_band: data.catch_decline.baseline
-            ? { from: data.catch_decline.baseline.band_low, to: data.catch_decline.baseline.band_high }
-            : null,
-        }
-      : null;
-
-  const windSpec: ChartSpec | null =
-    data?.wind_rose.available && data.wind_rose.petals
-      ? {
-          kind: "wind_rose",
-          title: `Wind rose — ${data.wind_rose.port ?? "pilot port"}`,
-          x_key: "compass",
-          y_label: `${data.wind_rose.hours_counted} forecast hours`,
-          series: (data.wind_rose.bins ?? []).map((b) => ({ key: b, label: WIND_BIN_LABEL[b] ?? b })),
-          data: data.wind_rose.petals,
-          provenance: data.wind_rose.dataset
-            ? {
-                dataset: data.wind_rose.dataset,
-                acquisition_timestamp: "",
-                confidence_tier: data.wind_rose.confidence.score,
-              }
-            : undefined,
-        }
-      : null;
 
   return (
     <PageBody className="mx-auto max-w-3xl">
       <PageHeader
         title="Trends"
-        lede="Tide over the coming days, and the catch-decline analysis for the pilot district."
+        lede="Tide over the coming days, the wind rose for the pilot port, and the catch-decline analysis for the pilot district."
       />
 
       {error && (
@@ -153,7 +95,14 @@ export default function TrendsPage() {
 
       {data && (
         <div className="flex flex-col gap-4">
-          {tideSpec && tideSpec.data.length > 0 && <Chart spec={tideSpec} />}
+          {data.chart_specs.map((spec) => (
+            <Chart
+              key={spec.chart_id}
+              spec={spec}
+              title={CHART_TITLES[spec.chart_id] ?? spec.chart_id}
+              band={spec.chart_id === "catch_landings" ? band : null}
+            />
+          ))}
 
           {/* Catch-decline workspace */}
           <Panel
@@ -191,10 +140,6 @@ export default function TrendsPage() {
               </ul>
             )}
           </Panel>
-
-          {catchSpec && <Chart spec={catchSpec} />}
-
-          {windSpec && <Chart spec={windSpec} />}
 
           {/* SST / chlorophyll correlation — the D3 seam */}
           <Panel title="SST × chlorophyll correlation">

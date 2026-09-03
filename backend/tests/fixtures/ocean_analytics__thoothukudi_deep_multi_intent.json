@@ -9,7 +9,7 @@
     "lat": 8.8,
     "lon": 78.14,
     "sector_id": "SEC006",
-    "when": "2026-09-03T08:55:07.580722Z"
+    "when": "2026-09-03T09:42:45.146730Z"
   },
   "outputs": {
     "nearest_pfz": {
@@ -113,6 +113,50 @@
       "status": "NO_DATA_CLOUD_COVER",
       "valid_for": null
     },
+    "source_selections": [
+      {
+        "chosen": "incois_pfz",
+        "chosen_dataset": "INCOIS Potential Fishing Zone advisories",
+        "considered": [
+          "incois_pfz"
+        ],
+        "data_type": "pfz",
+        "fallback_chain": [
+          "incois_pfz",
+          "bhuvan_wms"
+        ],
+        "narrative": "INCOIS Potential Fishing Zone advisories selected: only source in the catalog covering 'pfz' (Tier 1, ~24 h old)."
+      },
+      {
+        "chosen": "soi_tide_tables",
+        "chosen_dataset": "Survey of India 2026 Annual Tide Tables",
+        "considered": [
+          "soi_tide_tables",
+          "stormglass_tides"
+        ],
+        "data_type": "tide",
+        "fallback_chain": [
+          "soi_tide_tables",
+          "stormglass_tides",
+          "incois_tide_gauge"
+        ],
+        "narrative": "Survey of India 2026 Annual Tide Tables chosen over Stormglass.io Marine API \u2014 tide extremes for 'tide': static reference vs ~6 h old, Tier gap \u2014 higher authority tier."
+      },
+      {
+        "chosen": "datagov_catch",
+        "chosen_dataset": "data.gov.in Marine Fish Landings & species trends",
+        "considered": [
+          "datagov_catch",
+          "icar_cmfri"
+        ],
+        "data_type": "catch_statistics",
+        "fallback_chain": [
+          "datagov_catch",
+          "icar_cmfri"
+        ],
+        "narrative": "data.gov.in Marine Fish Landings & species trends chosen over ICAR-CMFRI long-term landing archives & stock assessment for 'catch_statistics': static reference vs static reference, Tier gap \u2014 higher authority tier."
+      }
+    ],
     "sst_chlorophyll_correlation": {
       "available": false,
       "note": "awaiting D3 gridded loader fixtures for SST, chlorophyll (Phase 2 plan \u00a74.2 \u2014 mosdac_*__pilot__*.json)"
@@ -123,12 +167,12 @@
       "fell_back": false,
       "next_high": {
         "height_m": 0.79,
-        "in_hours": 2.2,
+        "in_hours": 1.5,
         "when": "2026-09-03T11:10:00Z"
       },
       "next_low": {
         "height_m": 0.34,
-        "in_hours": 8.5,
+        "in_hours": 7.7,
         "when": "2026-09-03T17:26:00Z"
       },
       "range_m": 0.45,
@@ -141,7 +185,7 @@
   "query_id": "selfcheck",
   "reasoning_depth": "DEEP",
   "source_provenance": {
-    "acquisition_timestamp": "2026-09-03T08:55:07.580722Z",
+    "acquisition_timestamp": "2026-09-03T09:42:45.146730Z",
     "dataset": "INCOIS PFZ advisories + Survey of India 2026 tide tables (Agent 5)",
     "freshness_minutes": 0
   },

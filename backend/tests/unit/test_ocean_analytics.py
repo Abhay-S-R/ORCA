@@ -169,3 +169,7 @@ def test_run_returns_agent_result_with_all_parts():
     assert "productivity_diagnosis" in res.outputs
     # persona must never appear anywhere in the envelope (Ground Rule 1)
     assert "persona" not in str(res.inputs_consumed).lower()
+    # Agent 3's source-selection narratives ride out for the answer card
+    sels = {s["data_type"] for s in res.outputs["source_selections"]}
+    assert {"pfz", "tide", "catch_statistics"} <= sels
+    assert all(s["narrative"] for s in res.outputs["source_selections"])
