@@ -1,0 +1,24 @@
+{
+  "agent_name": "ocean_analytics",
+  "confidence": {
+    "rationale": "gridded ocean-colour / SST inputs not yet available",
+    "score": "LOW_DATA"
+  },
+  "error_detail": null,
+  "inputs_consumed": {
+    "lat": 8.8,
+    "lon": 78.14
+  },
+  "outputs": {
+    "available": false,
+    "note": "awaiting D3 gridded loader fixtures for SST, chlorophyll (Phase 2 plan \u00a74.2 \u2014 mosdac_*__pilot__*.json)"
+  },
+  "query_id": "fixture-sst_chl_awaiting_d3",
+  "reasoning_depth": "STANDARD",
+  "source_provenance": {
+    "acquisition_timestamp": "",
+    "dataset": "MOSDAC SST + chlorophyll (awaiting D3 fixtures, \u00a74.2)",
+    "freshness_minutes": 0
+  },
+  "status": "ok"
+}

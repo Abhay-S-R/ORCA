@@ -1,0 +1,38 @@
+{
+  "agent_name": "discovery",
+  "confidence": {
+    "rationale": "fell to a declared \u00a712.1 fallback rung",
+    "score": "MEDIUM"
+  },
+  "error_detail": null,
+  "inputs_consumed": {
+    "data_type": "sst",
+    "down": [
+      "incois_erddap",
+      "mosdac_open_sst"
+    ]
+  },
+  "outputs": {
+    "considered": [
+      "incois_erddap",
+      "copernicus_cmems",
+      "mosdac_open_sst",
+      "mosdac_nrt_sst"
+    ],
+    "dataset": "Copernicus Marine Service (CMEMS) reanalysis",
+    "fallback_chain": [
+      "incois_erddap",
+      "copernicus_cmems"
+    ],
+    "reason": "Copernicus Marine Service (CMEMS) reanalysis selected as fallback for 'sst': INCOIS ERDDAP Data Server unavailable (incois_erddap, mosdac_open_sst); dropped 1 rung(s) down the declared cascade (Tier 2, ~5 d old). Confidence lowered accordingly.",
+    "source_id": "copernicus_cmems"
+  },
+  "query_id": "fixture-sst-fallback",
+  "reasoning_depth": "STANDARD",
+  "source_provenance": {
+    "acquisition_timestamp": "",
+    "dataset": "Copernicus Marine Service (CMEMS) reanalysis",
+    "freshness_minutes": 0
+  },
+  "status": "ok"
+}

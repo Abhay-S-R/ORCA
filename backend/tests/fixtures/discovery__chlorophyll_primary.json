@@ -1,0 +1,34 @@
+{
+  "agent_name": "discovery",
+  "confidence": {
+    "rationale": "primary source available",
+    "score": "HIGH"
+  },
+  "error_detail": null,
+  "inputs_consumed": {
+    "data_type": "chlorophyll",
+    "down": []
+  },
+  "outputs": {
+    "considered": [
+      "mosdac_open_chl",
+      "nasa_ocean_color",
+      "mosdac_nrt_chl"
+    ],
+    "dataset": "MOSDAC Open Data \u2014 EOS-06 OCM-3 Chlorophyll-a",
+    "fallback_chain": [
+      "mosdac_open_chl",
+      "nasa_ocean_color"
+    ],
+    "reason": "MOSDAC Open Data \u2014 EOS-06 OCM-3 Chlorophyll-a chosen over NASA Ocean Color \u2014 MODIS-Aqua / VIIRS NRT for 'chlorophyll': ~24 h old vs ~12 h old, Tier gap \u2014 higher authority tier.",
+    "source_id": "mosdac_open_chl"
+  },
+  "query_id": "fixture-chlorophyll-primary",
+  "reasoning_depth": "STANDARD",
+  "source_provenance": {
+    "acquisition_timestamp": "",
+    "dataset": "MOSDAC Open Data \u2014 EOS-06 OCM-3 Chlorophyll-a",
+    "freshness_minutes": 0
+  },
+  "status": "ok"
+}

@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 
 from orca.agents import distress as distress_agent
 from orca.agents.language import IndicTrans2Backend, register_translation_backend
+from orca.api.analytics_routes import router as analytics_router
 from orca.api.auth_routes import router as auth_router
 from orca.api.discovery_routes import router as discovery_router
 from orca.api.geospatial_routes import router as geospatial_router
@@ -47,7 +48,8 @@ app.add_middleware(
 # Both mount under /api and don't collide with /query or /health (checked).
 app.include_router(discovery_router)
 app.include_router(geospatial_router)
-app.include_router(auth_router)
+app.include_router(auth_router)  # D1 — /register, /login, /profile, /vessels (Phase 2 D1)
+app.include_router(analytics_router)  # Agent 5 — /zones, /trends, /tides, /data (Phase 2 D2)
 
 # Compiled once at import time — a LangGraph StateGraph is stateless
 # structure; compiling per-request would just waste cycles on every call.
