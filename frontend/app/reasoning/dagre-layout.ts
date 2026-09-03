@@ -60,12 +60,15 @@ export function layoutTrace(trace: TraceGraph): { nodes: Node[]; edges: Edge[] }
     });
   }
 
+  // Edge style carries meaning, same "never colour alone" rule as everywhere
+  // else in the product (plan §4.4): solid = handoff, dashed = Critic
+  // re-invocation loop, dotted = early-exit cancellation.
   const edges: Edge[] = trace.edges.map((e: TraceEdge, i) => ({
     id: `${i}-${e.from}-${e.to}`, source: e.from, target: e.to, label: e.label,
     type: "smoothstep", animated: e.kind === "critic_loop",
     style:
-      e.kind === "cancelled" ? { strokeDasharray: "4 3", opacity: 0.5 }
-      : e.kind === "critic_loop" ? { strokeDasharray: "4 3" }
+      e.kind === "cancelled" ? { strokeDasharray: "1 4", opacity: 0.5 }
+      : e.kind === "critic_loop" ? { strokeDasharray: "6 4" }
       : undefined,
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
   }));

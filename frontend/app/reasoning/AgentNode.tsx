@@ -10,7 +10,7 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
-  Anchor, Check, Cloud, Compass, FileText, Languages, ListChecks, ShieldAlert, Sparkles, Waves, X,
+  Anchor, Check, Cloud, Compass, Eye, FileText, Languages, ListChecks, ShieldAlert, Sparkles, Waves, X,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import type { AgentStatus } from "../components/AgentPill";
@@ -20,15 +20,19 @@ import type { AgentNodeData } from "./dagre-layout";
 export type AgentFlowNode = Node<AgentNodeData, "agent">;
 
 const ICON: Record<string, ComponentType<{ className?: string }>> = {
-  distress_check: ShieldAlert, language_ingress: Languages, planning: ListChecks,
+  // "distress" is the real backend agent_name (orca/graph/graph.py's
+  // distress_check_node runs Agent 12 under that key); "distress_check" is
+  // kept too since the example fixture still uses the friendlier id.
+  distress: ShieldAlert, distress_check: ShieldAlert, language_ingress: Languages, planning: ListChecks,
   weather_intelligence: Cloud, geospatial: Compass, ocean_analytics: Waves,
-  risk_assessment: ShieldAlert, visualization: Sparkles, reporting: FileText, language_egress: Languages,
+  risk_assessment: ShieldAlert, visualization: Sparkles, reporting: FileText, critic: Eye, language_egress: Languages,
 };
 
 const STATUS_FILL: Record<AgentStatus, string> = {
   pending: "bg-shelf-1/30 opacity-60",
   running: "bg-accent/10",
   ok: "bg-shelf-1/85",
+  degraded: "bg-caution/10",
   failed: "border-dashed bg-no-go/10",
   skipped: "border-dashed bg-shelf-1/20 opacity-50",
 };
@@ -72,7 +76,7 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
       </div>
       <p className="mt-1 truncate text-[10px] text-ink-dim">
         {node.source_count} source{node.source_count === 1 ? "" : "s"} ·{" "}
-        {node.used_llm ? `${node.tier} LLM (${node.model})` : "deterministic · no LLM"}
+        {node.used_llm ? (node.tier && node.model ? `${node.tier} LLM (${node.model})` : "LLM (details unrecorded)") : "deterministic · no LLM"}
       </p>
     </div>
   );

@@ -120,6 +120,16 @@ def _reasoning_summary(agent_name: str, outputs: dict[str, Any], status: str = "
             return "Critic unavailable — narrative shipped unreviewed"
         n = len(outputs.get("issues", []))
         return f"{n} issue(s) fixed over {outputs.get('critic_iteration_count', '?')} iteration(s)" if n else "passed all 5 rubric items"
+    if agent_name == "reporting":
+        n = len(outputs.get("citations", []))
+        return f"Assembled the narrative, citing {n} source{'s' if n != 1 else ''}."
+    if agent_name == "language_ingress":
+        return f"Detected {outputs.get('detected_language', '?')}, normalized to English."
+    if agent_name == "language_egress":
+        return "Translated the verdict and reasoning back to the query's language."
+    if agent_name == "distress":
+        detection = outputs.get("detection", {})
+        return "Distress flag set" if detection.get("is_distress") else "No distress flag set."
     first_items = list(outputs.items())[:2]
     return ", ".join(f"{k}={v}" for k, v in first_items) or "no output produced"
 

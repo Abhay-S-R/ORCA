@@ -1,25 +1,26 @@
 "use client";
 
 // Reasoning (D3 plan §5.10, §7) — the graph is drawn from a real execution
-// trace, not invented. D1 owns the live `TraceGraph` payload and the
-// `/trace/{query_id}` replay API (plan §5.1); neither ships in this build,
-// so this page replays a self-authored fixture (fixture.ts) that matches
-// D1's documented contract shape exactly and is labelled "Example trace —
-// replay" everywhere it appears, never "Live". Swapping the fixture for a
-// real fetch later is a one-line change, not a rewrite.
+// trace, not invented. D1's `GET /trace/{query_id}` (orca/api/trace_routes.py)
+// now ships the real `TraceGraph` payload — this page shows a self-authored
+// fixture (fixture.ts, matching that contract shape exactly) by default,
+// labelled "Example trace — replay, not live", and swaps to the real trace
+// the moment a live run through the panel above finishes, via
+// trace-adapter.ts. The critic-loop dashed edge and its styling
+// (dagre-layout.ts) render for real once a trace that actually looped
+// through the Critic is loaded — nothing here fakes one.
 //
-// The optional live piece below the header — a thin AgentPill status strip
-// fed by the real `/query` SSE stream — is the one part of this page that
-// IS live. It shows *that* the pipeline is really agentic in real time; the
-// rich per-node reasoning graph stays replay-only, per the design call this
-// page's plan flagged and the user approved as written.
+// The AgentPill status strip below the header is fed by the real `/query`
+// SSE stream and is live in real time regardless of which trace the graph
+// below is currently showing.
 import "@xyflow/react/dist/style.css";
 import { ReactFlow, Background, Controls, type Node } from "@xyflow/react";
 import { useMemo, useRef, useState } from "react";
 import { Workflow, X } from "lucide-react";
 import { AgentNode, FanoutGroupNode } from "./AgentNode";
-import { EXAMPLE_TRACE, type TraceNode } from "./fixture";
+import { EXAMPLE_TRACE, type TraceGraph, type TraceNode } from "./fixture";
 import { layoutTrace, type AgentNodeData } from "./dagre-layout";
+import { adaptTraceGraph } from "./trace-adapter";
 import { AgentPill, AgentStrip, type AgentStatus } from "../components/AgentPill";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
@@ -38,14 +39,22 @@ const nodeTypes = { agent: AgentNode, fanoutGroup: FanoutGroupNode };
 type AgentSpan = { agent_name: string; status: AgentStatus };
 
 export default function ReasoningPage() {
-  // Computed once for this fixture, not per frame/render — plan §5.10 Day
-  // 15's explicit requirement.
-  const { nodes, edges } = useMemo(() => layoutTrace(EXAMPLE_TRACE), []);
+  // `liveTrace` is null until a live run's real GET /trace/{query_id} lands —
+  // until then the graph shows the labelled example fixture. Swapping one for
+  // the other is exactly the "one-line change, not a rebuild" the plan called
+  // for once D1 shipped the real TraceGraph endpoint.
+  const [liveTrace, setLiveTrace] = useState<TraceGraph | null>(null);
+  const [traceLoadError, setTraceLoadError] = useState<string | null>(null);
+  const activeTrace = liveTrace ?? EXAMPLE_TRACE;
+  // Computed once per trace, not per frame/render — plan §5.10 Day 15's
+  // explicit requirement.
+  const { nodes, edges } = useMemo(() => layoutTrace(activeTrace), [activeTrace]);
   const [selected, setSelected] = useState<TraceNode | null>(null);
 
   const [liveQuery, setLiveQuery] = useState("Is it safe to go to sea tomorrow morning?");
   const [spans, setSpans] = useState<AgentSpan[]>([]);
   const [streaming, setStreaming] = useState(false);
+  const [loadingTrace, setLoadingTrace] = useState(false);
   const sourceRef = useRef<EventSource | null>(null);
 
   function runLive(e: React.FormEvent) {
@@ -53,6 +62,7 @@ export default function ReasoningPage() {
     sourceRef.current?.close();
     setSpans([]);
     setStreaming(true);
+    setTraceLoadError(null);
     const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(liveQuery)}`);
     sourceRef.current = es;
     es.onmessage = (ev) => {
@@ -62,12 +72,29 @@ export default function ReasoningPage() {
       } else if (data.type === "final_response") {
         setStreaming(false);
         es.close();
+        if (data.query_id) void loadLiveTrace(data.query_id);
       }
     };
     es.onerror = () => {
       setStreaming(false);
       es.close();
     };
+  }
+
+  async function loadLiveTrace(queryId: string) {
+    setLoadingTrace(true);
+    setSelected(null);
+    try {
+      const res = await fetch(`${API_BASE}/trace/${queryId}`);
+      if (!res.ok) throw new Error(`trace fetch failed: ${res.status}`);
+      setLiveTrace(adaptTraceGraph(await res.json()));
+    } catch {
+      // The graph stays on whatever it was already showing — a missing
+      // trace is a degraded state, never a broken page (Ground Rule 3).
+      setTraceLoadError("Could not load this query's trace — showing the example trace instead.");
+    } finally {
+      setLoadingTrace(false);
+    }
   }
 
   return (
@@ -99,14 +126,30 @@ export default function ReasoningPage() {
           </AgentStrip>
         ) : (
           <p className="text-[11px] text-ink-dim">
-            Run a real query to see which agents actually fire, in real time. This strip is live; the graph below is
-            not — it replays one recorded trace so every node can show its full reasoning, not just a status glyph.
+            Run a real query to see which agents actually fire, in real time — the strip above is live. Once it
+            finishes, the graph below swaps to that query&apos;s own real trace, replayed from what actually ran.
           </p>
         )}
       </Panel>
 
-      <div className="mb-3 flex items-center justify-between">
-        <Badge tone="neutral">Example trace — replay, not live</Badge>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          {liveTrace ? (
+            <>
+              <Badge tone="accent">Live trace — your last query</Badge>
+              <button
+                type="button"
+                onClick={() => setLiveTrace(null)}
+                className="text-[11px] text-ink-dim underline decoration-dotted hover:text-ink"
+              >
+                back to example trace
+              </button>
+            </>
+          ) : (
+            <Badge tone="neutral">{loadingTrace ? "Loading your trace…" : "Example trace — replay, not live"}</Badge>
+          )}
+          {traceLoadError && <span className="text-[11px] text-caution">{traceLoadError}</span>}
+        </div>
         <p className="text-[11px] text-ink-dim">Click a node for its full reasoning and sources.</p>
       </div>
 
@@ -162,7 +205,9 @@ export default function ReasoningPage() {
               </ReadoutGrid>
               <p className="mt-3 border-t border-hairline pt-3 text-[11px] text-ink-dim">
                 {selected.used_llm
-                  ? `Used the ${selected.tier} LLM tier (${selected.model}).`
+                  ? selected.tier && selected.model
+                    ? `Used the ${selected.tier} LLM tier (${selected.model}).`
+                    : "Used an LLM (tier and model aren't recorded on this trace)."
                   : "Deterministic — no LLM call (Ground Rule: specialist agents shape data, they don't reason over it with an LLM)."}
               </p>
             </Panel>

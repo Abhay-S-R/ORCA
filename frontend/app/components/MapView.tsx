@@ -17,13 +17,16 @@ import { generateWindTexture, WindParticleLayer } from "maplibre-gl-wind";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Calendar, ChevronDown, Compass, Crosshair, Fish, Layers, MapPin, Navigation, Radio, ShieldCheck, Waves, X } from "lucide-react";
 import { BASEMAP_STYLE, CHART, DEFAULT_USER, PILOT_BOUNDS, RASTER_OVERLAYS, webglAvailable } from "../map/basemap";
+import { Badge, type BadgeTone } from "./Badge";
 import { LayerToggle } from "./LayerToggle";
 import { Panel } from "./Panel";
 import { Readout, ReadoutGrid } from "./Readout";
 import { SourceChip } from "./SourceChip";
 import { EmptyState } from "./States";
 import { TimeSlider } from "./TimeSlider";
+import { getToken } from "../lib/auth";
 import { measureLayerToggle, reportLayerMetrics } from "../lib/layerPerf";
+import { watchBadges as fetchWatchBadges, type WatchBadge } from "../lib/watches";
 
 // See scripts/copy-maplibre-worker.mjs — Turbopack will not emit the worker's
 // sibling module next to it, so the worker is served from public/ instead.
@@ -53,6 +56,20 @@ type PfzProperties = {
 type PfzFeature = {
   geometry: { coordinates: [number, number] };
   properties: PfzProperties;
+};
+// D2 -> D3 handoff (plan §14, orca/notifications/watch_badges.py) — same
+// severity vocabulary as the notification feed, never re-derived here.
+const SEVERITY_TONE: Record<WatchBadge["severity"], BadgeTone> = {
+  info: "neutral",
+  advisory: "accent",
+  warning: "caution",
+  danger: "no-go",
+};
+const SEVERITY_COLOR: Record<WatchBadge["severity"], string> = {
+  info: "#7a8a99",
+  advisory: CHART.eez,
+  warning: CHART.caution,
+  danger: CHART.noGo,
 };
 type DepthResult = { depth_m: number | null; on_land: boolean; shallow_hazard: boolean };
 type Bearing = { bearing_deg: number; distance_nm: number };
@@ -138,6 +155,7 @@ export function MapView({
     waveForecast: false,
     currents: false,
     wind: false,
+    watchBadges: true,
   });
   const [rasterLayers, setRasterLayers] = useState<RasterLayerMeta[]>([]);
   const [currentVectors, setCurrentVectors] = useState<CurrentVector[] | null>(null);
@@ -150,6 +168,7 @@ export function MapView({
   const [windBounds, setWindBounds] = useState<[number, number, number, number] | null>(null);
   const [windAcquisitionDate, setWindAcquisitionDate] = useState<string | null>(null);
   const [selectedPfz, setSelectedPfz] = useState<PfzProperties | null>(null);
+  const [selectedBadge, setSelectedBadge] = useState<WatchBadge | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const forecastLayer = rasterLayers.find((l) => l.forecast_frames && l.forecast_frames.length > 0);
@@ -288,6 +307,7 @@ export function MapView({
       m.addSource("boundaries", { type: "geojson", data: EMPTY as never });
       m.addSource("pfz", { type: "geojson", data: EMPTY as never });
       m.addSource("route", { type: "geojson", data: EMPTY as never });
+      m.addSource("watch-badges", { type: "geojson", data: EMPTY as never });
 
       // The per-feature JS style function from Leaflet becomes a data-driven
       // paint expression evaluated on the GPU. This is what buys the 60 fps
@@ -340,6 +360,27 @@ export function MapView({
         },
       });
 
+      // Sentinel watch badges (D2 -> D3 handoff, plan §14/§20) — one circle
+      // per watch the signed-in user owns, coloured by unread severity.
+      // enabled=false watches still get a badge (dimmed), disabled ones never
+      // fire, per orca/notifications/watch_badges.py's own contract.
+      const badgeSeverityColor: maplibregl.ExpressionSpecification = [
+        "match", ["get", "severity"],
+        "danger", CHART.noGo, "warning", CHART.caution, "advisory", CHART.eez, "#7a8a99",
+      ];
+      m.addLayer({
+        id: "watch-badges-circles",
+        type: "circle",
+        source: "watch-badges",
+        paint: {
+          "circle-radius": ["case", ["==", ["get", "status"], "active"], 7, 5],
+          "circle-color": badgeSeverityColor,
+          "circle-opacity": ["case", ["get", "enabled"], 0.9, 0.35],
+          "circle-stroke-width": ["case", ["==", ["get", "status"], "active"], 2, 1],
+          "circle-stroke-color": "#04121a",
+        },
+      });
+
       // /voyage's corridor (plan §5) — colour AND a text label per leg
       // (voyage_route_layer's own contract: never colour-alone), status
       // reusing the same go/caution/no-go hex the rest of the product uses.
@@ -378,6 +419,13 @@ export function MapView({
     });
 
     m.on("click", (e) => {
+      const badgeFeatures = m.queryRenderedFeatures(e.point, { layers: ["watch-badges-circles"] });
+      if (badgeFeatures.length && badgeFeatures[0].properties) {
+        setSelectedBadge(badgeFeatures[0].properties as WatchBadge);
+        setSelectedPfz(null);
+        return;
+      }
+      setSelectedBadge(null);
       const pfzFeatures = m.queryRenderedFeatures(e.point, { layers: ["pfz-circles"] });
       if (pfzFeatures.length && pfzFeatures[0].properties) {
         setSelectedPfz(pfzFeatures[0].properties as PfzProperties);
@@ -386,7 +434,7 @@ export function MapView({
       }
       void handleClick(e.lngLat.lat, e.lngLat.lng);
     });
-    for (const id of ["boundaries-fill", "pfz-circles"]) {
+    for (const id of ["boundaries-fill", "pfz-circles", "watch-badges-circles"]) {
       m.on("mouseenter", id, () => {
         m.getCanvas().style.cursor = "pointer";
       });
@@ -542,6 +590,36 @@ export function MapView({
     };
   }, [ready]);
 
+  /* ---- Sentinel watch badges (D2 -> D3, plan §14/§20): polled while signed
+     in, pushed through setData() only — never a map remount. Silently absent
+     for a signed-out visitor, same "degraded, not broken" rule as every
+     other data effect on this map. */
+  useEffect(() => {
+    if (!ready || !map.current) return;
+    if (!getToken()) return;
+    let cancelled = false;
+
+    const refresh = () => {
+      fetchWatchBadges()
+        .then((res) => {
+          if (cancelled || !map.current) return;
+          const layer = res.map_layer as { geojson: GeoJSON.FeatureCollection } | undefined;
+          (map.current.getSource("watch-badges") as maplibregl.GeoJSONSource)?.setData(
+            (layer?.geojson ?? EMPTY) as never,
+          );
+        })
+        .catch(() => {
+          /* A missing badge feed degrades to no badges, never a broken map. */
+        });
+    };
+    refresh();
+    const interval = setInterval(refresh, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [ready]);
+
   /* ---- layer visibility: a layout change, never a remount ---- */
   useEffect(() => {
     if (!ready || !map.current) return;
@@ -552,6 +630,7 @@ export function MapView({
     vis("boundaries-fill", layers.boundaries);
     vis("boundaries-line", layers.boundaries);
     vis("pfz-circles", layers.pfz);
+    vis("watch-badges-circles", layers.watchBadges);
     vis("seamarks-raster", layers.seamarks);
     for (const layer of rasterLayers) {
       const on = layer.forecast_frames?.length ? layers.waveForecast : layers.srvBathymetry;
@@ -732,6 +811,14 @@ export function MapView({
                   checked={layers.pfz}
                   onChange={(v) => setLayers((s) => ({ ...s, pfz: v }))}
                 />
+                {getToken() && (
+                  <LayerToggle
+                    label="My watch badges"
+                    swatch={CHART.caution}
+                    checked={layers.watchBadges}
+                    onChange={(v) => setLayers((s) => ({ ...s, watchBadges: v }))}
+                  />
+                )}
                 <LayerToggle
                   label="Seamarks (Port Buoys & Lights)"
                   swatch={CHART.ink}
@@ -838,6 +925,38 @@ export function MapView({
           )}
 
           <div className="pointer-events-auto absolute right-3 bottom-36 left-3 sm:left-auto sm:bottom-24 sm:w-80">
+            {selectedBadge && (
+              <div className="mb-2.5">
+                <Panel
+                  dense
+                  title={selectedBadge.label}
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBadge(null)}
+                      aria-label="Close watch badge details"
+                      className="text-ink-dim hover:text-ink"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  }
+                >
+                  <div className="flex items-center gap-2">
+                    <Badge tone={SEVERITY_TONE[selectedBadge.severity]}>{selectedBadge.severity}</Badge>
+                    <Badge tone={selectedBadge.status === "active" ? "caution" : "neutral"}>
+                      {selectedBadge.status === "active" ? "unread crossing" : "clear"}
+                    </Badge>
+                    {!selectedBadge.enabled && <Badge tone="neutral">disabled</Badge>}
+                  </div>
+                  <div className="mt-2.5">
+                    <ReadoutGrid cols={2}>
+                      <Readout label="Unread" value={selectedBadge.unread_count} />
+                      <Readout label="Last fired" value={selectedBadge.last_fired_at ? new Date(selectedBadge.last_fired_at).toLocaleString() : "never"} />
+                    </ReadoutGrid>
+                  </div>
+                </Panel>
+              </div>
+            )}
             {selectedPfz && (
               <div className="mb-2.5 overflow-hidden rounded-xl border border-emerald-500/30 bg-[#07131e]/95 backdrop-blur-xl shadow-[0_12px_32px_rgba(0,0,0,0.65)] ring-1 ring-white/10 transition-all">
                 {/* Glowing top line */}
