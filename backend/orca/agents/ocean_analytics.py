@@ -693,6 +693,7 @@ def run(state: ORCAState) -> AgentResult:
         near.found and near.sector_id and near.sector_id != user_sector
     )
     correlation = correlate_sst_chlorophyll(state.get("target_bbox"))
+    rose = wind_rose(lat, lon)
 
     outputs: dict[str, Any] = {
         "tide": {
@@ -720,6 +721,7 @@ def run(state: ORCAState) -> AgentResult:
         "pfz_persistence": {k: v for k, v in persistence.items() if k != "confidence"},
         "sector_status": sec_status,
         "sst_chlorophyll_correlation": {k: v for k, v in correlation.items() if k != "confidence"},
+        "wind_rose": {k: v for k, v in rose.items() if k != "confidence"},
         "source_selections": source_selections,
     }
 

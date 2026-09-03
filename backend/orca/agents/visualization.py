@@ -4,14 +4,15 @@ something a specialist agent (or Agent 6's own map helper) already
 computed into the frozen MapLayer/ChartSpec envelope (orca/contracts.py).
 It never fetches, never scores, never decides GO/CAUTION/NO_GO.
 
-Checkpoint scope (Phase 2 D3): PointMarker/Polygon/Heatmap map layers, one
-TimeSeries chart, the mandatory validate_payload gate, and (as of the tile
-pyramid step) Raster map layers assembled from pre-built tile pyramids
-(orca/tiles.py + scripts/generate_tiles.py — offline, never run from this
-request path). Polyline (routes), DistressMarker and SentinelWatch layer
-types, and BarChart/RadarChart/WindRose chart types are real Architecture
-§11 types this module's Literal already allows — just not populated by any
-generator yet. Next checkpoint.
+
+Checkpoint scope (Phase 2 D3): PointMarker/Polygon/Heatmap/Raster map
+layers (including forecast_frames tile pyramids), TimeSeries + WindRose
+charts, persona_visibility on layers/charts, and the mandatory
+validate_payload gate. Polyline (routes), DistressMarker and SentinelWatch
+layer types, and BarChart/RadarChart chart types are real Architecture §11
+types this module's Literal already allows — just not populated by any
+generator yet (no route-planning or catch-statistics agent output exists
+to shape). Next checkpoint.
 """
 from __future__ import annotations
 
@@ -79,16 +80,29 @@ def _raster_layers() -> list[MapLayer]:
             continue
         meta = json.loads(meta_path.read_text())
         ramp = meta["color_ramp"]
+        # `timestamps` present (scripts/generate_tiles.py's
+        # generate_forecast_tiles output) means this is a forecast_frames
+        # layer (plan §5.10 Day 12) — the same Raster type, just carrying a
+        # frame sequence instead of one static pyramid.
+        frame_timestamps = meta.get("timestamps")
+        # The full-precision bathymetry grid is a technical planning layer —
+        # the fisherman surface already carries the same depth fact via the
+        # bathymetry_heatmap (coarse points) and the Sounding readout's
+        # shallow-hazard flag, so this raster doesn't need to compete for
+        # their screen space. Forecast/other layers stay open to everyone
+        # (empty tuple): safety-relevant data is never persona-gated.
+        visibility = ("commercial_navigator", "researcher", "coastal_authority") if meta["layer_id"] == "bathymetry" else ()
         layers.append(MapLayer(
             layer_id=meta["layer_id"], layer_type="Raster", geojson=None,
             tile_url=meta["tile_url_template"], bounds=tuple(meta["bounds"]),
-            timestamps=None, forecast_frames=None,
+            timestamps=None,
+            forecast_frames=tuple(frame_timestamps) if frame_timestamps else None,
             style_hints=StyleHints(
                 palette=ramp["palette"], opacity=0.85,
                 min_zoom=meta["min_zoom"], max_zoom=meta["max_zoom"],
                 color_ramp=ColorRamp(**ramp),
             ),
-            weight="heavy", persona_visibility=(),
+            weight="heavy", persona_visibility=visibility,
             source_provenance=(SourceProvenance(
                 dataset=f"{meta['layer_id']} raster tile pyramid (via orca/tiles.py)",
                 acquisition_timestamp="", freshness_minutes=0,
@@ -105,7 +119,12 @@ def generate_map_layers(state: ORCAState) -> list[MapLayer]:
     bathymetry_heatmap_points, or orca/tiles.py's offline pyramid build)."""
     location = state.get("user_location") or {}
     lat, lon = location.get("lat"), location.get("lon")
-    raw = geospatial.generate_map_layers(user_lat=lat, user_lon=lon)
+    # The initial payload is built for the whole-basin view (z<=7's coarsest
+    # bucket) — MapView re-requests this same endpoint at the finer buckets
+    # as the user zooms in (plan §5.10 Day 10), never simplifying in the
+    # browser itself.
+    zoom = 7
+    raw = geospatial.generate_map_layers(user_lat=lat, user_lon=lon, zoom=zoom)
     boundary_provenance = (SourceProvenance(
         dataset="Marine Regions VLIZ EEZ + UNEP-WCMC WDPA (via Agent 6)",
         acquisition_timestamp=geospatial.boundary_data_vintage(), freshness_minutes=0,
@@ -116,7 +135,7 @@ def generate_map_layers(state: ORCAState) -> list[MapLayer]:
         bounds=geospatial.PILOT_BBOX_WSEN, timestamps=None, forecast_frames=None,
         style_hints=StyleHints(
             palette="boundary-amber", opacity=0.35, min_zoom=4, max_zoom=14,
-            simplify_tolerance=geospatial._MAP_SIMPLIFY_TOLERANCE_DEG,
+            simplify_tolerance=geospatial._simplify_tolerance_for_zoom(zoom),
         ),
         weight="light", persona_visibility=(), source_provenance=boundary_provenance,
         result_refs=("geospatial",),
@@ -161,29 +180,49 @@ def generate_map_layers(state: ORCAState) -> list[MapLayer]:
 
 def generate_chart_specs(state: ORCAState) -> list[ChartSpec]:
     """TimeSeries wave-height/wind-speed chart from Agent 4's hourly
-    forecast — the checkpoint's one chart type. BarChart/RadarChart/
-    WindRose need data this codebase doesn't compute yet (catch stats,
-    multi-parameter safety score, wind direction distribution); adding
-    those here now would mean fabricating input, not shaping real output."""
+    forecast, WindRose from Agent 5's directional wind frequency
+    (`ocean_analytics.wind_rose`, already real cached Open-Meteo data — see
+    `ocean_data["wind_rose"]`). BarChart/RadarChart still need data this
+    codebase doesn't compute yet (catch stats, multi-parameter safety
+    score); adding those now would mean fabricating input, not shaping
+    real output."""
+    charts: list[ChartSpec] = []
+
     weather = state.get("weather_data") or {}
     hourly = weather.get("hourly") or []
-    if not hourly:
-        return []
+    if hourly:
+        series = tuple(
+            {"time": h.get("time"), "wave_height_m": h.get("wave_height"), "wind_speed_ms": h.get("wind_speed_10m")}
+            for h in hourly
+        )
+        provenance = (SourceProvenance(
+            dataset=weather.get("dataset", "Open-Meteo Marine API + Forecast API"),
+            acquisition_timestamp=weather.get("acquisition_timestamp", ""),
+            freshness_minutes=weather.get("freshness_minutes", 0),
+        ),)
+        charts.append(ChartSpec(
+            chart_id="wave_wind_timeseries", chart_type="TimeSeries", series=series,
+            x_key="time", y_keys=("wave_height_m", "wind_speed_ms"), unit="m | m/s",
+            persona_visibility=(), source_provenance=provenance,
+        ))
 
-    series = tuple(
-        {"time": h.get("time"), "wave_height_m": h.get("wave_height"), "wind_speed_ms": h.get("wind_speed_10m")}
-        for h in hourly
-    )
-    provenance = (SourceProvenance(
-        dataset=weather.get("dataset", "Open-Meteo Marine API + Forecast API"),
-        acquisition_timestamp=weather.get("acquisition_timestamp", ""),
-        freshness_minutes=weather.get("freshness_minutes", 0),
-    ),)
-    return [ChartSpec(
-        chart_id="wave_wind_timeseries", chart_type="TimeSeries", series=series,
-        x_key="time", y_keys=("wave_height_m", "wind_speed_ms"), unit="m | m/s",
-        persona_visibility=(), source_provenance=provenance,
-    )]
+    rose = (state.get("ocean_data") or {}).get("wind_rose") or {}
+    if rose.get("available"):
+        charts.append(ChartSpec(
+            chart_id="wind_rose", chart_type="WindRose", series=tuple(rose["petals"]),
+            x_key="compass", y_keys=tuple(rose["bins"]), unit="hourly readings",
+            # A practical operating chart, not a research-grade climatology
+            # (§5.9's own note: "a forecast window, not a climatology") —
+            # kept off the researcher surface until a real climatological
+            # source backs it.
+            persona_visibility=("fisherman", "commercial_navigator", "coastal_authority"),
+            source_provenance=(SourceProvenance(
+                dataset=rose.get("dataset", "Open-Meteo Forecast API (cached)"),
+                acquisition_timestamp="", freshness_minutes=0,
+            ),),
+        ))
+
+    return charts
 
 
 # --- validate_payload (mandatory) ---------------------------------------------
@@ -313,11 +352,30 @@ if __name__ == "__main__":
             ],
             "dataset": "Open-Meteo Marine API + Forecast API", "acquisition_timestamp": "2026-09-02T00:00:00Z",
         },
+        "ocean_data": {
+            "wind_rose": {
+                "available": True, "port": "Thoothukudi", "hours_counted": 12,
+                "bins": ["calm_0_5", "moderate_5_10", "strong_10_plus"],
+                "petals": [{"compass": "N", "calm_0_5": 3, "moderate_5_10": 1, "strong_10_plus": 0}],
+                "dataset": "Open-Meteo Forecast API (cached, port=Thoothukudi)",
+            },
+        },
     }
     result = run(demo_state)
     assert result.agent_name == "visualization"
     layer_types = {layer.layer_type for layer in result.outputs["map_layers"]}
     assert {"Polygon", "PointMarker", "Heatmap"} <= layer_types, layer_types
-    assert result.outputs["chart_specs"][0].chart_type == "TimeSeries"
+    raster_layers = [layer for layer in result.outputs["map_layers"] if layer.layer_type == "Raster"]
+    if raster_layers:  # only present once scripts/generate_tiles.py has run on this checkout
+        forecast_layers = [layer for layer in raster_layers if layer.forecast_frames]
+        assert all(len(layer.forecast_frames) > 1 for layer in forecast_layers)
+        assert all("{time}" in layer.tile_url for layer in forecast_layers)
+        bathymetry = [layer for layer in raster_layers if layer.layer_id == "bathymetry"]
+        assert all(layer.persona_visibility == ("commercial_navigator", "researcher", "coastal_authority")
+                   for layer in bathymetry)
+    chart_types = {chart.chart_type for chart in result.outputs["chart_specs"]}
+    assert {"TimeSeries", "WindRose"} <= chart_types, chart_types
+    wind_rose_chart = next(c for c in result.outputs["chart_specs"] if c.chart_type == "WindRose")
+    assert wind_rose_chart.persona_visibility == ("fisherman", "commercial_navigator", "coastal_authority")
     assert not result.outputs["validation_dropped"], result.outputs["validation_dropped"]
     print("visualization self-check OK:", layer_types, len(result.outputs["chart_specs"]), "chart(s)")

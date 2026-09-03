@@ -27,6 +27,7 @@ export function TimeSlider({
 
   if (frames.length === 0) return null;
   const current = frames[Math.min(index, frames.length - 1)];
+  const offset = relativeOffset(frames[0].t, current.t);
 
   return (
     <div className="glass flex items-center gap-3 rounded-md px-3 py-2">
@@ -51,10 +52,12 @@ export function TimeSlider({
         aria-valuetext={formatFrame(current.t)}
         className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-hairline accent-[var(--color-accent)]"
       />
-      {/* The time is stated in text, always. The slider position alone is
-          never the answer to "when is this?" (§4.11). */}
+      {/* The time is stated in text, always — both absolute (UTC) and
+          relative to the first frame, never the slider position alone
+          (§4.11, plan §5.10 Day 12). */}
       <time dateTime={current.t} data-readout className="shrink-0 text-xs text-ink">
         {formatFrame(current.t)}
+        <span className="ml-1 text-ink-dim">{offset}</span>
       </time>
     </div>
   );
@@ -70,4 +73,12 @@ function formatFrame(iso: string): string {
     hour12: false,
     timeZone: "UTC",
   });
+}
+
+function relativeOffset(firstIso: string, currentIso: string): string {
+  const first = new Date(firstIso).getTime();
+  const current = new Date(currentIso).getTime();
+  if (Number.isNaN(first) || Number.isNaN(current)) return "";
+  const hours = Math.round((current - first) / 3_600_000);
+  return hours === 0 ? "(+0h)" : `(+${hours}h)`;
 }

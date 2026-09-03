@@ -172,4 +172,7 @@ def test_run_returns_agent_result_with_all_parts():
     # Agent 3's source-selection narratives ride out for the answer card
     sels = {s["data_type"] for s in res.outputs["source_selections"]}
     assert {"pfz", "tide", "catch_statistics"} <= sels
+    # §5.9's fourth chart's data — WindRose reads this via ocean_data["wind_rose"]
+    assert "wind_rose" in res.outputs
+    assert "confidence" not in res.outputs["wind_rose"]  # stripped, same as the other sub-results
     assert all(s["narrative"] for s in res.outputs["source_selections"])

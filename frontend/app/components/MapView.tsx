@@ -10,8 +10,10 @@
 // to and removed from it; GeoJSON updates go through source.setData() rather
 // than teardown-and-recreate, which is what keeps a toggle inside 400 ms.
 import "maplibre-gl/dist/maplibre-gl.css";
+import { MapboxOverlay } from "@deck.gl/mapbox";
 import * as maplibregl from "maplibre-gl";
 import { setWorkerUrl } from "maplibre-gl";
+import { generateWindTexture, WindParticleLayer } from "maplibre-gl-wind";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Compass, Crosshair, Layers } from "lucide-react";
 import {
@@ -27,6 +29,8 @@ import { Panel } from "./Panel";
 import { Readout, ReadoutGrid } from "./Readout";
 import { SourceChip } from "./SourceChip";
 import { EmptyState } from "./States";
+import { TimeSlider } from "./TimeSlider";
+import { measureLayerToggle, reportLayerMetrics } from "../lib/layerPerf";
 
 // See scripts/copy-maplibre-worker.mjs — Turbopack will not emit the worker's
 // sibling module next to it, so the worker is served from public/ instead.
@@ -46,8 +50,36 @@ type PfzFeature = {
 };
 type DepthResult = { depth_m: number | null; on_land: boolean; shallow_hazard: boolean };
 type Bearing = { bearing_deg: number; distance_nm: number };
+type CurrentVector = { lat: number; lon: number; speed_ms: number; direction_deg: number };
+type RasterLayerMeta = {
+  layer_id: string;
+  layer_type: "Raster" | "Heatmap";
+  tile_url: string | null;
+  bounds: [number, number, number, number];
+  forecast_frames: string[] | null;
+  style_hints: { opacity: number; min_zoom: number; max_zoom: number };
+};
 
 const EMPTY = { type: "FeatureCollection", features: [] };
+
+// `/tiles/{layer_id}/{time}/{z}/{x}/{y}.png` — the on-disk frame directory
+// has `:` replaced with `-` (illegal in a Windows path); orca/tiles.py keeps
+// the real ISO string in forecast_frames, so the frontend applies the same
+// substitution when it resolves the `{time}` token.
+const resolveTileUrl = (template: string, frame?: string) =>
+  frame ? template.replace("{time}", frame.replace(/:/g, "-")) : template;
+
+// §4.7 layer lifecycle budget: 2 concurrent heavy layers on mobile, 4 on
+// desktop, LRU-evicted with a visible notice rather than a silent frame-rate
+// collapse. These four toggles are the chart's only "heavy" layers today.
+const HEAVY_KEYS = ["bathymetry", "srvBathymetry", "waveForecast", "currents"] as const;
+type HeavyKey = (typeof HEAVY_KEYS)[number];
+const HEAVY_LABEL: Record<HeavyKey, string> = {
+  bathymetry: "Depth shading",
+  srvBathymetry: "Depth grid (ORCA)",
+  waveForecast: "Wave height forecast",
+  currents: "Surface currents",
+};
 
 export function MapView({
   className = "h-full w-full",
@@ -58,6 +90,7 @@ export function MapView({
 }) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
+  const overlay = useRef<MapboxOverlay | null>(null);
   const [ready, setReady] = useState(false);
   const [supported] = useState(webglAvailable);
 
@@ -70,7 +103,84 @@ export function MapView({
     pfz: true,
     seamarks: true,
     bathymetry: false,
+    srvBathymetry: false,
+    waveForecast: false,
+    currents: false,
   });
+  const [rasterLayers, setRasterLayers] = useState<RasterLayerMeta[]>([]);
+  const [currentVectors, setCurrentVectors] = useState<CurrentVector[] | null>(null);
+  const [currentBounds, setCurrentBounds] = useState<[number, number, number, number] | null>(null);
+  const [frameIndex, setFrameIndex] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const forecastLayer = rasterLayers.find((l) => l.forecast_frames && l.forecast_frames.length > 0);
+
+  // §4.7 layer lifecycle: heavy-layer LRU + eviction notice.
+  const [heavyLimit, setHeavyLimit] = useState(4);
+  const [evictionNotice, setEvictionNotice] = useState<string | null>(null);
+  const lru = useRef<HeavyKey[]>([]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const update = () => setHeavyLimit(mq.matches ? 2 : 4);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (!evictionNotice) return;
+    const t = setTimeout(() => setEvictionNotice(null), 5000);
+    return () => clearTimeout(t);
+  }, [evictionNotice]);
+
+  // §4.7 instrumentation: layer_load_ms/render_ms/payload_bytes/dropped_frames
+  // per heavy-layer toggle, resolved against whichever MapLibre source that
+  // toggle currently drives.
+  const measureHeavyToggle = useCallback(
+    (key: HeavyKey) => {
+      const m = map.current;
+      if (!m) return;
+      let sourceId: string | null = null;
+      if (key === "bathymetry") sourceId = "bathymetry";
+      else if (key === "srvBathymetry") {
+        const l = rasterLayers.find((r) => !r.forecast_frames?.length);
+        if (l) sourceId = `srv-${l.layer_id}`;
+      } else if (key === "waveForecast" && forecastLayer) {
+        sourceId = `srv-${forecastLayer.layer_id}`;
+      }
+      if (sourceId && m.getSource(sourceId)) {
+        measureLayerToggle(m, key, sourceId).then(reportLayerMetrics);
+      }
+    },
+    [rasterLayers, forecastLayer],
+  );
+
+  const toggleHeavy = useCallback(
+    (key: HeavyKey, on: boolean) => {
+      setLayers((s) => {
+        const next = { ...s, [key]: on };
+        if (on) {
+          lru.current = [...lru.current.filter((k) => k !== key), key];
+          const onCount = HEAVY_KEYS.filter((k) => next[k]).length;
+          if (onCount > heavyLimit) {
+            const evict = lru.current.find((k) => k !== key && next[k]);
+            if (evict) {
+              next[evict] = false;
+              lru.current = lru.current.filter((k) => k !== evict);
+              setEvictionNotice(
+                `${HEAVY_LABEL[evict]} turned off — only ${heavyLimit} heavy layers can run at once`,
+              );
+            }
+          }
+        } else {
+          lru.current = lru.current.filter((k) => k !== key);
+        }
+        return next;
+      });
+      if (on) measureHeavyToggle(key);
+    },
+    [heavyLimit, measureHeavyToggle],
+  );
 
   const handleClick = useCallback(async (lat: number, lon: number) => {
     setClicked({ lat, lon });
@@ -183,6 +293,14 @@ export function MapView({
         },
       });
 
+      // deck.gl's MapboxOverlay is a MapLibre-compatible IControl — one
+      // instance, added once, updated via setProps() (same "never
+      // recreate" rule as the vector sources above). It carries the
+      // current-vector particle layer, which has no MapLibre layer-type
+      // equivalent to add directly.
+      overlay.current = new MapboxOverlay({ layers: [] });
+      m.addControl(overlay.current as unknown as maplibregl.IControl);
+
       setReady(true);
     });
 
@@ -220,14 +338,53 @@ export function MapView({
     let cancelled = false;
 
     (async () => {
-      const [layerRes, nearRes, pfzRes] = await Promise.all([
+      const [layerRes, nearRes, pfzRes, rasterRes, currentsRes] = await Promise.all([
         fetch(`${API_BASE}/api/map-layers?lat=${DEFAULT_USER[1]}&lon=${DEFAULT_USER[0]}`).then((r) => r.json()),
         fetch(
           `${API_BASE}/api/zones-nearby?lat=${DEFAULT_USER[1]}&lon=${DEFAULT_USER[0]}&radius_nm=25`,
         ).then((r) => r.json()),
         fetch(`${API_BASE}/api/zones`).then((r) => r.json()),
+        fetch(`${API_BASE}/api/raster-layers?lat=${DEFAULT_USER[1]}&lon=${DEFAULT_USER[0]}`)
+          .then((r) => r.json())
+          .catch(() => ({ layers: [] })),
+        fetch(`${API_BASE}/api/current-vectors`)
+          .then((r) => r.json())
+          .catch(() => null),
       ]);
       if (cancelled || !map.current) return;
+
+      if (currentsRes?.points?.length) {
+        setCurrentVectors(currentsRes.points as CurrentVector[]);
+        setCurrentBounds(currentsRes.bounds as [number, number, number, number]);
+      }
+
+      // Agent 8's self-hosted tile pyramids (bathymetry + forecast). Sources
+      // are added once here, never recreated — only setTiles()/opacity move
+      // after this, same lifecycle rule as the vector layers below.
+      const m0 = map.current;
+      const tileLayers = (rasterRes.layers as RasterLayerMeta[] | undefined)?.filter((l) => l.tile_url) ?? [];
+      setRasterLayers(tileLayers);
+      for (const layer of tileLayers) {
+        const sourceId = `srv-${layer.layer_id}`;
+        if (m0.getSource(sourceId)) continue;
+        const isForecast = Boolean(layer.forecast_frames?.length);
+        const firstFrame = isForecast ? layer.forecast_frames![0] : undefined;
+        m0.addSource(sourceId, {
+          type: "raster",
+          tiles: [`${API_BASE}${resolveTileUrl(layer.tile_url!, firstFrame)}`],
+          tileSize: 256,
+          bounds: layer.bounds,
+          minzoom: layer.style_hints.min_zoom,
+          maxzoom: layer.style_hints.max_zoom,
+        });
+        m0.addLayer({
+          id: `${sourceId}-raster`,
+          type: "raster",
+          source: sourceId,
+          layout: { visibility: "none" },
+          paint: { "raster-opacity": layer.style_hints.opacity },
+        });
+      }
 
       const near = new Set((nearRes.boundaries as { name: string }[]).map((b) => b.name));
       setNearNames([...near]);
@@ -274,7 +431,88 @@ export function MapView({
     vis("pfz-circles", layers.pfz);
     vis("seamarks-raster", layers.seamarks);
     vis("bathymetry-raster", layers.bathymetry);
-  }, [ready, layers]);
+    for (const layer of rasterLayers) {
+      const on = layer.forecast_frames?.length ? layers.waveForecast : layers.srvBathymetry;
+      vis(`srv-${layer.layer_id}-raster`, on);
+    }
+  }, [ready, layers, rasterLayers]);
+
+  /* ---- forecast frame swap: setTiles() + isSourceLoaded() crossfade, so a
+     slider drag never flashes a half-loaded tile at full opacity (§ D3
+     revised stack, MapLibre 6.x anti-flicker pattern). Only one forecast
+     layer exists today (wave_height_forecast); the mixed-cadence
+     nearest-neighbour/grey-out rule is deferred until a second one lands. */
+  useEffect(() => {
+    if (!ready || !map.current || !forecastLayer?.forecast_frames) return;
+    const m = map.current;
+    const sourceId = `srv-${forecastLayer.layer_id}`;
+    const layerId = `${sourceId}-raster`;
+    const source = m.getSource(sourceId) as maplibregl.RasterTileSource | undefined;
+    if (!source) return;
+
+    const frame = forecastLayer.forecast_frames[Math.min(frameIndex, forecastLayer.forecast_frames.length - 1)];
+    const targetOpacity = layers.waveForecast ? forecastLayer.style_hints.opacity : 0;
+
+    const onSourceData = (e: maplibregl.MapSourceDataEvent) => {
+      if (e.sourceId === sourceId && m.isSourceLoaded(sourceId)) {
+        m.setPaintProperty(layerId, "raster-opacity", targetOpacity);
+        m.off("sourcedata", onSourceData);
+      }
+    };
+    m.setPaintProperty(layerId, "raster-opacity", 0);
+    m.on("sourcedata", onSourceData);
+    source.setTiles([`${API_BASE}${resolveTileUrl(forecastLayer.tile_url!, frame)}`]);
+
+    return () => {
+      m.off("sourcedata", onSourceData);
+    };
+  }, [ready, frameIndex, forecastLayer, layers.waveForecast]);
+
+  /* ---- current-vector particle layer: one static IDW texture built from
+     the fetched points, toggled by swapping the deck.gl overlay's layer
+     list — never rebuilding the map or the overlay control itself. */
+  useEffect(() => {
+    if (!ready || !overlay.current) return;
+    if (!layers.currents || !currentVectors?.length || !currentBounds) {
+      overlay.current.setProps({ layers: [] });
+      return;
+    }
+    const t0 = performance.now();
+    const windData = currentVectors.map((p) => ({ lat: p.lat, lon: p.lon, speed: p.speed_ms, direction: p.direction_deg }));
+    const { canvas, uMin, uMax, vMin, vMax } = generateWindTexture(windData, {
+      width: 128,
+      height: 128,
+      bounds: currentBounds,
+    });
+    // deck.gl's overlay has no MapLibre "idle"/"sourcedata" pair to hook —
+    // the whole texture build + layer construction is synchronous CPU work,
+    // so §4.7's four fields collapse to one measured span plus the raw JSON
+    // size of the fetched vector field as payload_bytes.
+    reportLayerMetrics({
+      layer_id: "currents",
+      layer_load_ms: 0,
+      render_ms: Math.round(performance.now() - t0),
+      payload_bytes: JSON.stringify(currentVectors).length,
+      dropped_frames: 0,
+    });
+    overlay.current.setProps({
+      layers: [
+        new WindParticleLayer({
+          id: "currents",
+          image: canvas.toDataURL(),
+          bounds: currentBounds,
+          imageUnscale: [Math.min(uMin, vMin), Math.max(uMax, vMax)],
+          numParticles: 4000,
+          maxAge: 40,
+          speedFactor: 3,
+          colorRamp: [
+            [0, [34, 97, 127, 180]],
+            [1, [125, 212, 232, 220]],
+          ],
+        } as ConstructorParameters<typeof WindParticleLayer>[0]),
+      ],
+    });
+  }, [ready, layers.currents, currentVectors, currentBounds]);
 
   // §4.7: a missing map is never a missing answer. Every spatial fact the
   // chart shows is also available as text, so a GPU-less phone degrades to
@@ -323,8 +561,35 @@ export function MapView({
                   swatch={CHART.eezNear}
                   heavy
                   checked={layers.bathymetry}
-                  onChange={(v) => setLayers((s) => ({ ...s, bathymetry: v }))}
+                  onChange={(v) => toggleHeavy("bathymetry", v)}
                 />
+                {rasterLayers.some((l) => !l.forecast_frames?.length) && (
+                  <LayerToggle
+                    label="Depth grid (ORCA)"
+                    swatch={CHART.eezNear}
+                    heavy
+                    checked={layers.srvBathymetry}
+                    onChange={(v) => toggleHeavy("srvBathymetry", v)}
+                  />
+                )}
+                {forecastLayer && (
+                  <LayerToggle
+                    label="Wave height forecast"
+                    swatch={CHART.accent}
+                    heavy
+                    checked={layers.waveForecast}
+                    onChange={(v) => toggleHeavy("waveForecast", v)}
+                  />
+                )}
+                {currentVectors && currentVectors.length > 0 && (
+                  <LayerToggle
+                    label="Surface currents"
+                    swatch={CHART.pfz}
+                    heavy
+                    checked={layers.currents}
+                    onChange={(v) => toggleHeavy("currents", v)}
+                  />
+                )}
               </div>
               {nearNames.length > 0 && (
                 <p className="mt-2 border-t border-hairline pt-2 text-[11px] text-ink-dim">
@@ -332,6 +597,14 @@ export function MapView({
                 </p>
               )}
             </Panel>
+            {evictionNotice && (
+              <p
+                role="status"
+                className="mt-2 rounded-sm border border-hairline bg-shelf-2/90 px-2 py-1.5 text-[11px] text-ink-muted"
+              >
+                {evictionNotice}
+              </p>
+            )}
           </div>
 
           <div className="pointer-events-auto absolute right-3 bottom-36 left-3 sm:left-auto sm:bottom-24 sm:w-80">
@@ -367,6 +640,17 @@ export function MapView({
               )}
             </Panel>
           </div>
+          {forecastLayer && layers.waveForecast && (
+            <div className="pointer-events-auto absolute bottom-3 left-3 w-[calc(100%-1.5rem)] sm:left-1/2 sm:w-[420px] sm:-translate-x-1/2">
+              <TimeSlider
+                frames={forecastLayer.forecast_frames!.map((t) => ({ t }))}
+                index={frameIndex}
+                onIndexChange={setFrameIndex}
+                playing={playing}
+                onPlayingChange={setPlaying}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

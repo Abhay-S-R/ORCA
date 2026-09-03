@@ -51,13 +51,13 @@ def _fix_proj_env() -> None:
 
 _fix_proj_env()
 
-import cmocean  # noqa: E402
-import morecantile  # noqa: E402
-import numpy as np  # noqa: E402
-import rioxarray  # noqa: E402, F401 -- registers the .rio accessor used below
-import xarray as xr  # noqa: E402
-from PIL import Image  # noqa: E402
-from rio_tiler.io.xarray import XarrayReader  # noqa: E402
+import cmocean
+import morecantile
+import numpy as np
+import rioxarray  # noqa: F401 -- registers the .rio accessor used below
+import xarray as xr
+from PIL import Image
+from rio_tiler.io.xarray import XarrayReader
 
 TILE_SIZE = 256
 DEFAULT_ZOOM_RANGE: tuple[int, int] = (5, 11)  # inclusive, per the D3 plan
@@ -186,6 +186,101 @@ def generate_layer_tiles(
     return meta
 
 
+def _sanitize_frame_dirname(iso_timestamp: str) -> str:
+    return iso_timestamp.replace(":", "-")
+
+
+def generate_forecast_tiles(
+    frames: dict[str, xr.DataArray],
+    *,
+    layer_id: str,
+    out_dir: Path,
+    cmap_name: str,
+    unit: str,
+    valid_predicate: Callable[[np.ndarray], np.ndarray],
+    to_display: Callable[[np.ndarray], np.ndarray] = lambda v: v,
+    zoom_range: tuple[int, int] = DEFAULT_ZOOM_RANGE,
+    reproject_method: str = "bilinear",
+) -> dict[str, Any]:
+    """Time-varying counterpart to `generate_layer_tiles` (plan §5.10 Day 12:
+    `forecast_frames` over the 56 WW3 steps). `frames` is `{iso_timestamp:
+    data_array}`, one per forecast step, already read off the source's own
+    timestamp axis by the caller — never hard-coded here.
+
+    Each frame gets its own tile pyramid under `out_dir/{iso_timestamp}/`,
+    normalized against percentiles computed over the WHOLE time series (not
+    per-frame) so a layer's colors mean the same thing on frame 0 and frame
+    55 — a static color scale that drifts frame to frame would make "is the
+    sea getting rougher" impossible to read from the animation alone.
+    `timestamps` in the returned meta is exactly the `frames` dict's keys, in
+    order — that ordering IS the frame sequence MapView's TimeSlider walks.
+    """
+    timestamps = tuple(frames.keys())
+    if not timestamps:
+        raise ValueError("generate_forecast_tiles requires at least one frame")
+
+    all_display_valid = []
+    prepared: list[tuple[str, xr.DataArray]] = []
+    for ts, da in frames.items():
+        da = da.rio.set_spatial_dims(x_dim="lon", y_dim="lat", inplace=False)
+        if da.rio.crs is None:
+            da = da.rio.write_crs("epsg:4326", inplace=False)
+        raw = da.values
+        valid = valid_predicate(raw)
+        display = to_display(raw)
+        all_display_valid.append(display[valid])
+        prepared.append((ts, da))
+
+    # One global data_min/data_max across every frame — the fix for
+    # frame-to-frame color drift, same principle as _global_percentiles'
+    # tile-edge fix within a single frame.
+    data_min, data_max = _global_percentiles(np.concatenate(all_display_valid))
+    cmap = COLOR_RAMPS[cmap_name]
+
+    tile_count = 0
+    bounds: tuple[float, float, float, float] | None = None
+    for ts, da in prepared:
+        lon_min, lat_min = float(da.lon.min()), float(da.lat.min())
+        lon_max, lat_max = float(da.lon.max()), float(da.lat.max())
+        bounds = (lon_min, lat_min, lon_max, lat_max)
+        # ":" is illegal in a Windows path component — the on-disk frame
+        # directory is the ISO timestamp with colons swapped for hyphens;
+        # `timestamps` in meta.json keeps the real ISO 8601 string (what the
+        # slider displays/parses), and `tile_url_template`'s `{time}` token
+        # must be substituted with this same sanitized form, not the raw
+        # timestamp — frontend/map/basemap.ts does exactly that swap.
+        frame_dir = out_dir / _sanitize_frame_dirname(ts)
+        with XarrayReader(da) as src:
+            for z in range(zoom_range[0], zoom_range[1] + 1):
+                for t in _TMS.tiles(*bounds, zooms=[z]):
+                    img = src.tile(t.x, t.y, t.z, tilesize=TILE_SIZE, reproject_method=reproject_method)
+                    arr = img.array
+                    band = arr[0]
+                    display = to_display(np.ma.filled(band, np.nan))
+                    cell_valid = ~np.ma.getmaskarray(band)[:] & valid_predicate(np.ma.filled(band, np.nan))
+                    if not cell_valid.any():
+                        continue
+                    rgba = _colorize_tile(display, cell_valid, data_min, data_max, cmap)
+                    tile_path = frame_dir / str(z) / str(t.x) / f"{t.y}.png"
+                    tile_path.parent.mkdir(parents=True, exist_ok=True)
+                    Image.fromarray(rgba, mode="RGBA").save(tile_path)
+                    tile_count += 1
+
+    meta = {
+        "layer_id": layer_id,
+        "tile_url_template": f"/tiles/{layer_id}/{{time}}/{{z}}/{{x}}/{{y}}.png",
+        "timestamps": list(timestamps),
+        "bounds": bounds,
+        "min_zoom": zoom_range[0],
+        "max_zoom": zoom_range[1],
+        "color_ramp": {"palette": f"cmocean-{cmap_name}", "data_min": data_min, "data_max": data_max, "unit": unit},
+        "tile_count": tile_count,
+    }
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+    return meta
+
+
 if __name__ == "__main__":
     # ponytail: smallest runnable check for the non-trivial logic here — a
     # real synthetic ocean/land grid, one tile pyramid built end to end, and
@@ -223,3 +318,31 @@ if __name__ == "__main__":
               f"depth range {meta['color_ramp']['data_min']:.0f}-{meta['color_ramp']['data_max']:.0f}m")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+    # generate_forecast_tiles: two synthetic frames with different values, so
+    # the global-percentile-across-frames fix is actually exercised — if
+    # each frame normalized against its own min/max instead, frame 0 and
+    # frame 1 below would both read as "fully saturated ramp", masking the
+    # bug this function exists to avoid.
+    frame0 = xr.DataArray(np.tile(np.linspace(-500, 200, 64), (64, 1)),
+                           coords={"lat": lats, "lon": lons}, dims=("lat", "lon"), name="wave")
+    frame1 = xr.DataArray(np.tile(np.linspace(-2000, 200, 64), (64, 1)),
+                           coords={"lat": lats, "lon": lons}, dims=("lat", "lon"), name="wave")
+    tmp2 = Path(tempfile.mkdtemp())
+    try:
+        fmeta = generate_forecast_tiles(
+            {"2026-09-01T00:00:00Z": frame0, "2026-09-01T03:00:00Z": frame1},
+            layer_id="wave_selfcheck", out_dir=tmp2, cmap_name="wave_height", unit="m",
+            valid_predicate=lambda v: v < 0, to_display=lambda v: -v, zoom_range=(6, 6),
+        )
+        assert fmeta["timestamps"] == ["2026-09-01T00:00:00Z", "2026-09-01T03:00:00Z"]
+        assert fmeta["tile_count"] > 0
+        assert (tmp2 / "2026-09-01T00-00-00Z" / "6").is_dir()
+        assert (tmp2 / "2026-09-01T03-00-00Z" / "6").is_dir()
+        # frame1's deeper range means its data_max should exceed frame0's
+        # own range alone — proof the normalization is global, not per-frame.
+        assert fmeta["color_ramp"]["data_max"] >= 1900
+        print(f"forecast tiles self-check OK: {len(fmeta['timestamps'])} frames, "
+              f"{fmeta['tile_count']} tiles total")
+    finally:
+        shutil.rmtree(tmp2, ignore_errors=True)
