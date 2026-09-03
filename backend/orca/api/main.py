@@ -64,9 +64,16 @@ app.include_router(voyage_router)  # D3 — /voyage-plan, /wind-vectors already 
 # {z}/{x}/{y}.png" path each meta.json's tile_url_template already assumes.
 # Guarded, not unconditional: a fresh checkout has no data/tier1/tiles until
 # that script has been run once, and StaticFiles raises on a missing dir.
+class NoCacheStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
+
 _TILES_DIR = DATA_ROOT / "tier1" / "tiles"
 if _TILES_DIR.is_dir():
-    app.mount("/tiles", StaticFiles(directory=_TILES_DIR), name="tiles")
+    app.mount("/tiles", NoCacheStaticFiles(directory=_TILES_DIR), name="tiles")
 
 # Compiled once at import time — a LangGraph StateGraph is stateless
 # structure; compiling per-request would just waste cycles on every call.

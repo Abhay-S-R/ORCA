@@ -15,7 +15,7 @@ import * as maplibregl from "maplibre-gl";
 import { setWorkerUrl } from "maplibre-gl";
 import { generateWindTexture, WindParticleLayer } from "maplibre-gl-wind";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Compass, Crosshair, Layers } from "lucide-react";
+import { Calendar, ChevronDown, Compass, Crosshair, Fish, Layers, MapPin, Navigation, Radio, ShieldCheck, Waves, X } from "lucide-react";
 import { BASEMAP_STYLE, CHART, DEFAULT_USER, PILOT_BOUNDS, RASTER_OVERLAYS, webglAvailable } from "../map/basemap";
 import { LayerToggle } from "./LayerToggle";
 import { Panel } from "./Panel";
@@ -484,14 +484,18 @@ export function MapView({
       setRasterLayers(tileLayers);
       for (const layer of tileLayers) {
         const sourceId = `srv-${layer.layer_id}`;
-        if (m0.getSource(sourceId)) continue;
+        if (m0.getLayer(`${sourceId}-raster`)) {
+          m0.removeLayer(`${sourceId}-raster`);
+        }
+        if (m0.getSource(sourceId)) {
+          m0.removeSource(sourceId);
+        }
         const isForecast = Boolean(layer.forecast_frames?.length);
         const firstFrame = isForecast ? layer.forecast_frames![0] : undefined;
         m0.addSource(sourceId, {
           type: "raster",
-          tiles: [`${API_BASE}${resolveTileUrl(layer.tile_url!, firstFrame)}`],
+          tiles: [`${API_BASE}${resolveTileUrl(layer.tile_url!, firstFrame)}?v=pan_india_ww3`],
           tileSize: 256,
-          bounds: layer.bounds,
           minzoom: layer.style_hints.min_zoom,
           maxzoom: layer.style_hints.max_zoom,
         });
@@ -579,7 +583,7 @@ export function MapView({
     };
     m.setPaintProperty(layerId, "raster-opacity", 0);
     m.on("sourcedata", onSourceData);
-    source.setTiles([`${API_BASE}${resolveTileUrl(forecastLayer.tile_url!, frame)}`]);
+    source.setTiles([`${API_BASE}${resolveTileUrl(forecastLayer.tile_url!, frame)}?v=pan_india_ww3`]);
 
     return () => {
       m.off("sourcedata", onSourceData);
@@ -835,128 +839,265 @@ export function MapView({
 
           <div className="pointer-events-auto absolute right-3 bottom-36 left-3 sm:left-auto sm:bottom-24 sm:w-80">
             {selectedPfz && (
-              <div className="mb-2">
-                <Panel
-                  dense
-                  title={selectedPfz.landing_center ? `PFZ: ${String(selectedPfz.landing_center)}` : "Fishing Zone Advisory"}
-                  action={
-                    <button
-                      type="button"
-                      onClick={() => setSelectedPfz(null)}
-                      className="cursor-pointer text-xs text-ink-dim hover:text-ink"
-                      aria-label="Close PFZ details"
-                    >
-                      ✕
-                    </button>
-                  }
-                >
-                  <ReadoutGrid cols={2}>
-                    {selectedPfz.sector && (
-                      <Readout label="Sector" value={String(selectedPfz.sector)} />
-                    )}
-                    {selectedPfz.depth_m && (
-                      <Readout label="Advised depth" value={String(selectedPfz.depth_m)} unit="m" />
-                    )}
-                    {selectedPfz.distance_km && (
-                      <Readout
-                        label="From landing"
-                        value={`${selectedPfz.distance_km} km`}
-                        hint={selectedPfz.direction ? `${selectedPfz.direction} (${selectedPfz.bearing_deg}°)` : undefined}
-                      />
-                    )}
-                    {selectedPfz.mean_sst_c && (
-                      <Readout label="Mean SST" value={`${selectedPfz.mean_sst_c}°C`} />
-                    )}
-                    {selectedPfz.approx_area_km2 && (
-                      <Readout label="Zone area" value={`${selectedPfz.approx_area_km2} km²`} />
-                    )}
-                    {selectedPfz.valid_for && (
-                      <Readout label="Valid for" value={String(selectedPfz.valid_for)} />
-                    )}
-                  </ReadoutGrid>
-                  <p className="mt-2 border-t border-hairline pt-1 text-[10px] text-ink-dim">
-                    {selectedPfz.source ? String(selectedPfz.source) : "INCOIS Potential Fishing Zone"}
-                  </p>
-                </Panel>
-              </div>
-            )}
-            <Panel dense title="Acoustic Sounding HUD" action={<Crosshair className="size-3.5 text-ink-dim" />}>
-              {!clicked ? (
-                <p className="text-xs text-ink-muted">
-                  Tap the chart to read GEBCO / NOAA ETOPO seafloor depth and bearing from port.
-                </p>
-              ) : (
-                <>
-                  <ReadoutGrid cols={2}>
-                    <Readout
-                      label="Position"
-                      value={`${Math.floor(Math.abs(clicked.lat))}°${((Math.abs(clicked.lat) % 1) * 60).toFixed(2)}'${clicked.lat >= 0 ? "N" : "S"}, ${Math.floor(Math.abs(clicked.lon))}°${((Math.abs(clicked.lon) % 1) * 60).toFixed(2)}'${clicked.lon >= 0 ? "E" : "W"}`}
-                    />
-                    <Readout
-                      label="Seafloor Depth"
-                      value={
-                        depth
-                          ? depth.on_land
-                            ? "On land"
-                            : depth.depth_m != null
-                              ? `${depth.depth_m}`
-                              : selectedPfz?.depth_m
-                                ? `${selectedPfz.depth_m}`
-                                : "Outside coverage"
-                          : "…"
-                      }
-                      unit={
-                        depth && !depth.on_land && (depth.depth_m != null || selectedPfz?.depth_m)
-                          ? "m"
-                          : undefined
-                      }
-                      hint={
-                        depth && !depth.on_land && depth.depth_m != null
-                          ? `(${(depth.depth_m * 0.5468).toFixed(1)} fm)`
-                          : undefined
-                      }
-                    />
-                  </ReadoutGrid>
+              <div className="mb-2.5 overflow-hidden rounded-xl border border-emerald-500/30 bg-[#07131e]/95 backdrop-blur-xl shadow-[0_12px_32px_rgba(0,0,0,0.65)] ring-1 ring-white/10 transition-all">
+                {/* Glowing top line */}
+                <div className="h-0.5 bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400" />
 
-                  {depth && !depth.on_land && depth.depth_m != null && (
-                    <div className="mt-2 flex items-center gap-1.5">
-                      <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                        depth.depth_m < 10
-                          ? "bg-caution/20 text-caution border border-caution/40"
-                          : depth.depth_m < 200
-                            ? "bg-go/20 text-go border border-go/40"
-                            : depth.depth_m < 2000
-                              ? "bg-blue-500/20 text-blue-300 border border-blue-500/40"
-                              : "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40"
-                      }`}>
-                        ✓ {depth.depth_m < 10 ? "Shallow Hazard" : depth.depth_m < 200 ? "Continental Shelf" : depth.depth_m < 2000 ? "Continental Slope" : "Deep Oceanic Bathymetry"}
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2.5 bg-gradient-to-b from-white/[0.03] to-transparent">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                    </span>
+                    <span className="rounded-full border border-emerald-500/40 bg-emerald-950/60 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300">
+                      PFZ Advisory
+                    </span>
+                    <h4 className="text-xs font-bold tracking-tight text-white truncate max-w-[140px]">
+                      {selectedPfz.landing_center ? String(selectedPfz.landing_center) : "Fishing Zone"}
+                    </h4>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPfz(null)}
+                    className="flex size-6 cursor-pointer items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                    aria-label="Close PFZ details"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+
+                {/* Body Content */}
+                <div className="p-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Sector Tile */}
+                    <div className="rounded-lg border border-white/5 bg-[#0d2235]/70 p-2">
+                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                        <MapPin className="size-2.5 text-emerald-400" /> Sector
                       </span>
+                      <p className="mt-1 text-xs font-bold text-white truncate">
+                        {String(selectedPfz.sector || "General Offshore")}
+                      </p>
+                    </div>
+
+                    {/* Advised Depth Tile */}
+                    <div className="rounded-lg border border-white/5 bg-[#0d2235]/70 p-2">
+                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                        <Waves className="size-2.5 text-cyan-400" /> Advised Depth
+                      </span>
+                      <p className="mt-1 font-mono text-xs font-bold text-cyan-300">
+                        {selectedPfz.depth_m ? (
+                          <>
+                            {String(selectedPfz.depth_m)}{" "}
+                            <span className="text-[10px] font-normal text-cyan-400/80">m</span>
+                          </>
+                        ) : "Surface / Mid-water"}
+                      </p>
+                    </div>
+
+                    {/* Distance & Bearing Tile */}
+                    <div className="rounded-lg border border-white/5 bg-[#0d2235]/70 p-2">
+                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                        <Navigation className="size-2.5 text-sky-400" /> From Landing
+                      </span>
+                      <p className="mt-1 font-mono text-xs font-bold text-white">
+                        {selectedPfz.distance_km != null ? `${selectedPfz.distance_km} km` : "—"}
+                      </p>
+                      {selectedPfz.direction && (
+                        <span className="mt-1 inline-flex items-center rounded border border-white/10 bg-slate-800/80 px-1 py-0.5 font-mono text-[9px] text-slate-300">
+                          {selectedPfz.direction} {selectedPfz.bearing_deg != null ? `(${selectedPfz.bearing_deg}°)` : ""}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Validity & Status Tile */}
+                    <div className="rounded-lg border border-white/5 bg-[#0d2235]/70 p-2">
+                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                        <Calendar className="size-2.5 text-emerald-400" /> Valid Until
+                      </span>
+                      <p className="mt-1 font-mono text-[11px] font-semibold text-slate-200 truncate">
+                        {selectedPfz.valid_for ? String(selectedPfz.valid_for) : "Current cycle"}
+                      </p>
+                      <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-950/60 px-1.5 py-0.5 text-[8px] font-bold uppercase text-emerald-400">
+                        <span className="size-1 rounded-full bg-emerald-400 animate-pulse" /> Active
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Optional Micro-Metrics Row (SST & Area) */}
+                  {(selectedPfz.mean_sst_c != null || selectedPfz.approx_area_km2 != null) && (
+                    <div className="mt-2 flex flex-wrap gap-1.5 border-t border-white/5 pt-2">
+                      {selectedPfz.mean_sst_c != null && (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/20 bg-amber-950/40 px-2 py-0.5 text-[10px] font-mono text-amber-300">
+                          <span>🌡</span> {selectedPfz.mean_sst_c}°C SST
+                        </span>
+                      )}
+                      {selectedPfz.approx_area_km2 != null && (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-cyan-500/20 bg-cyan-950/40 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
+                          <span>📐</span> {selectedPfz.approx_area_km2} km² Area
+                        </span>
+                      )}
                     </div>
                   )}
 
-                  <div className="mt-2 grid grid-cols-2 gap-2 border-t border-hairline pt-2 text-xs">
-                    <div>
-                      <span className="text-[10px] text-ink-dim uppercase tracking-wider">Bearing from Port</span>
-                      <p className="font-mono text-ink">{bearing ? `${bearing.bearing_deg}° True` : "…"}</p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-ink-dim uppercase tracking-wider">Distance & Steam</span>
-                      <p className="font-mono text-ink">
-                        {bearing ? `${bearing.distance_nm} nm (~${(bearing.distance_nm / 10).toFixed(1)}h)` : "…"}
-                      </p>
-                    </div>
+                  {/* Provenance footer */}
+                  <div className="mt-2.5 flex items-center justify-between border-t border-white/10 pt-2 text-[9px] text-slate-400">
+                    <span className="flex items-center gap-1 text-emerald-400/90 font-medium">
+                      <ShieldCheck className="size-3 text-emerald-400" /> INCOIS Official PFZ
+                    </span>
+                    <span className="text-slate-500 font-mono">Satellite SST + Chlorophyll</span>
                   </div>
+                </div>
+              </div>
+            )}
 
-                  <div className="mt-2">
-                    <SourceChip
-                      dataset="GEBCO 2026 / NOAA ETOPO"
-                      acquisitionTimestamp="30 Aug, 00:00 UTC"
-                      detail="Multi-source bathymetric grid (15 arc-sec pilot + 1 arc-min Pan-India). Reference grid only, never navigate on charted depth alone."
-                    />
+            {/* Acoustic Sounding HUD */}
+            <div className="overflow-hidden rounded-xl border border-cyan-500/30 bg-[#07131e]/95 backdrop-blur-xl shadow-[0_12px_32px_rgba(0,0,0,0.65)] ring-1 ring-white/10 transition-all">
+              {/* Glowing top line */}
+              <div className="h-0.5 bg-gradient-to-r from-cyan-500 via-sky-400 to-indigo-500" />
+
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2.5 bg-gradient-to-b from-white/[0.03] to-transparent">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-500" />
+                  </span>
+                  <h3 className="text-xs font-bold tracking-wider uppercase text-cyan-300">
+                    Acoustic Sounding HUD
+                  </h3>
+                </div>
+                <span className="rounded-full border border-cyan-500/30 bg-cyan-950/60 p-1 text-cyan-400">
+                  <Crosshair className="size-3" />
+                </span>
+              </div>
+
+              {/* Body */}
+              <div className="p-3">
+                {!clicked ? (
+                  <div className="py-2 text-center">
+                    <div className="mx-auto mb-1.5 flex size-8 items-center justify-center rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
+                      <Waves className="size-4 animate-pulse" />
+                    </div>
+                    <p className="text-[11px] font-medium text-slate-300">
+                      Tap chart to sound seafloor depth
+                    </p>
+                    <p className="mt-0.5 text-[9px] text-slate-500">
+                      Reads NOAA ETOPO 2022 & GEBCO 2026 topography
+                    </p>
                   </div>
-                </>
-              )}
-            </Panel>
+                ) : (
+                  <>
+                    {/* Hero Readout Grid */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* Depth Hero Tile */}
+                      <div className="rounded-lg border border-cyan-500/20 bg-gradient-to-br from-[#0c2438] to-[#081826] p-2.5">
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                          <Waves className="size-2.5 text-cyan-400" /> Seafloor Depth
+                        </span>
+                        <div className="mt-1">
+                          {depth ? (
+                            depth.on_land ? (
+                              <p className="font-mono text-base font-bold text-amber-400">On Land</p>
+                            ) : depth.depth_m != null ? (
+                              <>
+                                <p className="font-mono text-2xl font-black text-cyan-300 tracking-tight leading-none drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">
+                                  {depth.depth_m}
+                                  <span className="ml-1 text-xs font-bold text-cyan-400/80">m</span>
+                                </p>
+                                <span className="mt-1 block font-mono text-[10px] text-slate-400">
+                                  ({(depth.depth_m * 0.5468).toFixed(1)} fm)
+                                </span>
+                              </>
+                            ) : (
+                              <p className="font-mono text-sm text-slate-400">Outside coverage</p>
+                            )
+                          ) : (
+                            <p className="font-mono text-base text-slate-400 animate-pulse">Measuring…</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Coordinates Tile */}
+                      <div className="rounded-lg border border-white/5 bg-[#0d2235]/70 p-2.5 flex flex-col justify-between">
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                          <MapPin className="size-2.5 text-sky-400" /> Position
+                        </span>
+                        <div className="mt-1 font-mono text-[11px] font-bold text-slate-100 leading-tight">
+                          <div>
+                            {Math.floor(Math.abs(clicked.lat))}°{((Math.abs(clicked.lat) % 1) * 60).toFixed(2)}'{clicked.lat >= 0 ? "N" : "S"}
+                          </div>
+                          <div>
+                            {Math.floor(Math.abs(clicked.lon))}°{((Math.abs(clicked.lon) % 1) * 60).toFixed(2)}'{clicked.lon >= 0 ? "E" : "W"}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Geological Status Badge */}
+                    {depth && !depth.on_land && depth.depth_m != null && (
+                      <div className="mt-2">
+                        <div className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] font-semibold ${
+                          depth.depth_m < 10
+                            ? "border-amber-500/40 bg-amber-950/40 text-amber-300"
+                            : depth.depth_m < 200
+                              ? "border-emerald-500/40 bg-emerald-950/40 text-emerald-300"
+                              : depth.depth_m < 2000
+                                ? "border-sky-500/40 bg-sky-950/40 text-sky-300"
+                                : "border-indigo-500/40 bg-indigo-950/40 text-indigo-300"
+                        }`}>
+                          <span>
+                            {depth.depth_m < 10
+                              ? "⚠ Shallow Navigational Hazard"
+                              : depth.depth_m < 200
+                                ? "✓ Continental Shelf (Inshore / Mid-Shelf)"
+                                : depth.depth_m < 2000
+                                  ? "✓ Continental Slope"
+                                  : "✓ Deep Oceanic Bathymetry"}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Bearing & Distance Navigation Telemetry */}
+                    <div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/5 pt-2">
+                      <div className="rounded-lg border border-white/5 bg-[#0a1e30]/60 p-2">
+                        <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                          <Compass className="size-2.5 text-cyan-400" /> Bearing from Port
+                        </span>
+                        <p className="mt-1 font-mono text-xs font-bold text-white">
+                          {bearing ? `${bearing.bearing_deg}° True` : "…"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-white/5 bg-[#0a1e30]/60 p-2">
+                        <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                          <Navigation className="size-2.5 text-sky-400" /> Distance & Steam
+                        </span>
+                        <p className="mt-1 font-mono text-xs font-bold text-white">
+                          {bearing ? (
+                            <>
+                              {bearing.distance_nm} <span className="text-[10px] font-normal text-slate-400">nm</span>{" "}
+                              <span className="text-[10px] text-sky-300 font-normal">
+                                (~{(bearing.distance_nm / 10).toFixed(1)}h)
+                              </span>
+                            </>
+                          ) : "…"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Provenance citation */}
+                    <div className="mt-2.5 flex items-center justify-between border-t border-white/10 pt-2 text-[9px] text-slate-400">
+                      <span className="flex items-center gap-1 text-cyan-400/90 font-medium">
+                        <ShieldCheck className="size-3 text-cyan-400" /> NOAA ETOPO 2022 / GEBCO
+                      </span>
+                      <span className="text-slate-500 font-mono">30 Aug, 00:00 UTC</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
           </div>
           {forecastLayer && layers.waveForecast && (
             <div className="pointer-events-auto absolute bottom-3 left-3 w-[calc(100%-1.5rem)] sm:left-1/2 sm:w-[420px] sm:-translate-x-1/2">
