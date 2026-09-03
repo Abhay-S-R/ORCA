@@ -41,6 +41,54 @@ class AgentResult:
     error_detail: str | None = None
 
 
+@dataclass(frozen=True)
+class StyleHints:
+    palette: str  # e.g. "risk-red-amber-green", "bathymetry-blue"
+    opacity: float
+    min_zoom: int
+    max_zoom: int
+    simplify_tolerance: float = 0.0  # degrees; 0.0 = not simplified (already coarse enough)
+
+
+@dataclass(frozen=True)
+class MapLayer:
+    """Agent 8's map-layer envelope (plan §5.9, Architecture §11.1). Frozen
+    output contract — D2 (`/zones`, `/trends`) and the frontend map shell
+    build against this shape, so it's additive-only from here, same as
+    AgentResult above."""
+    layer_id: str
+    layer_type: Literal[
+        "PointMarker", "Polygon", "Polyline", "Heatmap", "Raster",
+        "DistressMarker", "SentinelWatch",
+    ]
+    geojson: dict[str, Any] | None  # FeatureCollection; None for a pure tile_url layer
+    tile_url: str | None  # XYZ/WMS template; None for a pure geojson layer
+    bounds: tuple[float, float, float, float]  # (west, south, east, north)
+    timestamps: tuple[str, ...] | None  # ISO 8601 UTC, one per geojson snapshot
+    forecast_frames: tuple[str, ...] | None  # ISO 8601 UTC, tile/frame sequence (Phase 2 later slice)
+    style_hints: StyleHints
+    weight: Literal["heavy", "light"]  # §4.7 layer-lifecycle budget: heavy layers evict first
+    persona_visibility: tuple[str, ...]  # e.g. ("fisherman", "authority"); empty = all personas
+    source_provenance: tuple[SourceProvenance, ...]
+    result_refs: tuple[str, ...]  # agent_name(s) this layer was derived from — Agent 9 citation hook
+
+
+@dataclass(frozen=True)
+class ChartSpec:
+    """Agent 8's chart envelope (plan §5.9, Architecture §11.2). `series` is
+    Recharts-ready rows (one dict per x value) so the frontend never
+    reshapes data — TimeSeries -> AreaChart/LineChart, BarChart -> BarChart,
+    RadarChart -> RadarChart, WindRose -> RadialBarChart."""
+    chart_id: str
+    chart_type: Literal["TimeSeries", "BarChart", "RadarChart", "WindRose"]
+    series: tuple[dict[str, Any], ...]
+    x_key: str
+    y_keys: tuple[str, ...]
+    unit: str
+    persona_visibility: tuple[str, ...]
+    source_provenance: tuple[SourceProvenance, ...]
+
+
 _VALID_REASONING_DEPTHS = ("SHALLOW", "STANDARD", "DEEP")
 
 

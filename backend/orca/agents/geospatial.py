@@ -46,6 +46,10 @@ SHALLOW_HAZARD_THRESHOLD_M = 10.0
 _MAP_CLIP_MARGIN_DEG = 1.5
 _MAP_CLIP_BOX = box(77.5 - _MAP_CLIP_MARGIN_DEG, 7.5 - _MAP_CLIP_MARGIN_DEG,
                      80.5 + _MAP_CLIP_MARGIN_DEG, 10.5 + _MAP_CLIP_MARGIN_DEG)
+# (west, south, east, north) — the one pilot-region extent every map layer
+# (Agent 6's own and Agent 8's, plan §5.9) should cite as `bounds` rather
+# than each recomputing/hardcoding the same four numbers.
+PILOT_BBOX_WSEN: tuple[float, float, float, float] = _MAP_CLIP_BOX.bounds
 
 # Douglas-Peucker tolerance for map DISPLAY only (plan §4.7) — ~100m, well
 # past what a Leaflet pixel can resolve at any zoom this app uses. This never
@@ -229,6 +233,32 @@ def depth_at_point(lat: float, lon: float) -> DepthResult:
     return DepthResult(
         depth_m=round(depth, 1), on_land=False, shallow_hazard=depth < SHALLOW_HAZARD_THRESHOLD_M
     )
+
+
+def bathymetry_heatmap_points(stride: int = 16) -> list[dict[str, float]]:
+    """Downsampled GEBCO depth points for Agent 8's Heatmap map layer
+    (Architecture §11.1: "SST grid, chlorophyll concentration, wave
+    height" — bathymetry is the one gridded field already loaded here).
+    Every `stride`-th grid cell, land cells (elevation >= 0) skipped since
+    a heatmap over depth has nothing to say about dry land.
+
+    ponytail: stride=16 on the 720x720 pilot grid is ~1-2k real GEBCO
+    points, comfortably under the §4.7 feature-count budget without
+    resampling to a raster — the tile pyramid (Pillow, next checkpoint) is
+    the real fix for a denser view; this is deliberately the coarse one.
+    """
+    ds = _bathymetry()
+    lats = ds["lat"].values[::stride]
+    lons = ds["lon"].values[::stride]
+    elevation = ds["elevation"].values[::stride, ::stride]
+    points: list[dict[str, float]] = []
+    for i, lat in enumerate(lats):
+        for j, lon in enumerate(lons):
+            el = float(elevation[i, j])
+            if el >= 0:
+                continue  # land — not a depth point
+            points.append({"lat": float(lat), "lon": float(lon), "depth_m": round(-el, 1)})
+    return points
 
 
 # ---- Map layers (Day 6) -----------------------------------------------------
