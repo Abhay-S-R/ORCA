@@ -25,7 +25,7 @@ jobs:
       # plan §3.1 — no file under orca/agents/ may import a vendor SDK.
       - name: vendor-SDK-import guard
         run: |
-          if [ -d orca/agents ] && grep -rlE "^\s*(import|from)\s+(anthropic|openai|google\.generativeai)" orca/agents/; then
+          if [ -d orca/agents ] && grep -rlE "^\s*(import|from)\s+(anthropic|openai|google\.generativeai|google\.genai)" orca/agents/; then
             echo "::error::vendor SDK imported under orca/agents/ — route it through orca/llm/ instead"
             exit 1
           fi

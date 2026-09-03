@@ -10,9 +10,9 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
-from pathlib import Path
 from dotenv import load_dotenv
 
 # Auto-load .env from repository root or backend folder

@@ -18,41 +18,67 @@ class AnthropicProvider:
         self._client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     def complete(self, messages: list[dict[str, str]], *, model: str, **kw: Any) -> str:
-        max_tokens = kw.pop("max_tokens", 1024)
-        # messages: our Provider protocol keeps a vendor-neutral {"role", "content"}
-        # shape; anthropic's MessageParam is structurally the same but a distinct
-        # TypedDict, so this is a deliberate cast, not a real type mismatch.
-        resp = self._client.messages.create(
-            model=model, max_tokens=max_tokens, messages=messages, **kw  # type: ignore[arg-type]
+        max_tokens = int(kw.pop("max_tokens", 1024))
+        # Cast to Any so PyLance / mypy cleanly accepts the generic dict messages shape
+        anthropic_messages: Any = messages
+        resp: Any = self._client.messages.create(
+            model=model, max_tokens=max_tokens, messages=anthropic_messages, **kw
         )
-        return "".join(block.text for block in resp.content if block.type == "text")
+        content = getattr(resp, "content", [])
+        return "".join(getattr(block, "text", "") for block in content if getattr(block, "type", "") == "text")
 
     def stream(self, messages: list[dict[str, str]], *, model: str, **kw: Any) -> Iterator[str]:
-        max_tokens = kw.pop("max_tokens", 1024)
+        max_tokens = int(kw.pop("max_tokens", 1024))
+        anthropic_messages: Any = messages
         with self._client.messages.stream(
-            model=model, max_tokens=max_tokens, messages=messages, **kw  # type: ignore[arg-type]
+            model=model, max_tokens=max_tokens, messages=anthropic_messages, **kw
         ) as s:
             yield from s.text_stream
 
 
 class GeminiProvider:
     def __init__(self) -> None:
-        import google.generativeai as genai  # vendor SDK — confined to this file
+        from google import genai  # modern official vendor SDK — confined to this file
 
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        self._genai = genai
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            raise KeyError("Neither GEMINI_API_KEY nor GOOGLE_API_KEY is set in environment")
+        self._client = genai.Client(api_key=api_key)
 
     def complete(self, messages: list[dict[str, str]], *, model: str, **kw: Any) -> str:
-        chat = self._genai.GenerativeModel(model).start_chat(
-            history=[{"role": m["role"], "parts": [m["content"]]} for m in messages[:-1]]
-        )
-        return chat.send_message(messages[-1]["content"], **kw).text
+        if not messages:
+            return ""
+        if len(messages) == 1:
+            resp = self._client.models.generate_content(
+                model=model,
+                contents=messages[0]["content"],
+                **kw,
+            )
+            return resp.text or ""
+
+        chat = self._client.chats.create(model=model)
+        for m in messages[:-1]:
+            chat.send_message(m["content"])
+        resp = chat.send_message(messages[-1]["content"], **kw)
+        return resp.text or ""
 
     def stream(self, messages: list[dict[str, str]], *, model: str, **kw: Any) -> Iterator[str]:
-        chat = self._genai.GenerativeModel(model).start_chat(
-            history=[{"role": m["role"], "parts": [m["content"]]} for m in messages[:-1]]
-        )
-        for chunk in chat.send_message(messages[-1]["content"], stream=True, **kw):
+        if not messages:
+            return
+        if len(messages) == 1:
+            for chunk in self._client.models.generate_content_stream(
+                model=model,
+                contents=messages[0]["content"],
+                **kw,
+            ):
+                if chunk.text:
+                    yield chunk.text
+            return
+
+        chat = self._client.chats.create(model=model)
+        for m in messages[:-1]:
+            chat.send_message(m["content"])
+        for chunk in chat.send_message_stream(messages[-1]["content"], **kw):
             if chunk.text:
                 yield chunk.text
 

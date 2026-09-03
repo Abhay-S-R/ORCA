@@ -27,7 +27,7 @@ h5py>=3.10
 
 # LLM providers registered in orca/llm/registry.py (plan §3.1)
 anthropic>=0.40
-google-generativeai>=0.8
+google-genai>=2.0
 
 # Local STT/translation — Phase 1 PRIMARY path for Agent 1 (User Interaction),
 # not a fallback, while Bhashini access is pending (Implementation Plan §1.1

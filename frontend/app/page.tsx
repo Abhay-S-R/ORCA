@@ -26,6 +26,8 @@ type AgentSpan = { agent_name: string; status: AgentStatus };
 type Citation = { agent_name: string; dataset: string; acquisition_timestamp: string };
 type FinalResponse = {
   final_english_response: string;
+  final_vernacular_response?: string;
+  detected_language?: string;
   confidence_tier: ConfidenceTier;
   citations?: Citation[];
 };
@@ -150,7 +152,17 @@ export default function AskPage() {
 
         {answer && (
           <Panel title="Answer">
-            <p className="text-[15px] leading-relaxed text-ink">{answer.final_english_response}</p>
+            <p className="text-[15px] leading-relaxed text-ink">
+              {answer.final_vernacular_response || answer.final_english_response}
+            </p>
+            {answer.final_vernacular_response &&
+              answer.detected_language !== "en" &&
+              answer.final_vernacular_response !== answer.final_english_response && (
+                <div className="mt-3 rounded border border-hairline/60 bg-shelf-0/40 p-2.5 text-xs text-ink-muted">
+                  <span className="font-semibold text-ink-dim block mb-1">English translation:</span>
+                  <p className="leading-relaxed">{answer.final_english_response}</p>
+                </div>
+            )}
             <div className="mt-4 border-t border-hairline pt-3">
               <ConfidenceMeter tier={answer.confidence_tier} />
             </div>
