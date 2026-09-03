@@ -25,6 +25,8 @@ import { SourceChip } from "../components/SourceChip";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
 import { TimeSlider } from "../components/TimeSlider";
 import { VerdictBadge } from "../components/VerdictBadge";
+import { FeedbackControl } from "../components/FeedbackControl";
+import { WatchCard } from "../components/WatchCard";
 
 // Stable identity — same reason /reasoning/page.tsx defines this at module
 // scope: a fresh object per render makes React Flow warn and remount nodes.
@@ -298,6 +300,53 @@ export default function DesignPage() {
               action={<Button variant="ghost">Try again</Button>}
             />
           </div>
+        </Section>
+
+        {/* Phase 3 D2 — Sentinel / alerting / feedback primitives. Built on
+            the existing tokens; every state shown so the Day-21 axe pass has
+            them. */}
+        <Section title="Notification feed (D2)">
+          <div className="flex flex-col gap-2">
+            {(["info", "advisory", "warning", "danger"] as const).map((sev) => (
+              <div key={sev} className="glass rounded-md border-l-2 border-accent p-3 text-sm">
+                <p className="flex items-center gap-2 font-semibold text-ink">
+                  <Badge tone={{ info: "neutral", advisory: "accent", warning: "caution", danger: "no-go" }[sev] as BadgeTone}>
+                    {sev}
+                  </Badge>
+                  Conditions worsened to CAUTION
+                </p>
+                <p className="mt-1 text-ink-muted">Forecast wave height 3.1 m at your watch point.</p>
+                {sev !== "info" && (
+                  <p className="mt-1 text-[11px] text-ink-dim">
+                    Channel <span className="text-ink-muted">sms</span> — SIMULATED, no message transmitted.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <Section title="Advisory feedback (D2)">
+          <FeedbackControl queryId="00000000-0000-0000-0000-000000000000" advisoryRef="demo" />
+        </Section>
+
+        <Section title="Watch card (D2)">
+          <WatchCard
+            watch={{
+              id: "demo",
+              watch_type: "wave_height",
+              lat: 8.8,
+              lon: 78.14,
+              radius_km: 10,
+              vessel_id: null,
+              thresholds: { wave_height_m: 2.5 },
+              channels: ["in_app"],
+              enabled: true,
+              last_fired_at: null,
+              created_at: new Date().toISOString(),
+            }}
+            onChange={() => {}}
+          />
         </Section>
       </div>
     </PageBody>

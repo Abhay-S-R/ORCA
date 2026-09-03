@@ -1,10 +1,22 @@
 """Agent 1 (User Interaction) — language detection & translation, plan §4 S6
-Day 6.
+Day 6, extended Phase 3 D1 Day 16 to the full ten-language requirement
+(Architecture §2.1 / Master Requirements: Hindi, Tamil, Telugu, Malayalam,
+Kannada, Bengali, Marathi, Gujarati, Odia, English).
 
-`detect_language` is real: deterministic Unicode-block script detection for
-Ta/Hi/En. Ta and Hi scripts don't overlap, so this is exact, not a
-statistical guess, and it stays deterministic in the same spirit as Agent
-12's distress detection (plan §4 S2 — pattern match, not semantic inference).
+`detect_language` is real: deterministic Unicode-block script detection.
+Eight of the nine Indic scripts here occupy disjoint Unicode blocks, so
+detection between them is exact, not a statistical guess — same spirit as
+Agent 12's distress detection (plan §4 S2 — pattern match, not semantic
+inference). The one honest exception: Marathi and Hindi both use the
+Devanagari block, and script alone cannot tell them apart — Devanagari text
+resolves to "hi" here, a stated approximation, not a silent one. A real
+disambiguator (lexical heuristics or the ASR/NMT model's own language ID,
+plan §4 D1 Day 16) is future work, not claimed as done.
+
+IndicTrans2's distilled 200M models are themselves multilingual across all
+22 scheduled Indian languages in one checkpoint per direction — the two
+models already loaded for Tamil/Hindi need no new weights for the other
+seven; only the FLORES-200 code table below had to grow.
 
 `IndicTrans2Backend` is real, local inference — the weights are downloaded
 (backend/scripts/download_ml_models.py) and confirmed working end-to-end
@@ -36,30 +48,47 @@ from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_rea
 if TYPE_CHECKING:
     from orca.state import ORCAState
 
-Language = Literal["ta", "hi", "en"]
+Language = Literal["ta", "hi", "te", "ml", "kn", "bn", "mr", "gu", "or", "en"]
 
-_TAMIL_BLOCK = (0x0B80, 0x0BFF)
-_DEVANAGARI_BLOCK = (0x0900, 0x097F)
+# Unicode script blocks — disjoint for every pair except Devanagari, which
+# Hindi and Marathi both use (see module docstring). Order in this table is
+# the tie-break order in detect_language below and is otherwise irrelevant.
+_SCRIPT_BLOCKS: tuple[tuple[Language, int, int], ...] = (
+    ("ta", 0x0B80, 0x0BFF),  # Tamil
+    ("te", 0x0C00, 0x0C7F),  # Telugu
+    ("kn", 0x0C80, 0x0CFF),  # Kannada
+    ("ml", 0x0D00, 0x0D7F),  # Malayalam
+    ("bn", 0x0980, 0x09FF),  # Bengali
+    ("or", 0x0B00, 0x0B7F),  # Odia
+    ("gu", 0x0A80, 0x0AFF),  # Gujarati
+    ("hi", 0x0900, 0x097F),  # Devanagari — Hindi and Marathi both live here
+)
 
 # FLORES-200 codes IndicTrans2/IndicTransToolkit expect.
-_FLORES_CODE: dict[Language, str] = {"ta": "tam_Taml", "hi": "hin_Deva", "en": "eng_Latn"}
+_FLORES_CODE: dict[Language, str] = {
+    "ta": "tam_Taml", "hi": "hin_Deva", "te": "tel_Telu", "ml": "mal_Mlym",
+    "kn": "kan_Knda", "bn": "ben_Beng", "mr": "mar_Deva", "gu": "guj_Gujr",
+    "or": "ory_Orya", "en": "eng_Latn",
+}
+
+_ALL_LANGUAGES: tuple[Language, ...] = ("ta", "hi", "te", "ml", "kn", "bn", "mr", "gu", "or", "en")
 
 
 def detect_language(text: str) -> Language:
-    """Script-range detection. Falls back to "en" when no Tamil/Devanagari
-    codepoint is present.
-    """
-    tamil_count = 0
-    devanagari_count = 0
+    """Script-range detection across all ten target languages. Falls back
+    to "en" when no Indic codepoint from the table above is present.
+    Devanagari text always resolves to "hi", never "mr" — a stated
+    limitation (module docstring), not a silent misclassification of one
+    for the other, since nothing downstream branches differently on it."""
+    counts: dict[Language, int] = {lang: 0 for lang, _, _ in _SCRIPT_BLOCKS}
     for ch in text:
         cp = ord(ch)
-        if _TAMIL_BLOCK[0] <= cp <= _TAMIL_BLOCK[1]:
-            tamil_count += 1
-        elif _DEVANAGARI_BLOCK[0] <= cp <= _DEVANAGARI_BLOCK[1]:
-            devanagari_count += 1
-    if tamil_count == 0 and devanagari_count == 0:
-        return "en"
-    return "ta" if tamil_count >= devanagari_count else "hi"
+        for lang, lo, hi in _SCRIPT_BLOCKS:
+            if lo <= cp <= hi:
+                counts[lang] += 1
+                break
+    best_lang, best_count = max(counts.items(), key=lambda kv: kv[1])
+    return best_lang if best_count > 0 else "en"
 
 
 def _coerce_language(value: str) -> Language:
@@ -67,7 +96,7 @@ def _coerce_language(value: str) -> Language:
     Literal type here is stricter. Same gap as coerce_reasoning_depth
     (orca/contracts.py) for the same reason — a stale/typo'd value degrades
     to "en" here rather than reaching translate_from_english untyped."""
-    if value in ("ta", "hi", "en"):
+    if value in _ALL_LANGUAGES:
         return value  # type: ignore[return-value]
     return "en"
 
@@ -250,8 +279,15 @@ def run_egress(state: ORCAState) -> AgentResult:
 
 if __name__ == "__main__":
     assert detect_language("நாளை காலை கடலுக்குச் செல்வது பாதுகாப்பானதா?") == "ta"
+    assert detect_language("క్రొత్త రోజు మొదలైంది") == "te"
+    assert detect_language("ನಾಳೆ ಸಮುದ್ರಕ್ಕೆ ಹೋಗುವುದು ಸುರಕ್ಷಿತವೇ") == "kn"
+    assert detect_language("നാളെ കടലിൽ പോകുന്നത് സുരക്ഷിതമാണോ") == "ml"
+    assert detect_language("আগামীকাল সমুদ্রে যাওয়া কি নিরাপদ") == "bn"
+    assert detect_language("ଆସନ୍ତାକାଲି ସମୁଦ୍ରକୁ ଯିବା ସୁରକ୍ଷିତ କି") == "or"
+    assert detect_language("આવતીકાલે દરિયામાં જવું સલામત છે") == "gu"
     assert detect_language("क्या कल सुबह समुद्र में जाना सुरक्षित है?") == "hi"
     assert detect_language("Is it safe to go to sea tomorrow morning?") == "en"
+    assert set(_FLORES_CODE) == set(_ALL_LANGUAGES)
     assert translate_to_english("hello", "en") == "hello"
     try:
         translate_to_english("வணக்கம்", "ta")

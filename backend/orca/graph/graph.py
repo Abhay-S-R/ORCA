@@ -40,6 +40,7 @@ from dataclasses import asdict
 from langgraph.graph import END, START, StateGraph
 
 from orca.agents import (
+    critic,
     distress,
     geospatial,
     language,
@@ -343,6 +344,26 @@ def reporting_node(state: ORCAState) -> dict:
     }
 
 
+def _route_after_reporting(state: ORCAState) -> str:
+    # DEEP only, never persona (Ground Rule 1 / plan §4 D1 Day 18) — the
+    # verdict SSE frame (reporting_node's final_english_response) has
+    # already been emitted upstream by the time this routes, since
+    # main.py's SSE stream flushes on every graph step, so the critique
+    # frame this produces necessarily lands after it.
+    return "critic" if state.get("reasoning_depth") == "DEEP" else "language_egress"
+
+
+def critic_node(state: ORCAState) -> dict:
+    result, entry = run_traced_node("critic", critic.run, state)
+    return {
+        "final_english_response": result.outputs["final_english_response"],
+        "critic_pass": result.outputs["critic_pass"],
+        "critic_iteration_count": result.outputs["critic_iteration_count"],
+        "audit_trace_log": [entry],
+        "completed_nodes": ["critic"],
+    }
+
+
 def language_egress_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("language_egress", language.run_egress, state)
     return {
@@ -363,6 +384,7 @@ def build_graph():
     g.add_node("risk_assessment", risk_assessment_node)
     g.add_node("visualization", visualization_node)
     g.add_node("reporting", reporting_node)
+    g.add_node("critic", critic_node)
     g.add_node("language_egress", language_egress_node)
 
     g.add_edge(START, "distress_check")
@@ -374,6 +396,7 @@ def build_graph():
     g.add_edge(["weather_intelligence", "geospatial", "ocean_analytics"], "risk_assessment")
     g.add_edge(["weather_intelligence", "geospatial", "ocean_analytics"], "visualization")
     g.add_edge(["risk_assessment", "visualization"], "reporting")
-    g.add_edge("reporting", "language_egress")
+    g.add_conditional_edges("reporting", _route_after_reporting, {"critic": "critic", "language_egress": "language_egress"})
+    g.add_edge("critic", "language_egress")
     g.add_edge("language_egress", END)
     return g.compile()

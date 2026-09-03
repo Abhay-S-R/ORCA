@@ -148,9 +148,12 @@ def persist_trace_entries(
                 session_id=session_id,
                 agent_name=entry["agent_name"],
                 event="agent_complete" if entry.get("status") == "ok" else "error",
-                inputs_consumed=None,
-                outputs=None,
-                source_provenance=None,
+                # Phase 3 D1: populated so /trace/{query_id} and /render can
+                # reconstruct the full AgentResult from this row alone — see
+                # orca/trace.py's run_traced_node, which is the only writer.
+                inputs_consumed=entry.get("inputs_consumed"),
+                outputs=entry.get("outputs"),
+                source_provenance=entry.get("source_provenance"),
                 confidence=entry.get("confidence"),
                 status=entry.get("status", "ok"),
                 error_detail=entry.get("error_detail"),
@@ -158,6 +161,19 @@ def persist_trace_entries(
             )
         )
     db.commit()
+
+
+def get_trace_entries(db: Session, *, query_id: uuid.UUID) -> list[AuditTraceLog]:
+    """Every row for one query, oldest first — the exact reconstruction
+    order `/trace/{query_id}` (orca/api/trace_routes.py) needs, and the same
+    order `/render` reads to rebuild the AgentResult set without
+    re-invoking a single specialist agent."""
+    stmt = (
+        select(AuditTraceLog)
+        .where(AuditTraceLog.query_id == query_id, AuditTraceLog.agent_name != "security")
+        .order_by(AuditTraceLog.id)
+    )
+    return list(db.execute(stmt).scalars())
 
 
 def persist_security_event(

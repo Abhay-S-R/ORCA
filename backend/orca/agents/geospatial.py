@@ -1,3 +1,4 @@
+
 """Agent 6 (Geospatial) — plan §4 S5.
 
 In-memory Shapely + STRtree, not a database (plan §4 S5 Day 3: "five boundary

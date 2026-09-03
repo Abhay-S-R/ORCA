@@ -22,8 +22,8 @@ export function Readout({
   return (
     <div className="min-w-0">
       <dt className="text-[11px] font-medium text-ink-dim">{label}</dt>
-      <dd className="mt-0.5 flex items-baseline gap-1">
-        <span data-readout className="text-lg text-ink">
+      <dd className="mt-0.5 flex min-w-0 items-baseline gap-1">
+        <span data-readout className="min-w-0 break-words text-lg text-ink">
           {value}
         </span>
         {unit && <span className="text-xs text-ink-muted">{unit}</span>}

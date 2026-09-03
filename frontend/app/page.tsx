@@ -6,16 +6,21 @@
 // have to navigate somewhere else to see where the answer applies.
 import { useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Mic, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { AgentPill, AgentStrip, type AgentStatus } from "./components/AgentPill";
 import { Button } from "./components/Button";
 import { ConfidenceMeter } from "./components/ConfidenceMeter";
 import { Panel } from "./components/Panel";
+import { PersonaAnswerMatrix, type HazardBreakdown, type OceanSummary, type WeatherSummary } from "./components/PersonaAnswerMatrix";
 import { SourceChip } from "./components/SourceChip";
 import { SourceNarration, type SourceSelection } from "./components/SourceNarration";
 import { EmptyState, ErrorState, Skeleton } from "./components/States";
-import { type ConfidenceTier } from "./components/Badge";
+import { type ConfidenceTier, type Verdict } from "./components/Badge";
+import { AnswerSpeaker } from "./components/AnswerSpeaker";
+import { PersonaCorrection } from "./components/PersonaCorrection";
+import { VoiceInput } from "./components/VoiceInput";
 import { usePersona } from "./persona/context";
+import { type Persona } from "./persona/config";
 
 const MapView = dynamic(() => import("./components/MapView").then((m) => m.MapView), {
   ssr: false,
@@ -27,12 +32,17 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 type AgentSpan = { agent_name: string; status: AgentStatus };
 type Citation = { agent_name: string; dataset: string; acquisition_timestamp: string };
 type FinalResponse = {
+  query_id?: string;
   final_english_response: string;
   final_vernacular_response?: string;
   detected_language?: string;
   confidence_tier: ConfidenceTier;
   citations?: Citation[];
   source_selections?: SourceSelection[];
+  risk_assessment?: { go_no_go: Verdict; reason: string } | null;
+  weather_summary?: WeatherSummary;
+  hazard_breakdown?: HazardBreakdown;
+  ocean_summary?: OceanSummary;
 };
 
 // Real questions in the users' own words, not feature names. These double as
@@ -50,6 +60,11 @@ export default function AskPage() {
   const [answer, setAnswer] = useState<FinalResponse | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Set only by the persona-correction control (differentiator 7) — never
+  // by ask(). Tracked separately from `persona` (the nav-wide setting) so
+  // correcting one answer's rendering never silently changes what the next
+  // /query call sends.
+  const [renderedAs, setRenderedAs] = useState<Persona | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
 
   function ask(q: string) {
@@ -57,6 +72,7 @@ export default function AskPage() {
     sourceRef.current?.close();
     setSpans([]);
     setAnswer(null);
+    setRenderedAs(null);
     setFailed(false);
     setStreaming(true);
 
@@ -112,19 +128,22 @@ export default function AskPage() {
             placeholder="Is it safe to go out tomorrow morning?"
             className="min-w-0 flex-1 rounded-md border border-hairline bg-shelf-1/80 px-3.5 py-3 text-sm text-ink placeholder:text-ink-dim transition-colors hover:border-hairline-strong focus:border-accent/60"
           />
-          <Button
-            type="button"
-            variant="ghost"
-            aria-label="Ask by voice"
-            icon={<Mic className="size-4" />}
-            className="px-3"
-          >
-            <span className="sr-only">Ask by voice</span>
-          </Button>
           <Button type="submit" variant="primary" disabled={streaming || !query.trim()} icon={<Send className="size-4" />}>
             {streaming ? "Asking" : "Ask"}
           </Button>
         </form>
+
+        {/* Voice ingress/egress (plan §6 D1 Day 16-17): push-to-talk,
+            transcript confirmation, then feeds the exact same ask() the text
+            box does — voice is a pre-step onto the one text pipeline, not a
+            second one. */}
+        <VoiceInput
+          persona={persona}
+          onTranscriptConfirmed={(text) => {
+            setQuery(text);
+            ask(text);
+          }}
+        />
 
         {/* Differentiator 1 (§4.5): twelve agents run per query, and this is
             where a user watches that happen instead of a spinner. */}
@@ -159,9 +178,37 @@ export default function AskPage() {
 
         {answer && (
           <Panel title="Answer">
+            {/* Architecture §2.6 rendering matrix — same facts, structure
+                differs by persona (fisherman banner, navigator readout,
+                researcher stats + export, authority threat level + CAP
+                preview). Only rendered once risk_assessment exists — the
+                distress bypass path never reaches Reporting/risk_assessment. */}
+            {answer.risk_assessment && (
+              <div className="mb-4">
+                <PersonaAnswerMatrix
+                  persona={renderedAs ?? persona}
+                  queryId={answer.query_id}
+                  verdict={answer.risk_assessment.go_no_go}
+                  reason={answer.risk_assessment.reason}
+                  confidenceTier={answer.confidence_tier}
+                  weather={answer.weather_summary ?? { wave_height_m: null, wind_speed_ms: null, lightning_active: false, cyclone_alert: null }}
+                  hazard={answer.hazard_breakdown ?? { imbl_distance_nm: null, imbl_alert_level: null, mpa_violation: false, mpa_alert_level: null }}
+                  ocean={answer.ocean_summary ?? { tide: null, nearest_pfz: null, sector_status: null, productivity_diagnosis: null }}
+                  citations={answer.citations ?? []}
+                />
+              </div>
+            )}
             <p className="text-[15px] leading-relaxed text-ink">
               {answer.final_vernacular_response || answer.final_english_response}
             </p>
+            <div className="mt-2">
+              <AnswerSpeaker
+                text={answer.final_vernacular_response || answer.final_english_response}
+                language={answer.detected_language ?? "en"}
+                persona={renderedAs ?? persona}
+                queryId={answer.query_id}
+              />
+            </div>
             {answer.final_vernacular_response &&
               answer.detected_language !== "en" &&
               answer.final_vernacular_response !== answer.final_english_response && (
@@ -194,6 +241,24 @@ export default function AskPage() {
                 ))}
               </div>
             )}
+            <PersonaCorrection
+              queryId={answer.query_id}
+              currentPersona={renderedAs ?? persona}
+              onPersonaChange={setRenderedAs}
+              onRendered={(result) =>
+                setAnswer((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        final_english_response: result.final_english_response,
+                        final_vernacular_response: undefined, // /render is English-only (translation stays at the edge, Agent 1)
+                        confidence_tier: result.confidence_tier as ConfidenceTier,
+                        citations: result.citations,
+                      }
+                    : prev,
+                )
+              }
+            />
           </Panel>
         )}
 
