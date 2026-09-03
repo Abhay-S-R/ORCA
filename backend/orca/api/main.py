@@ -13,8 +13,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from orca.agents import distress as distress_agent
+from orca.agents.geospatial import DATA_ROOT
 from orca.agents.language import IndicTrans2Backend, register_translation_backend
 from orca.api.auth_routes import router as auth_router
 from orca.api.discovery_routes import router as discovery_router
@@ -48,6 +50,15 @@ app.add_middleware(
 app.include_router(discovery_router)
 app.include_router(geospatial_router)
 app.include_router(auth_router)
+
+# Agent 8 raster tile pyramid (orca/tiles.py) — serves the PNGs
+# scripts/generate_tiles.py writes offline, at the same "/tiles/{layer_id}/
+# {z}/{x}/{y}.png" path each meta.json's tile_url_template already assumes.
+# Guarded, not unconditional: a fresh checkout has no data/tier1/tiles until
+# that script has been run once, and StaticFiles raises on a missing dir.
+_TILES_DIR = DATA_ROOT / "tier1" / "tiles"
+if _TILES_DIR.is_dir():
+    app.mount("/tiles", StaticFiles(directory=_TILES_DIR), name="tiles")
 
 # Compiled once at import time — a LangGraph StateGraph is stateless
 # structure; compiling per-request would just waste cycles on every call.

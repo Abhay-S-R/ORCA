@@ -4,15 +4,18 @@ something a specialist agent (or Agent 6's own map helper) already
 computed into the frozen MapLayer/ChartSpec envelope (orca/contracts.py).
 It never fetches, never scores, never decides GO/CAUTION/NO_GO.
 
-Checkpoint scope (Phase 2 D3, reordered ahead of the tile pyramid per team
-sign-off): PointMarker/Polygon/Heatmap map layers, one TimeSeries chart, and
-the mandatory validate_payload gate. Polyline (routes), Raster (WMS tiles),
-DistressMarker and SentinelWatch layer types, and BarChart/RadarChart/
-WindRose chart types are real Architecture §11 types this module's Literal
-already allows — just not populated by any generator yet. Next checkpoint.
+Checkpoint scope (Phase 2 D3): PointMarker/Polygon/Heatmap map layers, one
+TimeSeries chart, the mandatory validate_payload gate, and (as of the tile
+pyramid step) Raster map layers assembled from pre-built tile pyramids
+(orca/tiles.py + scripts/generate_tiles.py — offline, never run from this
+request path). Polyline (routes), DistressMarker and SentinelWatch layer
+types, and BarChart/RadarChart/WindRose chart types are real Architecture
+§11 types this module's Literal already allows — just not populated by any
+generator yet. Next checkpoint.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 
@@ -23,6 +26,7 @@ from orca.agents import geospatial
 from orca.contracts import (
     AgentResult,
     ChartSpec,
+    ColorRamp,
     Confidence,
     MapLayer,
     SourceProvenance,
@@ -30,6 +34,11 @@ from orca.contracts import (
     coerce_reasoning_depth,
 )
 from orca.state import ORCAState
+
+# scripts/generate_tiles.py writes {layer_id}/meta.json under here — same
+# data/ root geospatial.py's own DATA_ROOT points at (gitignored; a fresh
+# checkout has none until that script has been run once).
+_TILES_ROOT = geospatial.DATA_ROOT / "tier1" / "tiles"
 
 # §4.7 layer-lifecycle budget: over this many features, a layer must be
 # simplified/tiled before shipping, never sent as-is. The tile pyramid is
@@ -54,11 +63,46 @@ _VALID_CHART_TYPES = {"TimeSeries", "BarChart", "RadarChart", "WindRose"}
 
 # --- generate_map_layers ------------------------------------------------------
 
+def _raster_layers() -> list[MapLayer]:
+    """Raster map layers from pre-built tile pyramids (orca/tiles.py). Reads
+    only each layer's meta.json sidecar — never rasterio, never the source
+    NetCDF — so this stays cheap enough to call on every request. No tiles
+    generated yet on this checkout (scripts/generate_tiles.py not run) means
+    an empty list, not an error, matching every other generator's
+    degrade-gracefully posture in this module."""
+    layers = []
+    if not _TILES_ROOT.is_dir():
+        return layers
+    for layer_dir in sorted(_TILES_ROOT.iterdir()):
+        meta_path = layer_dir / "meta.json"
+        if not meta_path.is_file():
+            continue
+        meta = json.loads(meta_path.read_text())
+        ramp = meta["color_ramp"]
+        layers.append(MapLayer(
+            layer_id=meta["layer_id"], layer_type="Raster", geojson=None,
+            tile_url=meta["tile_url_template"], bounds=tuple(meta["bounds"]),
+            timestamps=None, forecast_frames=None,
+            style_hints=StyleHints(
+                palette=ramp["palette"], opacity=0.85,
+                min_zoom=meta["min_zoom"], max_zoom=meta["max_zoom"],
+                color_ramp=ColorRamp(**ramp),
+            ),
+            weight="heavy", persona_visibility=(),
+            source_provenance=(SourceProvenance(
+                dataset=f"{meta['layer_id']} raster tile pyramid (via orca/tiles.py)",
+                acquisition_timestamp="", freshness_minutes=0,
+            ),),
+            result_refs=("geospatial",),
+        ))
+    return layers
+
+
 def generate_map_layers(state: ORCAState) -> list[MapLayer]:
     """PointMarker (user position), Polygon (boundaries), Heatmap
-    (bathymetry) — the checkpoint's three layer types, each wrapping data a
+    (bathymetry), Raster (pre-built tile pyramids) — each wrapping data a
     specialist already computed (Agent 6's own generate_map_layers/
-    bathymetry_heatmap_points)."""
+    bathymetry_heatmap_points, or orca/tiles.py's offline pyramid build)."""
     location = state.get("user_location") or {}
     lat, lon = location.get("lat"), location.get("lon")
     raw = geospatial.generate_map_layers(user_lat=lat, user_lon=lon)
@@ -109,6 +153,7 @@ def generate_map_layers(state: ORCAState) -> list[MapLayer]:
             result_refs=("geospatial",),
         ))
 
+    layers.extend(_raster_layers())
     return layers
 
 

@@ -25,6 +25,19 @@ xarray>=2024.1.0
 scipy>=1.11
 h5py>=3.10
 
+# Agent 8 raster tile pyramid (orca/tiles.py, Phase 2 D3 — visual-quality
+# priority, plan revision: heavier deps accepted over install-simplicity).
+# rio-tiler's XarrayReader (+ rioxarray, its "xarray" extra) owns
+# reprojection/resampling/tile-edge masking on top of rasterio's own warp
+# code; cmocean supplies oceanography-correct color ramps; Pillow (already a
+# transitive dep, pinned directly below since tiles.py imports it itself)
+# owns RGBA compositing/PNG encoding; morecantile (rio-tiler's own TMS dep)
+# computes XYZ tile grids.
+rasterio>=1.3
+rio-tiler[xarray]>=6.0
+cmocean>=4.0
+pillow>=10.0
+
 # LLM providers registered in orca/llm/registry.py (plan §3.1)
 anthropic>=0.40
 google-genai>=2.0

@@ -244,8 +244,9 @@ def bathymetry_heatmap_points(stride: int = 16) -> list[dict[str, float]]:
 
     ponytail: stride=16 on the 720x720 pilot grid is ~1-2k real GEBCO
     points, comfortably under the §4.7 feature-count budget without
-    resampling to a raster — the tile pyramid (Pillow, next checkpoint) is
-    the real fix for a denser view; this is deliberately the coarse one.
+    resampling to a raster — the tile pyramid (orca/tiles.py, Rasterio +
+    cmocean + Pillow) is the real fix for a denser view; this is
+    deliberately the coarse one, kept as a light fallback/complement.
     """
     ds = _bathymetry()
     lats = ds["lat"].values[::stride]

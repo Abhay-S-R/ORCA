@@ -42,12 +42,28 @@ class AgentResult:
 
 
 @dataclass(frozen=True)
+class ColorRamp:
+    """Legend/colorbar metadata for a Raster MapLayer (Phase 2 D3 tile
+    pipeline, orca/tiles.py) — lets the frontend render an SVG/CSS gradient
+    legend tied to the actual data range instead of a server-rendered
+    colorbar image. `palette` names a cmocean ramp (e.g. "cmocean-deep");
+    `data_min`/`data_max` are the same 2nd/98th-percentile bounds the tile
+    pipeline colorized against, so the legend never disagrees with the tiles.
+    """
+    palette: str
+    data_min: float
+    data_max: float
+    unit: str
+
+
+@dataclass(frozen=True)
 class StyleHints:
     palette: str  # e.g. "risk-red-amber-green", "bathymetry-blue"
     opacity: float
     min_zoom: int
     max_zoom: int
     simplify_tolerance: float = 0.0  # degrees; 0.0 = not simplified (already coarse enough)
+    color_ramp: ColorRamp | None = None  # populated only for Raster layers (tile pipeline)
 
 
 @dataclass(frozen=True)
