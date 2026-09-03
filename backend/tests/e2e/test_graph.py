@@ -21,11 +21,9 @@ ALL_NODES = {
     "geospatial", "risk_assessment", "reporting", "language_egress",
 }
 
-try:
-    import IndicTransToolkit  # type: ignore[import-not-found]
-    _TOOLKIT_PRESENT = True
-except ImportError:
-    _TOOLKIT_PRESENT = False
+import importlib.util
+
+_TOOLKIT_PRESENT = importlib.util.find_spec("IndicTransToolkit") is not None
 
 _HF_HUB = Path.home() / ".cache" / "huggingface" / "hub"
 _INDICTRANS2_WEIGHTS_PRESENT = (

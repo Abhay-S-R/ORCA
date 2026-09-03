@@ -1,3 +1,8 @@
+# The real weights (backend/scripts/download_ml_models.py) are a multi-GB,
+# gated HuggingFace download — present on this machine, not guaranteed on
+# CI or a fresh clone. The integration test below skips itself rather than
+# failing a build that has no way to get the weights.
+import importlib.util
 from pathlib import Path
 
 import pytest
@@ -13,15 +18,7 @@ from orca.agents.language import (
 )
 from orca.state import ORCAState
 
-# The real weights (backend/scripts/download_ml_models.py) are a multi-GB,
-# gated HuggingFace download — present on this machine, not guaranteed on
-# CI or a fresh clone. The integration test below skips itself rather than
-# failing a build that has no way to get the weights.
-try:
-    import IndicTransToolkit  # type: ignore[import-not-found]
-    _TOOLKIT_PRESENT = True
-except ImportError:
-    _TOOLKIT_PRESENT = False
+_TOOLKIT_PRESENT = importlib.util.find_spec("IndicTransToolkit") is not None
 
 _HF_HUB = Path.home() / ".cache" / "huggingface" / "hub"
 _INDICTRANS2_WEIGHTS_PRESENT = (
