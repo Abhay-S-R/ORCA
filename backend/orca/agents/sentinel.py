@@ -221,12 +221,15 @@ def evaluate(
     thresholds: dict[str, float],
     last_payload: dict[str, Any] | None,
     vessel_class: str | None = None,
-    check: Callable[..., WatchSnapshot] = cheap_check,
+    check: Callable[..., WatchSnapshot] | None = None,
 ) -> WatchDecision:
     """`check` is injectable so tests supply a deterministic snapshot instead
-    of hitting Open-Meteo (same pattern as the e2e graph test mocking wia)."""
+    of hitting Open-Meteo (same pattern as the e2e graph test mocking wia).
+    Resolved as `check or cheap_check` rather than a bound default — a bound
+    default captures the original function object at def time, which a test's
+    `monkeypatch.setattr(sentinel, "cheap_check", ...)` can never reach."""
     query_id = str(uuid.uuid4())
-    snapshot = check(location["lat"], location["lon"], vessel_class=vessel_class)
+    snapshot = (check or cheap_check)(location["lat"], location["lon"], vessel_class=vessel_class)
     crossing = detect_crossing(watch_type, thresholds, snapshot, last_payload)
 
     if not crossing.fired:

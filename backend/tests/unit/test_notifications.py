@@ -47,7 +47,12 @@ def db() -> Session:
         yield session
     finally:
         session.rollback()
-        if trans:
+        # A test that calls db.commit() (needed so run_poll_cycle sees
+        # committed rows in the same connection) ends the SAVEPOINT above as
+        # part of that commit — trans.rollback() on the now-closed nested
+        # transaction would raise and skip session.close() below, leaking
+        # the connection (and, worse, its pg_try_advisory_lock) to later tests.
+        if trans is not None and trans.is_active:
             trans.rollback()
         session.close()
 
