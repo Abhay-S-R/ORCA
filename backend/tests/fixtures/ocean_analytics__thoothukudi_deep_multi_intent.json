@@ -1,0 +1,193 @@
+{
+  "agent_name": "ocean_analytics",
+  "confidence": {
+    "rationale": "SOI 2026 predicted tide table, station TUT; only 1 archived PFZ snapshot(s) \u2014 persistence needs a run of days, not one; gridded ocean-colour / SST inputs not yet available; catch record is complete; corroborating ocean series is not available",
+    "score": "LOW_DATA"
+  },
+  "error_detail": null,
+  "inputs_consumed": {
+    "lat": 8.8,
+    "lon": 78.14,
+    "sector_id": "SEC006",
+    "when": "2026-09-03T09:42:45.146730Z"
+  },
+  "outputs": {
+    "nearest_pfz": {
+      "bearing_deg": 250,
+      "compass": "WSW",
+      "coordinates": [
+        76.656667,
+        8.273056
+      ],
+      "depth_m": "76-81",
+      "distance_km": 173.4,
+      "found": true,
+      "landing_center": "Kannanthura",
+      "valid_for": "2026-09-02"
+    },
+    "pfz_persistence": {
+      "days_on_record": 1,
+      "days_present": 0,
+      "label": "INDICATIVE",
+      "radius_km": 25.0,
+      "score": 0.0
+    },
+    "productivity_diagnosis": {
+      "baseline": {
+        "band_high": 103474.5,
+        "band_low": 80025.5,
+        "label": "2019\u20132024 landings mean \u00b12\u03c3",
+        "mean_tonnes": 91750.0,
+        "std_tonnes": 5862.2
+      },
+      "declined": true,
+      "district": "Thoothukudi (Gulf of Mannar)",
+      "factors": [
+        {
+          "evidence": "2023 drivers on record: \"Coral bleaching event, high thermal stress\"; catch trend that year: Decline (-10%)",
+          "factor": "elevated sea-surface temperature / thermal stress",
+          "relationship": "correlated with",
+          "year": 2023
+        },
+        {
+          "evidence": "requires D3's gridded SST/chlorophyll time series (\u00a74.2); not inferred from the catch record alone",
+          "factor": "live SST / chlorophyll trend (independent measurement)",
+          "relationship": "insufficient data",
+          "year": null
+        }
+      ],
+      "series": [
+        {
+          "anomalous": false,
+          "total_tonnes": 98400.0,
+          "trend": "Stable",
+          "year": 2019,
+          "z": 1.13
+        },
+        {
+          "anomalous": false,
+          "total_tonnes": 81200.0,
+          "trend": "Decline (-17%)",
+          "year": 2020,
+          "z": -1.8
+        },
+        {
+          "anomalous": false,
+          "total_tonnes": 92600.0,
+          "trend": "Recovery (+14%)",
+          "year": 2021,
+          "z": 0.14
+        },
+        {
+          "anomalous": false,
+          "total_tonnes": 96800.0,
+          "trend": "Stable (+4%)",
+          "year": 2022,
+          "z": 0.86
+        },
+        {
+          "anomalous": false,
+          "total_tonnes": 87400.0,
+          "trend": "Decline (-10%)",
+          "year": 2023,
+          "z": -0.74
+        },
+        {
+          "anomalous": false,
+          "total_tonnes": 94100.0,
+          "trend": "Recovery (+8%)",
+          "year": 2024,
+          "z": 0.4
+        }
+      ],
+      "verdict": "Landings at Thoothukudi (Gulf of Mannar) is down 2.8% over 2022\u21922024; the multi-year direction is declining. This is correlated with elevated sea-surface temperature / thermal stress in the recorded productivity drivers. ORCA does not have an independent SST/chlorophyll trend to confirm causation.",
+      "year_on_year_pct": 7.7
+    },
+    "sector_status": {
+      "is_data_gap": true,
+      "message": "No data available for this sector due to excessive cloud cover",
+      "nearest_advisory_out_of_sector": true,
+      "node_count": 0,
+      "sector_id": "SEC006",
+      "sector_name": "SOUTH TAMILNADU",
+      "status": "NO_DATA_CLOUD_COVER",
+      "valid_for": null
+    },
+    "source_selections": [
+      {
+        "chosen": "incois_pfz",
+        "chosen_dataset": "INCOIS Potential Fishing Zone advisories",
+        "considered": [
+          "incois_pfz"
+        ],
+        "data_type": "pfz",
+        "fallback_chain": [
+          "incois_pfz",
+          "bhuvan_wms"
+        ],
+        "narrative": "INCOIS Potential Fishing Zone advisories selected: only source in the catalog covering 'pfz' (Tier 1, ~24 h old)."
+      },
+      {
+        "chosen": "soi_tide_tables",
+        "chosen_dataset": "Survey of India 2026 Annual Tide Tables",
+        "considered": [
+          "soi_tide_tables",
+          "stormglass_tides"
+        ],
+        "data_type": "tide",
+        "fallback_chain": [
+          "soi_tide_tables",
+          "stormglass_tides",
+          "incois_tide_gauge"
+        ],
+        "narrative": "Survey of India 2026 Annual Tide Tables chosen over Stormglass.io Marine API \u2014 tide extremes for 'tide': static reference vs ~6 h old, Tier gap \u2014 higher authority tier."
+      },
+      {
+        "chosen": "datagov_catch",
+        "chosen_dataset": "data.gov.in Marine Fish Landings & species trends",
+        "considered": [
+          "datagov_catch",
+          "icar_cmfri"
+        ],
+        "data_type": "catch_statistics",
+        "fallback_chain": [
+          "datagov_catch",
+          "icar_cmfri"
+        ],
+        "narrative": "data.gov.in Marine Fish Landings & species trends chosen over ICAR-CMFRI long-term landing archives & stock assessment for 'catch_statistics': static reference vs static reference, Tier gap \u2014 higher authority tier."
+      }
+    ],
+    "sst_chlorophyll_correlation": {
+      "available": false,
+      "note": "awaiting D3 gridded loader fixtures for SST, chlorophyll (Phase 2 plan \u00a74.2 \u2014 mosdac_*__pilot__*.json)"
+    },
+    "tide": {
+      "dataset": "Survey of India / Stormglass Calibrated Harmonic (station TUT)",
+      "datum": "chart datum (LAT)",
+      "fell_back": false,
+      "next_high": {
+        "height_m": 0.79,
+        "in_hours": 1.5,
+        "when": "2026-09-03T11:10:00Z"
+      },
+      "next_low": {
+        "height_m": 0.34,
+        "in_hours": 7.7,
+        "when": "2026-09-03T17:26:00Z"
+      },
+      "range_m": 0.45,
+      "spring_neap": "MID\u2192NEAP",
+      "station_code": "TUT",
+      "station_name": "V.O. Chidambaranar Port (Thoothukudi / Tuticorin)",
+      "tidal_state": "RISING"
+    }
+  },
+  "query_id": "selfcheck",
+  "reasoning_depth": "DEEP",
+  "source_provenance": {
+    "acquisition_timestamp": "2026-09-03T09:42:45.146730Z",
+    "dataset": "INCOIS PFZ advisories + Survey of India 2026 tide tables (Agent 5)",
+    "freshness_minutes": 0
+  },
+  "status": "ok"
+}

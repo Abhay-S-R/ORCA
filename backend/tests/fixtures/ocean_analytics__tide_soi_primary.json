@@ -1,0 +1,39 @@
+{
+  "agent_name": "ocean_analytics",
+  "confidence": {
+    "rationale": "SOI 2026 predicted tide table, station TUT",
+    "score": "HIGH"
+  },
+  "error_detail": null,
+  "inputs_consumed": {
+    "lat": 8.8,
+    "lon": 78.14
+  },
+  "outputs": {
+    "datum": "chart datum (LAT)",
+    "fell_back": false,
+    "next_high": {
+      "height_m": 0.79,
+      "in_hours": 1.5,
+      "when": "2026-09-03T11:10:00Z"
+    },
+    "next_low": {
+      "height_m": 0.34,
+      "in_hours": 7.7,
+      "when": "2026-09-03T17:26:00Z"
+    },
+    "range_m": 0.45,
+    "spring_neap": "MID\u2192NEAP",
+    "station_code": "TUT",
+    "station_name": "V.O. Chidambaranar Port (Thoothukudi / Tuticorin)",
+    "tidal_state": "RISING"
+  },
+  "query_id": "fixture-tide_soi_primary",
+  "reasoning_depth": "STANDARD",
+  "source_provenance": {
+    "acquisition_timestamp": "",
+    "dataset": "Survey of India / Stormglass Calibrated Harmonic (station TUT)",
+    "freshness_minutes": 0
+  },
+  "status": "ok"
+}

@@ -1,0 +1,159 @@
+{
+  "agent_name": "ocean_analytics",
+  "confidence": {
+    "rationale": "pilot sector suppressed by cloud cover",
+    "score": "LOW_DATA"
+  },
+  "error_detail": null,
+  "inputs_consumed": {
+    "lat": 8.8,
+    "lon": 78.14
+  },
+  "outputs": {
+    "all_sectors": [
+      {
+        "is_data_gap": true,
+        "message": "No data available for this sector due to excessive cloud cover",
+        "node_count": 0,
+        "sector_id": "SEC001",
+        "sector_name": "GUJARAT",
+        "status": "NO_DATA_CLOUD_COVER",
+        "valid_for": null
+      },
+      {
+        "is_data_gap": false,
+        "message": "Advisory published for this sector",
+        "node_count": 89,
+        "sector_id": "SEC002",
+        "sector_name": "MAHARASHTRA",
+        "status": "HAS_ADVISORY",
+        "valid_for": "2026-09-02"
+      },
+      {
+        "is_data_gap": false,
+        "message": "Advisory published for this sector",
+        "node_count": 7,
+        "sector_id": "SEC003",
+        "sector_name": "GOA",
+        "status": "HAS_ADVISORY",
+        "valid_for": "2026-09-02"
+      },
+      {
+        "is_data_gap": false,
+        "message": "Advisory published for this sector",
+        "node_count": 24,
+        "sector_id": "SEC004",
+        "sector_name": "KARNATAKA",
+        "status": "HAS_ADVISORY",
+        "valid_for": "2026-09-02"
+      },
+      {
+        "is_data_gap": false,
+        "message": "Advisory published for this sector",
+        "node_count": 100,
+        "sector_id": "SEC005",
+        "sector_name": "KERALA",
+        "status": "HAS_ADVISORY",
+        "valid_for": "2026-09-02"
+      },
+      {
+        "is_data_gap": true,
+        "message": "No data available for this sector due to excessive cloud cover",
+        "node_count": 0,
+        "sector_id": "SEC006",
+        "sector_name": "SOUTH TAMILNADU",
+        "status": "NO_DATA_CLOUD_COVER",
+        "valid_for": null
+      },
+      {
+        "is_data_gap": false,
+        "message": "Advisory published for this sector",
+        "node_count": 90,
+        "sector_id": "SEC007",
+        "sector_name": "NORTH TAMILNADU",
+        "status": "HAS_ADVISORY",
+        "valid_for": "2026-09-02"
+      },
+      {
+        "is_data_gap": false,
+        "message": "Advisory published for this sector",
+        "node_count": 17,
+        "sector_id": "SEC008",
+        "sector_name": "SOUTH ANDHRA PRADESH",
+        "status": "HAS_ADVISORY",
+        "valid_for": "2026-09-02"
+      },
+      {
+        "is_data_gap": false,
+        "message": "Advisory published for this sector",
+        "node_count": 17,
+        "sector_id": "SEC009",
+        "sector_name": "NORTH ANDHRA PRADESH",
+        "status": "HAS_ADVISORY",
+        "valid_for": "2026-09-02"
+      },
+      {
+        "is_data_gap": true,
+        "message": "No data available for this sector due to excessive cloud cover",
+        "node_count": 0,
+        "sector_id": "SEC010",
+        "sector_name": "ODISHA",
+        "status": "NO_DATA_CLOUD_COVER",
+        "valid_for": null
+      },
+      {
+        "is_data_gap": true,
+        "message": "No data available for this sector due to excessive cloud cover",
+        "node_count": 0,
+        "sector_id": "SEC011",
+        "sector_name": "WEST BENGAL",
+        "status": "NO_DATA_CLOUD_COVER",
+        "valid_for": null
+      },
+      {
+        "is_data_gap": true,
+        "message": "No data available for this sector due to excessive cloud cover",
+        "node_count": 0,
+        "sector_id": "SEC012",
+        "sector_name": "ANDAMAN",
+        "status": "NO_DATA_CLOUD_COVER",
+        "valid_for": null
+      },
+      {
+        "is_data_gap": true,
+        "message": "No data available for this sector due to excessive cloud cover",
+        "node_count": 0,
+        "sector_id": "SEC013",
+        "sector_name": "NICOBAR",
+        "status": "NO_DATA_CLOUD_COVER",
+        "valid_for": null
+      },
+      {
+        "is_data_gap": false,
+        "message": "Advisory published for this sector",
+        "node_count": 9,
+        "sector_id": "SEC014",
+        "sector_name": "LAKSHADWEEP",
+        "status": "HAS_ADVISORY",
+        "valid_for": "2026-09-02"
+      }
+    ],
+    "sector_status": {
+      "is_data_gap": true,
+      "message": "No data available for this sector due to excessive cloud cover",
+      "node_count": 0,
+      "sector_id": "SEC006",
+      "sector_name": "SOUTH TAMILNADU",
+      "status": "NO_DATA_CLOUD_COVER",
+      "valid_for": null
+    }
+  },
+  "query_id": "fixture-sector_cloud_cover",
+  "reasoning_depth": "STANDARD",
+  "source_provenance": {
+    "acquisition_timestamp": "",
+    "dataset": "INCOIS PFZ sector status feed",
+    "freshness_minutes": 0
+  },
+  "status": "ok"
+}

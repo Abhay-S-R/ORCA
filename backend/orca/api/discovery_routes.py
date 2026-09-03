@@ -6,21 +6,37 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from orca.agents.discovery import SOURCE_REGISTRY, load_pfz_advisories, select_best_source
+from orca.agents.discovery import (
+    FALLBACK_CASCADES,
+    SOURCE_REGISTRY,
+    select_source_with_fallback,
+)
 
 router = APIRouter(prefix="/api", tags=["discovery"])
 
 
 @router.get("/sources")
-def list_sources(data_type: str | None = None) -> dict:
+def list_sources(data_type: str | None = None, down: str | None = None) -> dict:
+    """Full catalog, or — with `data_type` — Agent 3's cascade-aware pick and
+    its comparison narrative. `down` is a comma-separated list of source ids
+    to treat as unavailable (exercises the §12.1 fallback chain).
+
+    `/zones` moved to analytics_routes (Phase 2 D2 owns that surface).
+    """
     if data_type is None:
-        return {"sources": [s.__dict__ for s in SOURCE_REGISTRY]}
-    picked = select_best_source(data_type)
-    if picked is None:
+        return {
+            "sources": [
+                {**s.__dict__, "fallback_chain": list(FALLBACK_CASCADES.get(s.id, ()))}
+                for s in SOURCE_REGISTRY
+            ]
+        }
+    down_ids = tuple(x.strip() for x in down.split(",") if x.strip()) if down else ()
+    decision = select_source_with_fallback(data_type, down=down_ids)
+    if decision is None:
         raise HTTPException(404, f"No source covers data_type={data_type!r}")
-    return {"source": picked.source.__dict__, "reason": picked.reason}
-
-
-@router.get("/zones")
-def zones() -> dict:
-    return load_pfz_advisories()
+    return {
+        "source": decision.chosen.__dict__,
+        "reason": decision.narrative,
+        "considered": [s.id for s in decision.considered],
+        "fallback_chain": list(decision.fallback_chain),
+    }

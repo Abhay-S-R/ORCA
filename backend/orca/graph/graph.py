@@ -5,11 +5,11 @@
                                             |
                                          planning
                                             |
-                              +-------------+-------------+
-                              v                            v
-                      weather_intelligence          geospatial
-                              |                            |
-                              +-------------+-------------+
+                        +-------------------+-------------------+
+                        v                   v                   v
+                weather_intelligence   geospatial        ocean_analytics
+                        |                   |                   |
+                        +-------------------+-------------------+
                                             |
                               +-------------+-------------+
                               v                            v
@@ -28,6 +28,10 @@ Planning, after Reporting), matching "Ingress & Egress" in its own name.
 visualization (Agent 8, Phase 2 D3) is a sibling of risk_assessment, not
 downstream of it — it shapes weather_data/geospatial_data into map layers
 and charts, and never reads the safety verdict to do so.
+ocean_analytics (Agent 5, Phase 2 D2) is a third sibling of weather/geospatial
+— tide, PFZ proximity/persistence, sector status, and the DEEP catch-decline
+diagnosis; it also carries Agent 3's source-selection narratives out on
+discovery_data for the answer card.
 """
 from __future__ import annotations
 
@@ -39,6 +43,7 @@ from orca.agents import (
     distress,
     geospatial,
     language,
+    ocean_analytics,
     planning,
     reporting,
     risk_assessment,
@@ -127,6 +132,26 @@ def weather_node(state: ORCAState) -> dict:
         "audit_trace_log": [entry],
         "completed_nodes": ["weather_intelligence"],
     }
+
+
+def ocean_analytics_node(state: ORCAState) -> dict:
+    """Agent 5 (Ocean Analytics, Phase 2 D2) — a sibling of weather/geospatial,
+    fed by planning, feeding the risk_assessment + visualization join and
+    reporting. It exports run(state) -> AgentResult directly, so no adapter
+    wrapper is needed here (unlike geospatial/reporting)."""
+    result, entry = run_traced_node("ocean_analytics", ocean_analytics.run, state)
+    update: dict = {
+        "ocean_data": {**result.outputs, "confidence": result.confidence} if result.outputs else {},
+        "audit_trace_log": [entry],
+        "completed_nodes": ["ocean_analytics"],
+    }
+    # Agent 3's source-selection narratives ride out on discovery_data (a
+    # state field that already exists and nothing else writes) so the answer
+    # card and activity strip can render them (differentiator 4).
+    selections = result.outputs.get("source_selections") if result.outputs else None
+    if selections:
+        update["discovery_data"] = {"source_selections": selections}
+    return update
 
 
 def geospatial_run(state: ORCAState) -> AgentResult:
@@ -248,6 +273,24 @@ def reporting_run(state: ORCAState) -> AgentResult:
             confidence=geo_confidence,
         ))
 
+    ocean = state.get("ocean_data") or {}
+    if ocean:
+        ocean_conf = ocean.get("confidence") or Confidence(score="LOW_DATA", rationale="ocean_analytics")
+        results.append(AgentResult(
+            agent_name="ocean_analytics", query_id=query_id, reasoning_depth=depth,
+            inputs_consumed={},
+            outputs={
+                k: ocean.get(k)
+                for k in ("tide", "nearest_pfz", "sector_status", "pfz_persistence", "productivity_diagnosis")
+                if ocean.get(k) is not None
+            },
+            source_provenance=SourceProvenance(
+                dataset="INCOIS PFZ advisories + Survey of India 2026 tide tables (Agent 5)",
+                acquisition_timestamp="", freshness_minutes=0,
+            ),
+            confidence=ocean_conf,
+        ))
+
     verdict = state.get("risk_assessment") or {}
     if verdict:
         results.append(AgentResult(
@@ -316,6 +359,7 @@ def build_graph():
     g.add_node("planning", planning_node)
     g.add_node("weather_intelligence", weather_node)
     g.add_node("geospatial", geospatial_node)
+    g.add_node("ocean_analytics", ocean_analytics_node)
     g.add_node("risk_assessment", risk_assessment_node)
     g.add_node("visualization", visualization_node)
     g.add_node("reporting", reporting_node)
@@ -326,8 +370,9 @@ def build_graph():
     g.add_edge("language_ingress", "planning")
     g.add_edge("planning", "weather_intelligence")
     g.add_edge("planning", "geospatial")
-    g.add_edge(["weather_intelligence", "geospatial"], "risk_assessment")
-    g.add_edge(["weather_intelligence", "geospatial"], "visualization")
+    g.add_edge("planning", "ocean_analytics")
+    g.add_edge(["weather_intelligence", "geospatial", "ocean_analytics"], "risk_assessment")
+    g.add_edge(["weather_intelligence", "geospatial", "ocean_analytics"], "visualization")
     g.add_edge(["risk_assessment", "visualization"], "reporting")
     g.add_edge("reporting", "language_egress")
     g.add_edge("language_egress", END)

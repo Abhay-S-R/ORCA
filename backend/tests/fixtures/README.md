@@ -48,6 +48,27 @@ frontend fixtures) just need the dict.
 - `discovery__wave_height.json` — `select_best_source` picking between the
   two Tier 1 wave-height sources.
 
-Both were recorded from real pilot data (`data/tier1/`), not hand-written —
-regenerate them with `python -m orca.agents.geospatial` /
-`python -m orca.agents.discovery` if the underlying source files change.
+Agent 3 (Phase 2 D2), regenerate with `python -m orca.agents.discovery`:
+
+- `discovery__chlorophyll_primary.json` — the healthy primary pick.
+- `discovery__sst_fallback_cascade.json` — the same picker after the primary
+  is declared down, walking the Architecture §12.1 chain.
+
+Agent 5 (Phase 2 D2), regenerate with `python -m orca.agents.ocean_analytics`:
+
+- `ocean_analytics__thoothukudi_deep_multi_intent.json` — the full `run()`
+  envelope at DEEP depth (tide + PFZ + sector + diagnosis).
+- `ocean_analytics__tide_soi_primary.json` / `__tide_stormglass_fallback.json`
+  — both rungs of the tide cascade. Note the `datum` field differs between
+  them; the heights are not comparable across the two.
+- `ocean_analytics__sector_cloud_cover.json` — the suppressed pilot sector
+  plus the full SEC001–SEC014 roster.
+- `ocean_analytics__wind_rose_thoothukudi.json` — 16-point directional bins.
+- `ocean_analytics__catch_diagnosis_mumbai.json` — the no-recent-decline
+  branch of `diagnose_productivity_decline`.
+- `ocean_analytics__sst_chl_awaiting_d3.json` — the LOW_DATA shape returned
+  while D3's gridded fixtures (§4.2) are absent, so consumers can build
+  against the degraded path before the real one exists.
+
+All were recorded from real pilot data (`data/`), not hand-written —
+regenerate them with the module commands above if the source files change.

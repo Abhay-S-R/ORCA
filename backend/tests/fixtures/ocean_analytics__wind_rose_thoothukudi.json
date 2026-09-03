@@ -1,0 +1,129 @@
+{
+  "agent_name": "ocean_analytics",
+  "confidence": {
+    "rationale": "168 cached hourly wind readings at thoothukudi; a forecast window, not a climatology",
+    "score": "MEDIUM"
+  },
+  "error_detail": null,
+  "inputs_consumed": {
+    "lat": 8.8,
+    "lon": 78.14
+  },
+  "outputs": {
+    "available": true,
+    "bins": [
+      "calm_0_5",
+      "moderate_5_10",
+      "strong_10_plus"
+    ],
+    "dataset": "Open-Meteo Forecast API (cached, port=thoothukudi)",
+    "hours_counted": 168,
+    "petals": [
+      {
+        "calm_0_5": 0,
+        "compass": "N",
+        "moderate_5_10": 0,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 0,
+        "compass": "NNE",
+        "moderate_5_10": 0,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 0,
+        "compass": "NE",
+        "moderate_5_10": 0,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 0,
+        "compass": "ENE",
+        "moderate_5_10": 0,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 0,
+        "compass": "E",
+        "moderate_5_10": 0,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 3,
+        "compass": "ESE",
+        "moderate_5_10": 1,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 3,
+        "compass": "SE",
+        "moderate_5_10": 5,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 5,
+        "compass": "SSE",
+        "moderate_5_10": 3,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 4,
+        "compass": "S",
+        "moderate_5_10": 0,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 1,
+        "compass": "SSW",
+        "moderate_5_10": 0,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 20,
+        "compass": "SW",
+        "moderate_5_10": 0,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 20,
+        "compass": "WSW",
+        "moderate_5_10": 1,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 27,
+        "compass": "W",
+        "moderate_5_10": 60,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 6,
+        "compass": "WNW",
+        "moderate_5_10": 9,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 0,
+        "compass": "NW",
+        "moderate_5_10": 0,
+        "strong_10_plus": 0
+      },
+      {
+        "calm_0_5": 0,
+        "compass": "NNW",
+        "moderate_5_10": 0,
+        "strong_10_plus": 0
+      }
+    ],
+    "port": "thoothukudi"
+  },
+  "query_id": "fixture-wind_rose_thoothukudi",
+  "reasoning_depth": "STANDARD",
+  "source_provenance": {
+    "acquisition_timestamp": "",
+    "dataset": "Open-Meteo Forecast API (cached, port=thoothukudi)",
+    "freshness_minutes": 0
+  },
+  "status": "ok"
+}

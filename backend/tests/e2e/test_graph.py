@@ -18,7 +18,8 @@ from orca.state import ORCAState
 
 ALL_NODES = {
     "distress_check", "language_ingress", "planning", "weather_intelligence",
-    "geospatial", "risk_assessment", "visualization", "reporting", "language_egress",
+    "geospatial", "ocean_analytics", "risk_assessment", "visualization",
+    "reporting", "language_egress",
 }
 
 import importlib.util
