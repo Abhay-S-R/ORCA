@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Barlow, IBM_Plex_Mono, Noto_Sans_Tamil } from "next/font/google";
 import { NavRail, SosButton } from "./nav";
+import { NotificationBell } from "./components/NotificationBell";
 import { StatusBar } from "./components/StatusBar";
 import { PersonaProvider } from "./persona/context";
 import "./globals.css";
@@ -68,6 +69,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
           <SosButton />
+          {/* Sentinel notification feed — persistent, like SOS. Renders
+              nothing until there is an authenticated session. */}
+          <NotificationBell />
         </PersonaProvider>
       </body>
     </html>

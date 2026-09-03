@@ -21,7 +21,11 @@ from orca.agents.language import IndicTrans2Backend, register_translation_backen
 from orca.api.analytics_routes import router as analytics_router
 from orca.api.auth_routes import router as auth_router
 from orca.api.discovery_routes import router as discovery_router
+from orca.api.feedback_routes import router as feedback_router
 from orca.api.geospatial_routes import router as geospatial_router
+from orca.api.notifications_routes import router as notifications_router
+from orca.api.ops_routes import router as ops_router
+from orca.api.watches_routes import router as watches_router
 from orca.data.loaders import resolve_port_from_text
 from orca.graph.graph import build_graph
 from orca.logging_utils import configure_logging
@@ -38,7 +42,23 @@ async def _lifespan(app: FastAPI):
     # cheap; the first Tamil/Hindi query after a cold start pays the model
     # load cost, not every query.
     register_translation_backend(IndicTrans2Backend())
+    # Agent 11 (Sentinel, Phase 3 D2) — an in-process asyncio poll loop,
+    # single-instance via a Postgres advisory lock. Disabled with
+    # ORCA_SENTINEL_ENABLED=0; a DB outage degrades it to a no-op tick, never
+    # blocks startup.
+    _stop_sentinel = None
+    try:
+        from orca.sentinel_runtime import start_sentinel, stop_sentinel
+
+        start_sentinel()
+        _stop_sentinel = stop_sentinel
+    except Exception:  # Sentinel must never block the API coming up
+        import logging
+
+        logging.getLogger("orca.sentinel").warning("sentinel failed to start", exc_info=True)
     yield
+    if _stop_sentinel is not None:
+        await _stop_sentinel()
 
 
 app = FastAPI(title="ORCA API", lifespan=_lifespan)
@@ -56,6 +76,13 @@ app.include_router(discovery_router)
 app.include_router(geospatial_router)
 app.include_router(auth_router)  # D1 — /register, /login, /profile, /vessels (Phase 2 D1)
 app.include_router(analytics_router)  # Agent 5 — /zones, /trends, /tides, /data (Phase 2 D2)
+
+# Phase 3 D2 — Sentinel / alerting / feedback / district ops. Same one-line
+# include pattern; none collide with /query or the routers above (checked).
+app.include_router(watches_router)
+app.include_router(notifications_router)
+app.include_router(feedback_router)
+app.include_router(ops_router)
 
 # Agent 8 raster tile pyramid (orca/tiles.py) — serves the PNGs
 # scripts/generate_tiles.py writes offline, at the same "/tiles/{layer_id}/
