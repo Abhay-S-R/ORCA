@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "framer-motion-gestures": {
+      "source": "C-Jeril/framer-motion-skills",
+      "sourceType": "github",
+      "skillPath": "skills/framer-motion-gestures/SKILL.md",
+      "computedHash": "2e5e0c65e35e185e6eae4abe966e24511be8a58e4c352d3724ef7d2d171e589a"
+    },
+    "framer-motion-layout": {
+      "source": "C-Jeril/framer-motion-skills",
+      "sourceType": "github",
+      "skillPath": "skills/framer-motion-layout/SKILL.md",
+      "computedHash": "18a6a2bde9df393f49e4df9e5554d7d355e8aafc422d13a5fc42589515db846a"
+    },
+    "framer-motion-react": {
+      "source": "C-Jeril/framer-motion-skills",
+      "sourceType": "github",
+      "skillPath": "skills/framer-motion-react/SKILL.md",
+      "computedHash": "3d3fc832d8a3e3729919c316d3cdc6c7e7e3235e2e0c6868929b3565c8941ae8"
+    },
+    "framer-motion-scroll": {
+      "source": "C-Jeril/framer-motion-skills",
+      "sourceType": "github",
+      "skillPath": "skills/framer-motion-scroll/SKILL.md",
+      "computedHash": "418b7b9e10f99271331047d854068723137433ac8f46248c1c8ba97c8c554071"
+    },
+    "framer-motion-variants": {
+      "source": "C-Jeril/framer-motion-skills",
+      "sourceType": "github",
+      "skillPath": "skills/framer-motion-variants/SKILL.md",
+      "computedHash": "2e6b05cdfd0936deababa4668b058b4494280963023ae254efbdbd9bd30141dd"
+    }
+  }
+}
