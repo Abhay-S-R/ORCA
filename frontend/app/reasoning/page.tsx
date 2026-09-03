@@ -154,7 +154,23 @@ export default function ReasoningPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
-        <div className="h-[560px] overflow-hidden rounded-md border border-hairline bg-shelf-1/40">
+        <div
+          className="h-[560px] overflow-hidden rounded-md border border-hairline bg-shelf-1/40"
+          // React Flow's built-in Enter/Space-to-select keyboard handling
+          // (and its onSelectionChange callback) doesn't reliably reach a
+          // freshly Tab-focused node in this graph, so the inspector was
+          // mouse-only despite every node advertising "press enter or space
+          // to select" (plan §7 a11y: node-to-node keyboard navigation).
+          // Handling it ourselves at the container level, from the same
+          // data-id every node already carries, sidesteps that and keeps
+          // keyboard selection working the same way the mouse path does.
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            const id = (e.target as HTMLElement).closest<HTMLElement>("[data-id]")?.getAttribute("data-id");
+            const node = id ? activeTrace.nodes.find((n) => n.id === id) : undefined;
+            if (node) setSelected(node);
+          }}
+        >
           <ReactFlow
             nodes={nodes as Node[]}
             edges={edges}
@@ -166,6 +182,11 @@ export default function ReasoningPage() {
             onPaneClick={() => setSelected(null)}
             fitView
             fitViewOptions={{ padding: 0.15 }}
+            // Default minZoom (0.5) can't zoom out far enough to fit a wide
+            // trace (this graph's ~9 ranks), so fitView clips the leftmost
+            // and rightmost nodes outside the visible/interactive container
+            // instead of shrinking further to fit them.
+            minZoom={0.1}
             proOptions={{ hideAttribution: true }}
             colorMode="dark"
             nodesDraggable={false}
