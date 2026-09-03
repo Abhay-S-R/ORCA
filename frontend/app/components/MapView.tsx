@@ -66,6 +66,29 @@ type RasterLayerMeta = {
 
 const EMPTY = { type: "FeatureCollection", features: [] };
 
+interface MarinePortPreset {
+  id: string;
+  name: string;
+  sub: string;
+  center: [number, number];
+  zoom: number;
+}
+
+const COASTAL_REGIONS: MarinePortPreset[] = [
+  { id: "all", name: "All India Coastline", sub: "National Overview", center: [78.5, 15.5], zoom: 4.8 },
+  { id: "gulf_mannar", name: "Gulf of Mannar / Thoothukudi", sub: "Pilot Sector", center: [78.8, 8.8], zoom: 7.8 },
+  { id: "gujarat", name: "Gujarat (Kutch & Saurashtra)", sub: "West Coast", center: [69.6, 21.8], zoom: 7.2 },
+  { id: "mumbai", name: "Mumbai & Konkan Coast", sub: "Maharashtra", center: [72.8, 18.9], zoom: 8.2 },
+  { id: "goa", name: "Goa & Karwar", sub: "Goa / Karnataka", center: [73.8, 15.4], zoom: 8.4 },
+  { id: "kochi", name: "Kochi & Malabar Coast", sub: "Kerala", center: [76.1, 9.9], zoom: 8.2 },
+  { id: "lakshadweep", name: "Lakshadweep Islands", sub: "Arabian Sea", center: [72.6, 10.5], zoom: 8.0 },
+  { id: "chennai", name: "Chennai & Coromandel", sub: "Tamil Nadu", center: [80.3, 13.1], zoom: 8.2 },
+  { id: "vizag", name: "Visakhapatnam & Circars", sub: "Andhra Pradesh", center: [83.3, 17.7], zoom: 8.0 },
+  { id: "kolkata", name: "Odisha & Sundarbans", sub: "East Coast", center: [87.5, 20.8], zoom: 7.5 },
+  { id: "andaman", name: "Andaman & Nicobar", sub: "Bay of Bengal", center: [92.8, 11.6], zoom: 7.0 },
+];
+
+
 // `/tiles/{layer_id}/{time}/{z}/{x}/{y}.png` — the on-disk frame directory
 // has `:` replaced with `-` (illegal in a Windows path); orca/tiles.py keeps
 // the real ISO string in forecast_frames, so the frontend applies the same
@@ -160,6 +183,22 @@ export function MapView({
   const [heavyLimit, setHeavyLimit] = useState(4);
   const [evictionNotice, setEvictionNotice] = useState<string | null>(null);
   const lru = useRef<HeavyKey[]>([]);
+
+  const [selectedRegion, setSelectedRegion] = useState("all");
+  const [regionDropdownOpen, setRegionDropdownOpen] = useState(false);
+  const regionDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (regionDropdownRef.current && !regionDropdownRef.current.contains(e.target as Node)) {
+        setRegionDropdownOpen(false);
+      }
+    }
+    if (regionDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [regionDropdownOpen]);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 640px)");
@@ -773,6 +812,80 @@ export function MapView({
               </div>
             </div>
           )}
+
+          {/* Coastal Region & Port Quick Switcher */}
+          <div ref={regionDropdownRef} className="pointer-events-auto absolute top-3 right-14 z-20">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setRegionDropdownOpen(!regionDropdownOpen)}
+                className="flex items-center gap-2 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl px-3 py-1.5 text-xs font-medium text-ink shadow-lg transition-all hover:bg-shelf-2 hover:border-hairline-strong focus:outline-none"
+                aria-label="Select coastal sector"
+              >
+                <MapPin className="size-3.5 text-accent" />
+                <span className="max-w-[140px] sm:max-w-none truncate font-medium">
+                  {COASTAL_REGIONS.find((r) => r.id === selectedRegion)?.name ?? "Select Sector"}
+                </span>
+                <ChevronDown
+                  className={`size-3 text-ink-dim transition-transform duration-200 ${
+                    regionDropdownOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+              {regionDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-64 max-h-80 overflow-y-auto rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-2xl p-1.5 shadow-2xl z-30">
+                  <div className="px-2.5 py-1.5 text-[10px] font-semibold tracking-wider text-ink-dim uppercase border-b border-hairline/50 mb-1">
+                    Coastal Navigation Regions
+                  </div>
+                  {COASTAL_REGIONS.map((region) => (
+                    <button
+                      key={region.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedRegion(region.id);
+                        setRegionDropdownOpen(false);
+                        map.current?.flyTo({
+                          center: region.center,
+                          zoom: region.zoom,
+                          duration: 1200,
+                          essential: true,
+                        });
+                      }}
+                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${
+                        selectedRegion === region.id
+                          ? "bg-accent/15 text-accent font-semibold"
+                          : "text-ink hover:bg-shelf-2"
+                      }`}
+                    >
+                      <span className="truncate">{region.name}</span>
+                      <span className="ml-2 text-[10px] text-ink-dim shrink-0">{region.sub}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Quick recenter button */}
+          <div className="pointer-events-auto absolute top-28 right-2.5 z-10">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedRegion("gulf_mannar");
+                map.current?.flyTo({
+                  center: DEFAULT_USER,
+                  zoom: 8.5,
+                  duration: 800,
+                  essential: true,
+                });
+              }}
+              title="Recenter chart on Gulf of Mannar pilot sector"
+              aria-label="Recenter chart on Gulf of Mannar"
+              className="flex size-[29px] items-center justify-center rounded-md border border-hairline bg-shelf-1/90 backdrop-blur-md text-ink-muted shadow transition-colors hover:bg-shelf-2 hover:text-ink focus:outline-none"
+            >
+              <Crosshair className="size-4" />
+            </button>
+          </div>
 
           <div
             className={`pointer-events-auto absolute right-3 left-3 sm:left-auto sm:w-80 transition-all ${

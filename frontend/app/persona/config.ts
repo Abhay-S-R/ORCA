@@ -19,7 +19,7 @@ export const PERSONAS: { id: Persona; label: string }[] = [
 ];
 
 export const NAV_ROUTES = [
-  "/",
+  "/ask",
   "/safety",
   "/map",
   "/zones",
@@ -40,7 +40,10 @@ type Route = (typeof NAV_ROUTES)[number];
 // The visibility matrix controls what appears in the NavRail; how complex
 // the content renders is a per-surface concern handled inside the page.
 const VISIBILITY_MATRIX: Record<Route, Record<Persona, Visibility>> = {
-  "/": { fisherman: "primary", commercial_navigator: "primary", researcher: "primary", coastal_authority: "primary", unresolved: "primary" },
+  // "/" itself is now the public landing page (outside the nav rail
+  // entirely) — the Ask surface this row describes moved to "/ask", the
+  // matrix values are unchanged from the plan.
+  "/ask": { fisherman: "primary", commercial_navigator: "primary", researcher: "primary", coastal_authority: "primary", unresolved: "primary" },
   "/safety": { fisherman: "primary", commercial_navigator: "primary", researcher: "secondary", coastal_authority: "primary", unresolved: "primary" },
   "/map": { fisherman: "primary", commercial_navigator: "primary", researcher: "primary", coastal_authority: "primary", unresolved: "primary" },
   "/zones": { fisherman: "primary", commercial_navigator: "primary", researcher: "secondary", coastal_authority: "hidden", unresolved: "primary" },

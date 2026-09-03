@@ -11,6 +11,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   Building2,
   Database,
@@ -47,7 +48,7 @@ const NATIONWIDE_MRCC = {
 };
 
 const NAV: Record<(typeof NAV_ROUTES)[number], { label: string; Icon: LucideIcon }> = {
-  "/": { label: "Ask", Icon: Radio },
+  "/ask": { label: "Ask", Icon: Radio },
   "/safety": { label: "Safety", Icon: ShieldAlert },
   "/map": { label: "Chart", Icon: MapIcon },
   "/zones": { label: "Fishing zones", Icon: Fish },
@@ -77,7 +78,9 @@ export function NavRail() {
         aria-label="Primary"
         className="hidden w-15 shrink-0 flex-col items-center gap-1 border-r border-hairline bg-shelf-1/40 py-3 sm:flex"
       >
-        <Link href="/" aria-label="ORCA home" className="mb-2 grid size-9 place-items-center">
+        {/* "/" is the public landing page, outside this rail entirely —
+            inside the app, the mark goes back to Ask, the app's own home. */}
+        <Link href="/ask" aria-label="ORCA home" className="mb-2 grid size-9 place-items-center">
           <OrcaMark />
         </Link>
         {visible.map(({ href, visibility }) => {
@@ -137,12 +140,21 @@ export function NavRail() {
 
 // The mark: a depth sounding. Three descending strokes, which is what a
 // sounding line looks like on a chart, and what the product actually does.
-function OrcaMark() {
+// Exported (rather than redrawn) so /landing can reuse it at hero size, with
+// an opt-in `animated` pass that draws the three strokes in as an actual
+// sounding — motion tied to what the mark already means, not decoration
+// bolted on. Nav rail usage is unaffected (animated defaults off).
+export function OrcaMark({ className = "size-6", animated = false }: { className?: string; animated?: boolean }) {
+  const reduce = useReducedMotion();
+  const draw = animated && !reduce;
+  const Stroke = draw ? motion.path : "path";
+  const drawProps = (delay: number) =>
+    draw ? { initial: { pathLength: 0 }, animate: { pathLength: 1 }, transition: { duration: 0.5, delay, ease: "easeOut" as const } } : {};
   return (
-    <svg viewBox="0 0 24 24" className="size-6" fill="none" aria-hidden="true">
-      <path d="M3 6h18" stroke="var(--color-hairline-strong)" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M5 12h14" stroke="var(--color-shoal)" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M8 18h8" stroke="var(--color-accent)" strokeWidth="1.5" strokeLinecap="round" />
+    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
+      <Stroke d="M3 6h18" stroke="var(--color-hairline-strong)" strokeWidth="1.5" strokeLinecap="round" {...drawProps(0)} />
+      <Stroke d="M5 12h14" stroke="var(--color-shoal)" strokeWidth="1.5" strokeLinecap="round" {...drawProps(0.15)} />
+      <Stroke d="M8 18h8" stroke="var(--color-accent)" strokeWidth="1.5" strokeLinecap="round" {...drawProps(0.3)} />
     </svg>
   );
 }
