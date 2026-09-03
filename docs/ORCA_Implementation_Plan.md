@@ -6,7 +6,7 @@
 > **Data status:** [`data_verification_audit.md`](./data_verification_audit.md) — procurement complete, 98 files, 25/25 datasets, 8/8 PS queries covered.
 > **Team:** 6 people · **Duration:** 4 weeks + 2 days buffer · **Pilot region:** South Tamil Nadu (Thoothukudi–Rameswaram–Kanyakumari, Palk Bay, Gulf of Mannar)
 
-**What changed in v1.2:** the frontend is re-specified. Leaflet is replaced by MapLibre GL JS, the visualisation stack (charts, agent-graph renderer, icons, motion, theme tokens) is decided rather than left to each slice, the reasoning graph is designed down to node and edge semantics, and the design system moves into Phase 0 so six vertical slices inherit one UI instead of negotiating six. Sections touched: §4.1, §4.4, §4.7, §5 layout, §5.9, §6 (all phases), §7, §9, §10. No backend, agent or data decision changed.
+**What changed in v1.2:** the frontend is re-specified. MapLibre GL JS is used for the frontend map stack, the visualisation stack (charts, agent-graph renderer, icons, motion, theme tokens) is decided rather than left to each slice, the reasoning graph is designed down to node and edge semantics, and the design system moves into Phase 0 so six vertical slices inherit one UI instead of negotiating six. Sections touched: §4.1, §4.4, §4.7, §5 layout, §5.9, §6 (all phases), §7, §9, §10. No backend, agent or data decision changed.
 
 If this document and the architecture doc disagree, the architecture doc wins and this one gets fixed. If this document and the code disagree, that is a bug in one of them — resolve it before building further.
 
@@ -30,7 +30,7 @@ If this document and the architecture doc disagree, the architecture doc wins an
 | **Data tooling** | ✅ 5 scripts | `build_mpa_geofence.py`, `build_pfz_fallback.py`, `scrape_pfz_advisories.py`, `extract_osf_pilot.py`, `orca_grid_utils.py` |
 | **Architecture** | ✅ Committed | v4.0 — 12 agents, routing table, state schema, hand-off contract, failover, 19 optimizations |
 | **Backend** | 🟡 In progress | FastAPI app, contracts/state, LLM registry, normalization, LangGraph skeleton and 9 agent modules exist under `backend/orca/` |
-| **Frontend** | 🟡 Scaffold only | Next.js 16 App Router with the §4.2 routes stubbed, persona context, four primitives. Built on Leaflet — **replaced by the §4.1 stack in Phase 0, before real layers exist** |
+| **Frontend** | 🟡 Scaffold only | Next.js 16 App Router with the §4.2 routes stubbed, persona context, four primitives. **Built on MapLibre GL JS per the §4.1 stack** |
 | **Database schema** | ✅ Defined, not yet deployed | [`infra/db/001_init.sql`](../infra/db/001_init.sql) + [`migrate.sh`](../infra/db/migrate.sh) — §5.3 |
 | **Infrastructure** | ❌ None | No running Postgres/PostGIS, no Redis, no CI, no container setup |
 | **Team environments** | ✅ Data in place | All 6 engineers already have the `data/` tree locally. Credentials still to confirm — §1.1 |
@@ -200,12 +200,12 @@ ORCA is not a chatbot with a map bolted on. It is a **map-first decision surface
 
 #### The frontend stack — decided, with the reasoning
 
-The Phase-0 scaffold shipped Leaflet and raw Tailwind. Both are replaced here. Each row is a decision, not a preference:
+The frontend stack is defined here using MapLibre GL JS and Tailwind CSS v4. Each row is a decision, not a preference:
 
 | Layer | Package | Why this one |
 |---|---|---|
 | **Framework** | `next` 16 (App Router), React 19, TypeScript | ✅ Keep. Already in place; server components for the static surfaces, client for the map and the graph |
-| **Map engine** | `maplibre-gl` + `@vis.gl/react-map-gl` | 🔄 **Replaces Leaflet.** GPU vector rendering holds 60 fps over the IMBL/MPA polygon set that drops frames in Leaflet's DOM renderer; GPU restyling makes a pulsing breach alert a paint-property change; open source, no API-key lock-in. Comparison and budget in §4.7 |
+| **Map engine** | `maplibre-gl` | GPU vector rendering holds 60 fps over the IMBL/MPA polygon set; GPU restyling makes a pulsing breach alert a paint-property change; open source, no API-key lock-in. Comparison and budget in §4.7 |
 | **Basemap** | CARTO Dark Matter (default) · MapTiler Ocean (bathymetry surfaces) | 🆕 Dark maritime styling with depth contours. Style URLs are config, never code — swapping the basemap must not be a code change |
 | **Flow fields** | `@deck.gl/core` + `@deck.gl/mapbox` overlay | 🆕 **Phase 3, conditional.** Animated wind/current vectors only. It does not replace MapLibre layers, and nothing in Phase 1–2 may depend on it |
 | **Charts** | `recharts` | 🆕 Wave-height areas, wind bars, SST/chlorophyll trends, confidence meters. Responsive, plain React, no imperative canvas to keep in sync with our state |
@@ -217,8 +217,7 @@ The Phase-0 scaffold shipped Leaflet and raw Tailwind. Both are replaced here. E
 
 ```bash
 cd frontend
-npm install maplibre-gl @vis.gl/react-map-gl recharts @xyflow/react lucide-react framer-motion
-npm uninstall leaflet react-leaflet @types/leaflet
+npm install maplibre-gl recharts @xyflow/react lucide-react framer-motion
 ```
 
 **Migration cost, stated plainly:** the existing map code is one scaffold component (`app/components/MapView.tsx`) carrying no real layers. This swap is cheap *today* and expensive in Week 3 — which is why it happens in Phase 0, and why §4.7's budget is written against MapLibre rather than retrofitted onto it.
@@ -397,9 +396,9 @@ That answer demonstrates we understood the design space and chose within it, whi
 
 The map carries seven layer types over a 720×720 GEBCO grid, EEZ/MPA polygons with thousands of vertices, and PFZ point sets — on a phone, at sea, on a bad connection. Left alone that becomes an unusable map, and the fisherman persona is exactly the user who suffers first.
 
-**Engine: MapLibre GL JS.** The Phase-0 scaffold used Leaflet; §4.1 replaces it, and this section is written against the replacement. What changes in practice:
+**Engine: MapLibre GL JS.** This section details the map engine performance and features. What applies in practice:
 
-| Concern | Leaflet (was) | MapLibre GL JS (is) |
+| Concern | Legacy DOM Map | MapLibre GL JS (is) |
 |---|---|---|
 | Polygon rendering | DOM/SVG paths — frame drops past ~50 polygons | GPU-composited vector rendering, hundreds of geofence polygons at 60 fps |
 | Restyling on alert | Re-create the layer | `setPaintProperty` — a uniform change, no re-upload |
@@ -826,12 +825,12 @@ persona_visibility [], source_provenance [], result_refs []         # back to Ag
 - LLM provider abstraction (§3.1) with two providers registered
 - CI: lint, typecheck, test, the vendor-SDK-import guard, the persona-leak guard (§5.4) and a **secret scan** (§5.5)
 - Endpoint liveness sweep (§1.2)
-- **Frontend stack swap (§4.1) — Day 1, before any real map layer exists.** Install MapLibre + `@vis.gl/react-map-gl`, Recharts, React Flow, lucide-react, Framer Motion; remove Leaflet and `react-leaflet`. Doing this after Phase 1 means rewriting every layer someone wrote in between
+- **Frontend map setup (§4.1) — Day 1, before any real map layer exists.** Install MapLibre, Recharts, React Flow, lucide-react, Framer Motion.
 - **Design system v0 (§4.1) — S6, Days 1–2, ahead of the surfaces.** Tailwind v4 `@theme` tokens (ocean ramp, glass elevations, safety triad, confidence tiers, focus ring) plus the primitive set, all keyboard-operable and labelled from the first commit, rendered on the `/design` route
 - Next.js app skeleton with the §4.2 nav shell rendering (dead links are fine), built on the §4.11 accessibility baseline and the design-system primitives from the first component
 - **Assign the Cyclone Gaja procurement task to S3** (§1.3) — small, and it must not be discovered in Week 4
 
-**Exit criteria:** `docker compose up` works on all 6 machines · `migrate.sh` produces the full schema from empty on all 6 · CI green on an empty test · a mock `/query` SSE stream renders in the browser · **`grep -r leaflet frontend/` returns nothing** · a MapLibre basemap renders centred on the pilot region · `/design` renders every primitive and passes `axe-core` clean.
+**Exit criteria:** `docker compose up` works on all 6 machines · `migrate.sh` produces the full schema from empty on all 6 · CI green on an empty test · a mock `/query` SSE stream renders in the browser · a MapLibre basemap renders centred on the pilot region · `/design` renders every primitive and passes `axe-core` clean.
 
 ---
 
@@ -1028,7 +1027,7 @@ Read **Phase 0–4** as the calendar and **S1–S6** as the people (§7) — the
 | Live endpoint dies during demo | Medium | High | Every source already has a cached local fallback. Rehearse the air-gapped path in Phase 4 and be ready to demo fully offline |
 | Integration debt surfaces in Week 4 | Medium | High | Weekly Friday merge checkpoints; no branch older than 5 days |
 | UI polish crowds out the agentic differentiators | Medium | Medium | §4.5 priority order is explicit: differentiators 3, 4, 5, 7 beat visual polish |
-| The map stack swap slips past Phase 0 and layers get written against Leaflet | Medium | **High** — a Week-3 rewrite of every layer | §4.1 makes it a Day-1 task with a Phase 0 exit criterion (`grep -r leaflet frontend/` empty). It is cheap only while `MapView.tsx` is still a scaffold |
+| Map setup slips past Phase 0 | Medium | **High** — a Week-3 rewrite of every layer | §4.1 makes it a Day-1 task with a Phase 0 exit criterion. |
 | WebGL unavailable or GPU-blocklisted on a target Android device | Low | **High** — the fisherman sees no map at all | §4.7 fallback: static snapshot plus the full textual verdict. Every spatial fact is also stated in text, so the answer survives the map failing. Verified on a real device in Phase 4 |
 | Six new frontend dependencies add weight and churn | Medium | Low | Each is named with a job in §4.1 and nothing else is added without the same justification. deck.gl is explicitly conditional and cuttable; no state library is adopted at all |
 | Six people, one graph, merge conflicts | High | Medium | Vertical slices with disjoint files by construction (§7); agents and surfaces are separate modules |

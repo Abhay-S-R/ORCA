@@ -17,9 +17,16 @@ from orca.state import ORCAState
 # gated HuggingFace download — present on this machine, not guaranteed on
 # CI or a fresh clone. The integration test below skips itself rather than
 # failing a build that has no way to get the weights.
+try:
+    import IndicTransToolkit  # type: ignore[import-not-found]
+    _TOOLKIT_PRESENT = True
+except ImportError:
+    _TOOLKIT_PRESENT = False
+
 _HF_HUB = Path.home() / ".cache" / "huggingface" / "hub"
 _INDICTRANS2_WEIGHTS_PRESENT = (
-    any(_HF_HUB.glob("models--ai4bharat--indictrans2-indic-en*"))
+    _TOOLKIT_PRESENT
+    and any(_HF_HUB.glob("models--ai4bharat--indictrans2-indic-en*"))
     and any(_HF_HUB.glob("models--ai4bharat--indictrans2-en-indic*"))
 )
 
