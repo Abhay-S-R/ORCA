@@ -323,6 +323,62 @@ def current_vectors(stride: int = 4) -> list[dict[str, float]]:
     return points
 
 
+# ---- Wind vectors (D3 flow-field overlay — archived, not live) --------------
+
+WIND_DIR = DATA_ROOT / "tier3" / "mosdac" / "Wind"
+
+
+def _latest_wind_file() -> Path:
+    # Filenames encode "day of year 2026" (E06SCTL4AW_2026239_...) — lexicographic
+    # sort is correct chronological sort here, same trick as the WW3 filename dates.
+    files = sorted(WIND_DIR.glob("E06SCTL4AW_*.nc"))
+    if not files:
+        raise FileNotFoundError(f"No ScatSat wind files in {WIND_DIR}")
+    return files[-1]
+
+
+def wind_vectors(stride: int = 4) -> dict[str, Any]:
+    """Archived EOS-06 Scatterometer (ScatSat) 10m wind, most recent daily
+    snapshot on disk, cropped to the pilot bbox. This is NOT a live feed —
+    one analysis per day, not a forecast or a stream — so the caller gets
+    `acquisition_date` back explicitly rather than the caller assuming
+    "now" the way a live layer would (mirrors current_vectors() otherwise:
+    U/V m/s -> speed_ms/direction_deg, meteorological convention — the
+    direction the wind blows FROM, unlike current_vectors' oceanographic
+    "flows toward").
+    """
+    path = _latest_wind_file()
+    ds = xr.open_dataset(path)
+    west, south, east, north = PILOT_BBOX_WSEN
+    u = ds["U"].isel(time=0, lev=0).sel(lat=slice(south, north), lon=slice(west, east))
+    v = ds["V"].isel(time=0, lev=0).sel(lat=slice(south, north), lon=slice(west, east))
+    lats = u["lat"].values[::stride]
+    lons = u["lon"].values[::stride]
+    u_vals = u.values[::stride, ::stride]
+    v_vals = v.values[::stride, ::stride]
+
+    points: list[dict[str, float]] = []
+    for i, lat in enumerate(lats):
+        for j, lon in enumerate(lons):
+            uu, vv = float(u_vals[i, j]), float(v_vals[i, j])
+            if not (math.isfinite(uu) and math.isfinite(vv)):
+                continue  # land / masked cell
+            speed = math.hypot(uu, vv)
+            # Meteorological convention: direction the wind blows FROM.
+            direction = math.degrees(math.atan2(-uu, -vv)) % 360.0
+            points.append({
+                "lat": float(lat), "lon": float(lon),
+                "speed_ms": round(speed, 3), "direction_deg": round(direction, 1),
+            })
+    acquisition_date = str(ds["time"].values[0])[:10]
+    return {
+        "points": points,
+        "bounds": list(PILOT_BBOX_WSEN),
+        "acquisition_date": acquisition_date,
+        "source_file": path.name,
+    }
+
+
 # ---- Map layers (Day 6) -----------------------------------------------------
 
 def generate_map_layers(
@@ -437,4 +493,9 @@ if __name__ == "__main__":
     zones = spatial_query_zones(lat, lon, radius_nm=50)
     assert any(f.name == "Indian Exclusive Economic Zone" for f in zones)
 
-    print("geospatial self-check ok:", imbl, depth)
+    wind = wind_vectors()
+    assert wind["points"], "no wind points in pilot bbox"
+    assert wind["acquisition_date"] < "2026-09-03"  # archived, never "now"
+    assert all(0 <= p["direction_deg"] < 360 for p in wind["points"])
+
+    print("geospatial self-check ok:", imbl, depth, "wind@" + wind["acquisition_date"])

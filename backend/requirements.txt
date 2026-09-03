@@ -18,12 +18,15 @@ opentelemetry-sdk>=1.27  # trace.py — spans feed audit_trace_log (plan §5.3/�
 # the full GeoPandas stack (no DataFrame layer needed for containment/
 # proximity/STRtree queries); pyproj for WGS84 geodesic distance and bearing.
 # xarray + scipy (NetCDF-3 backend, same reason as the root requirements.txt)
-# + h5py to read the GEBCO bathymetry grid for depth-at-point.
+# + h5py to read the GEBCO bathymetry grid for depth-at-point. h5netcdf reads
+# the ScatSat wind files (D3 flow overlay) — those are HDF5-based NetCDF4,
+# which h5py alone can't hand to xarray; h5netcdf is the thin engine on top.
 shapely>=2.0
 pyproj>=3.6
 xarray>=2024.1.0
 scipy>=1.11
 h5py>=3.10
+h5netcdf>=1.3
 
 # Agent 8 raster tile pyramid (orca/tiles.py, Phase 2 D3 — visual-quality
 # priority, plan revision: heavier deps accepted over install-simplicity).

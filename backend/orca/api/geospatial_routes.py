@@ -18,6 +18,7 @@ from orca.agents.geospatial import (
     generate_map_layers,
     point_in_polygon,
     spatial_query_zones,
+    wind_vectors,
 )
 from orca.agents.visualization import generate_map_layers as agent8_generate_map_layers
 from orca.trace import record_layer_metric
@@ -59,6 +60,15 @@ def current_vectors_route() -> dict:
     frozen MapLayer contract's 7 layer types, so this is a standalone REST
     surface, the same pattern as `/raster-layers` above."""
     return {"points": current_vectors(), "bounds": list(PILOT_BBOX_WSEN)}
+
+
+@router.get("/wind-vectors")
+def wind_vectors_route() -> dict:
+    """Archived ScatSat 10m wind (D3 flow overlay's second vector field,
+    alongside `/current-vectors` above). NOT live — one snapshot per day —
+    so `acquisition_date` ships in the response for the frontend to render
+    as an honest freshness label, never silently presented as "now"."""
+    return wind_vectors()
 
 
 class LayerMetricIn(BaseModel):

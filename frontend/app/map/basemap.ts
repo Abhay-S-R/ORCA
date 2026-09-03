@@ -66,6 +66,12 @@ export const CHART = {
   pfz: "#3ddc97",
   accent: "#f0468c",
   ink: "#dce9f0",
+  // Same hex as --color-go/--color-caution/--color-no-go in globals.css —
+  // kept in sync by hand (CHART is CSS-var-derived only where noted above;
+  // MapLibre paint expressions need literal hex, not a var() reference).
+  go: "#3ddc97",
+  caution: "#ffc145",
+  noGo: "#ff5c5c",
 } as const;
 
 /** MapLibre removed `maplibregl.supported()` in v3 — §4.7 still specifies it,

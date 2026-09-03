@@ -22,6 +22,7 @@ from orca.api.analytics_routes import router as analytics_router
 from orca.api.auth_routes import router as auth_router
 from orca.api.discovery_routes import router as discovery_router
 from orca.api.geospatial_routes import router as geospatial_router
+from orca.api.voyage_routes import router as voyage_router
 from orca.data.loaders import resolve_port_from_text
 from orca.graph.graph import build_graph
 from orca.logging_utils import configure_logging
@@ -56,6 +57,7 @@ app.include_router(discovery_router)
 app.include_router(geospatial_router)
 app.include_router(auth_router)  # D1 — /register, /login, /profile, /vessels (Phase 2 D1)
 app.include_router(analytics_router)  # Agent 5 — /zones, /trends, /tides, /data (Phase 2 D2)
+app.include_router(voyage_router)  # D3 — /voyage-plan, /wind-vectors already mounted via geospatial_router
 
 # Agent 8 raster tile pyramid (orca/tiles.py) — serves the PNGs
 # scripts/generate_tiles.py writes offline, at the same "/tiles/{layer_id}/

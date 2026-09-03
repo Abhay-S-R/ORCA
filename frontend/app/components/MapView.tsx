@@ -51,6 +51,7 @@ type PfzFeature = {
 type DepthResult = { depth_m: number | null; on_land: boolean; shallow_hazard: boolean };
 type Bearing = { bearing_deg: number; distance_nm: number };
 type CurrentVector = { lat: number; lon: number; speed_ms: number; direction_deg: number };
+type WindVector = { lat: number; lon: number; speed_ms: number; direction_deg: number };
 type RasterLayerMeta = {
   layer_id: string;
   layer_type: "Raster" | "Heatmap";
@@ -72,21 +73,41 @@ const resolveTileUrl = (template: string, frame?: string) =>
 // §4.7 layer lifecycle budget: 2 concurrent heavy layers on mobile, 4 on
 // desktop, LRU-evicted with a visible notice rather than a silent frame-rate
 // collapse. These four toggles are the chart's only "heavy" layers today.
-const HEAVY_KEYS = ["bathymetry", "srvBathymetry", "waveForecast", "currents"] as const;
+const HEAVY_KEYS = ["bathymetry", "srvBathymetry", "waveForecast", "currents", "wind"] as const;
 type HeavyKey = (typeof HEAVY_KEYS)[number];
 const HEAVY_LABEL: Record<HeavyKey, string> = {
   bathymetry: "Depth shading",
   srvBathymetry: "Depth grid (ORCA)",
   waveForecast: "Wave height forecast",
   currents: "Surface currents",
+  wind: "Wind (archived)",
 };
+
+export type RouteGeoJson = {
+  type: "FeatureCollection";
+  features: {
+    type: "Feature";
+    geometry: { type: "LineString"; coordinates: [number, number][] };
+    properties: { segment_id: string; status: "CLEAR" | "CAUTION" | "BLOCKED"; hazard_class: string; detail: string; eta: string; distance_nm: number };
+  }[];
+};
+export type MapPin = { lat: number; lon: number; label: string; color: string };
 
 export function MapView({
   className = "h-full w-full",
   showPanels = true,
+  onPointClick,
+  routeGeoJson,
+  pins,
 }: {
   className?: string;
   showPanels?: boolean;
+  // Additive hook for /voyage's click-to-set origin/destination — fires
+  // alongside the existing depth/bearing "sounding" lookup below, never
+  // replacing it.
+  onPointClick?: (lat: number, lon: number) => void;
+  routeGeoJson?: RouteGeoJson | null;
+  pins?: MapPin[];
 }) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -106,10 +127,18 @@ export function MapView({
     srvBathymetry: false,
     waveForecast: false,
     currents: false,
+    wind: false,
   });
   const [rasterLayers, setRasterLayers] = useState<RasterLayerMeta[]>([]);
   const [currentVectors, setCurrentVectors] = useState<CurrentVector[] | null>(null);
   const [currentBounds, setCurrentBounds] = useState<[number, number, number, number] | null>(null);
+  // Archived ScatSat wind — a second, honestly-distinct vector field from
+  // live HYCOM currents (never merged into one layer/label, plan's "ship
+  // both, honest labels" instruction). `windAcquisitionDate` drives the
+  // toggle's own label text, not a hardcoded "live"-sounding string.
+  const [windVectors, setWindVectors] = useState<WindVector[] | null>(null);
+  const [windBounds, setWindBounds] = useState<[number, number, number, number] | null>(null);
+  const [windAcquisitionDate, setWindAcquisitionDate] = useState<string | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const forecastLayer = rasterLayers.find((l) => l.forecast_frames && l.forecast_frames.length > 0);
@@ -187,6 +216,7 @@ export function MapView({
   );
 
   const handleClick = useCallback(async (lat: number, lon: number) => {
+    onPointClick?.(lat, lon);
     setClicked({ lat, lon });
     setDepth(null);
     setBearing(null);
@@ -198,7 +228,7 @@ export function MapView({
     ]);
     setDepth(d);
     setBearing(b);
-  }, []);
+  }, [onPointClick]);
 
   /* ---- map instance: created once, never recreated ---- */
   useEffect(() => {
@@ -245,6 +275,7 @@ export function MapView({
 
       m.addSource("boundaries", { type: "geojson", data: EMPTY as never });
       m.addSource("pfz", { type: "geojson", data: EMPTY as never });
+      m.addSource("route", { type: "geojson", data: EMPTY as never });
 
       // The per-feature JS style function from Leaflet becomes a data-driven
       // paint expression evaluated on the GPU. This is what buys the 60 fps
@@ -297,6 +328,32 @@ export function MapView({
         },
       });
 
+      // /voyage's corridor (plan §5) — colour AND a text label per leg
+      // (voyage_route_layer's own contract: never colour-alone), status
+      // reusing the same go/caution/no-go hex the rest of the product uses.
+      const routeStatusColor: maplibregl.ExpressionSpecification = [
+        "match", ["get", "status"], "BLOCKED", CHART.noGo, "CAUTION", CHART.caution, CHART.go,
+      ];
+      m.addLayer({
+        id: "route-line",
+        type: "line",
+        source: "route",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": routeStatusColor, "line-width": 4, "line-opacity": 0.9 },
+      });
+      m.addLayer({
+        id: "route-label",
+        type: "symbol",
+        source: "route",
+        layout: {
+          "symbol-placement": "line-center",
+          "text-field": ["get", "hazard_class"],
+          "text-size": 11,
+          "text-offset": [0, 1.1],
+        },
+        paint: { "text-color": routeStatusColor, "text-halo-color": "#04121a", "text-halo-width": 1.4 },
+      });
+
       // deck.gl's MapboxOverlay is a MapLibre-compatible IControl — one
       // instance, added once, updated via setProps() (same "never
       // recreate" rule as the vector sources above). It carries the
@@ -336,13 +393,42 @@ export function MapView({
     };
   }, [ready]);
 
+  /* ---- /voyage: route corridor + origin/destination pins (both optional,
+     absent for every other page that mounts this component) ---- */
+  useEffect(() => {
+    if (!ready || !map.current) return;
+    const source = map.current.getSource("route") as maplibregl.GeoJSONSource | undefined;
+    if (!source) return;
+    source.setData((routeGeoJson ?? EMPTY) as never);
+    if (routeGeoJson?.features.length) {
+      const lons = routeGeoJson.features.flatMap((f) => f.geometry.coordinates.map((c) => c[0]));
+      const lats = routeGeoJson.features.flatMap((f) => f.geometry.coordinates.map((c) => c[1]));
+      map.current.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], {
+        padding: 64,
+      });
+    }
+  }, [ready, routeGeoJson]);
+
+  useEffect(() => {
+    if (!ready || !map.current || !pins?.length) return;
+    const built = pins.map((p) => {
+      const el = document.createElement("div");
+      el.style.cssText = `width:14px;height:14px;border-radius:9999px;background:${p.color};border:2px solid #04121a;box-shadow:0 0 0 3px ${p.color}33`;
+      el.setAttribute("aria-label", p.label);
+      return new maplibregl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map.current!);
+    });
+    return () => {
+      for (const m of built) m.remove();
+    };
+  }, [ready, pins]);
+
   /* ---- data: fetched once, pushed through setData ---- */
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
 
     (async () => {
-      const [layerRes, nearRes, pfzRes, rasterRes, currentsRes] = await Promise.all([
+      const [layerRes, nearRes, pfzRes, rasterRes, currentsRes, windRes] = await Promise.all([
         fetch(`${API_BASE}/api/map-layers?lat=${DEFAULT_USER[1]}&lon=${DEFAULT_USER[0]}`).then((r) => r.json()),
         fetch(
           `${API_BASE}/api/zones-nearby?lat=${DEFAULT_USER[1]}&lon=${DEFAULT_USER[0]}&radius_nm=25`,
@@ -354,12 +440,20 @@ export function MapView({
         fetch(`${API_BASE}/api/current-vectors`)
           .then((r) => r.json())
           .catch(() => null),
+        fetch(`${API_BASE}/api/wind-vectors`)
+          .then((r) => r.json())
+          .catch(() => null),
       ]);
       if (cancelled || !map.current) return;
 
       if (currentsRes?.points?.length) {
         setCurrentVectors(currentsRes.points as CurrentVector[]);
         setCurrentBounds(currentsRes.bounds as [number, number, number, number]);
+      }
+      if (windRes?.points?.length) {
+        setWindVectors(windRes.points as WindVector[]);
+        setWindBounds(windRes.bounds as [number, number, number, number]);
+        setWindAcquisitionDate(windRes.acquisition_date as string);
       }
 
       // Agent 8's self-hosted tile pyramids (bathymetry + forecast). Sources
@@ -472,35 +566,29 @@ export function MapView({
     };
   }, [ready, frameIndex, forecastLayer, layers.waveForecast]);
 
-  /* ---- current-vector particle layer: one static IDW texture built from
-     the fetched points, toggled by swapping the deck.gl overlay's layer
-     list — never rebuilding the map or the overlay control itself. */
+  /* ---- flow-field particle layers: live currents (HYCOM) and archived wind
+     (ScatSat) as two independent WindParticleLayers, one static IDW texture
+     each, both passed into the SAME overlay.setProps() call — deck.gl's
+     MapboxOverlay is one control with one layer list, so building either
+     layer separately and calling setProps() twice would just have the
+     second call clobber the first. Never the same color ramp: distinct
+     vector fields must stay visually distinguishable, not just labeled so. */
   useEffect(() => {
     if (!ready || !overlay.current) return;
-    if (!layers.currents || !currentVectors?.length || !currentBounds) {
-      overlay.current.setProps({ layers: [] });
-      return;
-    }
+    // unknown[], not WindParticleLayer[]: each `new WindParticleLayer(...)`
+    // call infers slightly different generic props from its own object
+    // literal (a quirk of this lib's types, not a real type mismatch) —
+    // same reason the pre-existing single-layer version below casts through
+    // ConstructorParameters rather than a typed array.
+    const built: unknown[] = [];
+    const builtIds: string[] = [];
+    let payloadBytes = 0;
     const t0 = performance.now();
-    const windData = currentVectors.map((p) => ({ lat: p.lat, lon: p.lon, speed: p.speed_ms, direction: p.direction_deg }));
-    const { canvas, uMin, uMax, vMin, vMax } = generateWindTexture(windData, {
-      width: 128,
-      height: 128,
-      bounds: currentBounds,
-    });
-    // deck.gl's overlay has no MapLibre "idle"/"sourcedata" pair to hook —
-    // the whole texture build + layer construction is synchronous CPU work,
-    // so §4.7's four fields collapse to one measured span plus the raw JSON
-    // size of the fetched vector field as payload_bytes.
-    reportLayerMetrics({
-      layer_id: "currents",
-      layer_load_ms: 0,
-      render_ms: Math.round(performance.now() - t0),
-      payload_bytes: JSON.stringify(currentVectors).length,
-      dropped_frames: 0,
-    });
-    overlay.current.setProps({
-      layers: [
+
+    if (layers.currents && currentVectors?.length && currentBounds) {
+      const data = currentVectors.map((p) => ({ lat: p.lat, lon: p.lon, speed: p.speed_ms, direction: p.direction_deg }));
+      const { canvas, uMin, uMax, vMin, vMax } = generateWindTexture(data, { width: 128, height: 128, bounds: currentBounds });
+      built.push(
         new WindParticleLayer({
           id: "currents",
           image: canvas.toDataURL(),
@@ -514,9 +602,50 @@ export function MapView({
             [1, [125, 212, 232, 220]],
           ],
         } as ConstructorParameters<typeof WindParticleLayer>[0]),
-      ],
-    });
-  }, [ready, layers.currents, currentVectors, currentBounds]);
+      );
+      builtIds.push("currents");
+      payloadBytes += JSON.stringify(currentVectors).length;
+    }
+
+    if (layers.wind && windVectors?.length && windBounds) {
+      const data = windVectors.map((p) => ({ lat: p.lat, lon: p.lon, speed: p.speed_ms, direction: p.direction_deg }));
+      const { canvas, uMin, uMax, vMin, vMax } = generateWindTexture(data, { width: 128, height: 128, bounds: windBounds });
+      built.push(
+        new WindParticleLayer({
+          id: "wind",
+          image: canvas.toDataURL(),
+          bounds: windBounds,
+          imageUnscale: [Math.min(uMin, vMin), Math.max(uMax, vMax)],
+          numParticles: 3000,
+          maxAge: 40,
+          speedFactor: 2,
+          // Amber, not blue — the currents ramp above is blue end to end;
+          // this must never read as "the same field, twice."
+          colorRamp: [
+            [0, [156, 110, 30, 160]],
+            [1, [232, 178, 90, 210]],
+          ],
+        } as ConstructorParameters<typeof WindParticleLayer>[0]),
+      );
+      builtIds.push("wind");
+      payloadBytes += JSON.stringify(windVectors).length;
+    }
+
+    // deck.gl's overlay has no MapLibre "idle"/"sourcedata" pair to hook —
+    // the whole texture build + layer construction is synchronous CPU work,
+    // so §4.7's four fields collapse to one measured span plus the raw JSON
+    // size of whichever field(s) are actually on.
+    if (built.length) {
+      reportLayerMetrics({
+        layer_id: builtIds.join("+"),
+        layer_load_ms: 0,
+        render_ms: Math.round(performance.now() - t0),
+        payload_bytes: payloadBytes,
+        dropped_frames: 0,
+      });
+    }
+    overlay.current.setProps({ layers: built as ConstructorParameters<typeof MapboxOverlay>[0]["layers"] });
+  }, [ready, layers.currents, layers.wind, currentVectors, currentBounds, windVectors, windBounds]);
 
   // §4.7: a missing map is never a missing answer. Every spatial fact the
   // chart shows is also available as text, so a GPU-less phone degrades to
@@ -587,11 +716,24 @@ export function MapView({
                 )}
                 {currentVectors && currentVectors.length > 0 && (
                   <LayerToggle
-                    label="Surface currents"
+                    label="Surface currents (live, HYCOM)"
                     swatch={CHART.pfz}
                     heavy
                     checked={layers.currents}
                     onChange={(v) => toggleHeavy("currents", v)}
+                  />
+                )}
+                {windVectors && windVectors.length > 0 && (
+                  <LayerToggle
+                    label={
+                      windAcquisitionDate
+                        ? `Wind (archived — ${windAcquisitionDate})`
+                        : "Wind (archived — ScatSat)"
+                    }
+                    swatch="#e8b25a"
+                    heavy
+                    checked={layers.wind}
+                    onChange={(v) => toggleHeavy("wind", v)}
                   />
                 )}
               </div>
