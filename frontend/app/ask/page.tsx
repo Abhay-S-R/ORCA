@@ -5,7 +5,7 @@
 // Two columns: the question and its answer on the left, the live chart on the
 // right, because almost every answer here is spatial and a user should never
 // have to navigate somewhere else to see where the answer applies.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Send } from "lucide-react";
 import { AgentPill, AgentStrip, type AgentStatus } from "../components/AgentPill";
@@ -18,8 +18,9 @@ import { SourceNarration, type SourceSelection } from "../components/SourceNarra
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
 import { type ConfidenceTier, type Verdict } from "../components/Badge";
 import { AnswerSpeaker } from "../components/AnswerSpeaker";
+import { FormattedResponse } from "../components/FormattedResponse";
 import { PersonaCorrection } from "../components/PersonaCorrection";
-import { VoiceInput } from "../components/VoiceInput";
+import { useVoiceInput, VoiceMicButton, VoiceInputPanel } from "../components/VoiceInput";
 import { usePersona } from "../persona/context";
 import { type Persona } from "../persona/config";
 
@@ -67,6 +68,31 @@ export default function AskPage() {
   // /query call sends.
   const [renderedAs, setRenderedAs] = useState<Persona | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
+
+  // Switching persona (nav-wide setting) changes how an answer would render,
+  // so a stale answer from the old persona stays around — clear the
+  // conversation rather than leave a mismatched one on screen. Skips the
+  // mount render (ref starts already caught up) so landing on /ask never
+  // wipes a fresh query.
+  const lastPersona = useRef(persona);
+  useEffect(() => {
+    if (lastPersona.current === persona) return;
+    lastPersona.current = persona;
+    sourceRef.current?.close();
+    setQuery("");
+    setSpans([]);
+    setAnswer(null);
+    setRenderedAs(null);
+    setFailed(false);
+    setStreaming(false);
+  }, [persona]);
+
+  const voice = useVoiceInput({
+    onTranscriptConfirmed: (text) => {
+      setQuery(text);
+      ask(text);
+    },
+  });
 
   function ask(q: string) {
     if (!q.trim()) return;
@@ -129,22 +155,20 @@ export default function AskPage() {
             placeholder="Is it safe to go out tomorrow morning?"
             className="min-w-0 flex-1 rounded-md border border-hairline bg-shelf-1/80 px-3.5 py-3 text-sm text-ink placeholder:text-ink-dim transition-colors hover:border-hairline-strong focus:border-accent/60"
           />
+          {/* Voice ingress (plan §6 D1 Day 16-17): mic sits right next to
+              Ask since both feed the same query pipeline — voice is a
+              pre-step onto the text box, not a second, separate control. */}
+          <VoiceMicButton voice={voice} isFisherman={persona === "fisherman"} />
           <Button type="submit" variant="primary" disabled={streaming || !query.trim()} icon={<Send className="size-4" />}>
             {streaming ? "Asking" : "Ask"}
           </Button>
         </form>
 
-        {/* Voice ingress/egress (plan §6 D1 Day 16-17): push-to-talk,
-            transcript confirmation, then feeds the exact same ask() the text
-            box does — voice is a pre-step onto the one text pipeline, not a
-            second one. */}
-        <VoiceInput
-          persona={persona}
-          onTranscriptConfirmed={(text) => {
-            setQuery(text);
-            ask(text);
-          }}
-        />
+        {/* Waveform while recording, transcript confirmation once done —
+            requires an explicit "Ask" before it becomes a query, never
+            auto-submitted (a mishearing on a safety query is a safety
+            incident, not a UX annoyance). */}
+        <VoiceInputPanel voice={voice} />
 
         {/* Differentiator 1 (§4.5): twelve agents run per query, and this is
             where a user watches that happen instead of a spinner. */}
@@ -179,13 +203,13 @@ export default function AskPage() {
 
         {answer && (
           <Panel title="Answer">
-            {/* Architecture §2.6 rendering matrix — same facts, structure
-                differs by persona (fisherman banner, navigator readout,
-                researcher stats + export, authority threat level + CAP
-                preview). Only rendered once risk_assessment exists — the
-                distress bypass path never reaches Reporting/risk_assessment. */}
-            {answer.risk_assessment && (
-              <div className="mb-4">
+            <div className="flex flex-col gap-4">
+              {/* Architecture §2.6 rendering matrix — same facts, structure
+                  differs by persona (fisherman banner, navigator readout,
+                  researcher stats + export, authority threat level + CAP
+                  preview). Only rendered once risk_assessment exists — the
+                  distress bypass path never reaches Reporting/risk_assessment. */}
+              {answer.risk_assessment && (
                 <PersonaAnswerMatrix
                   persona={renderedAs ?? persona}
                   queryId={answer.query_id}
@@ -197,69 +221,75 @@ export default function AskPage() {
                   ocean={answer.ocean_summary ?? { tide: null, nearest_pfz: null, sector_status: null, productivity_diagnosis: null }}
                   citations={answer.citations ?? []}
                 />
+              )}
+
+              <div className="flex flex-col gap-2.5">
+                <FormattedResponse
+                  text={answer.final_vernacular_response || answer.final_english_response}
+                />
+                <AnswerSpeaker
+                  text={answer.final_vernacular_response || answer.final_english_response}
+                  language={answer.detected_language ?? "en"}
+                  persona={renderedAs ?? persona}
+                  queryId={answer.query_id}
+                />
               </div>
-            )}
-            <p className="text-[15px] leading-relaxed text-ink">
-              {answer.final_vernacular_response || answer.final_english_response}
-            </p>
-            <div className="mt-2">
-              <AnswerSpeaker
-                text={answer.final_vernacular_response || answer.final_english_response}
-                language={answer.detected_language ?? "en"}
-                persona={renderedAs ?? persona}
+
+              {answer.final_vernacular_response &&
+                answer.detected_language !== "en" &&
+                answer.final_vernacular_response !== answer.final_english_response && (
+                  <div className="rounded-xl border border-hairline/60 bg-shelf-0/40 p-3 text-xs text-ink-muted">
+                    <span className="font-semibold text-ink-dim block mb-1.5">English translation:</span>
+                    <FormattedResponse text={answer.final_english_response} />
+                  </div>
+              )}
+
+              <div className="border-t border-hairline pt-3.5">
+                <ConfidenceMeter tier={answer.confidence_tier} />
+              </div>
+
+              {/* Differentiator 4 — Agent 3's source-selection reasoning, on
+                  the card, not buried in the trace. */}
+              {answer.source_selections && answer.source_selections.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  {answer.source_selections.map((s) => (
+                    <SourceNarration key={s.data_type} selection={s} />
+                  ))}
+                </div>
+              )}
+
+              {answer.citations && answer.citations.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {answer.citations.map((c, i) => (
+                    <SourceChip
+                      key={i}
+                      dataset={c.dataset}
+                      acquisitionTimestamp={c.acquisition_timestamp}
+                      detail={`Read by ${c.agent_name}.`}
+                    />
+                  ))}
+                </div>
+              )}
+
+              <PersonaCorrection
                 queryId={answer.query_id}
+                currentPersona={renderedAs ?? persona}
+                onPersonaChange={setRenderedAs}
+                onRendered={(result) =>
+                  setAnswer((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          final_english_response: result.final_english_response,
+                          final_vernacular_response: undefined, // /render is English-only (translation stays at the edge, Agent 1)
+                          confidence_tier: result.confidence_tier as ConfidenceTier,
+                          citations: result.citations,
+                        }
+                      : prev,
+                  )
+                }
               />
             </div>
-            {answer.final_vernacular_response &&
-              answer.detected_language !== "en" &&
-              answer.final_vernacular_response !== answer.final_english_response && (
-                <div className="mt-3 rounded border border-hairline/60 bg-shelf-0/40 p-2.5 text-xs text-ink-muted">
-                  <span className="font-semibold text-ink-dim block mb-1">English translation:</span>
-                  <p className="leading-relaxed">{answer.final_english_response}</p>
-                </div>
-            )}
-            <div className="mt-4 border-t border-hairline pt-3">
-              <ConfidenceMeter tier={answer.confidence_tier} />
-            </div>
-            {/* Differentiator 4 — Agent 3's source-selection reasoning, on
-                the card, not buried in the trace. */}
-            {answer.source_selections && answer.source_selections.length > 0 && (
-              <div className="mt-3 flex flex-col gap-1.5">
-                {answer.source_selections.map((s) => (
-                  <SourceNarration key={s.data_type} selection={s} />
-                ))}
-              </div>
-            )}
-            {answer.citations && answer.citations.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {answer.citations.map((c, i) => (
-                  <SourceChip
-                    key={i}
-                    dataset={c.dataset}
-                    acquisitionTimestamp={c.acquisition_timestamp}
-                    detail={`Read by ${c.agent_name}.`}
-                  />
-                ))}
-              </div>
-            )}
-            <PersonaCorrection
-              queryId={answer.query_id}
-              currentPersona={renderedAs ?? persona}
-              onPersonaChange={setRenderedAs}
-              onRendered={(result) =>
-                setAnswer((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        final_english_response: result.final_english_response,
-                        final_vernacular_response: undefined, // /render is English-only (translation stays at the edge, Agent 1)
-                        confidence_tier: result.confidence_tier as ConfidenceTier,
-                        citations: result.citations,
-                      }
-                    : prev,
-                )
-              }
-            />
           </Panel>
         )}
 

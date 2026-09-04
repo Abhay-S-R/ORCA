@@ -5,22 +5,19 @@
 // before it becomes a query — never auto-submitted, because a mishearing on
 // a safety query is a safety incident, not a UX annoyance (plan §6 D1 Day 16).
 // Full keyboard operation: space starts/stops recording, escape cancels.
+//
+// Split in two so the mic sits beside the Ask button while the waveform/
+// confirm UI renders below the form — both views share one `useVoiceInput`
+// state so there's still exactly one recording pipeline.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Mic, Square, X } from "lucide-react";
 import { Button } from "./Button";
-import { type Persona } from "../persona/config";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 type VoiceState = "idle" | "recording" | "transcribing" | "confirming" | "error";
 
-export function VoiceInput({
-  persona,
-  onTranscriptConfirmed,
-}: {
-  persona: Persona;
-  onTranscriptConfirmed: (text: string) => void;
-}) {
+export function useVoiceInput({ onTranscriptConfirmed }: { onTranscriptConfirmed: (text: string) => void }) {
   const [state, setState] = useState<VoiceState>("idle");
   const [transcript, setTranscript] = useState("");
   const [needsConfirmation, setNeedsConfirmation] = useState(false);
@@ -162,38 +159,65 @@ export function VoiceInput({
     setTranscript("");
   }
 
-  // The fisherman persona gets the largest touch target (plan §6 D1 Day 17:
-  // "the largest touch target on the fisherman surface") — every other
-  // persona gets the same control at the design system's normal button size.
-  const isFisherman = persona === "fisherman";
+  return {
+    state,
+    transcript,
+    setTranscript,
+    needsConfirmation,
+    level,
+    error,
+    startRecording,
+    stopRecording,
+    cancel,
+    confirm,
+  };
+}
+
+export type VoiceInputState = ReturnType<typeof useVoiceInput>;
+
+// The mic button alone — sits beside the Ask button. The fisherman persona
+// gets the largest touch target (plan §6 D1 Day 17: "the largest touch
+// target on the fisherman surface") — every other persona gets the same
+// control at the design system's normal button size.
+export function VoiceMicButton({ voice, isFisherman = false }: { voice: VoiceInputState; isFisherman?: boolean }) {
+  const { state, startRecording, stopRecording } = voice;
+  return (
+    <Button
+      type="button"
+      variant={state === "recording" ? "primary" : "ghost"}
+      aria-label={state === "recording" ? "Stop recording" : "Ask by voice — space bar also works"}
+      icon={state === "recording" ? <Square className="size-4" /> : <Mic className={isFisherman ? "size-6" : "size-4"} />}
+      className={isFisherman ? "px-5 py-4" : "px-3"}
+      onClick={state === "recording" ? stopRecording : startRecording}
+      disabled={state === "transcribing"}
+    >
+      <span className="sr-only">{state === "recording" ? "Stop recording" : "Ask by voice"}</span>
+    </Button>
+  );
+}
+
+// Waveform / transcribing / confirm-transcript UI — renders below the form
+// while VoiceMicButton stays up beside Ask.
+export function VoiceInputPanel({ voice }: { voice: VoiceInputState }) {
+  const { state, transcript, setTranscript, needsConfirmation, level, error, confirm, cancel } = voice;
+
+  if (state === "idle") return null;
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant={state === "recording" ? "primary" : "ghost"}
-          aria-label={state === "recording" ? "Stop recording" : "Ask by voice — space bar also works"}
-          icon={state === "recording" ? <Square className="size-4" /> : <Mic className={isFisherman ? "size-6" : "size-4"} />}
-          className={isFisherman ? "px-5 py-4" : "px-3"}
-          onClick={state === "recording" ? stopRecording : startRecording}
-          disabled={state === "transcribing"}
-        >
-          <span className="sr-only">{state === "recording" ? "Stop recording" : "Ask by voice"}</span>
-        </Button>
-        {state === "recording" && (
-          <div className="flex h-8 flex-1 items-end gap-0.5" role="img" aria-label="Listening">
-            {Array.from({ length: 24 }).map((_, i) => (
-              <span
-                key={i}
-                className="w-1 flex-1 rounded-full bg-accent"
-                style={{ height: `${6 + level * 26 * (0.4 + 0.6 * Math.abs(Math.sin(i * 0.9)))}px` }}
-              />
-            ))}
-          </div>
-        )}
-        {state === "transcribing" && <span className="text-xs text-ink-muted">Transcribing…</span>}
-      </div>
+      {state === "recording" && (
+        <div className="flex h-8 items-end gap-0.5 rounded-md border border-hairline bg-shelf-1/60 px-2.5" role="img" aria-label="Listening">
+          {Array.from({ length: 32 }).map((_, i) => (
+            <span
+              key={i}
+              className="w-1 flex-1 rounded-full bg-accent"
+              style={{ height: `${6 + level * 26 * (0.4 + 0.6 * Math.abs(Math.sin(i * 0.9)))}px` }}
+            />
+          ))}
+        </div>
+      )}
+
+      {state === "transcribing" && <span className="text-xs text-ink-muted">Transcribing…</span>}
 
       {state === "confirming" && (
         <div className="rounded-md border border-hairline bg-shelf-1/60 p-2.5">

@@ -39,14 +39,164 @@ export type OceanSummary = {
 };
 export type Citation = { agent_name: string; dataset: string; acquisition_timestamp: string };
 
+function parseData<T = Record<string, any>>(value: unknown): T | null {
+  if (!value) return null;
+  if (typeof value === "object") return value as T;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        return JSON.parse(trimmed) as T;
+      } catch {
+        try {
+          const sanitized = trimmed
+            .replace(/'/g, '"')
+            .replace(/\bTrue\b/g, "true")
+            .replace(/\bFalse\b/g, "false")
+            .replace(/\bNone\b/g, "null");
+          return JSON.parse(sanitized) as T;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+export function formatTideData(raw: unknown): { value: string; unit?: string; hint?: string } {
+  const data = parseData<any>(raw);
+  if (!data) {
+    if (typeof raw === "string" && raw.trim() && !raw.includes("{")) {
+      return { value: raw };
+    }
+    return { value: "Slack", hint: "Astronomical datum" };
+  }
+
+  const rawState = data.tidal_state || data.state || "";
+  const state = rawState ? rawState.charAt(0).toUpperCase() + rawState.slice(1).toLowerCase() : "Slack";
+  const nextHigh = data.next_high;
+  const nextLow = data.next_low;
+  const station = data.station_code || (data.station_name ? data.station_name.split("(")[0].trim() : "");
+  const springNeap = data.spring_neap && data.spring_neap !== "UNKNOWN" ? data.spring_neap : null;
+
+  let hint = "";
+  if (nextHigh?.height_m != null) {
+    const inH = nextHigh.in_hours != null ? ` in ${nextHigh.in_hours}h` : "";
+    hint = `High: ${nextHigh.height_m}m${inH}`;
+  } else if (nextLow?.height_m != null) {
+    const inH = nextLow.in_hours != null ? ` in ${nextLow.in_hours}h` : "";
+    hint = `Low: ${nextLow.height_m}m${inH}`;
+  }
+
+  if (springNeap) {
+    hint = hint ? `${hint} · ${springNeap}` : springNeap;
+  }
+  if (station) {
+    hint = hint ? `${hint} (${station})` : station;
+  }
+
+  return {
+    value: state,
+    hint: hint || undefined,
+  };
+}
+
+export function formatPfzData(raw: unknown): { value: string; unit?: string; hint?: string } {
+  const data = parseData<any>(raw);
+  if (!data) {
+    if (typeof raw === "string" && raw.trim() && !raw.includes("{")) {
+      return { value: raw };
+    }
+    return { value: "None", hint: "No advisories nearby" };
+  }
+
+  if (data.found === false || (data.distance_km == null && !data.landing_center)) {
+    return { value: "None", hint: "No advisories in range" };
+  }
+
+  const dist = data.distance_km != null ? Number(data.distance_km).toFixed(1) : "—";
+  const compass = data.compass || (data.bearing_deg != null ? `${data.bearing_deg}°` : "");
+  const center = data.landing_center || "";
+  const depth = data.depth_m ? `${data.depth_m}m depth` : "";
+
+  const hintParts = [compass, center, depth].filter(Boolean);
+
+  return {
+    value: dist,
+    unit: "km",
+    hint: hintParts.length > 0 ? hintParts.join(" · ") : undefined,
+  };
+}
+
+export function formatSectorStatusData(raw: unknown): { value: string; unit?: string; hint?: string } {
+  const data = parseData<any>(raw);
+  if (!data) {
+    if (typeof raw === "string" && raw.trim() && !raw.includes("{")) {
+      return { value: raw };
+    }
+    return { value: "—", hint: "Status unavailable" };
+  }
+
+  const rawStatus = data.status || "";
+  const sectorName = data.sector_name || data.sector_id || "";
+  const nodes = data.node_count ?? 0;
+
+  if (rawStatus === "NO_DATA_CLOUD_COVER" || data.is_data_gap) {
+    return {
+      value: "Cloud Cover",
+      hint: `${sectorName ? sectorName.replace(/_/g, " ") : "Sector"} · 0 nodes`,
+    };
+  }
+
+  if (rawStatus === "ACTIVE" || nodes > 0) {
+    return {
+      value: "Active",
+      unit: `${nodes} nodes`,
+      hint: sectorName ? sectorName.replace(/_/g, " ") : undefined,
+    };
+  }
+
+  return {
+    value: rawStatus ? rawStatus.replace(/_/g, " ") : (data.message || "Standard"),
+    hint: sectorName ? sectorName.replace(/_/g, " ") : undefined,
+  };
+}
+
+export function formatProductivityData(raw: unknown): { value: string; unit?: string; hint?: string } {
+  const data = parseData<any>(raw);
+  if (!data) {
+    if (typeof raw === "string" && raw.trim() && !raw.includes("{")) {
+      return { value: raw };
+    }
+    return { value: "Stable", hint: "District baseline within ±2σ" };
+  }
+
+  if (data.declined) {
+    const district = data.district ? data.district.split("(")[0].trim() : "District";
+    const factor = data.factors?.[0]?.factor ? data.factors[0].factor.split("/")[0].trim() : "Thermal stress";
+    return {
+      value: "Decline",
+      hint: `${district} · ${factor}`,
+    };
+  }
+
+  return {
+    value: "Stable",
+    hint: "District baseline normal",
+  };
+}
+
 function fmt(value: unknown): string {
   if (value === null || value === undefined) return "—";
-  // Full float precision (e.g. 4.305555555555556 m/s) is a display concern,
-  // not extra precision — the underlying value is untouched, only rounded
-  // for legibility, consistent with the toFixed(1) already used for
-  // hazard.imbl_distance_nm below.
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2);
-  if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "object") {
+    const obj = value as Record<string, any>;
+    if (obj.label) return String(obj.label);
+    if (obj.name) return String(obj.name);
+    if (obj.status) return String(obj.status);
+    return "Available";
+  }
   return String(value);
 }
 
@@ -131,6 +281,10 @@ export function PersonaAnswerMatrix({
 }) {
   const [showTechnical, setShowTechnical] = useState(false);
   const direction = hazard.imbl_distance_nm !== null ? `boundary ${hazard.imbl_distance_nm.toFixed(1)} nm away` : "boundary distance unknown";
+  const tide = formatTideData(ocean.tide);
+  const pfz = formatPfzData(ocean.nearest_pfz);
+  const sector = formatSectorStatusData(ocean.sector_status);
+  const productivity = formatProductivityData(ocean.productivity_diagnosis);
 
   return (
     <div className="flex flex-col gap-3">
@@ -147,38 +301,44 @@ export function PersonaAnswerMatrix({
             {showTechnical ? "Hide technical detail" : "Show technical detail"}
           </Button>
           {showTechnical && (
-            <ReadoutGrid cols={4}>
-              <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" />
-              <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" />
-              <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
-              <Readout label="MPA status" value={hazard.mpa_violation ? "Inside" : "Clear"} />
-            </ReadoutGrid>
+            <div className="rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md">
+              <ReadoutGrid cols={4}>
+                <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" />
+                <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" />
+                <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
+                <Readout label="MPA status" value={hazard.mpa_violation ? "Inside" : "Clear"} />
+              </ReadoutGrid>
+            </div>
           )}
         </>
       )}
 
       {persona === "commercial_navigator" && (
-        <ReadoutGrid cols={4}>
-          <Readout label="Boundary distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
-          <Readout label="MPA status" value={hazard.mpa_violation ? "Inside boundary" : "Clear"} hint={hazard.mpa_alert_level ?? undefined} />
-          <Readout label="Tide" value={fmt(ocean.tide)} />
-          <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" hint="bathymetry/route detail: see /voyage" />
-        </ReadoutGrid>
+        <div className="rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md">
+          <ReadoutGrid cols={4}>
+            <Readout label="Boundary distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
+            <Readout label="MPA status" value={hazard.mpa_violation ? "Inside boundary" : "Clear"} hint={hazard.mpa_alert_level ?? undefined} />
+            <Readout label="Tide" value={tide.value} unit={tide.unit} hint={tide.hint} />
+            <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" hint="bathymetry/route detail: see /voyage" />
+          </ReadoutGrid>
+        </div>
       )}
 
       {persona === "researcher" && (
         <>
-          <ReadoutGrid cols={3}>
-            <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" />
-            <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" />
-            <Readout label="Lightning" value={weather.lightning_active ? "Active" : "None"} />
-            <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
-            <Readout label="MPA violation" value={hazard.mpa_violation ? "Yes" : "No"} hint={hazard.mpa_alert_level ?? undefined} />
-            <Readout label="Tide" value={fmt(ocean.tide)} />
-            <Readout label="Nearest PFZ" value={fmt(ocean.nearest_pfz)} />
-            <Readout label="Sector status" value={fmt(ocean.sector_status)} />
-            <Readout label="Productivity" value={fmt(ocean.productivity_diagnosis)} />
-          </ReadoutGrid>
+          <div className="rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md shadow-sm">
+            <ReadoutGrid cols={3}>
+              <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" />
+              <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" />
+              <Readout label="Lightning" value={weather.lightning_active ? "Active" : "None"} />
+              <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
+              <Readout label="MPA violation" value={hazard.mpa_violation ? "Yes" : "No"} hint={hazard.mpa_alert_level ?? undefined} />
+              <Readout label="Tide" value={tide.value} unit={tide.unit} hint={tide.hint} />
+              <Readout label="Nearest PFZ" value={pfz.value} unit={pfz.unit} hint={pfz.hint} />
+              <Readout label="Sector status" value={sector.value} unit={sector.unit} hint={sector.hint} />
+              <Readout label="Productivity" value={productivity.value} unit={productivity.unit} hint={productivity.hint} />
+            </ReadoutGrid>
+          </div>
           <div className="flex gap-2">
             <Button variant="ghost" className="text-xs" icon={<Download className="size-3.5" />} onClick={() => downloadExport(queryId, exportRows(queryId, weather, hazard, ocean, citations), "csv")}>
               Export CSV

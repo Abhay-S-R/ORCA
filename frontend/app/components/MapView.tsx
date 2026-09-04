@@ -13,7 +13,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import * as maplibregl from "maplibre-gl";
 import { setWorkerUrl } from "maplibre-gl";
 import { FlowFieldCanvas } from "./FlowFieldCanvas";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Calendar, ChevronDown, ChevronUp, Compass, Crosshair, Layers, MapPin, Navigation, ShieldCheck, Waves, X } from "lucide-react";
 import { BASEMAP_STYLE, CHART, DEFAULT_USER, PILOT_BOUNDS, RASTER_OVERLAYS, webglAvailable } from "../map/basemap";
 import { Badge, type BadgeTone } from "./Badge";
@@ -90,20 +90,42 @@ interface MarinePortPreset {
   sub: string;
   center: [number, number];
   zoom: number;
+  // Which side of this region's screen is open water once centred — the
+  // region dashboard docks to that side so it never sits over the coastline.
+  // "island" (surrounded by water) defaults to the right, same as "all".
+  coast: "west" | "east" | "island";
 }
 
+// Great-circle distance in km — good enough to decide whether the region
+// dashboard is still relevant, not a navigation-grade solution (that's what
+// the depth/bearing sounding HUD is for).
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// The region dashboard holds while the chart is looking at the selected sector.
+const REGION_DRIFT_KM = 300;
+const REGION_ZOOM_SLACK = 2.2;
+const REGION_STATS_RADIUS_KM = 150;
+
 const COASTAL_REGIONS: MarinePortPreset[] = [
-  { id: "all", name: "All India Coastline", sub: "National Overview", center: [78.5, 15.5], zoom: 4.8 },
-  { id: "gulf_mannar", name: "Gulf of Mannar / Thoothukudi", sub: "Pilot Sector", center: [78.8, 8.8], zoom: 7.8 },
-  { id: "gujarat", name: "Gujarat (Kutch & Saurashtra)", sub: "West Coast", center: [69.6, 21.8], zoom: 7.2 },
-  { id: "mumbai", name: "Mumbai & Konkan Coast", sub: "Maharashtra", center: [72.8, 18.9], zoom: 8.2 },
-  { id: "goa", name: "Goa & Karwar", sub: "Goa / Karnataka", center: [73.8, 15.4], zoom: 8.4 },
-  { id: "kochi", name: "Kochi & Malabar Coast", sub: "Kerala", center: [76.1, 9.9], zoom: 8.2 },
-  { id: "lakshadweep", name: "Lakshadweep Islands", sub: "Arabian Sea", center: [72.6, 10.5], zoom: 8.0 },
-  { id: "chennai", name: "Chennai & Coromandel", sub: "Tamil Nadu", center: [80.3, 13.1], zoom: 8.2 },
-  { id: "vizag", name: "Visakhapatnam & Circars", sub: "Andhra Pradesh", center: [83.3, 17.7], zoom: 8.0 },
-  { id: "kolkata", name: "Odisha & Sundarbans", sub: "East Coast", center: [87.5, 20.8], zoom: 7.5 },
-  { id: "andaman", name: "Andaman & Nicobar", sub: "Bay of Bengal", center: [92.8, 11.6], zoom: 7.0 },
+  { id: "all", name: "All India Coastline", sub: "National Overview", center: [78.5, 15.5], zoom: 4.8, coast: "island" },
+  { id: "gulf_mannar", name: "Gulf of Mannar / Thoothukudi", sub: "Pilot Sector", center: [78.8, 8.8], zoom: 7.8, coast: "east" },
+  { id: "gujarat", name: "Gujarat (Kutch & Saurashtra)", sub: "West Coast", center: [69.6, 21.8], zoom: 7.2, coast: "west" },
+  { id: "mumbai", name: "Mumbai & Konkan Coast", sub: "Maharashtra", center: [72.8, 18.9], zoom: 8.2, coast: "west" },
+  { id: "goa", name: "Goa & Karwar", sub: "Goa / Karnataka", center: [73.8, 15.4], zoom: 8.4, coast: "west" },
+  { id: "kochi", name: "Kochi & Malabar Coast", sub: "Kerala", center: [76.1, 9.9], zoom: 8.2, coast: "west" },
+  { id: "lakshadweep", name: "Lakshadweep Islands", sub: "Arabian Sea", center: [72.6, 10.5], zoom: 8.0, coast: "island" },
+  { id: "chennai", name: "Chennai & Coromandel", sub: "Tamil Nadu", center: [80.3, 13.1], zoom: 8.2, coast: "east" },
+  { id: "vizag", name: "Visakhapatnam & Circars", sub: "Andhra Pradesh", center: [83.3, 17.7], zoom: 8.0, coast: "east" },
+  { id: "kolkata", name: "Odisha & Sundarbans", sub: "East Coast", center: [87.5, 20.8], zoom: 7.5, coast: "east" },
+  { id: "andaman", name: "Andaman & Nicobar", sub: "Bay of Bengal", center: [92.8, 11.6], zoom: 7.0, coast: "island" },
 ];
 
 
@@ -174,7 +196,7 @@ export function MapView({
   const [depth, setDepth] = useState<DepthResult | null>(null);
   const [bearing, setBearing] = useState<Bearing | null>(null);
   const [layers, setLayers] = useState({
-    boundaries: true,
+    boundaries: false,
     pfz: true,
     seamarks: true,
     srvBathymetry: false,
@@ -195,6 +217,10 @@ export function MapView({
   const [windAcquisitionDate, setWindAcquisitionDate] = useState<string | null>(null);
   const [selectedPfz, setSelectedPfz] = useState<PfzProperties | null>(null);
   const [selectedBadge, setSelectedBadge] = useState<WatchBadge | null>(null);
+  // Kept alongside the map-source copies of the same fetches (never a second
+  // fetch) purely so the region dashboard below can filter them by distance.
+  const [pfzFeatures, setPfzFeatures] = useState<PfzFeature[]>([]);
+  const [watchBadgeFeatures, setWatchBadgeFeatures] = useState<WatchBadge[]>([]);
   const [frameIndex, setFrameIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const forecastLayer = rasterLayers.find((l) => l.forecast_frames && l.forecast_frames.length > 0);
@@ -219,6 +245,46 @@ export function MapView({
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
   }, [regionDropdownOpen]);
+
+  // The region dashboard tracks the chart, not the click — pan or zoom away
+  // from the selected region and it clears itself instead of showing stale
+  // stats for water that's no longer on screen.
+  useEffect(() => {
+    if (!ready || !map.current || selectedRegion === "all") return;
+    const region = COASTAL_REGIONS.find((r) => r.id === selectedRegion);
+    if (!region) return;
+    const m = map.current;
+    const onMoveEnd = () => {
+      const c = m.getCenter();
+      const driftKm = haversineKm(c.lat, c.lng, region.center[1], region.center[0]);
+      const zoomedOut = m.getZoom() < region.zoom - REGION_ZOOM_SLACK;
+      if (driftKm > REGION_DRIFT_KM || zoomedOut) setSelectedRegion("all");
+    };
+    m.on("moveend", onMoveEnd);
+    return () => {
+      m.off("moveend", onMoveEnd);
+    };
+  }, [ready, selectedRegion]);
+
+  // Same fetches that feed the map layers, filtered to "near the selected
+  // region's centre" — no separate region API, just a distance filter over
+  // data already on screen.
+  const regionStats = useMemo(() => {
+    if (selectedRegion === "all") return null;
+    const region = COASTAL_REGIONS.find((r) => r.id === selectedRegion);
+    if (!region) return null;
+    const [rlon, rlat] = region.center;
+    const within = (lat: number, lon: number) => haversineKm(rlat, rlon, lat, lon) <= REGION_STATS_RADIUS_KM;
+
+    const zoneCount = pfzFeatures.filter((f) => within(f.geometry.coordinates[1], f.geometry.coordinates[0])).length;
+    const hazardCount = watchBadgeFeatures.filter(
+      (b) => b.status === "active" && b.lat != null && b.lon != null && within(b.lat, b.lon),
+    ).length;
+    const nearWind = (windVectors ?? []).filter((v) => within(v.lat, v.lon));
+    const avgWindMs = nearWind.length ? nearWind.reduce((s, v) => s + v.speed_ms, 0) / nearWind.length : null;
+
+    return { region, zoneCount, hazardCount, avgWindMs };
+  }, [selectedRegion, pfzFeatures, watchBadgeFeatures, windVectors]);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 640px)");
@@ -607,6 +673,7 @@ export function MapView({
 
       (map.current.getSource("boundaries") as maplibregl.GeoJSONSource)?.setData(tagged as never);
       const pfzRaw = (pfzRes.features ?? pfzRes.thermal_front_proxy?.features ?? []) as PfzFeature[];
+      setPfzFeatures(pfzRaw);
       (map.current.getSource("pfz") as maplibregl.GeoJSONSource)?.setData({
         type: "FeatureCollection",
         features: pfzRaw.map((f) => ({
@@ -637,6 +704,7 @@ export function MapView({
       fetchWatchBadges()
         .then((res) => {
           if (cancelled || !map.current) return;
+          setWatchBadgeFeatures(res.badges ?? []);
           const layer = res.map_layer as { geojson: GeoJSON.FeatureCollection } | undefined;
           (map.current.getSource("watch-badges") as maplibregl.GeoJSONSource)?.setData(
             (layer?.geojson ?? EMPTY) as never,
@@ -861,7 +929,7 @@ export function MapView({
           </div>
 
           {layers.srvBathymetry && (
-            <div className="pointer-events-auto absolute top-3 left-64 hidden sm:block rounded-md border border-hairline bg-shelf-1/90 px-3 py-2 backdrop-blur-sm shadow-sm">
+            <div className="pointer-events-auto absolute top-3 right-14 hidden sm:block rounded-xl border border-hairline/80 bg-shelf-1/95 px-3 py-2 backdrop-blur-md shadow-lg">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-[#ccebc5]" />
                 <span className="text-[11px] font-medium text-ink">Depth Shading (ETOPO/GEBCO) meters</span>
@@ -883,7 +951,7 @@ export function MapView({
           )}
 
           {layers.waveForecast && !layers.srvBathymetry && (
-            <div className="pointer-events-auto absolute top-3 left-64 hidden sm:block rounded-md border border-hairline bg-shelf-1/90 px-3 py-2 backdrop-blur-sm shadow-sm">
+            <div className="pointer-events-auto absolute top-3 right-14 hidden sm:block rounded-xl border border-hairline/80 bg-shelf-1/95 px-3 py-2 backdrop-blur-md shadow-lg">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-[#e87050]" />
                 <span className="text-[11px] font-medium text-ink">Wave Height (Hs Forecast) meters</span>
@@ -901,7 +969,9 @@ export function MapView({
             </div>
           )}
 
-          {/* Coastal Region & Port Quick Switcher */}
+          {/* Coastal Region Quick Switcher — the control stays put; only the
+              dashboard below it moves side, so picking a region never
+              relocates the button itself. */}
           <div ref={regionDropdownRef} className="pointer-events-auto absolute top-3 right-14 z-20">
             <div className="relative">
               <button
@@ -910,12 +980,12 @@ export function MapView({
                 className="flex items-center gap-2 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl px-3 py-1.5 text-xs font-medium text-ink shadow-lg transition-all hover:bg-shelf-2 hover:border-hairline-strong focus:outline-none"
                 aria-label="Select coastal sector"
               >
-                <MapPin className="size-3.5 text-accent" />
+                <MapPin className="size-3.5 text-accent shrink-0" />
                 <span className="max-w-[140px] sm:max-w-none truncate font-medium">
                   {COASTAL_REGIONS.find((r) => r.id === selectedRegion)?.name ?? "Select Sector"}
                 </span>
                 <ChevronDown
-                  className={`size-3 text-ink-dim transition-transform duration-200 ${
+                  className={`size-3 text-ink-dim transition-transform duration-200 shrink-0 ${
                     regionDropdownOpen ? "rotate-180" : ""
                   }`}
                 />
@@ -954,8 +1024,42 @@ export function MapView({
             </div>
           </div>
 
+          {/* Region dashboard — three numbers only (fishing zones, wind,
+              hazards), docked to whichever side of the region is open water
+              (region.coast) so it never sits over the coastline. Clears
+              itself via the moveend effect once the chart no longer looks
+              at that region. */}
+          {regionStats && (
+            <div
+              className={`pointer-events-auto absolute top-14 z-20 w-52 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl p-3 shadow-lg ${
+                regionStats.region.coast === "west" ? "left-3" : "right-14"
+              }`}
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="truncate text-xs font-semibold text-ink">{regionStats.region.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedRegion("all")}
+                  aria-label="Close region dashboard"
+                  className="shrink-0 text-ink-dim hover:text-ink"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+              <ReadoutGrid cols={3}>
+                <Readout label="Zones" value={regionStats.zoneCount} />
+                <Readout
+                  label="Wind"
+                  value={regionStats.avgWindMs != null ? regionStats.avgWindMs.toFixed(1) : "—"}
+                  unit={regionStats.avgWindMs != null ? "m/s" : undefined}
+                />
+                <Readout label="Hazards" value={regionStats.hazardCount} />
+              </ReadoutGrid>
+            </div>
+          )}
+
           {/* Quick recenter button */}
-          <div className="pointer-events-auto absolute top-28 right-2.5 z-10">
+          <div className="pointer-events-auto absolute top-3 right-3 z-10">
             <button
               type="button"
               onClick={() => {
@@ -969,9 +1073,9 @@ export function MapView({
               }}
               title="Recenter chart on Gulf of Mannar pilot sector"
               aria-label="Recenter chart on Gulf of Mannar"
-              className="flex size-[29px] items-center justify-center rounded-md border border-hairline bg-shelf-1/90 backdrop-blur-md text-ink-muted shadow transition-colors hover:bg-shelf-2 hover:text-ink focus:outline-none"
+              className="flex size-[34px] items-center justify-center rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-md text-ink-muted shadow transition-colors hover:bg-shelf-2 hover:text-ink focus:outline-none"
             >
-              <Crosshair className="size-4" />
+              <Crosshair className="size-4 text-accent" />
             </button>
           </div>
 
