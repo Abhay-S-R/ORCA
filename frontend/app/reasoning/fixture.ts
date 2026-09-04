@@ -28,6 +28,13 @@ export type TraceNode = {
   used_llm: boolean;
   model: string | null;
   tier: "cheap" | "mid" | "reasoning" | null;
+  inputs_consumed?: Record<string, any>;
+  outputs?: Record<string, any>;
+  source_provenance?: {
+    dataset: string;
+    acquisition_timestamp: string;
+    freshness_minutes: number;
+  } | null;
 };
 
 export type TraceEdge = {

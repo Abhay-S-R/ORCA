@@ -725,7 +725,28 @@ def run(state: ORCAState) -> AgentResult:
         "source_selections": source_selections,
     }
 
-    contributing = [tide.confidence, persistence["confidence"], correlation["confidence"]]
+    # Primary operational confidence: tide + PFZ proximity
+    contributing = [tide.confidence]
+    if near.found:
+        compass_str = f" ({near.compass})" if near.compass else ""
+        contributing.append(Confidence(score="HIGH", rationale=f"Active INCOIS PFZ advisory at {near.distance_km} km{compass_str}"))
+    elif near.sector_id:
+        contributing.append(Confidence(score="MEDIUM", rationale=f"No PFZ advisory within sector {near.sector_id}"))
+    else:
+        contributing.append(Confidence(score="LOW_DATA", rationale="No PFZ advisory data found"))
+
+    # Multi-day persistence is an analytical trend: if multi-day history is present (>= 2 days),
+    # it contributes to overall confidence; if only 1 snapshot exists, it is indicative
+    # and recorded on pfz_persistence without degrading live operational safety.
+    if persistence.get("days_on_record", 0) >= 2:
+        contributing.append(persistence["confidence"])
+
+    # Gridded SST/chlorophyll correlation is a specialized oceanographic layer (D3 seam).
+    # If the user specifically asks about ocean temperature/colour, or if gridded data is available,
+    # it contributes to confidence.
+    is_ocean_color_query = any(w in query for w in ("sst", "chlorophyll", "temperature", "plankton", "water quality", "satellite"))
+    if correlation.get("available") or is_ocean_color_query:
+        contributing.append(correlation["confidence"])
 
     is_decline_query = any(w in query for w in ("decline", "declined", "why has", "productivity", "catch dropped", "fewer fish"))
     if is_decline_query or depth == "DEEP":
