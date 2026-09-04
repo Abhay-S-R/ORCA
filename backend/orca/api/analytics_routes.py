@@ -14,6 +14,8 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Response
 
+from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
+from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.agents import ocean_analytics as oa
 from orca.agents import reporting
 from orca.agents.discovery import (
@@ -24,11 +26,10 @@ from orca.agents.discovery import (
 )
 from orca.contracts import ChartSpec, SourceProvenance
 from orca.data import analytics_loaders as al
+from orca.api.params import Lat, Lon
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["ocean-analytics"])
-
-_DEFAULT_LAT, _DEFAULT_LON = 8.80, 78.14
 _BY_ID = {s.id: s for s in SOURCE_REGISTRY}
 
 
@@ -113,7 +114,7 @@ def source_decision(data_type: str, down: str | None = None) -> dict:
 
 
 @router.get("/tides")
-def tides(lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON) -> dict:
+def tides(lat: Lat = _DEFAULT_LAT, lon: Lon = _DEFAULT_LON) -> dict:
     t = oa.predict_tides(lat, lon)
     return {
         "station_code": t.station_code,
@@ -132,7 +133,7 @@ def tides(lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON) -> dict:
 
 
 @router.get("/pfz/nearest")
-def pfz_nearest(lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON) -> dict:
+def pfz_nearest(lat: Lat = _DEFAULT_LAT, lon: Lon = _DEFAULT_LON) -> dict:
     near = oa.nearest_pfz(lat, lon)
     persistence = oa.score_pfz_persistence(lat, lon, sector_id=near.sector_id or "SEC006")
     return {
@@ -144,8 +145,8 @@ def pfz_nearest(lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON) -> dict:
 
 @router.get("/zones")
 def zones(
-    lat: float = _DEFAULT_LAT,
-    lon: float = _DEFAULT_LON,
+    lat: Lat = _DEFAULT_LAT,
+    lon: Lon = _DEFAULT_LON,
     authorization: str | None = Header(default=None),
 ) -> dict:
     """The `/zones` surface payload — PS #1. Leads with the user's own sector
@@ -197,7 +198,7 @@ def zones(
 
 
 @router.get("/trends")
-def trends(district: str = "Thoothukudi", lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON) -> dict:
+def trends(district: str = "Thoothukudi", lat: Lat = _DEFAULT_LAT, lon: Lon = _DEFAULT_LON) -> dict:
     """The `/trends` surface — PS #3 (tide axis) and PS #7 (catch decline).
 
     Emits frozen-contract `ChartSpec` objects (plan §5.9) alongside the
@@ -257,8 +258,8 @@ def trends(district: str = "Thoothukudi", lat: float = _DEFAULT_LAT, lon: float 
 @router.get("/data/export")
 def data_export(
     q: str = "tide, sea conditions and fishing zones",
-    lat: float = _DEFAULT_LAT,
-    lon: float = _DEFAULT_LON,
+    lat: Lat = _DEFAULT_LAT,
+    lon: Lon = _DEFAULT_LON,
     fmt: str = "csv",
 ) -> Response:
     """Researcher export — the same underlying facts as the fisherman verdict,

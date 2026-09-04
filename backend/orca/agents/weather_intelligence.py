@@ -35,6 +35,8 @@ from typing import Any, Literal
 import httpx
 import pandas as pd
 
+from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
+from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.data.loaders import (
     CACHED_MARINE_PORTS,
@@ -376,8 +378,8 @@ def run(state: ORCAState) -> AgentResult:
     lat, lon = location.get("lat"), location.get("lon")
     if lat is None or lon is None:
         bbox = state.get("target_bbox") or {}
-        lat = (bbox.get("min_lat", 8.80) + bbox.get("max_lat", 8.80)) / 2
-        lon = (bbox.get("min_lon", 78.14) + bbox.get("max_lon", 78.14)) / 2
+        lat = (bbox.get("min_lat", _DEFAULT_LAT) + bbox.get("max_lat", _DEFAULT_LAT)) / 2
+        lon = (bbox.get("min_lon", _DEFAULT_LON) + bbox.get("max_lon", _DEFAULT_LON)) / 2
 
     weather = get_marine_weather(lat, lon, hours_ahead=48)
     lightning = get_lightning_nowcast(lat, lon)

@@ -400,23 +400,31 @@ def _rows_to_agent_results(rows: list[AuditTraceLog]) -> list[AgentResult]:
     graph or a specialist agent."""
     results = []
     for row in rows:
-        if row.agent_name in ("reporting", "critic", "language_ingress", "language_egress"):
+        # _get_val, not attribute access: rows arrive either as ORM objects
+        # (Postgres) or as the plain audit_trace_log dicts the in-memory ring
+        # buffer holds. build_trace_graph has always read them this way; this
+        # function had not, so a cache-served re-render crashed on .agent_name.
+        agent_name = _get_val(row, "agent_name")
+        if agent_name in ("reporting", "critic", "language_ingress", "language_egress"):
             continue  # not specialist facts — Reporting re-synthesizes from the rest
-        prov = row.source_provenance or {}
+        prov = _get_val(row, "source_provenance") or {}
         results.append(AgentResult(
-            agent_name=row.agent_name,
-            query_id=str(row.query_id),
+            agent_name=agent_name,
+            query_id=str(_get_val(row, "query_id")),
             reasoning_depth=coerce_reasoning_depth("STANDARD"),
-            inputs_consumed=row.inputs_consumed or {},
-            outputs=row.outputs or {},
+            inputs_consumed=_get_val(row, "inputs_consumed") or {},
+            outputs=_get_val(row, "outputs") or {},
             source_provenance=SourceProvenance(
                 dataset=prov.get("dataset", "unknown"),
                 acquisition_timestamp=prov.get("acquisition_timestamp", ""),
                 freshness_minutes=prov.get("freshness_minutes", 0),
             ),
-            confidence=Confidence(score=coerce_confidence_score(row.confidence or "LOW_DATA"), rationale="replayed from audit_trace_log"),
-            status=coerce_status(row.status),
-            error_detail=row.error_detail,
+            confidence=Confidence(
+                score=coerce_confidence_score(_get_val(row, "confidence") or "LOW_DATA"),
+                rationale="replayed from audit_trace_log",
+            ),
+            status=coerce_status(_get_val(row, "status")),
+            error_detail=_get_val(row, "error_detail"),
         ))
     return results
 
@@ -428,27 +436,46 @@ def render_persona(req: PersonaRenderRequest) -> PersonaRenderResponse:
     which is what makes this a zero-re-query operation (Phase 3 exit
     criterion 3 / differentiator 7). Every number in the response is
     byte-identical to the original answer; only the wording changes."""
-    try:
-        qid = uuid.UUID(req.query_id)
-    except ValueError:
-        raise HTTPException(status_code=422, detail="query_id must be a UUID")
+    # Same two-tier read as GET /trace/{query_id}: the in-memory ring buffer
+    # first, Postgres second. Reading only Postgres here meant a query
+    # answered while the DB was offline was inspectable on /reasoning but
+    # 404'd on the persona switcher — one surface saying the answer exists
+    # and the other saying it doesn't, for the same query_id.
+    cached = _RECENT_TRACES.get(req.query_id)
+    rows = cached["rows"] if cached else []
 
-    db = get_sessionmaker()()
-    try:
-        rows = get_trace_entries(db, query_id=qid)
-    finally:
-        db.close()
+    if not rows:
+        try:
+            qid = uuid.UUID(req.query_id)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="query_id must be a UUID")
+        db = get_sessionmaker()()
+        try:
+            rows = get_trace_entries(db, query_id=qid)
+        finally:
+            db.close()
     if not rows:
         raise HTTPException(status_code=404, detail=f"no stored result for query_id {req.query_id}")
 
     results = _rows_to_agent_results(rows)
-    verdict_row = next((r for r in rows if r.agent_name == "risk_assessment"), None)
-    verdict = (verdict_row.outputs or {}) if verdict_row else {}
-    query_row = next((r for r in rows if r.agent_name == "planning"), None)
-    query_text = (query_row.inputs_consumed or {}).get("query", "") if query_row else ""
+
+    def _row(agent: str) -> Any:
+        return next((r for r in rows if _get_val(r, "agent_name") == agent), None)
+
+    verdict_row = _row("risk_assessment")
+    verdict = (_get_val(verdict_row, "outputs") or {}) if verdict_row else {}
+    query_row = _row("planning")
+    query_text = (_get_val(query_row, "inputs_consumed") or {}).get("query", "") if query_row else ""
 
     assembled = reporting.assemble_response(req.query_id, results)
-    narrative = reporting.synthesize_narrative(query_text, verdict, results, persona=req.persona)
+    # A re-render reads back what the original run recorded; geospatial's
+    # inputs_consumed is where the position it actually used was persisted, so
+    # the re-rendered narrative claims the same location the first one did.
+    geo_row = _row("geospatial")
+    user_location = (_get_val(geo_row, "inputs_consumed") or {}).get("user_location") if geo_row else None
+    narrative = reporting.synthesize_narrative(
+        query_text, verdict, results, persona=req.persona, user_location=user_location,
+    )
 
     return PersonaRenderResponse(
         query_id=req.query_id,

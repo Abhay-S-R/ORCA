@@ -3,6 +3,7 @@
 // budget check, not an observability platform" — so this is one function,
 // not a metrics SDK.
 import type * as maplibregl from "maplibre-gl";
+import { API_BASE } from "./apiBase";
 
 export type LayerMetrics = {
   layer_id: string;
@@ -11,8 +12,6 @@ export type LayerMetrics = {
   payload_bytes: number;
   dropped_frames: number;
 };
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 // Measures one toggle-to-painted cycle for a MapLibre raster/geojson source:
 // layer_load_ms = toggle -> source finished loading, render_ms = source

@@ -23,6 +23,8 @@ from typing import Any
 from shapely.geometry import shape
 from shapely.validation import explain_validity
 
+from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
+from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.agents import geospatial
 from orca.contracts import (
     AgentResult,
@@ -380,7 +382,7 @@ def run(state: ORCAState) -> AgentResult:
 if __name__ == "__main__":
     demo_state: ORCAState = {  # type: ignore[typeddict-item]
         "query_id": "demo", "reasoning_depth": "SHALLOW",
-        "user_location": {"lat": 8.80, "lon": 78.14},
+        "user_location": {"lat": _DEFAULT_LAT, "lon": _DEFAULT_LON},
         "weather_data": {
             "hourly": [
                 {"time": "2026-09-02T00:00:00Z", "wave_height": 1.2, "wind_speed_10m": 5.0},

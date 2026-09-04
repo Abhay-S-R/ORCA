@@ -10,6 +10,7 @@ default (small_fishing) vessel class.
 """
 from __future__ import annotations
 
+import math
 from typing import Literal, TypedDict
 
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
@@ -37,12 +38,24 @@ class SafetyVerdict(TypedDict):
     reason: str
 
 
+def _known(value: float | None) -> bool:
+    """A measurement we can actually compare against a threshold. None is an
+    absent reading; NaN/inf are what a masked grid cell or a failed geometry
+    op produce. Both must be excluded from the bands below, because every
+    comparison against NaN is False — `NaN >= danger_hs` and `NaN <= 1.0`
+    are BOTH False, so an unguarded chain falls straight through to GO. That
+    is the "GO-shaped number conjured from absent data" §5.7 forbids, and it
+    is a live path, not a synthetic edge: ERA5 masks swh as NaN at
+    Thoothukudi's own point (see orca/replay/gaja.py)."""
+    return value is not None and math.isfinite(value)
+
+
 def evaluate_marine_safety(
-    wave_height_m: float,
-    wind_speed_kmh: float,
+    wave_height_m: float | None,
+    wind_speed_kmh: float | None,
     lightning_active: bool,
     cyclone_alert: str | None,
-    imbl_distance_nm: float,
+    imbl_distance_nm: float | None,
     mpa_violation: bool,
     vessel_class: VesselClass = "small_fishing",
 ) -> SafetyVerdict:
@@ -50,14 +63,44 @@ def evaluate_marine_safety(
     danger_wind, danger_hs = 55.0 + wind_delta, 3.5 + hs_delta
     caution_wind, caution_hs = 35.0 + wind_delta, 2.0 + hs_delta
 
-    if cyclone_alert in ("Red", "Orange") or wave_height_m >= danger_hs or wind_speed_kmh >= danger_wind:
+    # Thresholds and ordering below are transcribed verbatim from Architecture
+    # §3.1 and must stay that way; the only addition is the _known() guard on
+    # each comparison, so an unreadable input can never *clear* a hazard band.
+    unknown = [
+        name
+        for name, value in (
+            ("wave_height_m", wave_height_m),
+            ("wind_speed_kmh", wind_speed_kmh),
+            ("imbl_distance_nm", imbl_distance_nm),
+        )
+        if not _known(value)
+    ]
+
+    if (
+        cyclone_alert in ("Red", "Orange")
+        or (_known(wave_height_m) and wave_height_m >= danger_hs)  # type: ignore[operator]
+        or (_known(wind_speed_kmh) and wind_speed_kmh >= danger_wind)  # type: ignore[operator]
+    ):
         return {"status": "DANGER", "go_no_go": "NO_GO", "reason": "Severe Weather / Cyclone Threshold Exceeded"}
     if lightning_active:
         return {"status": "DANGER", "go_no_go": "NO_GO", "reason": "Active Convective Lightning Strike Zone"}
-    if imbl_distance_nm <= 1.0 or mpa_violation:
+    if (_known(imbl_distance_nm) and imbl_distance_nm <= 1.0) or mpa_violation:  # type: ignore[operator]
         return {"status": "CRITICAL_GEOFENCE", "go_no_go": "NO_GO", "reason": "Imminent Boundary or MPA Breach"}
-    if caution_hs <= wave_height_m < danger_hs or caution_wind <= wind_speed_kmh < danger_wind or imbl_distance_nm <= 3.0:
+    if (
+        (_known(wave_height_m) and caution_hs <= wave_height_m < danger_hs)  # type: ignore[operator]
+        or (_known(wind_speed_kmh) and caution_wind <= wind_speed_kmh < danger_wind)  # type: ignore[operator]
+        or (_known(imbl_distance_nm) and imbl_distance_nm <= 3.0)  # type: ignore[operator]
+    ):
         return {"status": "WARNING", "go_no_go": "CAUTION", "reason": "Rough Sea State / Boundary Proximity"}
+    # Every hazard band came back clear, but a band can only be trusted when
+    # its input was readable — so an unreadable input degrades to CAUTION
+    # naming it, never GO (plan §5.7).
+    if unknown:
+        return {
+            "status": "CAUTION_MISSING_DATA",
+            "go_no_go": "CAUTION",
+            "reason": f"Insufficient data — missing: {', '.join(unknown)}",
+        }
     return {"status": "SAFE", "go_no_go": "GO", "reason": "All Parameters Within Safe Operational Limits"}
 
 
@@ -168,22 +211,34 @@ def run(state: ORCAState) -> AgentResult:
     # forbids, so a genuinely-absent distance is tracked as missing too.
     imbl_distance_nm = conservative_or(geospatial.get("imbl_distance_nm"), missing_field_name="imbl_distance_nm", missing=missing)
 
+    # Unreadable inputs are passed through as None rather than coerced to a
+    # stand-in number. The old `or 0.0` read as "dead calm" and the old
+    # `else 999.0` as "nowhere near any boundary" — both are the safest
+    # possible values, i.e. exactly the GO-shaped fabrications §5.7 forbids.
+    # evaluate_marine_safety now takes None and degrades to CAUTION itself,
+    # so the floor below is a second line of defence rather than the only one.
     verdict = evaluate_marine_safety(
-        wave_height_m=wave_height_m or 0.0,
+        wave_height_m=wave_height_m,
         # state carries m/s (normalize.py convention); evaluate_marine_safety's
         # reference signature (Architecture §3.1) is fixed in km/h — ms_to_kmh
         # is the same conversion normalize.py uses in the other direction, not
         # an independently hardcoded factor.
-        wind_speed_kmh=ms_to_kmh(wind_speed_ms or 0.0),
+        wind_speed_kmh=ms_to_kmh(wind_speed_ms) if wind_speed_ms is not None else None,
         lightning_active=weather.get("lightning_active", False),
         cyclone_alert=weather.get("cyclone_alert"),
-        imbl_distance_nm=imbl_distance_nm if imbl_distance_nm is not None else 999.0,
+        imbl_distance_nm=imbl_distance_nm,
         mpa_violation=geospatial.get("mpa_violation", False),
         vessel_class=vessel_class,
     )
 
+    # evaluate_marine_safety degrades to CAUTION on its own when an input is
+    # unreadable, but it can only name its own parameters (`wind_speed_kmh`).
+    # `missing` holds the names of the *state* fields that actually came back
+    # absent (`wind_speed_10m`), which is what an operator has to go looking
+    # for, so the floor's wording wins whenever no readable input proved a
+    # hazard by itself.
     floor = safety_floor_for_missing_inputs(missing)
-    if floor is not None and verdict["go_no_go"] == "GO":
+    if floor is not None and verdict["status"] in ("SAFE", "CAUTION_MISSING_DATA"):
         go_no_go, reason = floor
         verdict = {"status": "CAUTION_MISSING_DATA", "go_no_go": go_no_go, "reason": reason}
 

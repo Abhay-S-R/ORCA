@@ -12,15 +12,16 @@ from pydantic import BaseModel, Field
 from orca.agents.risk_assessment import VesselClass
 from orca.agents.visualization import validate_payload, voyage_route_layer
 from orca.agents.voyage import plan_voyage
+from orca.api.params import LatField, LonField
 
 router = APIRouter(prefix="/api", tags=["voyage"])
 
 
 class VoyagePlanRequest(BaseModel):
-    origin_lat: float
-    origin_lon: float
-    destination_lat: float
-    destination_lon: float
+    origin_lat: LatField
+    origin_lon: LonField
+    destination_lat: LatField
+    destination_lon: LonField
     vessel_class: VesselClass = "small_fishing"
     departure_time: str | None = None  # ISO 8601 UTC; None -> now
     speed_kn: float = Field(default=8.0, gt=0)

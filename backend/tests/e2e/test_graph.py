@@ -341,7 +341,9 @@ def test_deep_query_routes_through_the_critic_and_preserves_the_verdict(monkeypa
     fake_client.complete.return_value = "[]"  # judge finds nothing to fix
     monkeypatch.setattr("orca.llm.tiers.llm", lambda tier: fake_client)
 
-    state = _base_state("why has catch declined near Thoothukudi")
+    # A safety-shaped query, so the verdict header is required in the narrative
+    # and the Critic runs strictly after the text that carries it is final.
+    state = _base_state("is it safe to go to sea — why has catch declined near Thoothukudi")
     state["reasoning_depth"] = "DEEP"
     graph = build_graph()
     result = graph.invoke(state)
@@ -352,6 +354,28 @@ def test_deep_query_routes_through_the_critic_and_preserves_the_verdict(monkeypa
     assert result["final_english_response"].split(":")[0] in {"GO", "CAUTION", "NO_GO"}
     critic_trace = next(e for e in result["audit_trace_log"] if e["agent_name"] == "critic")
     assert critic_trace["status"] == "ok"
+
+
+def test_the_critic_cannot_alter_the_verdict_on_a_non_safety_query(monkeypatch):
+    """Same exit criterion from the other side. A "why has catch declined"
+    question does not open with a safety banner any more, so the guarantee has
+    to be asserted against the structured verdict rather than the prose — the
+    verdict is still computed for every query, it just stops being stapled to
+    the top of an answer nobody asked it for."""
+    from unittest.mock import MagicMock
+
+    _mock_calm_weather(monkeypatch)
+    fake_client = MagicMock()
+    fake_client.complete.return_value = "[]"
+    monkeypatch.setattr("orca.llm.tiers.llm", lambda tier: fake_client)
+
+    state = _base_state("why has catch declined near Thoothukudi")
+    state["reasoning_depth"] = "DEEP"
+    result = build_graph().invoke(state)
+
+    assert result["critic_pass"] is True
+    assert result["risk_assessment"]["go_no_go"] in {"GO", "CAUTION", "NO_GO"}
+    assert not result["final_english_response"].startswith("GO:")
 
 
 def test_shallow_query_never_invokes_the_critic():

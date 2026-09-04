@@ -8,8 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { Volume2 } from "lucide-react";
 import { Button } from "./Button";
 import { type Persona } from "../persona/config";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+import { API_BASE } from "../lib/apiBase";
 
 export function AnswerSpeaker({
   text,

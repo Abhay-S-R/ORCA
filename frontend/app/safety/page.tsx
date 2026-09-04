@@ -17,8 +17,7 @@ import { SourceChip } from "../components/SourceChip";
 import { EmptyState, Skeleton } from "../components/States";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { FormattedResponse } from "../components/FormattedResponse";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+import { API_BASE } from "../lib/apiBase";
 
 type VesselClass = "small_fishing" | "mechanized_trawler" | "cargo_vessel";
 const VESSEL_LABELS: Record<VesselClass, string> = {

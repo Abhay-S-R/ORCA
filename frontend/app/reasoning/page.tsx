@@ -47,8 +47,7 @@ import { ReasoningTimeline, PIPELINE_STAGES } from "./ReasoningTimeline";
 import { layoutTrace } from "./dagre-layout";
 import { EXAMPLE_TRACE, type TraceGraph, type TraceNode } from "./fixture";
 import { Badge } from "../components/Badge";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+import { API_BASE } from "../lib/apiBase";
 
 const nodeTypes: NodeTypes = {
   agent: AgentNode,
@@ -505,6 +504,7 @@ function ReasoningContent() {
             <input
               value={queryInput}
               onChange={(e) => setQueryInput(e.target.value)}
+              aria-label="Ask ORCA"
               placeholder="Ask ORCA a question to observe real-time agentic reasoning..."
               className="w-full rounded-xl border border-hairline bg-abyss/70 py-2.5 pl-10 pr-4 text-sm text-ink placeholder:text-ink-dim/60 transition-colors hover:border-hairline-strong focus:border-sky-400 focus:outline-none"
             />
@@ -626,7 +626,26 @@ function ReasoningContent() {
           )}
         </AnimatePresence>
 
-        {/* ReactFlow Graph Canvas */}
+        {/* ReactFlow Graph Canvas.
+            React Flow makes each node focusable but does not activate one on
+            Enter/Space, so the inspector was mouse-only. The keydown sits on
+            the wrapper rather than inside the custom node component because
+            the focusable element is React Flow's own node wrapper, which the
+            custom component never renders. */}
+        <div
+          className="contents"
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            const el = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(
+              ".react-flow__node",
+            );
+            const found = el && nodes.find((n) => n.id === el.dataset.id);
+            const nodeData = found?.data as { node?: TraceNode } | undefined;
+            if (!nodeData?.node) return;
+            e.preventDefault();  // Space would otherwise scroll the canvas
+            setSelectedNode(nodeData.node);
+          }}
+        >
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -655,6 +674,7 @@ function ReasoningContent() {
             maskColor="rgba(4, 18, 28, 0.75)"
           />
         </ReactFlow>
+        </div>
 
         {/* Floating Slide-out Inspector */}
         {selectedNode && (

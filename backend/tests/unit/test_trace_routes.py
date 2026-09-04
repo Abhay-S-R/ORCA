@@ -168,3 +168,32 @@ def test_in_memory_recent_traces_and_get_trace():
     assert trace.query_id == test_qid
     assert len(trace.nodes) == len(_standard_rows())
 
+
+
+def test_render_persona_serves_a_cache_row_when_postgres_has_nothing():
+    """The in-memory ring buffer holds plain audit_trace_log dicts, not ORM
+    rows. /render read only Postgres and only via attribute access, so a
+    query answered with the DB offline was inspectable on /reasoning and a
+    500 on the persona switcher — the two surfaces now agree."""
+    from orca.api.trace_routes import _RECENT_TRACES, record_recent_trace
+
+    cached_qid = "33333333-3333-3333-3333-333333333333"
+    dict_rows = [vars(r) | {"query_id": cached_qid} for r in _standard_rows()]
+    record_recent_trace(
+        query_id=cached_qid, query_text="is it safe today", verdict="GO",
+        confidence_tier="HIGH", rows=dict_rows,
+    )
+    try:
+        fake_llm = MagicMock()
+        fake_llm.complete.return_value = "GO: conditions favorable, rendered for a fisherman."
+        # get_trace_entries returning [] proves the answer came from the cache.
+        with (
+            patch("orca.api.trace_routes.get_sessionmaker", return_value=lambda: MagicMock()),
+            patch("orca.api.trace_routes.get_trace_entries", return_value=[]),
+            patch("orca.llm.tiers.llm", return_value=fake_llm),
+        ):
+            res = render_persona(PersonaRenderRequest(query_id=cached_qid, persona="fisherman"))
+        assert res.final_english_response.startswith("GO:")
+        assert res.citations, "citations must survive the dict-row path"
+    finally:
+        _RECENT_TRACES.pop(cached_qid, None)

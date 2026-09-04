@@ -23,13 +23,12 @@ import { PersonaCorrection } from "../components/PersonaCorrection";
 import { useVoiceInput, VoiceMicButton, VoiceInputPanel } from "../components/VoiceInput";
 import { usePersona } from "../persona/context";
 import { type Persona } from "../persona/config";
+import { API_BASE } from "../lib/apiBase";
 
 const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapView), {
   ssr: false,
   loading: () => <Skeleton className="h-full w-full" />,
 });
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 type AgentSpan = { agent_name: string; status: AgentStatus };
 type Citation = { agent_name: string; dataset: string; acquisition_timestamp: string };

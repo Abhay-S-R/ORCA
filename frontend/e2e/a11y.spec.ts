@@ -35,6 +35,11 @@ test.describe("Ask flow (/ask)", () => {
     await input.fill("Is it safe to go out tomorrow morning?"); // enables the submit button — disabled buttons never receive focus
     await input.focus();
     await expect(input).toBeFocused();
+    // The voice mic sits between the box and Ask — both feed the same query,
+    // so it is in tab order by design. Walking both hops asserts the order
+    // *and* that the mic carries an accessible name.
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: /ask by voice/i })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "Ask", exact: true })).toBeFocused();
   });

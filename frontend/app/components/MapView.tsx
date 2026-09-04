@@ -25,12 +25,11 @@ import { TimeSlider } from "./TimeSlider";
 import { getToken } from "../lib/auth";
 import { measureLayerToggle, reportLayerMetrics } from "../lib/layerPerf";
 import { watchBadges as fetchWatchBadges, type WatchBadge } from "../lib/watches";
+import { API_BASE } from "../lib/apiBase";
 
 // See scripts/copy-maplibre-worker.mjs — Turbopack will not emit the worker's
 // sibling module next to it, so the worker is served from public/ instead.
 setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 type BoundaryGeoJson = { type: "FeatureCollection"; features: GeoJsonFeature[] };
 type GeoJsonFeature = {

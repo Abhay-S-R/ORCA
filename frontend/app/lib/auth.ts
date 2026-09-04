@@ -8,7 +8,8 @@
 // TODO(D1): replace with the shared auth context / useAuth() hook when it
 // exists. This file is the single swap point.
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+export { API_BASE } from "./apiBase";
+import { API_BASE } from "./apiBase";
 
 const TOKEN_KEY = "orca.token";
 

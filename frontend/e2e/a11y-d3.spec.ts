@@ -46,7 +46,7 @@ test.describe("Voyage flow (/voyage)", () => {
 test.describe("Reasoning flow (/reasoning)", () => {
   test("empty state (example trace) has no critical a11y violations", async ({ page }) => {
     await page.goto("/reasoning");
-    await expect(page.getByRole("heading", { name: "Reasoning", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Reasoning & Agent Graph" })).toBeVisible();
     await expectNoCriticalViolations(page, "Reasoning — example trace");
   });
 
@@ -56,7 +56,7 @@ test.describe("Reasoning flow (/reasoning)", () => {
     await input.focus();
     await expect(input).toBeFocused();
     await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "Run" })).toBeFocused();
+    await expect(page.getByRole("button", { name: "Run Live Query" })).toBeFocused();
   });
 
   test("graph nodes are keyboard-navigable and the inspector is dismissible", async ({ page }) => {
@@ -68,22 +68,25 @@ test.describe("Reasoning flow (/reasoning)", () => {
     // aria-roledescription="node" plus a describedby. Excludes the
     // non-selectable fan-out group boxes (dagre-layout.ts sets
     // selectable: false on those, and they render first in DOM order).
-    const firstNode = page.locator('[role="group"][aria-roledescription="node"]', { hasNotText: "parallel fan-out" }).first();
+    // Matched by class, not accessible name: React Flow's node wrapper carries
+    // no aria-label. The fan-out group boxes are excluded by their own node
+    // type class — dagre-layout.ts sets selectable: false on those, and the
+    // text filter this used to rely on no longer matches their label.
+    const firstNode = page.locator(".react-flow__node:not(.react-flow__node-fanoutGroup)").first();
     // fitView's initial pan/zoom takes a moment to settle after mount;
     // focusing and pressing Enter before it does risks acting on a node
     // that's about to move out from under the (already-resolved) locator.
     await page.waitForTimeout(300);
     await firstNode.focus();
     await page.keyboard.press("Enter");
-    // "Inspector" is only the panel's title in the *unselected* state (it
-    // becomes the node's own agent_name once selected) — asserting on it
-    // here would pass trivially without ever proving selection happened.
-    // The close button only renders once a node is actually selected, so
-    // waiting on it is the real signal.
+    // The inspector only renders once a node is actually selected, so its
+    // close button appearing is the real proof that Enter selected something
+    // — and that same button disappearing is the proof it was dismissed
+    // without a mouse.
     const closeButton = page.getByRole("button", { name: /close inspector/i });
     await expect(closeButton).toBeVisible();
     await closeButton.focus();
     await page.keyboard.press("Enter");
-    await expect(page.getByText("Select a node to see its full reasoning")).toBeVisible();
+    await expect(closeButton).toBeHidden();
   });
 });

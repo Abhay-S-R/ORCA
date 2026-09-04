@@ -86,8 +86,9 @@ def _format_outputs(outputs: dict[str, Any]) -> str:
 _PERSONA_RENDERING_INSTRUCTIONS: dict[str, str] = {
     "fisherman": (
         "Plain, simple language a fisherman reads at a glance. 2-3 short "
-        "sentences. Lead with the GO/CAUTION/NO_GO banner, then one distance "
-        "and direction if relevant (e.g. 'boundary is 12nm east'). No jargon, "
+        "sentences. Where rule 1 requires the GO/CAUTION/NO_GO banner, lead with "
+        "it, then one distance and direction if relevant (e.g. 'boundary is "
+        "12nm east'). No jargon, "
         "no numbers beyond what changes the decision."
     ),
     "commercial_navigator": (
@@ -111,11 +112,38 @@ _PERSONA_RENDERING_INSTRUCTIONS: dict[str, str] = {
 }
 
 
+def describe_location(user_location: dict[str, Any] | None) -> str:
+    """One sentence naming the position every number in a response was
+    computed at, for the narrative prompt.
+
+    This exists because the alternative is silent substitution. The LLM sees
+    the raw user query, so if it is not told which position the telemetry
+    belongs to it will happily narrate Thoothukudi's numbers under whatever
+    place name the user typed — 53 nm from the maritime boundary instead of
+    0.4 nm. When nothing resolved, the prompt has to say so in as many words,
+    because "somewhere in the pilot region" is the honest claim.
+    """
+    loc = user_location or {}
+    lat, lon = loc.get("lat"), loc.get("lon")
+    position = f"{lat}, {lon}" if lat is not None and lon is not None else "an unknown position"
+    if loc.get("place_source") == "regional_default":
+        return (
+            f"The telemetry below was measured at the pilot region's default position ({position}) "
+            "because the query named no location that could be resolved and no GPS fix was supplied."
+        )
+    name = loc.get("place_name")
+    return f"The telemetry below was measured at {name} ({position})." if name else (
+        f"The telemetry below was measured at the position supplied with the query ({position})."
+    )
+
+
 def synthesize_narrative(
     query: str,
     verdict: dict[str, Any],
     results: list[AgentResult],
     persona: str = "fisherman",
+    user_location: dict[str, Any] | None = None,
+    lead_with_verdict: bool = True,
 ) -> str:
     """Synthesizes a persona-tailored narrative using the mid-tier LLM.
 
@@ -125,10 +153,18 @@ def synthesize_narrative(
     2. Ground Rule 1: Intent decides what fires; persona decides how it's said.
     3. Fallback: If the LLM is not configured, errors out, or attempts to
        change the verdict, degrade immediately to the deterministic verdict line.
+    4. The narrative may only claim the location it was actually given
+       (`user_location`), never the one the user's wording implies.
+    5. `lead_with_verdict=False` suppresses the verdict *header* on an answer
+       to a question that was not about safety — it never suppresses the
+       verdict itself. See `should_lead_with_verdict`.
     """
     verdict_str = verdict.get("go_no_go", "UNKNOWN")
     reason_str = verdict.get("reason", "no verdict computed")
     fallback_line = f"{verdict_str}: {reason_str}"
+    # A non-GO verdict is never demoted, whatever was asked, so re-derive the
+    # floor here rather than trusting the caller with a life-safety decision.
+    lead_with_verdict = lead_with_verdict or should_lead_with_verdict(verdict, [])
 
     try:
         from orca.llm.tiers import llm
@@ -147,9 +183,22 @@ def synthesize_narrative(
         persona, _PERSONA_RENDERING_INSTRUCTIONS["fisherman"]
     )
 
-    prompt = f"""You are ORCA Reporting Agent (Agent 9), communicating critical marine safety advice to a {persona} in South Tamil Nadu (Thoothukudi / Gulf of Mannar).
+    header_rule = (
+        f'Your response MUST begin with the exact verdict header: "{verdict_str}: {reason_str}".'
+        if lead_with_verdict
+        else (
+            "Answer the question that was actually asked. The verdict above is a clear "
+            f'"{verdict_str}" and the user did not ask about safety, so do NOT open with a '
+            "safety verdict header — mention conditions only where they bear on the answer."
+        )
+    )
+
+    prompt = f"""You are a marine safety advisor communicating critical advice to a {persona}.
 
 USER QUERY: "{query}"
+
+LOCATION THIS ADVICE IS FOR:
+{describe_location(user_location)}
 
 DETERMINISTIC SAFETY ASSESSMENT (ALREADY COMPUTED BY SAFETY RULES):
 - VERDICT: {verdict_str}
@@ -159,18 +208,49 @@ MEASURED TELEMETRY & FACTS:
 {facts_block}
 
 CRITICAL RULES:
-1. Your response MUST begin with the exact verdict header: "{verdict_str}: {reason_str}".
+1. {header_rule}
 2. You MUST NOT alter, contradict, soften, or question the verdict. The arithmetic is final.
 3. Rendering for this persona: {rendering_instruction}
-4. Keep the tone calm, practical, direct, and authoritative for sea navigation. Do not use generic AI disclaimers."""
+4. Location honesty. Refer only to the location stated above. If the user named a
+   different place, do NOT present these readings as being for that place — say
+   plainly that you have no data for it and that the readings are for the location
+   stated above. Never name a place the location line does not name.
+5. Never mention agents, models, internal component names, or that you are an AI.
+6. Keep the tone calm, practical, direct, and authoritative for sea navigation. Do not use generic AI disclaimers."""
 
     try:
         narrative = client.complete([{"role": "user", "content": prompt}]).strip()
-        if verdict_str not in narrative:
+        # The header is re-asserted only when it was required. Prepending it to
+        # an answer that was never supposed to carry one is how "where are the
+        # nearest fishing zones?" ended up opening with
+        # "GO: All Parameters Within Safe Operational Limits".
+        if lead_with_verdict and verdict_str not in narrative:
             return f"{fallback_line}\n\n{narrative}"
         return narrative
     except Exception:  # noqa: BLE001
         return fallback_line
+
+
+# Intent rows that are questions about safety. A verdict header belongs at the
+# top of an answer to one of these; on anything else it is noise that trains
+# people to skim past the one line that matters when it is not "GO".
+_SAFETY_SHAPED_ROWS = frozenset({"SAFETY_CHECK", "HAZARD_ALERTS", "ZONES_TO_AVOID"})
+
+
+def should_lead_with_verdict(verdict: dict[str, Any], matched_intent_rows: list[str]) -> bool:
+    """Whether the narrative opens with the safety verdict.
+
+    Ground Rule 2 is untouched: the verdict is still computed by deterministic
+    arithmetic for every query and still shipped in the structured response.
+    This decides presentation only, and it is deliberately asymmetric — a
+    CAUTION or NO_GO leads *whatever* was asked, because someone who asked
+    about tides while a squall builds still has to be told not to sail. Only a
+    GO on a question that was not about safety is demoted, so the header keeps
+    meaning something when it appears.
+    """
+    if verdict.get("go_no_go") != "GO":
+        return True
+    return bool(_SAFETY_SHAPED_ROWS & set(matched_intent_rows or []))
 
 
 def format_export(assembled: AssembledResponse, fmt: Literal["csv", "json"]) -> str:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from collections.abc import AsyncIterator
 
@@ -28,6 +29,8 @@ from orca.db.notifications_repo import (
 )
 from orca.db.repositories import get_user_by_id
 from orca.notifications.contracts import NotificationOut
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["notifications"])
 
@@ -77,15 +80,24 @@ def read_one(
 
 
 @router.get("/notifications/stream")
-async def stream(token: str = Query(...)) -> StreamingResponse:
+async def stream(token: str | None = Query(default=None)) -> StreamingResponse:
     """SSE. `EventSource` cannot send an Authorization header, so the access
     token comes as a query param (same tradeoff the wider SSE ecosystem
-    makes); it is validated here exactly like the bearer header would be."""
+    makes); it is validated here exactly like the bearer header would be.
+
+    `token` is optional at the signature so that *absent* credentials answer
+    401 like every other route, rather than the 422 FastAPI produces for a
+    missing required query param — a client cannot tell "log in again" from
+    "you built the URL wrong" out of a validation error.
+    """
+    if token is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing access token")
     try:
         payload = decode_token(token, expected_type="access")
         user_id = uuid.UUID(payload["sub"])
     except (TokenError, KeyError, ValueError) as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"invalid token: {exc}") from exc
+        _log.info("rejected stream token: %s", exc)  # reason to the log, not the caller
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid token") from exc
 
     async def _events() -> AsyncIterator[str]:
         seen: set[str] = set()

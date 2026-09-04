@@ -149,6 +149,19 @@ def ocean_analytics_node(state: ORCAState) -> dict:
     fed by planning, feeding the risk_assessment + visualization join and
     reporting. It exports run(state) -> AgentResult directly, so no adapter
     wrapper is needed here (unlike geospatial/reporting)."""
+    # The one place Agent 2's execution_plan actually gates execution. The
+    # graph's other fan-out branches deliberately do not consult it: weather
+    # and geospatial are the inputs risk_assessment computes the verdict from,
+    # and the verdict is fail-safe — it is computed for every query, including
+    # ones the router did not read as a safety question, because a misrouted
+    # "what's the tide" from someone about to put to sea in a gale must still
+    # produce a hazard warning. Ocean Analytics is the only branch whose
+    # absence costs nothing but content (see reporting_run's early_exit note:
+    # risk_assessment never reads ocean_data), so it is the only one skippable.
+    plan = state.get("execution_plan") or []
+    if plan and "ocean_analytics" not in plan:
+        return {}
+
     result, entry = run_traced_node("ocean_analytics", ocean_analytics.run, state)
     update: dict = {
         "ocean_data": {**result.outputs, "confidence": result.confidence} if result.outputs else {},
@@ -173,7 +186,15 @@ def geospatial_run(state: ORCAState) -> AgentResult:
     from orca.contracts import SourceProvenance, coerce_reasoning_depth
 
     location = state.get("user_location") or {}
-    lat, lon = location.get("lat", 8.80), location.get("lon", 78.14)
+    lat, lon = location.get("lat"), location.get("lon")
+    if lat is None or lon is None:
+        # No third hardcoded copy of the default coordinate. The API is the one
+        # place that decides what position a query is about (main.py's /query),
+        # and it always records how it decided; a duplicate literal here would
+        # silently answer with Thoothukudi's boundary distance for a request
+        # that never had a position at all — the §5.7 fabricated-input failure.
+        # conservative_or's contract applies: absent input, named, never guessed.
+        raise ValueError("user_location is missing lat/lon — the caller must resolve a position before the graph runs")
 
     imbl = geospatial.check_boundary_proximity(lat, lon, _IMBL_PROXY_BOUNDARY)
     mpa = geospatial.check_boundary_proximity(lat, lon, _MPA_BOUNDARY)
@@ -182,7 +203,10 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         agent_name="geospatial",
         query_id=state.get("query_id", ""),
         reasoning_depth=coerce_reasoning_depth(state.get("reasoning_depth", "SHALLOW")),
-        inputs_consumed={"lat": lat, "lon": lon},
+        # The whole location dict, not just the pair: `place_source` is what
+        # tells a later re-render (trace_routes' /render) whether this position
+        # was resolved from the query or fell back to the regional default.
+        inputs_consumed={"lat": lat, "lon": lon, "user_location": dict(location)},
         outputs={
             "imbl_distance_nm": imbl.distance_nm,
             "imbl_alert_level": imbl.alert_level,
@@ -333,7 +357,15 @@ def reporting_run(state: ORCAState) -> AgentResult:
     assembled = reporting.assemble_response(query_id, results)
     query_text = state.get("normalized_english_query") or state.get("raw_user_query") or ""
     persona = state.get("stakeholder_persona") or "fisherman"
-    final_english = reporting.synthesize_narrative(query_text, verdict, results, persona=persona)
+    # user_location travels with the verdict, not just the coordinates: Agent 9
+    # must never narrate these readings under a place name they do not belong to.
+    final_english = reporting.synthesize_narrative(
+        query_text, verdict, results, persona=persona, user_location=state.get("user_location"),
+        # A GO banner on top of "where are the nearest fishing zones?" is noise
+        # that teaches people to skim the one line that matters when it is not
+        # GO. Non-GO verdicts still lead, whatever was asked.
+        lead_with_verdict=reporting.should_lead_with_verdict(verdict, matched_rows),
+    )
 
     return AgentResult(
         agent_name="reporting", query_id=query_id, reasoning_depth=depth,

@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +28,7 @@ from orca.api.discovery_routes import router as discovery_router
 from orca.api.feedback_routes import router as feedback_router
 from orca.api.geospatial_routes import router as geospatial_router
 from orca.api.notifications_routes import router as notifications_router
+from orca.api.params import OptLat, OptLon
 from orca.api.ops_routes import router as ops_router
 from orca.api.replay_routes import router as replay_router
 from orca.api.trace_routes import (
@@ -37,7 +40,9 @@ from orca.api.trace_routes import (
 from orca.api.voice_routes import router as voice_router
 from orca.api.voyage_routes import router as voyage_router
 from orca.api.watches_routes import router as watches_router
-from orca.data.loaders import resolve_port_from_text
+from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
+from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
+from orca.data.loaders import resolve_place_from_text
 from orca.graph.graph import build_graph
 from orca.agents.planning import classify_intent
 from orca.logging_utils import configure_logging
@@ -124,10 +129,6 @@ if _TILES_DIR.is_dir():
 # structure; compiling per-request would just waste cycles on every call.
 _graph = build_graph()
 
-# Thoothukudi — the pilot region's own default per the Phase 1 acceptance
-# query, used only when the caller doesn't supply a real position.
-_DEFAULT_LAT, _DEFAULT_LON = 8.80, 78.14
-
 # Priority lane / backpressure (Architecture §9.10, phase4 plan §8) — a
 # resource-guaranteed concurrency budget for SAFETY_CHECK/SHALLOW requests
 # (the exact shape of what a scared fisherman asks during a cyclone),
@@ -158,6 +159,7 @@ _DEPTHS = ("SHALLOW", "STANDARD", "DEEP")
 def _initial_state(
     query: str, lat: float, lon: float, vessel_class: str | None,
     distress: bool = False, persona: str | None = None, depth: str | None = None,
+    place: tuple[str | None, str] = (None, "explicit"),
 ) -> ORCAState:
     return {  # type: ignore[typeddict-item]
         "query_id": str(uuid.uuid4()),
@@ -173,7 +175,10 @@ def _initial_state(
         # classifier lands. It is a testing knob, not a persona- or
         # intent-routing decision (Ground Rule 1 is untouched by it).
         "reasoning_depth": depth if depth in _DEPTHS else "SHALLOW",
-        "user_location": {"lat": lat, "lon": lon},
+        # `place_name` is None and `place_source` is "regional_default" when
+        # the query named no location we could resolve. Agent 9 must say so
+        # rather than dress the default up as the user's own place.
+        "user_location": {"lat": lat, "lon": lon, "place_name": place[0], "place_source": place[1]},
         "vessel_class": vessel_class,  # None -> risk_assessment.run() defaults to "small_fishing"
         # An explicit persona choice (the selector, or a logged-in user's
         # resolved role — plan §4 D1 Day 10). It is a *resolved value* only:
@@ -188,6 +193,31 @@ def _initial_state(
     }
 
 
+def _json_safe(obj: Any) -> Any:
+    """Non-finite floats are not JSON. json.dumps happily emits a bare `NaN`
+    or `Infinity` literal, which no strict parser accepts — including the
+    browser's own JSON.parse, which is what the frontend runs on every SSE
+    frame (app/ask/page.tsx, app/safety/page.tsx). A single NaN anywhere in
+    the payload therefore throws away the whole answer client-side, silently.
+    Upstream already treats a non-finite reading as "no reading at all"
+    (resilience.conservative_or), so null is the honest wire form of the same
+    fact."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
+def _sse(payload: dict) -> str:
+    """Every SSE frame goes out through here. allow_nan=False is the tripwire:
+    if _json_safe ever misses a case, this raises here instead of shipping
+    invalid JSON that only fails later, in the client."""
+    return f"data: {json.dumps(_json_safe(payload), allow_nan=False)}\n\n"
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -196,13 +226,14 @@ def health() -> dict[str, str]:
 async def _query_stream(
     query: str, lat: float, lon: float, vessel_class: str | None,
     distress: bool = False, persona: str | None = None, depth: str | None = None,
+    place: tuple[str | None, str] = (None, "explicit"),
     on_final: Callable[[dict], None] | None = None,
 ) -> AsyncIterator[str]:
     """`on_final`, when given, is called once with the same dict that gets
     JSON-serialized into the `final_response` SSE frame — the query-cache
     write hook (phase4 plan §2.3), kept as a callback rather than a return
     value so this stays a plain generator callers can iterate directly."""
-    state = _initial_state(query, lat, lon, vessel_class, distress, persona, depth)
+    state = _initial_state(query, lat, lon, vessel_class, distress, persona, depth, place)
     emitted = 0  # every graph node appends exactly one completed_nodes entry
     # AND exactly one audit_trace_log entry in the same call (see graph.py) —
     # so the two lists grow in lockstep and index-pairing them is correct,
@@ -246,7 +277,7 @@ async def _query_stream(
                 "model": model,
                 "tier": tier,
             }
-            yield f"data: {json.dumps(event)}\n\n"
+            yield _sse(event)
         emitted = len(completed)
 
     if final_state is not None:
@@ -269,6 +300,12 @@ async def _query_stream(
             "risk_assessment": final_state.get("risk_assessment"),
             "citations": final_state.get("evidence_citations", []),
             "distress_flag": final_state.get("distress_flag", False),
+            # Which position every number in this response was computed at,
+            # and how it was arrived at. The UI has to be able to show this:
+            # a "GO" that silently belongs to the regional default rather
+            # than the place the user asked about is the single most
+            # dangerous output shape here, and it is invisible without this.
+            "user_location": final_state.get("user_location"),
             # Cost-based short-circuit (Architecture §9.3, phase4 plan §2.1):
             # true when a NO_GO verdict caused Ocean Analytics' PFZ/tide/trend
             # content to be dropped from this response rather than shown
@@ -333,7 +370,7 @@ async def _query_stream(
             )
         except Exception:
             pass
-        yield f"data: {json.dumps(final)}\n\n"
+        yield _sse(final)
 
 
 def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
@@ -361,18 +398,28 @@ def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
 
 @app.get("/query")
 async def query(
-    q: str = "", lat: float | None = None, lon: float | None = None, vessel_class: str | None = None,
+    q: str = "", lat: OptLat = None, lon: OptLon = None, vessel_class: str | None = None,
     distress: bool = False, persona: str | None = None, depth: str | None = None,
 ) -> StreamingResponse:
     # An explicit lat/lon from the caller always wins — a resolved GPS fix or
-    # a registered home port (Phase 2 D1) is real; a port name in free text is
+    # a registered home port (Phase 2 D1) is real; a place name in free text is
     # a fallback for the caller that has no location at all yet. Only when
-    # neither is given do we try to name a pilot port in the query text (e.g.
-    # "near Pamban"), and only then fall back to the Thoothukudi default.
+    # neither is given do we try to name a pilot-region place in the query text
+    # (e.g. "near Pamban"), and only then fall back to the regional default.
+    #
+    # `place_name`/`place_source` are carried onward deliberately: falling back
+    # to the default is *not* the same event as resolving a place, and the
+    # difference has to survive all the way to Agent 9. Otherwise "am I safe
+    # off Palk Bay?" is answered with Thoothukudi's numbers under Palk Bay's
+    # name — 53 nm from the IMBL instead of 0.4 nm, GO instead of DANGER.
+    place_name: str | None = None
+    place_source = "explicit"
     if lat is None or lon is None:
-        resolved = resolve_port_from_text(q)
-        lat = resolved[1] if resolved else _DEFAULT_LAT
-        lon = resolved[2] if resolved else _DEFAULT_LON
+        place = resolve_place_from_text(q)
+        if place is None:
+            lat, lon, place_source = _DEFAULT_LAT, _DEFAULT_LON, "regional_default"
+        else:
+            lat, lon, place_name, place_source = place.lat, place.lon, place.name, place.source
 
     # A distress query is never cached or coalesced onto another in-flight
     # request (phase4 plan §2.2/§2.3) — every SOS is its own, always-fresh
@@ -381,7 +428,8 @@ async def query(
     # be silently folded into a stale answer meant for a different call.
     if distress:
         return StreamingResponse(
-            _query_stream(q, lat, lon, vessel_class, distress, persona, depth), media_type="text/event-stream"
+            _query_stream(q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source)),
+            media_type="text/event-stream"
         )
 
     cache_key = resolved_key(q, lat, lon, vessel_class, persona, depth)
@@ -390,11 +438,11 @@ async def query(
     async def _produce() -> AsyncIterator[str]:
         cached = query_cache_get(cache_key)
         if cached is not None:
-            yield f"data: {json.dumps(cached)}\n\n"
+            yield _sse(cached)
             return
         async with lane:
             async for line in _query_stream(
-                q, lat, lon, vessel_class, distress, persona, depth,
+                q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
                 on_final=lambda final: query_cache_store(cache_key, final),
             ):
                 yield line

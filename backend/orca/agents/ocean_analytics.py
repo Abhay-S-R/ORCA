@@ -33,6 +33,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
+from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.agents import geospatial
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.data import analytics_loaders as al
@@ -45,10 +47,10 @@ _COMPASS_16 = (
     "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
 )
 
-# South Tamil Nadu is the pilot sector (SEC006); the pilot region's own
-# default position is Thoothukudi, matching the Phase 1 acceptance query.
+# South Tamil Nadu is the pilot sector (SEC006). The default position itself
+# lives in loaders.DEFAULT_LAT/LON — one copy, so it cannot drift out of step
+# with what /query actually answers a locationless request at.
 _PILOT_SECTOR = "SEC006"
-_DEFAULT_LAT, _DEFAULT_LON = 8.80, 78.14
 
 
 def _compass(bearing_deg: float) -> str:
@@ -778,7 +780,7 @@ if __name__ == "__main__":
         "raw_user_query": "why has catch declined near Thoothukudi and where are the PFZs",
         "normalized_english_query": "why has catch declined near Thoothukudi and where are the PFZs",
         "reasoning_depth": "DEEP",
-        "user_location": {"lat": 8.80, "lon": 78.14},
+        "user_location": {"lat": _DEFAULT_LAT, "lon": _DEFAULT_LON},
     }
     res = run(st)
     assert res.agent_name == "ocean_analytics"

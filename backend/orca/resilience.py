@@ -155,11 +155,20 @@ def conservative_or(value: T | None, *, missing_field_name: str, missing: list[s
     checked, once, so the eventual reason string lists all of them, not just
     the first) and the caller must treat any non-empty `missing` list as a
     forced CAUTION/NO_GO floor, never a silently-defaulted GO-shaped number.
-    Returns `value` unchanged either way; this only records, it never guesses
+    A NaN/inf float counts as missing too, not as a reading: it is what a
+    masked grid cell or a failed geometry op returns, and it is *more*
+    dangerous than None because it survives an `is None` check and then
+    silently passes every threshold comparison downstream (see
+    risk_assessment._known). Non-finite values are normalised to None so no
+    caller can mistake one for a measurement — validate_payload above already
+    rejects NaN for the same reason.
+
+    Returns `value` unchanged otherwise; this only records, it never guesses
     a substitute value — an LLM-filled or hardcoded default is exactly what
     the rule forbids."""
-    if value is None:
+    if value is None or (isinstance(value, float) and not math.isfinite(value)):
         missing.append(missing_field_name)
+        return None
     return value
 
 

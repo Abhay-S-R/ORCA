@@ -8,8 +8,7 @@
 import { useState } from "react";
 import { Button } from "./Button";
 import { type Persona } from "../persona/config";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+import { API_BASE } from "../lib/apiBase";
 
 const CORRECTABLE: { id: Persona; label: string }[] = [
   { id: "fisherman", label: "Fisherman" },

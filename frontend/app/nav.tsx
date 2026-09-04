@@ -27,8 +27,7 @@ import {
 } from "lucide-react";
 import { NAV_ROUTES, visibilityFor } from "./persona/config";
 import { usePersona } from "./persona/context";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+import { API_BASE } from "./lib/apiBase";
 
 // Thoothukudi, the pilot region's own reference position — the same default
 // the API uses when no live fix is supplied. Live GPS is Phase 2.
