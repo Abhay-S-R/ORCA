@@ -141,7 +141,15 @@ def run(state: ORCAState) -> AgentResult:
     # Phase 2) — duplicating that logic here for one demo query isn't worth
     # it yet. Documented, not hidden.
     hourly = weather.get("hourly") or [{}]
+    # Match forecast hour to target_time_window if present (e.g. tomorrow morning)
+    target_window = state.get("target_time_window") or {}
+    start_time = target_window.get("start")
     current = hourly[0]
+    if start_time and len(hourly) > 1:
+        for h in hourly:
+            if h.get("time") and h["time"] >= start_time:
+                current = h
+                break
 
     # Resilience §5.7 safety-path rule: a wholly-failed weather agent (an
     # empty `weather_data`, current == {}) must not read as "0.0 m waves,

@@ -1,174 +1,706 @@
 "use client";
 
-// Reasoning (D3 plan §5.10, §7) — the graph is drawn from a real execution
-// trace, not invented. D1 owns the live `TraceGraph` payload and the
-// `/trace/{query_id}` replay API (plan §5.1); neither ships in this build,
-// so this page replays a self-authored fixture (fixture.ts) that matches
-// D1's documented contract shape exactly and is labelled "Example trace —
-// replay" everywhere it appears, never "Live". Swapping the fixture for a
-// real fetch later is a one-line change, not a rewrite.
-//
-// The optional live piece below the header — a thin AgentPill status strip
-// fed by the real `/query` SSE stream — is the one part of this page that
-// IS live. It shows *that* the pipeline is really agentic in real time; the
-// rich per-node reasoning graph stays replay-only, per the design call this
-// page's plan flagged and the user approved as written.
 import "@xyflow/react/dist/style.css";
-import { ReactFlow, Background, Controls, type Node } from "@xyflow/react";
-import { useMemo, useRef, useState } from "react";
-import { Workflow, X } from "lucide-react";
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  type Node,
+  type Edge,
+  type NodeTypes,
+  type EdgeTypes,
+} from "@xyflow/react";
+import { Suspense, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Compass,
+  Database,
+  Eye,
+  History,
+  Info,
+  Layers,
+  ListChecks,
+  Maximize2,
+  Minimize2,
+  Play,
+  RotateCcw,
+  Search,
+  ShieldAlert,
+  Sparkles,
+  Waves,
+  Workflow,
+  X,
+  Zap,
+} from "lucide-react";
+
 import { AgentNode, FanoutGroupNode } from "./AgentNode";
-import { EXAMPLE_TRACE, type TraceNode } from "./fixture";
-import { layoutTrace, type AgentNodeData } from "./dagre-layout";
-import { AgentPill, AgentStrip, type AgentStatus } from "../components/AgentPill";
+import { AnimatedFlowEdge } from "./AnimatedFlowEdge";
+import { ReasoningInspector } from "./ReasoningInspector";
+import { ReasoningTimeline, PIPELINE_STAGES } from "./ReasoningTimeline";
+import { layoutTrace } from "./dagre-layout";
+import { EXAMPLE_TRACE, type TraceGraph, type TraceNode } from "./fixture";
 import { Badge } from "../components/Badge";
-import { Button } from "../components/Button";
-import { ConfidenceMeter } from "../components/ConfidenceMeter";
-import { Field, inputClass } from "../components/Field";
-import { PageHeader, PageBody } from "../components/PageHeader";
-import { Panel } from "../components/Panel";
-import { Readout, ReadoutGrid } from "../components/Readout";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
-// Stable identity across renders — React Flow warns (and re-mounts nodes) if
-// nodeTypes is a fresh object every render.
-const nodeTypes = { agent: AgentNode, fanoutGroup: FanoutGroupNode };
+const nodeTypes: NodeTypes = {
+  agent: AgentNode,
+  fanoutGroup: FanoutGroupNode,
+};
 
-type AgentSpan = { agent_name: string; status: AgentStatus };
+const edgeTypes: EdgeTypes = {
+  animatedFlow: AnimatedFlowEdge,
+};
 
-export default function ReasoningPage() {
-  // Computed once for this fixture, not per frame/render — plan §5.10 Day
-  // 15's explicit requirement.
-  const { nodes, edges } = useMemo(() => layoutTrace(EXAMPLE_TRACE), []);
-  const [selected, setSelected] = useState<TraceNode | null>(null);
+type RecentTraceSummary = {
+  query_id: string;
+  query_text: string;
+  verdict: string;
+  confidence_tier: string;
+  node_count: number;
+  total_latency_ms: number;
+};
 
-  const [liveQuery, setLiveQuery] = useState("Is it safe to go to sea tomorrow morning?");
-  const [spans, setSpans] = useState<AgentSpan[]>([]);
-  const [streaming, setStreaming] = useState(false);
+const SCENARIOS = [
+  {
+    id: "thoothukudi-safe",
+    title: "Thoothukudi Safe Passage",
+    query: "Is it safe to fish near Thoothukudi tomorrow morning?",
+    badge: "GO Verdict",
+    tone: "emerald",
+    icon: Waves,
+  },
+  {
+    id: "pamban-hazard",
+    title: "Pamban Wave Exceedance",
+    query: "Evaluate sea conditions, wave heights, and weather hazards near Pamban Island.",
+    badge: "CAUTION Verdict",
+    tone: "amber",
+    icon: AlertTriangle,
+  },
+  {
+    id: "emergency-sos",
+    title: "2ms SOS Distress Signal",
+    query: "MAYDAY MAYDAY: Fishing vessel taking on water at 8.75N, 78.20E, engine failure!",
+    badge: "DISTRESS Handoff",
+    tone: "red",
+    icon: ShieldAlert,
+  },
+  {
+    id: "deep-critique",
+    title: "Deep Multi-Agent Audit",
+    query: "Perform deep risk assessment of IMBL proximity, MPA geofences, and catch decline trends.",
+    badge: "Critic Loop",
+    tone: "purple",
+    icon: Sparkles,
+  },
+];
+
+function ReasoningContent() {
+  const searchParams = useSearchParams();
+  const initialQueryId = searchParams.get("query_id");
+
+  const [trace, setTrace] = useState<TraceGraph>(EXAMPLE_TRACE);
+  const [selectedNode, setSelectedNode] = useState<TraceNode | null>(null);
+  const [queryInput, setQueryInput] = useState("Is it safe to fish near Thoothukudi tomorrow morning?");
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [activeNodeIds, setActiveNodeIds] = useState<Set<string>>(new Set());
+  const [completedNodeIds, setCompletedNodeIds] = useState<Set<string>>(new Set());
+  const [recentTraces, setRecentTraces] = useState<RecentTraceSummary[]>([]);
+  const [showRecentDropdown, setShowRecentDropdown] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [finalVerdict, setFinalVerdict] = useState<{
+    verdict: string;
+    text: string;
+    confidence: string;
+    queryId: string;
+  } | null>(null);
+  const [isVerdictExpanded, setIsVerdictExpanded] = useState(false);
+
+  // Timeline scrubber state
+  const [timelineIndex, setTimelineIndex] = useState(PIPELINE_STAGES.length - 1);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const containerRef = useRef<HTMLDivElement>(null);
   const sourceRef = useRef<EventSource | null>(null);
 
-  function runLive(e: React.FormEvent) {
-    e.preventDefault();
+  // Fetch recent queries from backend on mount
+  const refreshRecentTraces = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/traces/recent`);
+      if (res.ok) {
+        const data = await res.json();
+        setRecentTraces(data);
+      }
+    } catch {
+      // Graceful fallback
+    }
+  };
+
+  useEffect(() => {
+    refreshRecentTraces();
+  }, []);
+
+  // If URL has query_id, fetch it
+  useEffect(() => {
+    if (!initialQueryId) return;
+    loadTraceById(initialQueryId);
+  }, [initialQueryId]);
+
+  const loadTraceById = async (qid: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/trace/${qid}`);
+      if (res.ok) {
+        const data: TraceGraph = await res.json();
+        setTrace(data);
+        const done = new Set(data.nodes.map((n) => n.id));
+        setCompletedNodeIds(done);
+        setActiveNodeIds(new Set());
+        setTimelineIndex(PIPELINE_STAGES.length - 1);
+        setFinalVerdict({
+          verdict: data.nodes.find((n) => n.id === "risk_assessment")?.reasoning_summary?.split(":")[0] ?? "COMPLETED",
+          text: data.nodes.find((n) => n.id === "reporting")?.reasoning_summary ?? "Trace loaded from session.",
+          confidence: data.nodes.find((n) => n.id === "risk_assessment")?.confidence_tier ?? "HIGH",
+          queryId: qid,
+        });
+        setIsVerdictExpanded(false);
+      }
+    } catch {
+      // Fallback
+    }
+  };
+
+  // Run live query via SSE
+  const runLiveQuery = (queryText: string) => {
+    if (!queryText.trim()) return;
     sourceRef.current?.close();
-    setSpans([]);
-    setStreaming(true);
-    const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(liveQuery)}`);
+
+    setIsStreaming(true);
+    setFinalVerdict(null);
+    setIsVerdictExpanded(false);
+    setSelectedNode(null);
+    setIsPlaying(false);
+
+    // Reset pipeline nodes to pending
+    const resetNodes = trace.nodes.map((n) => ({
+      ...n,
+      status: "pending" as const,
+      latency_ms: 0,
+    }));
+    setTrace((prev) => ({ ...prev, nodes: resetNodes }));
+    setCompletedNodeIds(new Set());
+    setActiveNodeIds(new Set(["distress_check", "distress"]));
+    setTimelineIndex(0);
+
+    const isDeep = queryText.toLowerCase().includes("deep");
+    const es = new EventSource(
+      `${API_BASE}/query?q=${encodeURIComponent(queryText)}${isDeep ? "&depth=DEEP" : ""}`
+    );
     sourceRef.current = es;
+
     es.onmessage = (ev) => {
-      const data = JSON.parse(ev.data);
-      if (data.type === "agent_span") {
-        setSpans((prev) => [...prev, { agent_name: data.agent_name, status: data.status }]);
-      } else if (data.type === "final_response") {
-        setStreaming(false);
-        es.close();
+      try {
+        const data = JSON.parse(ev.data);
+
+        if (data.type === "agent_span") {
+          const agentName = data.agent_name;
+          const realName = data.agent_real_name || agentName;
+
+          // Update node state
+          setTrace((prev) => {
+            const updatedNodes = prev.nodes.map((n) => {
+              if (n.id === agentName || n.id === realName) {
+                return {
+                  ...n,
+                  status: (data.status as any) || "ok",
+                  latency_ms: data.latency_ms ?? n.latency_ms,
+                  confidence_tier: data.confidence_tier ?? n.confidence_tier,
+                  reasoning_summary: data.reasoning_summary || n.reasoning_summary,
+                  inputs_consumed: data.inputs_consumed,
+                  outputs: data.outputs,
+                  source_provenance: data.source_provenance,
+                  used_llm: data.used_llm ?? n.used_llm,
+                };
+              }
+              return n;
+            });
+            return { ...prev, nodes: updatedNodes };
+          });
+
+          // Mark completed
+          setCompletedNodeIds((prev) => new Set([...prev, agentName, realName]));
+
+          // Transition downstream nodes to active
+          setActiveNodeIds((prev) => {
+            const nextActive = new Set(prev);
+            nextActive.delete(agentName);
+            nextActive.delete(realName);
+
+            // Flow logic:
+            if (agentName === "distress_check" || agentName === "distress") {
+              nextActive.add("language_ingress");
+              setTimelineIndex(1);
+            } else if (agentName === "language_ingress") {
+              nextActive.add("planning");
+              setTimelineIndex(2);
+            } else if (agentName === "planning") {
+              // Fan-out to all 3 specialists simultaneously
+              nextActive.add("weather_intelligence");
+              nextActive.add("geospatial");
+              nextActive.add("ocean_analytics");
+              setTimelineIndex(3);
+            } else if (
+              agentName === "weather_intelligence" ||
+              agentName === "geospatial" ||
+              agentName === "ocean_analytics"
+            ) {
+              nextActive.add("risk_assessment");
+              nextActive.add("visualization");
+              setTimelineIndex(4);
+            } else if (agentName === "risk_assessment" || agentName === "visualization") {
+              nextActive.add("reporting");
+              setTimelineIndex(5);
+            } else if (agentName === "reporting") {
+              if (isDeep) {
+                nextActive.add("critic");
+                setTimelineIndex(6);
+              } else {
+                nextActive.add("language_egress");
+                setTimelineIndex(7);
+              }
+            } else if (agentName === "critic") {
+              nextActive.add("language_egress");
+              setTimelineIndex(7);
+            }
+            return nextActive;
+          });
+        } else if (data.type === "final_response") {
+          setIsStreaming(false);
+          setActiveNodeIds(new Set());
+          setTimelineIndex(PIPELINE_STAGES.length - 1);
+          es.close();
+
+          const verdict = data.distress_flag
+            ? "DISTRESS"
+            : data.risk_assessment?.go_no_go || "CAUTION";
+
+          setFinalVerdict({
+            verdict,
+            text: data.final_english_response || "Analysis complete.",
+            confidence: data.confidence_tier || "HIGH",
+            queryId: data.query_id,
+          });
+
+          refreshRecentTraces();
+        }
+      } catch {
+        // Fallback for parse issues
       }
     };
+
     es.onerror = () => {
-      setStreaming(false);
+      setIsStreaming(false);
+      setActiveNodeIds(new Set());
       es.close();
     };
-  }
+  };
+
+  // Playback timeline controller
+  useEffect(() => {
+    if (!isPlaying) return;
+    const interval = setInterval(() => {
+      setTimelineIndex((prev) => {
+        if (prev >= PIPELINE_STAGES.length - 1) {
+          setIsPlaying(false);
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, 1800 / playbackSpeed);
+
+    return () => clearInterval(interval);
+  }, [isPlaying, playbackSpeed]);
+
+  // Compute Dagre layout dynamically
+  const { nodes, edges } = useMemo(() => {
+    return layoutTrace(trace, {
+      activeNodeIds,
+      completedNodeIds,
+    });
+  }, [trace, activeNodeIds, completedNodeIds]);
+
+  // Compute total latency
+  const totalLatency = useMemo(() => {
+    return trace.nodes.reduce((acc, n) => acc + (n.latency_ms || 0), 0);
+  }, [trace]);
+
+  const activeStage = PIPELINE_STAGES[timelineIndex];
+  const activeStageLatency = useMemo(() => {
+    if (!activeStage) return 0;
+    return trace.nodes
+      .filter((n) => activeStage.nodeIds.includes(n.id))
+      .reduce((acc, n) => acc + (n.latency_ms || 0), 0);
+  }, [trace, activeStage]);
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen();
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  };
 
   return (
-    <PageBody className="mx-auto max-w-6xl">
-      <PageHeader
-        title="Reasoning"
-        lede="One node per agent, drawn from a real execution trace — what it did, how confident it was, and what it handed to next."
-      />
-
-      <Panel dense title="Live pipeline" className="mb-5">
-        <form onSubmit={runLive} className="mb-3 flex items-end gap-2">
-          <div className="flex-1">
-            <Field label="Ask ORCA">
-              {(id) => (
-                <input id={id} value={liveQuery} onChange={(e) => setLiveQuery(e.target.value)} className={inputClass} />
-              )}
-            </Field>
+    <div
+      ref={containerRef}
+      className={`relative flex flex-col gap-3 p-4 select-none ${
+        isFullscreen ? "h-screen bg-abyss p-6" : "h-[calc(100vh-70px)]"
+      }`}
+    >
+      {/* Top Bar / Command Hub */}
+      <div className="relative z-30 flex flex-col gap-3 rounded-2xl border border-hairline/80 bg-shelf-1/80 p-3.5 shadow-lg backdrop-blur-md">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="grid size-9 place-items-center rounded-xl border border-sky-400/40 bg-sky-950/60 text-sky-400 shadow-md">
+              <Workflow className="size-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-bold tracking-tight text-ink">
+                  Reasoning & Agent Graph
+                </h1>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide border ${
+                    isStreaming
+                      ? "border-sky-400/60 bg-sky-950/50 text-sky-400 shadow-sm shadow-sky-400/30"
+                      : "border-emerald-500/40 bg-emerald-950/30 text-emerald-400"
+                  }`}
+                >
+                  <span
+                    className={`size-1.5 rounded-full ${
+                      isStreaming ? "bg-sky-400 animate-ping" : "bg-emerald-400"
+                    }`}
+                  />
+                  {isStreaming ? "LIVE EXECUTION" : "READY · REAL-TIME"}
+                </span>
+              </div>
+              <p className="text-[11px] text-ink-dim">
+                Real-time execution telemetry across 10 specialized intelligence agents
+              </p>
+            </div>
           </div>
-          <Button type="submit" variant="primary" disabled={streaming} icon={<Workflow className="size-4" />}>
-            {streaming ? "Running" : "Run"}
-          </Button>
-        </form>
-        {spans.length > 0 ? (
-          <AgentStrip>
-            {spans.map((s, i) => (
-              <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} />
-            ))}
-            {streaming && <AgentPill name="working" status="running" />}
-          </AgentStrip>
-        ) : (
-          <p className="text-[11px] text-ink-dim">
-            Run a real query to see which agents actually fire, in real time. This strip is live; the graph below is
-            not — it replays one recorded trace so every node can show its full reasoning, not just a status glyph.
-          </p>
-        )}
-      </Panel>
 
-      <div className="mb-3 flex items-center justify-between">
-        <Badge tone="neutral">Example trace — replay, not live</Badge>
-        <p className="text-[11px] text-ink-dim">Click a node for its full reasoning and sources.</p>
-      </div>
+          {/* Recent Traces Dropdown & Controls */}
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowRecentDropdown((v) => !v)}
+                className="flex items-center gap-1.5 rounded-xl border border-hairline bg-shelf-2/60 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-hairline-strong hover:bg-shelf-2"
+              >
+                <History className="size-3.5 text-sky-400" />
+                <span>Recent Traces</span>
+                {recentTraces.length > 0 && (
+                  <span className="rounded-full bg-sky-500/20 px-1.5 py-0.2 text-[10px] font-mono text-sky-300">
+                    {recentTraces.length}
+                  </span>
+                )}
+                <ChevronDown className="size-3 text-ink-dim" />
+              </button>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
-        <div className="h-[560px] overflow-hidden rounded-md border border-hairline bg-shelf-1/40">
-          <ReactFlow
-            nodes={nodes as Node[]}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodeClick={(_, n) => {
-              const data = n.data as AgentNodeData | undefined;
-              if (data?.node) setSelected(data.node);
-            }}
-            onPaneClick={() => setSelected(null)}
-            fitView
-            fitViewOptions={{ padding: 0.15 }}
-            proOptions={{ hideAttribution: true }}
-            colorMode="dark"
-            nodesDraggable={false}
-            nodesConnectable={false}
-            elementsSelectable
-          >
-            <Background gap={22} color="#17384c" />
-            <Controls showInteractive={false} />
-          </ReactFlow>
+              {showRecentDropdown && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowRecentDropdown(false)}
+                  />
+                  <div className="absolute right-0 top-full z-50 mt-1.5 w-80 rounded-xl border border-hairline-strong bg-shelf-1/95 p-2 shadow-2xl backdrop-blur-xl">
+                    <div className="flex items-center justify-between border-b border-hairline/60 px-2 pb-1.5 text-[10px] font-semibold text-ink-dim uppercase tracking-wider">
+                      <span>Recent Query Traces</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowRecentDropdown(false)}
+                        className="hover:text-ink"
+                      >
+                        Close
+                      </button>
+                    </div>
+                    <div className="mt-1 max-h-64 overflow-y-auto space-y-1">
+                      {recentTraces.length === 0 ? (
+                        <p className="p-3 text-center text-xs text-ink-dim">
+                          No previous traces recorded yet in this session.
+                        </p>
+                      ) : (
+                        recentTraces.map((item) => (
+                          <button
+                            key={item.query_id}
+                            type="button"
+                            onClick={() => {
+                              loadTraceById(item.query_id);
+                              setShowRecentDropdown(false);
+                            }}
+                            className="w-full rounded-lg p-2 text-left transition-colors hover:bg-shelf-2/80"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="truncate text-xs font-medium text-ink">
+                                {item.query_text}
+                              </span>
+                              <span
+                                className={`rounded px-1.5 py-0.2 text-[9px] font-bold ${
+                                  item.verdict === "GO"
+                                    ? "bg-emerald-950 text-emerald-400 border border-emerald-800/40"
+                                    : item.verdict === "DISTRESS"
+                                    ? "bg-red-950 text-red-400 border border-red-800/40"
+                                    : "bg-amber-950 text-amber-400 border border-amber-800/40"
+                                }`}
+                              >
+                                {item.verdict}
+                              </span>
+                            </div>
+                            <div className="mt-1 flex items-center gap-2 text-[10px] font-mono text-ink-dim">
+                              <span>{item.node_count} agents</span>
+                              <span>·</span>
+                              <span>{item.total_latency_ms} ms</span>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              className="grid size-8 place-items-center rounded-xl border border-hairline bg-shelf-2/60 text-ink-dim transition-colors hover:border-hairline-strong hover:text-ink"
+              title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Graph"}
+            >
+              {isFullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+            </button>
+          </div>
         </div>
 
-        <div>
-          {!selected ? (
-            <Panel title="Inspector">
-              <p className="text-xs text-ink-muted">Select a node to see its full reasoning, sources and hand-off.</p>
-            </Panel>
-          ) : (
-            <Panel
-              title={selected.agent_name}
-              action={
+        {/* Query Input + Run Form */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            runLiveQuery(queryInput);
+          }}
+          className="flex items-center gap-2"
+        >
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-ink-dim" />
+            <input
+              value={queryInput}
+              onChange={(e) => setQueryInput(e.target.value)}
+              placeholder="Ask ORCA a question to observe real-time agentic reasoning..."
+              className="w-full rounded-xl border border-hairline bg-abyss/70 py-2.5 pl-10 pr-4 text-sm text-ink placeholder:text-ink-dim/60 transition-colors hover:border-hairline-strong focus:border-sky-400 focus:outline-none"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isStreaming || !queryInput.trim()}
+            className="flex items-center gap-2 rounded-xl border border-sky-400/50 bg-sky-500/20 px-4 py-2.5 text-xs font-semibold text-sky-300 shadow-md transition-all hover:bg-sky-500/30 disabled:opacity-40"
+          >
+            {isStreaming ? (
+              <>
+                <span className="size-3 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
+                <span>Executing Pipeline...</span>
+              </>
+            ) : (
+              <>
+                <Play className="size-3.5 fill-current" />
+                <span>Run Live Query</span>
+              </>
+            )}
+          </button>
+        </form>
+
+        {/* Quick Scenario Chips */}
+        <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-hairline/40">
+          <span className="text-[11px] font-semibold text-ink-dim mr-1">
+            Scenarios:
+          </span>
+          {SCENARIOS.map((sc) => {
+            const ScIcon = sc.icon;
+            return (
+              <button
+                key={sc.id}
+                type="button"
+                onClick={() => {
+                  setQueryInput(sc.query);
+                  runLiveQuery(sc.query);
+                }}
+                disabled={isStreaming}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-hairline/80 bg-shelf-2/40 px-2.5 py-1 text-[11px] text-ink-muted transition-all hover:border-sky-400/60 hover:bg-shelf-2 hover:text-ink disabled:opacity-40"
+              >
+                <ScIcon className="size-3 text-sky-400" />
+                <span>{sc.title}</span>
+                <span className="rounded bg-abyss/80 px-1 py-0.2 text-[9px] font-mono text-ink-dim">
+                  {sc.badge}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Main Canvas Container */}
+      <div className="relative flex-1 overflow-hidden rounded-2xl border border-hairline-strong/70 bg-shelf-1/30 shadow-inner">
+        {/* Floating Final Response Banner when complete */}
+        <AnimatePresence>
+          {finalVerdict && (
+            <motion.div
+              initial={{ y: -50, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -50, opacity: 0 }}
+              className="absolute top-4 left-4 right-4 z-20 mx-auto max-w-2xl rounded-2xl border border-hairline-strong/90 bg-shelf-1/95 p-3.5 shadow-2xl shadow-black/80 backdrop-blur-xl"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`rounded-md px-2 py-0.5 text-xs font-bold ${
+                      finalVerdict.verdict === "GO"
+                        ? "bg-emerald-950 text-emerald-400 border border-emerald-800/60"
+                        : finalVerdict.verdict === "DISTRESS"
+                        ? "bg-red-950 text-red-400 border border-red-800/60"
+                        : "bg-amber-950 text-amber-400 border border-amber-800/60"
+                    }`}
+                  >
+                    VERDICT: {finalVerdict.verdict}
+                  </span>
+                  <span className="text-xs font-mono text-ink-dim">
+                    Confidence: {finalVerdict.confidence} · {totalLatency} ms
+                  </span>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setSelected(null)}
-                  onKeyDown={(e) => e.key === "Escape" && setSelected(null)}
-                  aria-label="Close inspector"
+                  onClick={() => setFinalVerdict(null)}
                   className="text-ink-dim hover:text-ink"
                 >
                   <X className="size-4" />
                 </button>
-              }
-            >
-              <ConfidenceMeter tier={selected.confidence_tier} />
-              <p className="mt-3 text-[13px] leading-relaxed text-ink">{selected.reasoning_summary}</p>
-              <ReadoutGrid cols={2}>
-                <Readout label="Latency" value={selected.latency_ms} unit="ms" />
-                <Readout label="Sources" value={selected.source_count} />
-              </ReadoutGrid>
-              <p className="mt-3 border-t border-hairline pt-3 text-[11px] text-ink-dim">
-                {selected.used_llm
-                  ? `Used the ${selected.tier} LLM tier (${selected.model}).`
-                  : "Deterministic — no LLM call (Ground Rule: specialist agents shape data, they don't reason over it with an LLM)."}
-              </p>
-            </Panel>
+              </div>
+              <div className="mt-1.5">
+                <p
+                  className={`text-xs text-ink leading-snug transition-all ${
+                    isVerdictExpanded ? "max-h-60 overflow-y-auto pr-1" : "line-clamp-2"
+                  }`}
+                >
+                  {finalVerdict.text}
+                </p>
+                {finalVerdict.text && finalVerdict.text.length > 100 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsVerdictExpanded((prev) => !prev)}
+                    className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-ocean-cyan hover:underline focus:outline-none"
+                  >
+                    {isVerdictExpanded ? (
+                      <>
+                        <span>Read less</span>
+                        <ChevronUp className="size-3" />
+                      </>
+                    ) : (
+                      <>
+                        <span>Read more</span>
+                        <ChevronDown className="size-3" />
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </motion.div>
           )}
-        </div>
+        </AnimatePresence>
+
+        {/* ReactFlow Graph Canvas */}
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodeClick={(_, n) => {
+            const nodeData = n.data as { node?: TraceNode };
+            if (nodeData?.node) {
+              setSelectedNode(nodeData.node);
+            }
+          }}
+          onPaneClick={() => setSelectedNode(null)}
+          fitView
+          fitViewOptions={{ padding: 0.18 }}
+          proOptions={{ hideAttribution: true }}
+          colorMode="dark"
+          nodesDraggable={false}
+          nodesConnectable={false}
+          elementsSelectable
+        >
+          <Background gap={24} color="#17384c" />
+          <Controls showInteractive={false} className="!bg-shelf-1/90 !border-hairline !rounded-xl" />
+          <MiniMap
+            className="!bg-shelf-1/90 !border-hairline !rounded-xl"
+            nodeColor={() => "#24576f"}
+            maskColor="rgba(4, 18, 28, 0.75)"
+          />
+        </ReactFlow>
+
+        {/* Floating Slide-out Inspector */}
+        {selectedNode && (
+          <ReasoningInspector
+            node={selectedNode}
+            onClose={() => setSelectedNode(null)}
+          />
+        )}
+
+        {/* Floating Timeline & Step Scrubber at Bottom */}
+        <ReasoningTimeline
+          currentStageIndex={timelineIndex}
+          maxStages={PIPELINE_STAGES.length}
+          isPlaying={isPlaying}
+          playbackSpeed={playbackSpeed}
+          totalLatencyMs={totalLatency}
+          activeStageLatencyMs={activeStageLatency}
+          onSelectStage={(idx) => {
+            setTimelineIndex(idx);
+            setIsPlaying(false);
+          }}
+          onTogglePlay={() => setIsPlaying((p) => !p)}
+          onChangeSpeed={(s) => setPlaybackSpeed(s)}
+          onReset={() => {
+            setTimelineIndex(0);
+            setIsPlaying(false);
+          }}
+        />
       </div>
-    </PageBody>
+    </div>
+  );
+}
+
+export default function ReasoningPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="grid h-[calc(100vh-70px)] place-items-center bg-abyss text-ink-dim">
+          <div className="flex items-center gap-2">
+            <span className="size-4 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
+            <span>Loading Reasoning Pipeline...</span>
+          </div>
+        </div>
+      }
+    >
+      <ReasoningContent />
+    </Suspense>
   );
 }

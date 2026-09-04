@@ -139,3 +139,32 @@ def test_render_persona_404s_when_nothing_is_stored():
     ):
         render_persona(PersonaRenderRequest(query_id=QID, persona="fisherman"))
     assert exc_info.value.status_code == 404
+
+
+def test_in_memory_recent_traces_and_get_trace():
+    from orca.api.trace_routes import (
+        get_recent_traces,
+        get_trace,
+        record_recent_trace,
+    )
+
+    test_qid = "22222222-2222-2222-2222-222222222222"
+    record_recent_trace(
+        query_id=test_qid,
+        query_text="Is it safe near Pamban?",
+        verdict="CAUTION",
+        confidence_tier="HIGH",
+        rows=_standard_rows(),
+    )
+
+    recent = get_recent_traces()
+    assert any(r["query_id"] == test_qid for r in recent)
+    item = next(r for r in recent if r["query_id"] == test_qid)
+    assert item["query_text"] == "Is it safe near Pamban?"
+    assert item["verdict"] == "CAUTION"
+
+    # get_trace should resolve from in-memory cache with zero database dependency
+    trace = get_trace(test_qid)
+    assert trace.query_id == test_qid
+    assert len(trace.nodes) == len(_standard_rows())
+

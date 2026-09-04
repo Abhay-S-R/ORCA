@@ -49,7 +49,7 @@ const VISIBILITY_MATRIX: Record<Route, Record<Persona, Visibility>> = {
   "/data": { fisherman: "hidden", commercial_navigator: "hidden", researcher: "primary", coastal_authority: "secondary", unresolved: "hidden" },
   "/ops": { fisherman: "hidden", commercial_navigator: "hidden", researcher: "hidden", coastal_authority: "primary", unresolved: "hidden" },
   "/watches": { fisherman: "primary", commercial_navigator: "primary", researcher: "secondary", coastal_authority: "primary", unresolved: "primary" },
-  "/reasoning": { fisherman: "hidden", commercial_navigator: "secondary", researcher: "primary", coastal_authority: "secondary", unresolved: "hidden" },
+  "/reasoning": { fisherman: "secondary", commercial_navigator: "secondary", researcher: "primary", coastal_authority: "secondary", unresolved: "primary" },
 };
 
 export function visibilityFor(route: Route, persona: Persona): Visibility {

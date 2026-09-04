@@ -6,6 +6,7 @@ main graph. See orca/graph/graph.py for the exact node wiring.
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -25,7 +26,12 @@ from orca.api.feedback_routes import router as feedback_router
 from orca.api.geospatial_routes import router as geospatial_router
 from orca.api.notifications_routes import router as notifications_router
 from orca.api.ops_routes import router as ops_router
-from orca.api.trace_routes import router as trace_router
+from orca.api.trace_routes import (
+    _LLM_AGENTS,
+    _reasoning_summary,
+    record_recent_trace,
+    router as trace_router,
+)
 from orca.api.voice_routes import router as voice_router
 from orca.api.voyage_routes import router as voyage_router
 from orca.api.watches_routes import router as watches_router
@@ -175,9 +181,37 @@ async def _query_stream(
         completed = values.get("completed_nodes", [])
         trace_log = values.get("audit_trace_log", [])
         for node_name, trace_entry in zip(completed[emitted:], trace_log[emitted:]):
+            agent_real = trace_entry.get("agent_name", node_name)
+            used_llm = agent_real in _LLM_AGENTS
+            tier = (
+                "cheap"
+                if agent_real == "planning"
+                else "mid"
+                if agent_real == "reporting"
+                else "reasoning"
+                if agent_real in ("ocean_analytics", "critic")
+                else None
+            )
+            model = (
+                os.environ.get(f"ORCA_LLM_{tier.upper()}_MODEL", "gemini-3.5-flash-lite")
+                if used_llm and tier
+                else None
+            )
             event = {
-                "type": "agent_span", "agent_name": node_name, "query_id": values.get("query_id"),
-                "status": trace_entry["status"],
+                "type": "agent_span",
+                "agent_name": node_name,
+                "agent_real_name": agent_real,
+                "query_id": values.get("query_id"),
+                "status": trace_entry.get("status", "ok"),
+                "confidence_tier": trace_entry.get("confidence", "LOW_DATA"),
+                "latency_ms": trace_entry.get("latency_ms", 0.0),
+                "reasoning_summary": _reasoning_summary(agent_real, trace_entry.get("outputs", {}), trace_entry.get("status", "ok")),
+                "inputs_consumed": trace_entry.get("inputs_consumed", {}),
+                "outputs": trace_entry.get("outputs", {}),
+                "source_provenance": trace_entry.get("source_provenance"),
+                "used_llm": used_llm,
+                "model": model,
+                "tier": tier,
             }
             yield f"data: {json.dumps(event)}\n\n"
         emitted = len(completed)
@@ -248,6 +282,17 @@ async def _query_stream(
             "source_selections": discovery.get("source_selections", []),
         }
         _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []))
+        try:
+            verdict = "DISTRESS" if final_state.get("distress_flag") else (final_state.get("risk_assessment") or {}).get("go_no_go", "INFO")
+            record_recent_trace(
+                query_id=final_state.get("query_id", ""),
+                query_text=query,
+                verdict=verdict,
+                confidence_tier=final_state.get("confidence_tier", "LOW_DATA"),
+                rows=final_state.get("audit_trace_log", []),
+            )
+        except Exception:
+            pass
         yield f"data: {json.dumps(final)}\n\n"
 
 
