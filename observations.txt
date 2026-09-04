@@ -1,0 +1,2 @@
+1. Prompts with no place mentioned choose thoothkudi as default for answering
+2. Low data confidence everywhere
