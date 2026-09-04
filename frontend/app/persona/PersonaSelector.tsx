@@ -11,20 +11,18 @@ export function PersonaSelector() {
   const { persona, setPersona } = usePersona();
 
   return (
-    <div className="relative">
+    <div className="relative inline-flex items-center">
       <label htmlFor="persona-select" className="sr-only">
         Viewing as
       </label>
-      {/* appearance-none: the native arrow doesn't match the dark theme and
-          renders at a fixed OS size that reads oversized next to the 11px
-          label — same reason the global focus-visible ring (2px, 2px
-          offset, sized for full-width inputs) needs a tighter override on a
-          control this compact. */}
+      <div className="pointer-events-none absolute left-2 hidden items-center gap-1 sm:flex">
+        <span className="size-1 rounded-full bg-ocean-cyan/70" />
+      </div>
       <select
         id="persona-select"
         value={persona}
         onChange={(e) => setPersona(e.target.value as typeof persona)}
-        className="cursor-pointer appearance-none rounded-sm border border-hairline bg-shelf-2/70 py-0.5 pr-5 pl-1.5 text-[11px] text-ink-muted transition-colors hover:border-hairline-strong hover:text-ink focus:border-accent/60 focus-visible:outline-offset-1"
+        className="cursor-pointer appearance-none rounded border border-hairline bg-shelf-2/80 py-1 pr-6 pl-2 sm:pl-4 text-[11px] font-medium tracking-wide text-ink transition-all hover:border-ocean-cyan/50 hover:bg-shelf-3/80 focus:border-ocean-cyan focus-visible:outline-offset-1 shadow-sm"
       >
         {PERSONAS.map((p) => (
           <option key={p.id} value={p.id} className="bg-shelf-2 text-ink">
@@ -34,7 +32,7 @@ export function PersonaSelector() {
       </select>
       <ChevronDown
         aria-hidden="true"
-        className="pointer-events-none absolute top-1/2 right-1.5 size-3 -translate-y-1/2 text-ink-dim"
+        className="pointer-events-none absolute top-1/2 right-2 size-3 -translate-y-1/2 text-ink-dim"
       />
     </div>
   );

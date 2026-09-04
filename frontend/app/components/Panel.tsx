@@ -20,10 +20,17 @@ export function Panel({
   dense?: boolean;
 }) {
   return (
-    <section className={`glass rounded-md ${dense ? "p-3" : "p-4"} ${className}`}>
+    <section
+      className={`glass tactical-frame relative rounded-xl border border-hairline/90 ${
+        dense ? "p-3.5" : "p-5"
+      } shadow-lg ${className}`}
+    >
       {title && (
-        <header className="mb-3 flex items-baseline justify-between gap-3">
-          <h2 className="text-sm font-semibold text-ink">{title}</h2>
+        <header className="mb-3.5 flex items-center justify-between gap-3 border-b border-hairline/50 pb-2.5">
+          <div className="flex items-center gap-2">
+            <span className="size-1.5 rounded-full bg-ocean-cyan/70" aria-hidden="true" />
+            <h2 className="text-xs font-bold uppercase tracking-wider text-ink">{title}</h2>
+          </div>
           {action}
         </header>
       )}
@@ -46,10 +53,15 @@ export function Card({
   className?: string;
 }) {
   return (
-    <section className={`rounded-md border border-hairline bg-shelf-1/70 p-4 ${className}`}>
+    <section
+      className={`relative rounded-xl border border-hairline bg-shelf-1/80 p-5 shadow-lg backdrop-blur-sm ${className}`}
+    >
       {title && (
-        <header className="mb-3 flex items-baseline justify-between gap-3">
-          <h2 className="text-sm font-semibold text-ink">{title}</h2>
+        <header className="mb-3.5 flex items-center justify-between gap-3 border-b border-hairline/50 pb-2.5">
+          <div className="flex items-center gap-2">
+            <span className="size-1.5 rounded-full bg-ocean-cyan/70" aria-hidden="true" />
+            <h2 className="text-xs font-bold uppercase tracking-wider text-ink">{title}</h2>
+          </div>
           {action}
         </header>
       )}

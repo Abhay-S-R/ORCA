@@ -125,15 +125,21 @@ export default function AskPage() {
   }
 
   return (
-    <div className="grid h-full grid-rows-[auto_1fr] gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-1">
-      <div className="flex min-h-0 flex-col gap-4 lg:overflow-y-auto lg:pr-1">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
+    <div className="grid h-full grid-rows-[auto_1fr] gap-6 p-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:grid-rows-1 lg:p-7">
+      <div className="flex min-h-0 flex-col gap-5 lg:overflow-y-auto lg:pr-2">
+        <div className="border-b border-hairline/60 pb-4">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="size-2 rounded-full bg-ocean-cyan beacon-pulse" aria-hidden="true" />
+            <span className="font-mono text-[10px] font-bold tracking-widest text-ocean-cyan uppercase">
+              ORCA INTELLIGENCE CONSOLE // VHF & SATELLITE
+            </span>
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">
             Ask about conditions at sea
           </h1>
-          <p className="mt-1 max-w-[58ch] text-sm text-ink-muted">
-            Ask in plain English or Tamil. ORCA reads live weather, boundaries, depth and fishing
-            advisories, then tells you what it found and where the numbers came from.
+          <p className="mt-1.5 max-w-[62ch] text-sm leading-relaxed text-ink-muted">
+            Ask in plain English or Tamil. ORCA evaluates live ocean weather, maritime boundary standoff,
+            depth contours, and fishing advisories with full citation provenance.
           </p>
         </div>
 
@@ -142,25 +148,56 @@ export default function AskPage() {
             e.preventDefault();
             ask(query);
           }}
-          className="flex gap-2"
+          className="flex flex-col gap-2.5"
         >
-          <label htmlFor="query" className="sr-only">
-            Your question about marine conditions
-          </label>
-          <input
-            id="query"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Is it safe to go out tomorrow morning?"
-            className="min-w-0 flex-1 rounded-md border border-hairline bg-shelf-1/80 px-3.5 py-3 text-sm text-ink placeholder:text-ink-dim transition-colors hover:border-hairline-strong focus:border-accent/60"
-          />
-          {/* Voice ingress (plan §6 D1 Day 16-17): mic sits right next to
-              Ask since both feed the same query pipeline — voice is a
-              pre-step onto the text box, not a second, separate control. */}
-          <VoiceMicButton voice={voice} isFisherman={persona === "fisherman"} />
-          <Button type="submit" variant="primary" disabled={streaming || !query.trim()} icon={<Send className="size-4" />}>
-            {streaming ? "Asking" : "Ask"}
-          </Button>
+          <div className="flex gap-2">
+            <label htmlFor="query" className="sr-only">
+              Your question about marine conditions
+            </label>
+            <div className="relative flex-1">
+              <input
+                id="query"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Is it safe to go out tomorrow morning near Thoothukudi?"
+                className="w-full rounded-xl border border-hairline bg-shelf-1/90 px-4 py-3 text-sm text-ink placeholder:text-ink-dim/60 transition-all hover:border-hairline-strong focus:border-ocean-cyan/70 focus:bg-shelf-2/90 shadow-inner"
+              />
+            </div>
+            {/* Voice ingress (plan §6 D1 Day 16-17): mic sits right next to
+                Ask since both feed the same query pipeline — voice is a
+                pre-step onto the text box, not a second, separate control. */}
+            <VoiceMicButton voice={voice} isFisherman={persona === "fisherman"} />
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={streaming || !query.trim()}
+              icon={<Send className="size-4" />}
+              className="px-5 font-bold"
+            >
+              {streaming ? "Asking" : "Ask"}
+            </Button>
+          </div>
+
+          {/* Quick preset sector query chips */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
+              Presets:
+            </span>
+            {EXAMPLES.map((ex) => (
+              <button
+                key={ex}
+                type="button"
+                onClick={() => {
+                  setQuery(ex);
+                  ask(ex);
+                }}
+                disabled={streaming}
+                className="rounded border border-hairline/60 bg-shelf-2/50 px-2.5 py-1 text-[11px] text-ink-muted transition-colors hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink disabled:opacity-50"
+              >
+                {ex}
+              </button>
+            ))}
+          </div>
         </form>
 
         {/* Waveform while recording, transcript confirmation once done —
@@ -317,7 +354,10 @@ export default function AskPage() {
         )}
       </div>
 
-      <div className="min-h-75 lg:min-h-0">
+      <div className="relative min-h-[400px] overflow-hidden rounded-2xl border border-hairline bg-shelf-1/60 shadow-2xl lg:min-h-0">
+        <div className="pointer-events-none absolute top-3 left-3 z-10 rounded bg-shelf-1/85 px-2 py-0.5 font-mono text-[10px] font-medium text-ocean-cyan border border-ocean-cyan/30 backdrop-blur-sm shadow-sm">
+          CHART TELEMETRY // LIVE FIX
+        </div>
         <MapView className="h-full w-full" showPanels={false} />
       </div>
     </div>

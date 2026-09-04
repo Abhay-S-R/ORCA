@@ -6,14 +6,15 @@
 // loudest thing on the old light theme and competed with the verdict.
 import type { ReactNode } from "react";
 
-export type BadgeTone = "go" | "caution" | "no-go" | "neutral" | "accent";
+export type BadgeTone = "go" | "caution" | "no-go" | "neutral" | "accent" | "cyan";
 
 const TONE: Record<BadgeTone, string> = {
-  go: "text-go border-go/40 bg-go/10",
-  caution: "text-caution border-caution/40 bg-caution/10",
-  "no-go": "text-no-go border-no-go/45 bg-no-go/10",
-  neutral: "text-ink-muted border-hairline bg-shelf-2/60",
-  accent: "text-accent border-accent/40 bg-accent/10",
+  go: "text-go border-go/40 bg-go/10 shadow-[0_0_10px_rgba(16,229,153,0.15)]",
+  caution: "text-caution border-caution/40 bg-caution/10 shadow-[0_0_10px_rgba(245,158,11,0.15)]",
+  "no-go": "text-no-go border-no-go/45 bg-no-go/10 shadow-[0_0_10px_rgba(255,59,59,0.2)]",
+  neutral: "text-ink-muted border-hairline bg-shelf-2/70",
+  accent: "text-accent border-accent/40 bg-accent/10 shadow-[0_0_10px_rgba(240,70,140,0.15)]",
+  cyan: "text-ocean-cyan border-ocean-cyan/40 bg-ocean-cyan/10 shadow-[0_0_10px_rgba(0,229,255,0.15)]",
 };
 
 export function Badge({
@@ -27,7 +28,7 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-[11px] font-semibold tracking-wide ${TONE[tone]}`}
+      className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] font-semibold tracking-wide ${TONE[tone]}`}
     >
       {icon}
       {children}

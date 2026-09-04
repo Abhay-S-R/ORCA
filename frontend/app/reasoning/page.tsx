@@ -11,33 +11,23 @@ import {
   type NodeTypes,
   type EdgeTypes,
 } from "@xyflow/react";
-import { Suspense, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   AlertTriangle,
-  Check,
   ChevronDown,
   ChevronUp,
-  Clock,
-  Compass,
-  Database,
-  Eye,
   History,
-  Info,
-  Layers,
-  ListChecks,
   Maximize2,
   Minimize2,
   Play,
-  RotateCcw,
   Search,
   ShieldAlert,
   Sparkles,
   Waves,
   Workflow,
   X,
-  Zap,
 } from "lucide-react";
 
 import { AgentNode, FanoutGroupNode } from "./AgentNode";
@@ -46,7 +36,6 @@ import { ReasoningInspector } from "./ReasoningInspector";
 import { ReasoningTimeline, PIPELINE_STAGES } from "./ReasoningTimeline";
 import { layoutTrace } from "./dagre-layout";
 import { EXAMPLE_TRACE, type TraceGraph, type TraceNode } from "./fixture";
-import { Badge } from "../components/Badge";
 import { API_BASE } from "../lib/apiBase";
 
 const nodeTypes: NodeTypes = {
@@ -131,7 +120,7 @@ function ReasoningContent() {
   const sourceRef = useRef<EventSource | null>(null);
 
   // Fetch recent queries from backend on mount
-  const refreshRecentTraces = async () => {
+  const refreshRecentTraces = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/api/traces/recent`);
       if (res.ok) {
@@ -141,19 +130,9 @@ function ReasoningContent() {
     } catch {
       // Graceful fallback
     }
-  };
-
-  useEffect(() => {
-    refreshRecentTraces();
   }, []);
 
-  // If URL has query_id, fetch it
-  useEffect(() => {
-    if (!initialQueryId) return;
-    loadTraceById(initialQueryId);
-  }, [initialQueryId]);
-
-  const loadTraceById = async (qid: string) => {
+  const loadTraceById = useCallback(async (qid: string) => {
     try {
       const res = await fetch(`${API_BASE}/trace/${qid}`);
       if (res.ok) {
@@ -174,7 +153,17 @@ function ReasoningContent() {
     } catch {
       // Fallback
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void refreshRecentTraces();
+  }, [refreshRecentTraces]);
+
+  // If URL has query_id, fetch it
+  useEffect(() => {
+    if (!initialQueryId) return;
+    void loadTraceById(initialQueryId);
+  }, [initialQueryId, loadTraceById]);
 
   // Run live query via SSE
   const runLiveQuery = (queryText: string) => {
@@ -218,7 +207,7 @@ function ReasoningContent() {
               if (n.id === agentName || n.id === realName) {
                 return {
                   ...n,
-                  status: (data.status as any) || "ok",
+                  status: (data.status as TraceNode["status"]) || "ok",
                   latency_ms: data.latency_ms ?? n.latency_ms,
                   confidence_tier: data.confidence_tier ?? n.confidence_tier,
                   reasoning_summary: data.reasoning_summary || n.reasoning_summary,
@@ -347,6 +336,29 @@ function ReasoningContent() {
       .filter((n) => activeStage.nodeIds.includes(n.id))
       .reduce((acc, n) => acc + (n.latency_ms || 0), 0);
   }, [trace, activeStage]);
+
+  // Keyboard navigation: activate selected node on Enter or Space
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const target = e.target as HTMLElement | null;
+      const active = document.activeElement as HTMLElement | null;
+      const el =
+        target?.closest<HTMLElement>(".react-flow__node:not(.react-flow__node-fanoutGroup)") ||
+        active?.closest<HTMLElement>(".react-flow__node:not(.react-flow__node-fanoutGroup)");
+      if (!el) return;
+      const id = el.getAttribute("data-id") || el.dataset.id;
+      if (!id) return;
+      const found = nodes.find((n) => n.id === id);
+      const nodeData = found?.data as { node?: TraceNode } | undefined;
+      if (!nodeData?.node) return;
+      e.preventDefault();
+      setSelectedNode(nodeData.node);
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [nodes]);
 
   const toggleFullscreen = () => {
     if (!containerRef.current) return;

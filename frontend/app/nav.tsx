@@ -75,12 +75,17 @@ export function NavRail() {
       {/* Desktop rail */}
       <nav
         aria-label="Primary"
-        className="hidden w-15 shrink-0 flex-col items-center gap-1 border-r border-hairline bg-shelf-1/40 py-3 sm:flex"
+        className="hidden w-16 shrink-0 flex-col items-center gap-1.5 border-r border-hairline bg-shelf-1/80 py-4 sm:flex backdrop-blur-md shadow-lg"
       >
         {/* "/" is the public landing page, outside this rail entirely —
             inside the app, the mark goes back to Ask, the app's own home. */}
-        <Link href="/ask" aria-label="ORCA home" className="mb-2 grid size-9 place-items-center">
-          <OrcaMark />
+        <Link
+          href="/ask"
+          aria-label="ORCA home"
+          className="group mb-3 relative grid size-10 place-items-center rounded-lg border border-hairline/60 bg-shelf-2/60 transition-all hover:border-ocean-cyan/60 hover:bg-shelf-3/70"
+        >
+          <OrcaMark className="size-6 transition-transform group-hover:scale-110" />
+          <span className="sr-only">ORCA</span>
         </Link>
         {visible.map(({ href, visibility }) => {
           const { label, Icon } = NAV[href];
@@ -91,18 +96,22 @@ export function NavRail() {
               href={href}
               aria-current={active ? "page" : undefined}
               title={label}
-              className={`group relative grid size-10 place-items-center rounded-md transition-colors ${
-                active ? "bg-shelf-3/70 text-accent" : "text-ink-dim hover:bg-shelf-2/60 hover:text-ink"
+              className={`group relative grid size-10 place-items-center rounded-lg border transition-all ${
+                active
+                  ? "border-ocean-cyan/60 bg-shelf-3/90 text-ocean-cyan shadow-md shadow-ocean-cyan/15"
+                  : "border-transparent text-ink-dim hover:border-hairline hover:bg-shelf-2/80 hover:text-ink"
               } ${visibility === "secondary" && !active ? "opacity-55" : ""}`}
             >
-              {/* Active state is carried by an accent rule AND the icon
-                  colour AND aria-current — never by colour alone. */}
+              {/* Active indicator bar */}
               {active && (
-                <span aria-hidden="true" className="absolute -left-[13px] h-6 w-[2px] rounded-r bg-accent" />
+                <span
+                  aria-hidden="true"
+                  className="absolute -left-[17px] h-6 w-1 rounded-r bg-ocean-cyan shadow-[0_0_8px_rgba(0,229,255,0.7)]"
+                />
               )}
-              <Icon className="size-[18px]" strokeWidth={1.75} aria-hidden="true" />
+              <Icon className="size-[18px] transition-transform group-hover:scale-105" strokeWidth={active ? 2.2 : 1.75} aria-hidden="true" />
               <span className="sr-only">{label}</span>
-              <span className="pointer-events-none absolute left-full z-50 ml-2 hidden rounded-sm border border-hairline bg-shelf-2 px-2 py-1 text-xs whitespace-nowrap text-ink group-hover:block">
+              <span className="pointer-events-none absolute left-full z-50 ml-3 hidden rounded border border-hairline-strong bg-shelf-1/95 px-2.5 py-1 text-xs font-medium tracking-wide whitespace-nowrap text-ink shadow-xl backdrop-blur-md group-hover:block">
                 {label}
               </span>
             </Link>
@@ -113,7 +122,7 @@ export function NavRail() {
       {/* Mobile tab bar — five primary, the rest reachable from More. */}
       <nav
         aria-label="Primary"
-        className="fixed inset-x-0 bottom-0 z-40 flex border-t border-hairline bg-shelf-1/95 backdrop-blur-md sm:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 flex border-t border-hairline bg-shelf-1/95 backdrop-blur-xl sm:hidden shadow-2xl"
       >
         {visible.slice(0, 5).map(({ href }) => {
           const { label, Icon } = NAV[href];
@@ -123,11 +132,11 @@ export function NavRail() {
               key={href}
               href={href}
               aria-current={active ? "page" : undefined}
-              className={`flex flex-1 flex-col items-center gap-1 py-2 text-[10px] ${
-                active ? "text-accent" : "text-ink-dim"
+              className={`flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium tracking-wide transition-colors ${
+                active ? "text-ocean-cyan border-t-2 border-ocean-cyan -mt-px bg-shelf-2/40" : "text-ink-dim hover:text-ink"
               }`}
             >
-              <Icon className="size-5" strokeWidth={1.75} aria-hidden="true" />
+              <Icon className="size-5" strokeWidth={active ? 2.2 : 1.75} aria-hidden="true" />
               {label}
             </Link>
           );
@@ -151,9 +160,9 @@ export function OrcaMark({ className = "size-6", animated = false }: { className
     draw ? { initial: { pathLength: 0 }, animate: { pathLength: 1 }, transition: { duration: 0.5, delay, ease: "easeOut" as const } } : {};
   return (
     <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
-      <Stroke d="M3 6h18" stroke="var(--color-hairline-strong)" strokeWidth="1.5" strokeLinecap="round" {...drawProps(0)} />
-      <Stroke d="M5 12h14" stroke="var(--color-shoal)" strokeWidth="1.5" strokeLinecap="round" {...drawProps(0.15)} />
-      <Stroke d="M8 18h8" stroke="var(--color-accent)" strokeWidth="1.5" strokeLinecap="round" {...drawProps(0.3)} />
+      <Stroke d="M3 6h18" stroke="var(--color-ocean-cyan)" strokeWidth="1.75" strokeLinecap="round" {...drawProps(0)} />
+      <Stroke d="M5 12h14" stroke="var(--color-shoal)" strokeWidth="1.75" strokeLinecap="round" {...drawProps(0.15)} />
+      <Stroke d="M8 18h8" stroke="var(--color-accent)" strokeWidth="1.75" strokeLinecap="round" {...drawProps(0.3)} />
     </svg>
   );
 }
@@ -200,9 +209,10 @@ export function SosButton() {
         type="button"
         onClick={trigger}
         aria-label="Send a distress alert"
-        className="fixed right-4 bottom-18 z-50 grid size-14 place-items-center rounded-full bg-no-go text-sm font-bold tracking-wide text-abyss shadow-lg shadow-no-go/25 transition-transform hover:scale-105 active:scale-95 sm:right-6 sm:bottom-6"
+        className="group fixed right-4 bottom-18 z-50 flex size-14 items-center justify-center rounded-full border-2 border-no-go/60 bg-no-go text-sm font-black tracking-widest text-abyss shadow-[0_0_24px_rgba(255,59,59,0.4)] transition-all hover:scale-105 active:scale-95 sm:right-6 sm:bottom-6"
       >
-        SOS
+        <span className="absolute inset-0 -z-10 rounded-full bg-no-go/30 animate-ping opacity-75 pointer-events-none" />
+        <span className="relative z-10 font-mono text-base font-black">SOS</span>
       </button>
 
       {/* Native <dialog>: Escape-to-close, focus containment and inertness

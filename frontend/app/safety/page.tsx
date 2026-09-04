@@ -102,34 +102,41 @@ export default function SafetyPage() {
         lede="Pick your vessel and ask. The verdict accounts for wave height, wind, lightning, cyclone alerts and how close you are to a boundary you must not cross."
       />
 
-      <form onSubmit={check} className="mb-5">
-        <div className="grid gap-x-4 sm:grid-cols-2">
-          <Field label="Question">
-            {(id) => (
-              <input id={id} value={query} onChange={(e) => setQuery(e.target.value)} className={inputClass} />
-            )}
-          </Field>
-          <Field label="Vessel class" hint={VESSEL_DELTAS[vesselClass]}>
-            {(id) => (
-              <select
-                id={id}
-                value={vesselClass}
-                onChange={(e) => setVesselClass(e.target.value as VesselClass)}
-                className={inputClass}
-              >
-                {(Object.keys(VESSEL_LABELS) as VesselClass[]).map((v) => (
-                  <option key={v} value={v} className="bg-shelf-2">
-                    {VESSEL_LABELS[v]}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-        </div>
-        <Button type="submit" variant="primary" disabled={streaming} icon={<ShieldCheck className="size-4" />}>
-          {streaming ? "Checking" : "Check safety"}
-        </Button>
-      </form>
+      <div className="mb-6 rounded-2xl border border-hairline bg-shelf-1/80 p-5 shadow-xl backdrop-blur-md">
+        <form onSubmit={check}>
+          <div className="grid gap-x-5 sm:grid-cols-2">
+            <Field label="Question">
+              {(id) => (
+                <input id={id} value={query} onChange={(e) => setQuery(e.target.value)} className={inputClass} />
+              )}
+            </Field>
+            <Field label="Vessel class" hint={VESSEL_DELTAS[vesselClass]}>
+              {(id) => (
+                <select
+                  id={id}
+                  value={vesselClass}
+                  onChange={(e) => setVesselClass(e.target.value as VesselClass)}
+                  className={inputClass}
+                >
+                  {(Object.keys(VESSEL_LABELS) as VesselClass[]).map((v) => (
+                    <option key={v} value={v} className="bg-shelf-2">
+                      {VESSEL_LABELS[v]}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+          </div>
+          <div className="mt-2 flex items-center justify-between pt-2 border-t border-hairline/50">
+            <span className="font-mono text-[10px] text-ink-dim uppercase">
+              THRESHOLD SAFETY GATE // AGENT 7
+            </span>
+            <Button type="submit" variant="primary" disabled={streaming} icon={<ShieldCheck className="size-4" />}>
+              {streaming ? "Evaluating Telemetry..." : "Check Safety Verdict"}
+            </Button>
+          </div>
+        </form>
+      </div>
 
       {spans.length > 0 && (
         <div className="mb-5">
