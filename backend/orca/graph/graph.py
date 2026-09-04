@@ -283,7 +283,22 @@ def reporting_run(state: ORCAState) -> AgentResult:
             confidence=geo_confidence,
         ))
 
-    ocean = state.get("ocean_data") or {}
+    verdict = state.get("risk_assessment") or {}
+
+    # Cost-based short-circuit (Architecture §9.3, plan §6 Phase 4) — RAA
+    # never reads ocean_data (confirmed: it only consumes weather + geospatial),
+    # so Ocean Analytics' PFZ/tide/trend content is exactly the "co-occurring
+    # PFZ lookup" the architecture names as safe to drop from a NO_GO
+    # response. This is response trimming, not compute avoidance: the
+    # ocean_analytics node still ran (LangGraph's static fan-in has no
+    # supported mid-flight cancellation, see phase4 plan §2.1) — only the
+    # content surfaced to the user is cut, which is the half of §9.3 that is
+    # actually about what a fisherman sees. Never trimmed if the user
+    # separately asked for zone/condition data (matched_intent_rows).
+    matched_rows = state.get("matched_intent_rows") or []
+    early_exit = verdict.get("go_no_go") == "NO_GO" and not ({"PFZ_NEAREST", "CONDITIONS"} & set(matched_rows))
+
+    ocean = {} if early_exit else (state.get("ocean_data") or {})
     if ocean:
         ocean_conf = ocean.get("confidence") or Confidence(score="LOW_DATA", rationale="ocean_analytics")
         results.append(AgentResult(
@@ -301,7 +316,6 @@ def reporting_run(state: ORCAState) -> AgentResult:
             confidence=ocean_conf,
         ))
 
-    verdict = state.get("risk_assessment") or {}
     if verdict:
         results.append(AgentResult(
             agent_name="risk_assessment", query_id=query_id, reasoning_depth=depth,
@@ -333,6 +347,7 @@ def reporting_run(state: ORCAState) -> AgentResult:
                 }
                 for c in assembled.citations
             ],
+            "early_exit_triggered": early_exit,
         },
         source_provenance=SourceProvenance(dataset="ORCA synthesis (Agent 9, thin — no LLM pass, plan §4 S6)", acquisition_timestamp="", freshness_minutes=0),
         confidence=Confidence(
@@ -348,6 +363,7 @@ def reporting_node(state: ORCAState) -> dict:
         "final_english_response": result.outputs["final_english_response"],
         "evidence_citations": result.outputs["citations"],
         "confidence_tier": result.confidence.score,
+        "early_exit_triggered": result.outputs.get("early_exit_triggered", False),
         "audit_trace_log": [entry],
         "completed_nodes": ["reporting"],
     }

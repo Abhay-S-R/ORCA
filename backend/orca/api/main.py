@@ -5,9 +5,11 @@ main graph. See orca/graph/graph.py for the exact node wiring.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -25,13 +27,19 @@ from orca.api.feedback_routes import router as feedback_router
 from orca.api.geospatial_routes import router as geospatial_router
 from orca.api.notifications_routes import router as notifications_router
 from orca.api.ops_routes import router as ops_router
+from orca.api.replay_routes import router as replay_router
 from orca.api.trace_routes import router as trace_router
 from orca.api.voice_routes import router as voice_router
 from orca.api.voyage_routes import router as voyage_router
 from orca.api.watches_routes import router as watches_router
 from orca.data.loaders import resolve_port_from_text
 from orca.graph.graph import build_graph
+from orca.agents.planning import classify_intent
 from orca.logging_utils import configure_logging
+from orca.query_cache import get as query_cache_get
+from orca.query_cache import resolved_key
+from orca.query_cache import store as query_cache_store
+from orca.query_coalescing import coalesce
 from orca.state import ORCAState
 
 
@@ -89,6 +97,7 @@ app.include_router(watches_router)
 app.include_router(notifications_router)
 app.include_router(feedback_router)
 app.include_router(ops_router)
+app.include_router(replay_router)  # Phase 4 — /api/replay/gaja, historical replay (parent plan §1.3)
 
 # Agent 8 raster tile pyramid (orca/tiles.py) — serves the PNGs
 # scripts/generate_tiles.py writes offline, at the same "/tiles/{layer_id}/
@@ -113,6 +122,26 @@ _graph = build_graph()
 # Thoothukudi — the pilot region's own default per the Phase 1 acceptance
 # query, used only when the caller doesn't supply a real position.
 _DEFAULT_LAT, _DEFAULT_LON = 8.80, 78.14
+
+# Priority lane / backpressure (Architecture §9.10, phase4 plan §8) — a
+# resource-guaranteed concurrency budget for SAFETY_CHECK/SHALLOW requests
+# (the exact shape of what a scared fisherman asks during a cyclone),
+# separate from a smaller budget for everything else, so a hazard-window
+# demand spike cannot starve the highest-stakes queries. Two independent
+# asyncio.Semaphore pools (stdlib, no queue broker) rather than one shared
+# pool: standard-lane traffic can never contend for a priority-lane slot,
+# which is what "resource-guaranteed" actually requires.
+PRIORITY_LANE = asyncio.Semaphore(int(os.environ.get("ORCA_PRIORITY_LANE_SIZE", "8")))
+STANDARD_LANE = asyncio.Semaphore(int(os.environ.get("ORCA_STANDARD_LANE_SIZE", "4")))
+
+
+def _is_priority_shaped(query: str, depth: str | None) -> bool:
+    """Cheap pre-classification at the route layer — reuses Agent 2's own
+    Tier-1 rules match (classify_intent) rather than a second classifier, so
+    "which lane" can never disagree with "which agents actually ran"."""
+    if depth not in (None, "SHALLOW"):
+        return False
+    return any(name == "SAFETY_CHECK" for name, _score in classify_intent(query))
 
 
 _PERSONAS = ("fisherman", "commercial_navigator", "researcher", "coastal_authority")
@@ -162,7 +191,12 @@ def health() -> dict[str, str]:
 async def _query_stream(
     query: str, lat: float, lon: float, vessel_class: str | None,
     distress: bool = False, persona: str | None = None, depth: str | None = None,
+    on_final: Callable[[dict], None] | None = None,
 ) -> AsyncIterator[str]:
+    """`on_final`, when given, is called once with the same dict that gets
+    JSON-serialized into the `final_response` SSE frame — the query-cache
+    write hook (phase4 plan §2.3), kept as a callback rather than a return
+    value so this stays a plain generator callers can iterate directly."""
     state = _initial_state(query, lat, lon, vessel_class, distress, persona, depth)
     emitted = 0  # every graph node appends exactly one completed_nodes entry
     # AND exactly one audit_trace_log entry in the same call (see graph.py) —
@@ -202,6 +236,11 @@ async def _query_stream(
             "risk_assessment": final_state.get("risk_assessment"),
             "citations": final_state.get("evidence_citations", []),
             "distress_flag": final_state.get("distress_flag", False),
+            # Cost-based short-circuit (Architecture §9.3, phase4 plan §2.1):
+            # true when a NO_GO verdict caused Ocean Analytics' PFZ/tide/trend
+            # content to be dropped from this response rather than shown
+            # alongside a "don't go" verdict nobody asked for more data under.
+            "early_exit_triggered": final_state.get("early_exit_triggered", False),
             # Structured alongside the sentence, so the UI can render a
             # dialable number rather than asking someone in a boat to
             # retype one out of a paragraph. Pure dict lookup — recomputing
@@ -248,6 +287,8 @@ async def _query_stream(
             "source_selections": discovery.get("source_selections", []),
         }
         _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []))
+        if on_final is not None:
+            on_final(final)
         yield f"data: {json.dumps(final)}\n\n"
 
 
@@ -288,6 +329,30 @@ async def query(
         resolved = resolve_port_from_text(q)
         lat = resolved[1] if resolved else _DEFAULT_LAT
         lon = resolved[2] if resolved else _DEFAULT_LON
-    return StreamingResponse(
-        _query_stream(q, lat, lon, vessel_class, distress, persona, depth), media_type="text/event-stream"
-    )
+
+    # A distress query is never cached or coalesced onto another in-flight
+    # request (phase4 plan §2.2/§2.3) — every SOS is its own, always-fresh
+    # invocation. Ground Rule 2's safety-path discipline applies to the
+    # request-handling layer too: a second, real emergency call must never
+    # be silently folded into a stale answer meant for a different call.
+    if distress:
+        return StreamingResponse(
+            _query_stream(q, lat, lon, vessel_class, distress, persona, depth), media_type="text/event-stream"
+        )
+
+    cache_key = resolved_key(q, lat, lon, vessel_class, persona, depth)
+    lane = PRIORITY_LANE if _is_priority_shaped(q, depth) else STANDARD_LANE
+
+    async def _produce() -> AsyncIterator[str]:
+        cached = query_cache_get(cache_key)
+        if cached is not None:
+            yield f"data: {json.dumps(cached)}\n\n"
+            return
+        async with lane:
+            async for line in _query_stream(
+                q, lat, lon, vessel_class, distress, persona, depth,
+                on_final=lambda final: query_cache_store(cache_key, final),
+            ):
+                yield line
+
+    return StreamingResponse(coalesce(cache_key, _produce), media_type="text/event-stream")

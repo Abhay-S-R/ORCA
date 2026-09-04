@@ -111,6 +111,14 @@ def test_feedback_joins_by_query_id(db: Session):
 # --- Sentinel crossing E2E (acceptance test C) ---------------------------
 
 def test_crossing_fires_once_and_a_second_identical_poll_is_silent(db: Session, monkeypatch):
+    # run_poll_cycle scans every enabled watch system-wide (correct production
+    # behaviour — Sentinel has no notion of "this test's watches"), but this
+    # test calls db.commit() below so run_poll_cycle sees its row in the same
+    # connection — which also means the row survives past this test's own
+    # rollback. Without this, a prior run of this exact test leaves a watch
+    # behind that a later run's identical cheap_check patch also crosses,
+    # so list_enabled_watches finds N leftover watches instead of 1.
+    db.execute(text("DELETE FROM sentinel_subscriptions"))
     u = _user(db)
     create_watch(
         db, user_id=u, watch_type="wave_height", lat=8.8, lon=78.14,
