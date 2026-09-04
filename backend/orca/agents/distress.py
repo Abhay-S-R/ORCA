@@ -59,7 +59,7 @@ def detect_distress_signal(text: str, ui_control_triggered: bool = False) -> dic
     return {"is_distress": False, "distress_type": None, "matched_language": None, "matched_phrase": None}
 
 
-def surface_mrcc_contact(user_location: dict[str, float] | None, language: str = "en") -> dict[str, Any]:
+def surface_mrcc_contact(user_location: dict[str, Any] | None, language: str = "en") -> dict[str, Any]:
     """Tool per Architecture §3.2 Agent 12. Region resolution is coarse
     (pilot region only has one MRCC in scope) — a real multi-region lookup
     is out of scope while the pilot is a single coastal strip. Always
