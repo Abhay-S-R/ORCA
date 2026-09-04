@@ -191,6 +191,22 @@ def test_compute_confidence_empty_defaults_to_low_data_not_high():
     assert compute_confidence([]).score == "LOW_DATA"
 
 
+def test_compute_confidence_two_disagreeing_medium_confidence_sources_stays_worst_of():
+    """§12.2's "conflicting sources -> confidence drops to MEDIUM" row,
+    the half of it compute_confidence actually implements: combining two
+    upstream agents that each independently flagged their own value as only
+    MEDIUM confidence never nets out to something better than the worst one
+    (Ground Rule 4 — uncertainty degrades conservative, it never averages).
+    The other half of that row — comparing the two agents' raw *values* for
+    disagreement in the first place — does not exist yet; see phase4 plan
+    §6, which logs it honestly as unbuilt rather than asserting it here."""
+    result = compute_confidence([
+        Confidence(score="MEDIUM", rationale="source A"),
+        Confidence(score="LOW_DATA", rationale="source B disagrees"),
+    ])
+    assert result.score == "LOW_DATA"
+
+
 # --- generate_alert_payload -----------------------------------------------
 
 def test_generate_alert_payload_english_ok():

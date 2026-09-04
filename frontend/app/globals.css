@@ -50,6 +50,15 @@
   --color-confidence-medium: #9aa8d8;
   --color-confidence-low: #b08cc4;
 
+  /* Architecture §2.6: on confidence.score == "LOW_DATA", the verdict banner
+     itself (not just the confidence meter) gets a distinct amber "data
+     limited" treatment instead of a confident colour — applied identically
+     across all four personas. Deliberately a different hue from
+     --color-caution (the safety triad's own amber, reserved above) so a
+     data-quality caveat is never visually confusable with a hazard verdict;
+     the text label carries the meaning either way, this only reinforces it. */
+  --color-data-limited: #d9a441;
+
   --font-sans: var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
   --font-tamil: var(--font-noto-tamil), var(--font-barlow), sans-serif;

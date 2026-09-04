@@ -21,14 +21,21 @@ export function Readout({
 }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[11px] font-medium text-ink-dim">{label}</dt>
-      <dd className="mt-0.5 flex items-baseline gap-1">
-        <span data-readout className="text-lg text-ink">
+      <dt className="text-[11px] font-medium text-ink-dim truncate" title={label}>{label}</dt>
+      <dd className="mt-0.5 flex min-w-0 items-baseline gap-1">
+        <span data-readout className="min-w-0 break-words text-lg font-semibold text-ink">
           {value}
         </span>
-        {unit && <span className="text-xs text-ink-muted">{unit}</span>}
+        {unit && <span className="text-xs text-ink-muted shrink-0">{unit}</span>}
       </dd>
-      {hint && <p className="mt-0.5 text-[11px] text-ink-dim">{hint}</p>}
+      {hint && (
+        <p
+          className="mt-0.5 text-[11px] text-ink-dim truncate"
+          title={typeof hint === "string" ? hint : undefined}
+        >
+          {hint}
+        </p>
+      )}
     </div>
   );
 }

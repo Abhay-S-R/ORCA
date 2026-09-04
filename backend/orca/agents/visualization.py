@@ -32,6 +32,7 @@ from orca.contracts import (
     MapLayer,
     SourceProvenance,
     StyleHints,
+    VoyagePlan,
     coerce_reasoning_depth,
 )
 from orca.state import ORCAState
@@ -174,6 +175,41 @@ def generate_map_layers(state: ORCAState) -> list[MapLayer]:
 
     layers.extend(_raster_layers())
     return layers
+
+
+# --- voyage_route_layer (D3) --------------------------------------------------
+
+def voyage_route_layer(plan: VoyagePlan) -> MapLayer:
+    """Populates the Polyline layer type (declared in the contract, unused
+    until now) from a computed VoyagePlan (orca/agents/voyage.py). Shapes
+    voyage.py's already-classified segments into map-renderable GeoJSON —
+    it does not itself classify hazards (Ground Rule 2). One LineString
+    feature per segment, `status`/`hazard_class` as feature properties, so
+    the frontend can color AND text-label each leg rather than color-alone."""
+    features = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "LineString", "coordinates": [[seg.start[1], seg.start[0]], [seg.end[1], seg.end[0]]]},
+            "properties": {
+                "segment_id": seg.segment_id, "status": seg.status, "hazard_class": seg.hazard_class,
+                "detail": seg.detail, "eta": seg.eta, "distance_nm": seg.distance_nm,
+            },
+        }
+        for seg in plan.segments
+    ]
+    lats = [p for seg in plan.segments for p in (seg.start[0], seg.end[0])] or [plan.origin[0], plan.destination[0]]
+    lons = [p for seg in plan.segments for p in (seg.start[1], seg.end[1])] or [plan.origin[1], plan.destination[1]]
+    provenance = tuple({p for seg in plan.segments for p in seg.source_provenance}) or (
+        SourceProvenance(dataset="ORCA voyage corridor (voyage.py — no LLM, no raw-dataset reasoning)", acquisition_timestamp="", freshness_minutes=0),
+    )
+    return MapLayer(
+        layer_id=f"voyage_{plan.voyage_id}", layer_type="Polyline",
+        geojson={"type": "FeatureCollection", "features": features}, tile_url=None,
+        bounds=(min(lons), min(lats), max(lons), max(lats)), timestamps=None, forecast_frames=None,
+        style_hints=StyleHints(palette="voyage-status", opacity=0.9, min_zoom=4, max_zoom=16),
+        weight="light", persona_visibility=(), source_provenance=provenance,
+        result_refs=("voyage",),
+    )
 
 
 # --- generate_chart_specs -----------------------------------------------------
@@ -378,4 +414,14 @@ if __name__ == "__main__":
     wind_rose_chart = next(c for c in result.outputs["chart_specs"] if c.chart_type == "WindRose")
     assert wind_rose_chart.persona_visibility == ("fisherman", "commercial_navigator", "coastal_authority")
     assert not result.outputs["validation_dropped"], result.outputs["validation_dropped"]
+
+    from orca.agents.voyage import plan_voyage
+
+    demo_plan = plan_voyage((8.20, 78.60), (8.10, 78.65), vessel_class="small_fishing", speed_kn=8.0)
+    route_layer = voyage_route_layer(demo_plan)
+    kept, _, dropped = validate_payload([route_layer], [])
+    assert kept and not dropped, dropped
+    assert route_layer.layer_type == "Polyline"
+    assert {f["properties"]["status"] for f in route_layer.geojson["features"]} <= {"CLEAR", "CAUTION", "BLOCKED"}
+
     print("visualization self-check OK:", layer_types, len(result.outputs["chart_specs"]), "chart(s)")

@@ -22,6 +22,7 @@ ALL_NODES = {
     "geospatial", "ocean_analytics", "risk_assessment", "visualization",
     "reporting", "language_egress",
 }
+DEEP_NODES = ALL_NODES | {"critic"}
 
 import importlib.util
 
@@ -326,3 +327,35 @@ def test_all_sources_down_still_returns_a_forced_low_data_verdict(monkeypatch):
     assert result["confidence_tier"] == "LOW_DATA"
     # The user still gets a real sentence back, not a stack trace or a blank response.
     assert result["final_english_response"]
+
+
+def test_deep_query_routes_through_the_critic_and_preserves_the_verdict(monkeypatch):
+    # Exit criterion 9 (Phase 3 plan §4): the Critic never blocks a safety
+    # verdict — the verdict is already final in final_english_response by
+    # the time reporting_node runs, and this asserts the critic node, which
+    # runs strictly after it, cannot change that text's leading header.
+    from unittest.mock import MagicMock
+
+    _mock_calm_weather(monkeypatch)
+    fake_client = MagicMock()
+    fake_client.complete.return_value = "[]"  # judge finds nothing to fix
+    monkeypatch.setattr("orca.llm.tiers.llm", lambda tier: fake_client)
+
+    state = _base_state("why has catch declined near Thoothukudi")
+    state["reasoning_depth"] = "DEEP"
+    graph = build_graph()
+    result = graph.invoke(state)
+
+    assert "critic" in result["completed_nodes"]
+    assert set(result["completed_nodes"]) == DEEP_NODES
+    assert result["critic_pass"] is True
+    assert result["final_english_response"].split(":")[0] in {"GO", "CAUTION", "NO_GO"}
+    critic_trace = next(e for e in result["audit_trace_log"] if e["agent_name"] == "critic")
+    assert critic_trace["status"] == "ok"
+
+
+def test_shallow_query_never_invokes_the_critic():
+    graph = build_graph()
+    result = graph.invoke(_base_state("is it safe to go to sea"))
+    assert "critic" not in result["completed_nodes"]
+    assert set(result["completed_nodes"]) == ALL_NODES

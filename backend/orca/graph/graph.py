@@ -40,6 +40,7 @@ from dataclasses import asdict
 from langgraph.graph import END, START, StateGraph
 
 from orca.agents import (
+    critic,
     distress,
     geospatial,
     language,
@@ -101,9 +102,18 @@ def _route_after_distress(state: ORCAState) -> str:
 
 def language_ingress_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("language_ingress", language.run_ingress, state)
+    # run_traced_node's exception boundary degrades any agent failure (e.g. a
+    # missing optional translation dependency) to outputs={} — indexing into
+    # it unconditionally would turn that documented degrade-not-crash contract
+    # into a KeyError that aborts the whole streamed response (matches the
+    # `if result.outputs else {}` guard weather_node already uses below).
+    outputs = result.outputs or {
+        "detected_language": "en",
+        "normalized_english_query": state.get("raw_user_query", ""),
+    }
     return {
-        "detected_language": result.outputs["detected_language"],
-        "normalized_english_query": result.outputs["normalized_english_query"],
+        "detected_language": outputs["detected_language"],
+        "normalized_english_query": outputs["normalized_english_query"],
         "audit_trace_log": [entry],
         "completed_nodes": ["language_ingress"],
     }
@@ -273,7 +283,22 @@ def reporting_run(state: ORCAState) -> AgentResult:
             confidence=geo_confidence,
         ))
 
-    ocean = state.get("ocean_data") or {}
+    verdict = state.get("risk_assessment") or {}
+
+    # Cost-based short-circuit (Architecture §9.3, plan §6 Phase 4) — RAA
+    # never reads ocean_data (confirmed: it only consumes weather + geospatial),
+    # so Ocean Analytics' PFZ/tide/trend content is exactly the "co-occurring
+    # PFZ lookup" the architecture names as safe to drop from a NO_GO
+    # response. This is response trimming, not compute avoidance: the
+    # ocean_analytics node still ran (LangGraph's static fan-in has no
+    # supported mid-flight cancellation, see phase4 plan §2.1) — only the
+    # content surfaced to the user is cut, which is the half of §9.3 that is
+    # actually about what a fisherman sees. Never trimmed if the user
+    # separately asked for zone/condition data (matched_intent_rows).
+    matched_rows = state.get("matched_intent_rows") or []
+    early_exit = verdict.get("go_no_go") == "NO_GO" and not ({"PFZ_NEAREST", "CONDITIONS"} & set(matched_rows))
+
+    ocean = {} if early_exit else (state.get("ocean_data") or {})
     if ocean:
         ocean_conf = ocean.get("confidence") or Confidence(score="LOW_DATA", rationale="ocean_analytics")
         results.append(AgentResult(
@@ -291,7 +316,6 @@ def reporting_run(state: ORCAState) -> AgentResult:
             confidence=ocean_conf,
         ))
 
-    verdict = state.get("risk_assessment") or {}
     if verdict:
         results.append(AgentResult(
             agent_name="risk_assessment", query_id=query_id, reasoning_depth=depth,
@@ -323,6 +347,7 @@ def reporting_run(state: ORCAState) -> AgentResult:
                 }
                 for c in assembled.citations
             ],
+            "early_exit_triggered": early_exit,
         },
         source_provenance=SourceProvenance(dataset="ORCA synthesis (Agent 9, thin — no LLM pass, plan §4 S6)", acquisition_timestamp="", freshness_minutes=0),
         confidence=Confidence(
@@ -338,15 +363,39 @@ def reporting_node(state: ORCAState) -> dict:
         "final_english_response": result.outputs["final_english_response"],
         "evidence_citations": result.outputs["citations"],
         "confidence_tier": result.confidence.score,
+        "early_exit_triggered": result.outputs.get("early_exit_triggered", False),
         "audit_trace_log": [entry],
         "completed_nodes": ["reporting"],
     }
 
 
+def _route_after_reporting(state: ORCAState) -> str:
+    # DEEP only, never persona (Ground Rule 1 / plan §4 D1 Day 18) — the
+    # verdict SSE frame (reporting_node's final_english_response) has
+    # already been emitted upstream by the time this routes, since
+    # main.py's SSE stream flushes on every graph step, so the critique
+    # frame this produces necessarily lands after it.
+    return "critic" if state.get("reasoning_depth") == "DEEP" else "language_egress"
+
+
+def critic_node(state: ORCAState) -> dict:
+    result, entry = run_traced_node("critic", critic.run, state)
+    return {
+        "final_english_response": result.outputs["final_english_response"],
+        "critic_pass": result.outputs["critic_pass"],
+        "critic_iteration_count": result.outputs["critic_iteration_count"],
+        "audit_trace_log": [entry],
+        "completed_nodes": ["critic"],
+    }
+
+
 def language_egress_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("language_egress", language.run_egress, state)
+    # Same degrade-not-crash guard as language_ingress_node — fall back to the
+    # English answer already in state rather than KeyError on an empty outputs.
+    vernacular = (result.outputs or {}).get("final_vernacular_response") or state.get("final_english_response", "")
     return {
-        "final_vernacular_response": result.outputs["final_vernacular_response"],
+        "final_vernacular_response": vernacular,
         "audit_trace_log": [entry],
         "completed_nodes": ["language_egress"],
     }
@@ -363,6 +412,7 @@ def build_graph():
     g.add_node("risk_assessment", risk_assessment_node)
     g.add_node("visualization", visualization_node)
     g.add_node("reporting", reporting_node)
+    g.add_node("critic", critic_node)
     g.add_node("language_egress", language_egress_node)
 
     g.add_edge(START, "distress_check")
@@ -374,6 +424,7 @@ def build_graph():
     g.add_edge(["weather_intelligence", "geospatial", "ocean_analytics"], "risk_assessment")
     g.add_edge(["weather_intelligence", "geospatial", "ocean_analytics"], "visualization")
     g.add_edge(["risk_assessment", "visualization"], "reporting")
-    g.add_edge("reporting", "language_egress")
+    g.add_conditional_edges("reporting", _route_after_reporting, {"critic": "critic", "language_egress": "language_egress"})
+    g.add_edge("critic", "language_egress")
     g.add_edge("language_egress", END)
     return g.compile()

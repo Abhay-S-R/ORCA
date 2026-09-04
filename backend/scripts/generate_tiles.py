@@ -65,16 +65,55 @@ def generate_wave_height_forecast_tiles():
             for h in ds["TIME"].values
         ]
 
-        # Pilot bbox + margin (matches orca/agents/geospatial.py's own clip
-        # box) — IOYAXIS ascends south-to-north, IOXAXIS ascends west-to-east.
-        west, south, east, north = 76.0, 6.0, 82.0, 12.0
+        # Pan-India maritime bounds matching INCOIS RSMC domain & user's reference image
+        west, south, east, north = 65.0, 2.0, 96.0, 25.0
         cropped = ds["HS"].sel(IOXAXIS=slice(west, east), IOYAXIS=slice(south, north))
         cropped = cropped.rename({"IOXAXIS": "lon", "IOYAXIS": "lat"})
 
+        # Super-sample and smooth the wave field across Pan-India to eliminate
+        # 11km blocky pixels, aligning the wave front with the natural high-resolution coastline.
+        from scipy import ndimage
+
+        etopo_path = DATA_ROOT / "tier1" / "bathymetry" / "etopo_all_india_bathymetry.nc"
+        alt_data = None
+        if etopo_path.exists():
+            etopo = xr.open_dataset(etopo_path)
+            alt = etopo["altitude"].rename({"latitude": "lat", "longitude": "lon"})
+            # Subsample etopo slightly (stride 2) for optimal tile rendering speed (~0.03 deg / 3km resolution)
+            alt_data = alt.sel(lat=slice(south, north), lon=slice(west, east)).isel(lat=slice(None, None, 2), lon=slice(None, None, 2))
+
+        def _smooth_frame(da: xr.DataArray) -> xr.DataArray:
+            vals = da.values.copy()
+            mask = np.isnan(vals)
+            if not mask.any():
+                return da
+            # Nearest neighbor ocean extrapolation into coastal land cells
+            ind = ndimage.distance_transform_edt(mask, return_distances=False, return_indices=True)
+            filled = vals[tuple(ind)]
+
+            if alt_data is not None:
+                scale_y = alt_data.shape[0] / filled.shape[0]
+                scale_x = alt_data.shape[1] / filled.shape[1]
+                smooth = ndimage.zoom(filled, (scale_y, scale_x), order=3)[:alt_data.shape[0], :alt_data.shape[1]]
+                smooth[alt_data.values >= 0] = np.nan
+                target_lat, target_lon = alt_data.lat, alt_data.lon
+            else:
+                smooth = ndimage.zoom(filled, 3.0, order=3)
+                mask_coarse = ndimage.zoom(mask.astype(float), 3.0, order=1) > 0.6
+                smooth[mask_coarse] = np.nan
+                target_lat = np.linspace(float(da.lat.min()), float(da.lat.max()), smooth.shape[0])
+                target_lon = np.linspace(float(da.lon.min()), float(da.lon.max()), smooth.shape[1])
+
+            out = xr.DataArray(smooth, coords={"lat": target_lat, "lon": target_lon}, dims=["lat", "lon"])
+            return out.rio.set_spatial_dims(x_dim="lon", y_dim="lat", inplace=False).rio.write_crs("epsg:4326", inplace=False)
+
+        print("[*] Smoothing 56 forecast frames with cubic spline & ETOPO high-res coastline...")
         frames = {
-            ts: cropped.isel(TIME=i).where(np.isfinite(cropped.isel(TIME=i)))
+            ts: _smooth_frame(cropped.isel(TIME=i))
             for i, ts in enumerate(timestamps)
         }
+        import shutil
+        shutil.rmtree(TILES_ROOT / "wave_height_forecast", ignore_errors=True)
         meta = generate_forecast_tiles(
             frames, layer_id="wave_height_forecast", out_dir=TILES_ROOT / "wave_height_forecast",
             cmap_name="wave_height", unit="m",
@@ -93,20 +132,32 @@ def generate_wave_height_forecast_tiles():
 
 
 def generate_bathymetry_tiles():
-    print("\n[1/1] Building the bathymetry raster tile pyramid (GEBCO, cmocean 'deep')...")
+    print("\n[1/1] Building the bathymetry raster tile pyramid (ETOPO Pan-India, cmocean 'deep')...")
     try:
-        from orca.agents.geospatial import _bathymetry
+        import xarray as xr
         from orca.tiles import generate_layer_tiles
 
-        elevation = _bathymetry()["elevation"]
+        pan_india = DATA_ROOT / "tier1" / "bathymetry" / "etopo_all_india_bathymetry.nc"
+        etopo_file = DATA_ROOT / "tier1" / "bathymetry" / "etopo_south_india_bathymetry.nc"
+        if pan_india.exists():
+            ds = xr.open_dataset(pan_india)
+            da = ds["altitude"].rename({"latitude": "lat", "longitude": "lon"})
+        elif etopo_file.exists():
+            ds = xr.open_dataset(etopo_file)
+            da = ds["altitude"].rename({"latitude": "lat", "longitude": "lon"})
+        else:
+            from orca.agents.geospatial import _bathymetry
+            da = _bathymetry()["elevation"]
+
         meta = generate_layer_tiles(
-            elevation,
+            da,
             layer_id="bathymetry",
             out_dir=TILES_ROOT / "bathymetry",
             cmap_name="bathymetry",
             unit="m",
-            valid_predicate=lambda v: v < 0,  # GEBCO: negative elevation = ocean
+            valid_predicate=lambda v: v < 0,  # Negative elevation/altitude = ocean
             to_display=lambda v: -v,  # legend reads positive depth, not signed elevation
+            zoom_range=(5, 8),
         )
         print(
             f"[OK] {meta['tile_count']} tiles written, zoom {meta['min_zoom']}-{meta['max_zoom']}, "

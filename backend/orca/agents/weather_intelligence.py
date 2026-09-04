@@ -86,7 +86,7 @@ def _fetch_open_meteo(url: str, lat: float, lon: float, variables: list[str], ho
             "latitude": lat,
             "longitude": lon,
             "hourly": ",".join(variables),
-            "forecast_days": max(1, -(-hours_ahead // 24)),  # ceil division
+            "forecast_days": max(3, -(-hours_ahead // 24)),  # at least 3 days for complete coverage
             "timezone": "UTC",
         },
         timeout=SAFETY_PATH_TIMEOUT_S,
@@ -95,7 +95,7 @@ def _fetch_open_meteo(url: str, lat: float, lon: float, variables: list[str], ho
     return resp.json()
 
 
-def get_marine_weather(lat: float, lon: float, hours_ahead: int = 24) -> dict[str, Any]:
+def get_marine_weather(lat: float, lon: float, hours_ahead: int = 48) -> dict[str, Any]:
     """Tool per Architecture §3.1 Agent 4. Live Open-Meteo Marine + Forecast
     APIs, cached tier1/ fallback on any failure (plan §5.7 fallback cascade)."""
     now = datetime.now(timezone.utc)
@@ -111,6 +111,8 @@ def get_marine_weather(lat: float, lon: float, hours_ahead: int = 24) -> dict[st
         marine_df = pd.DataFrame(marine_raw["hourly"])
         wind_df = pd.DataFrame(wind_raw["hourly"])
         merged = pd.merge(marine_df, wind_df, on="time", how="inner")
+        if merged.empty:
+            raise ValueError("Live Open-Meteo marine and wind streams had no overlapping timestamps")
         source = SourceDescriptor(
             dataset="Open-Meteo Marine API + Forecast API (live)",
             authority_tier="T1",
@@ -377,7 +379,7 @@ def run(state: ORCAState) -> AgentResult:
         lat = (bbox.get("min_lat", 8.80) + bbox.get("max_lat", 8.80)) / 2
         lon = (bbox.get("min_lon", 78.14) + bbox.get("max_lon", 78.14)) / 2
 
-    weather = get_marine_weather(lat, lon, hours_ahead=24)
+    weather = get_marine_weather(lat, lon, hours_ahead=48)
     lightning = get_lightning_nowcast(lat, lon)
     basin: Literal["BoB", "AS"] = "BoB" if lon >= 77.5 else "AS"
     cyclone = get_cyclone_status(basin)

@@ -1,5 +1,5 @@
-"""Pre-download offline ML models for speech-to-text (Whisper) and
-vernacular translation (IndicTrans2) for Phase 1/Phase 3 (Owner: S6).
+"""Pre-download offline ML models for speech-to-text (Whisper), text-to-speech
+(MMS-TTS) and vernacular translation (IndicTrans2) for Phase 1/Phase 3 (Owner: S6).
 
 Whisper is downloaded via faster-whisper (CTranslate2), not openai-whisper,
 because plan §Phase1 pre-Phase-1-action and Architecture §9.15 both call for
@@ -29,7 +29,7 @@ if sys.platform == "win32":
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 def download_whisper():
-    print("\n[1/2] Downloading quantized Whisper model (faster-whisper, int8, for Voice STT)...")
+    print("\n[1/3] Downloading quantized Whisper model (faster-whisper, int8, for Voice STT)...")
     try:
         from faster_whisper import WhisperModel
         # 'small', int8 — CTranslate2-quantized (~464MB on disk, confirmed by
@@ -43,8 +43,27 @@ def download_whisper():
     except Exception as e:  # noqa: BLE001 — best-effort setup script, report and continue
         print(f"[ERROR] Error downloading Whisper: {e}")
 
+def download_mms_tts():
+    print("\n[2/3] Downloading facebook/mms-tts demo-language models (Voice TTS, Phase 3 D1 Day 17)...")
+    try:
+        from transformers import AutoTokenizer, VitsModel
+
+        # Ta/Hi/En only — plan §11 risk register names these the demo
+        # languages that "get the most testing"; the other seven MMS-TTS
+        # checkpoints use the identical code path (orca/agents/voice.py's
+        # MmsTtsBackend) and lazy-download on first real use instead.
+        for lang_code, name in [("eng", "English"), ("hin", "Hindi"), ("tam", "Tamil")]:
+            print(f"Downloading MMS-TTS {name} (facebook/mms-tts-{lang_code})...")
+            AutoTokenizer.from_pretrained(f"facebook/mms-tts-{lang_code}")
+            VitsModel.from_pretrained(f"facebook/mms-tts-{lang_code}")
+        print("[OK] MMS-TTS demo-language models downloaded and cached successfully!")
+    except ImportError:
+        print("[WARN] 'transformers' not installed in this environment. Run: pip install transformers")
+    except Exception as e:  # noqa: BLE001 — best-effort setup script, report and continue
+        print(f"[ERROR] Error downloading MMS-TTS: {e}")
+
 def download_indictrans2():
-    print("\n[2/2] Downloading AI4Bharat IndicTrans2 models (for Tamil/Hindi translation)...")
+    print("\n[3/3] Downloading AI4Bharat IndicTrans2 models (for Tamil/Hindi translation)...")
     try:
         from huggingface_hub import snapshot_download
         from huggingface_hub.errors import GatedRepoError
@@ -82,5 +101,6 @@ if __name__ == "__main__":
     print("ORCA — Pre-Downloading Local ML Models for S6")
     print("=" * 60)
     download_whisper()
+    download_mms_tts()
     download_indictrans2()
     print("\nDone! Weights are cached in your local user directory (~/.cache).")

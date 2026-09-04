@@ -16,6 +16,7 @@ import { Readout, ReadoutGrid } from "../components/Readout";
 import { SourceChip } from "../components/SourceChip";
 import { EmptyState, Skeleton } from "../components/States";
 import { VerdictBadge } from "../components/VerdictBadge";
+import { FormattedResponse } from "../components/FormattedResponse";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -159,7 +160,7 @@ export default function SafetyPage() {
       {answer && (
         <div aria-live="polite" className="flex flex-col gap-4">
           {answer.risk_assessment && (
-            <VerdictBadge verdict={answer.risk_assessment.go_no_go} summary={answer.risk_assessment.reason}>
+            <VerdictBadge verdict={answer.risk_assessment.go_no_go} summary={answer.risk_assessment.reason} confidenceTier={answer.confidence_tier}>
               <div className="mt-3">
                 <ConfidenceMeter tier={answer.confidence_tier} />
               </div>
@@ -167,7 +168,7 @@ export default function SafetyPage() {
           )}
 
           <Panel title="What ORCA is telling you">
-            <p className="text-[15px] leading-relaxed text-ink">{answer.final_vernacular_response}</p>
+            <FormattedResponse text={answer.final_vernacular_response} />
           </Panel>
 
           <Panel title="Weather" action={weatherCite && <SourceChip dataset={weatherCite.dataset} acquisitionTimestamp={weatherCite.acquisition_timestamp} />}>

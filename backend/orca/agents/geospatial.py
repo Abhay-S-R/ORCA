@@ -1,3 +1,4 @@
+
 """Agent 6 (Geospatial) — plan §4 S5.
 
 In-memory Shapely + STRtree, not a database (plan §4 S5 Day 3: "five boundary
@@ -31,6 +32,8 @@ from shapely.strtree import STRtree
 DATA_ROOT = Path(__file__).resolve().parents[3] / "data"
 BOUNDARIES_DIR = DATA_ROOT / "tier1" / "boundaries"
 BATHYMETRY_FILE = DATA_ROOT / "tier1" / "bathymetry" / "gebco_2026_n10.5_s7.5_w77.5_e80.5.nc"
+ETOPO_ALL_FILE = DATA_ROOT / "tier1" / "bathymetry" / "etopo_all_india_bathymetry.nc"
+ETOPO_FILE = ETOPO_ALL_FILE if ETOPO_ALL_FILE.exists() else DATA_ROOT / "tier1" / "bathymetry" / "etopo_south_india_bathymetry.nc"
 
 _GEOD = Geod(ellps="WGS84")
 NM_PER_METER = 1.0 / 1852.0
@@ -41,16 +44,10 @@ _PROXIMITY_BANDS: tuple[tuple[float, str], ...] = ((1.0, "DANGER"), (5.0, "CAUTI
 # Static per pilot region for Phase 1; a per-vessel-draft threshold is Phase 2 scope.
 SHALLOW_HAZARD_THRESHOLD_M = 10.0
 
-# Pilot bbox (matches the GEBCO extract's own extent) + a margin so a boundary
-# just outside the strict box — e.g. the Sri Lanka EEZ line near Rameswaram —
-# still clips in with context rather than getting cut off at the viewport edge.
-_MAP_CLIP_MARGIN_DEG = 1.5
-_MAP_CLIP_BOX = box(77.5 - _MAP_CLIP_MARGIN_DEG, 7.5 - _MAP_CLIP_MARGIN_DEG,
-                     80.5 + _MAP_CLIP_MARGIN_DEG, 10.5 + _MAP_CLIP_MARGIN_DEG)
-# (west, south, east, north) — the one pilot-region extent every map layer
-# (Agent 6's own and Agent 8's, plan §5.9) should cite as `bounds` rather
-# than each recomputing/hardcoding the same four numbers.
-PILOT_BBOX_WSEN: tuple[float, float, float, float] = _MAP_CLIP_BOX.bounds
+# Pan-India maritime bounds covering Arabian Sea, Indian Ocean, and Bay of Bengal (65-95 E, 4-26 N).
+# No longer artificially clips the Indian EEZ into a small rectangle around Thoothukudi.
+_MAP_CLIP_BOX = box(65.0, 4.0, 95.0, 26.0)
+PILOT_BBOX_WSEN: tuple[float, float, float, float] = (76.0, 6.0, 82.0, 12.0)
 
 # Douglas-Peucker tolerance for map DISPLAY only (plan §4.7/§5.10 Day 10) —
 # never touches the geometry check_boundary_proximity/point_in_polygon
@@ -232,20 +229,47 @@ def _bathymetry() -> xr.Dataset:
     return xr.open_dataset(BATHYMETRY_FILE)
 
 
+@lru_cache(maxsize=1)
+def _etopo_bathymetry() -> xr.Dataset | None:
+    if ETOPO_FILE.exists():
+        return xr.open_dataset(ETOPO_FILE)
+    return None
+
+
 def depth_at_point(lat: float, lon: float) -> DepthResult:
-    """GEBCO 2026 nearest-cell depth. GEBCO elevation is signed relative to
-    sea level: positive is land, negative is below sea level. Nearest-cell
-    (not interpolated) matches the grid's own stated resolution (~15 arcsec)
-    and keeps this consistent with `bearing_and_distance`'s "cite the point
-    you actually used" provenance requirement.
+    """Bathymetry depth reading with GEBCO 2026 pilot priority and Pan-India ETOPO fallback.
+
+    1. GEBCO 2026 extract (15" grid, 7.5-10.5 N, 77.5-80.5 E) for high-precision
+       pilot sounding in Gulf of Mannar and Palk Bay.
+    2. NOAA ETOPO grid (5.0-22.0 N, 70.0-92.0 E) covering all of South and Peninsular
+       India (Kerala, Karnataka, Goa, Maharashtra, Tamil Nadu, Andhra Pradesh, Bay of Bengal).
     """
-    elevation = float(_bathymetry()["elevation"].sel(lat=lat, lon=lon, method="nearest").item())
-    if elevation >= 0:
-        return DepthResult(depth_m=None, on_land=True, shallow_hazard=False)
-    depth = -elevation
-    return DepthResult(
-        depth_m=round(depth, 1), on_land=False, shallow_hazard=depth < SHALLOW_HAZARD_THRESHOLD_M
-    )
+    gebco = _bathymetry()
+    lat_min, lat_max = float(gebco.lat.min()), float(gebco.lat.max())
+    lon_min, lon_max = float(gebco.lon.min()), float(gebco.lon.max())
+    if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+        elevation = float(gebco["elevation"].sel(lat=lat, lon=lon, method="nearest").item())
+        if elevation >= 0:
+            return DepthResult(depth_m=None, on_land=True, shallow_hazard=False)
+        depth = -elevation
+        return DepthResult(
+            depth_m=round(depth, 1), on_land=False, shallow_hazard=depth < SHALLOW_HAZARD_THRESHOLD_M
+        )
+
+    etopo = _etopo_bathymetry()
+    if etopo is not None:
+        e_lat_min, e_lat_max = float(etopo.latitude.min()), float(etopo.latitude.max())
+        e_lon_min, e_lon_max = float(etopo.longitude.min()), float(etopo.longitude.max())
+        if e_lat_min <= lat <= e_lat_max and e_lon_min <= lon <= e_lon_max:
+            alt = float(etopo["altitude"].sel(latitude=lat, longitude=lon, method="nearest").item())
+            if alt >= 0:
+                return DepthResult(depth_m=None, on_land=True, shallow_hazard=False)
+            depth = -alt
+            return DepthResult(
+                depth_m=round(depth, 1), on_land=False, shallow_hazard=depth < SHALLOW_HAZARD_THRESHOLD_M
+            )
+
+    return DepthResult(depth_m=None, on_land=False, shallow_hazard=False)
 
 
 def bathymetry_heatmap_points(stride: int = 16) -> list[dict[str, float]]:
@@ -321,6 +345,62 @@ def current_vectors(stride: int = 4) -> list[dict[str, float]]:
                 "speed_ms": round(speed, 3), "direction_deg": round(direction, 1),
             })
     return points
+
+
+# ---- Wind vectors (D3 flow-field overlay — archived, not live) --------------
+
+WIND_DIR = DATA_ROOT / "tier3" / "mosdac" / "Wind"
+
+
+def _latest_wind_file() -> Path:
+    # Filenames encode "day of year 2026" (E06SCTL4AW_2026239_...) — lexicographic
+    # sort is correct chronological sort here, same trick as the WW3 filename dates.
+    files = sorted(WIND_DIR.glob("E06SCTL4AW_*.nc"))
+    if not files:
+        raise FileNotFoundError(f"No ScatSat wind files in {WIND_DIR}")
+    return files[-1]
+
+
+def wind_vectors(stride: int = 4) -> dict[str, Any]:
+    """Archived EOS-06 Scatterometer (ScatSat) 10m wind, most recent daily
+    snapshot on disk, cropped to the pilot bbox. This is NOT a live feed —
+    one analysis per day, not a forecast or a stream — so the caller gets
+    `acquisition_date` back explicitly rather than the caller assuming
+    "now" the way a live layer would (mirrors current_vectors() otherwise:
+    U/V m/s -> speed_ms/direction_deg, meteorological convention — the
+    direction the wind blows FROM, unlike current_vectors' oceanographic
+    "flows toward").
+    """
+    path = _latest_wind_file()
+    ds = xr.open_dataset(path)
+    west, south, east, north = PILOT_BBOX_WSEN
+    u = ds["U"].isel(time=0, lev=0).sel(lat=slice(south, north), lon=slice(west, east))
+    v = ds["V"].isel(time=0, lev=0).sel(lat=slice(south, north), lon=slice(west, east))
+    lats = u["lat"].values[::stride]
+    lons = u["lon"].values[::stride]
+    u_vals = u.values[::stride, ::stride]
+    v_vals = v.values[::stride, ::stride]
+
+    points: list[dict[str, float]] = []
+    for i, lat in enumerate(lats):
+        for j, lon in enumerate(lons):
+            uu, vv = float(u_vals[i, j]), float(v_vals[i, j])
+            if not (math.isfinite(uu) and math.isfinite(vv)):
+                continue  # land / masked cell
+            speed = math.hypot(uu, vv)
+            # Meteorological convention: direction the wind blows FROM.
+            direction = math.degrees(math.atan2(-uu, -vv)) % 360.0
+            points.append({
+                "lat": float(lat), "lon": float(lon),
+                "speed_ms": round(speed, 3), "direction_deg": round(direction, 1),
+            })
+    acquisition_date = str(ds["time"].values[0])[:10]
+    return {
+        "points": points,
+        "bounds": list(PILOT_BBOX_WSEN),
+        "acquisition_date": acquisition_date,
+        "source_file": path.name,
+    }
 
 
 # ---- Map layers (Day 6) -----------------------------------------------------
@@ -437,4 +517,9 @@ if __name__ == "__main__":
     zones = spatial_query_zones(lat, lon, radius_nm=50)
     assert any(f.name == "Indian Exclusive Economic Zone" for f in zones)
 
-    print("geospatial self-check ok:", imbl, depth)
+    wind = wind_vectors()
+    assert wind["points"], "no wind points in pilot bbox"
+    assert wind["acquisition_date"] < "2026-09-03"  # archived, never "now"
+    assert all(0 <= p["direction_deg"] < 360 for p in wind["points"])
+
+    print("geospatial self-check ok:", imbl, depth, "wind@" + wind["acquisition_date"])
