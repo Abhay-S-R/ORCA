@@ -4,14 +4,16 @@
 // Nothing here is imported by anything except the map shell, and MapView
 // contains no literal tile URL. Swapping CARTO for a self-hosted Protomaps
 // PMTiles style is an env change.
-// CARTO Dark Matter. Free to 5M tiles/month; an API key removes the
-// watermark (carto.com/basemaps/apikey) and is appended as `?key=`.
-// Keyless still renders, so the app runs with no signup.
-const CARTO_DARK = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+// CARTO Positron — a light basemap to match the admiralty-chart paper theme
+// (plan's dark ECDIS console retired in favour of the parchment chart look).
+// Free to 5M tiles/month; an API key removes the watermark
+// (carto.com/basemaps/apikey) and is appended as `?key=`. Keyless still
+// renders, so the app runs with no signup.
+const CARTO_LIGHT = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 
 export const BASEMAP_STYLE =
   process.env.NEXT_PUBLIC_BASEMAP_STYLE ??
-  (process.env.NEXT_PUBLIC_CARTO_KEY ? `${CARTO_DARK}?key=${process.env.NEXT_PUBLIC_CARTO_KEY}` : CARTO_DARK);
+  (process.env.NEXT_PUBLIC_CARTO_KEY ? `${CARTO_LIGHT}?key=${process.env.NEXT_PUBLIC_CARTO_KEY}` : CARTO_LIGHT);
 
 // Pilot region (77.5–80.5 E / 7.5–10.5 N) — matches the GEBCO extract's bbox.
 export const PILOT_BOUNDS: [number, number, number, number] = [77.5, 7.5, 80.5, 10.5];
@@ -37,20 +39,23 @@ export const RASTER_OVERLAYS: Record<string, { source: RasterSourceSpecification
 };
 
 /** Palette pulled from the CSS tokens so map cartography and UI chrome cannot
- *  drift. Read at module scope on the client only. */
+ *  drift. Read at module scope on the client only. Re-tuned for the light
+ *  Positron basemap — the old console's neon values (built to glow against
+ *  near-black water) read as washed-out pastel on pale paper, so these are
+ *  darker/more saturated versions of the same hues, not the same hex. */
 export const CHART = {
-  eez: "#22617f",
-  eezNear: "#7fd4e8",
-  mpa: "#ffc145",
-  pfz: "#3ddc97",
-  accent: "#f0468c",
-  ink: "#dce9f0",
+  eez: "#2f6f74",
+  eezNear: "#1c4a4d",
+  mpa: "#b8862e",
+  pfz: "#1f7a4f",
+  accent: "#8a3b52",
+  ink: "#1c2939",
   // Same hex as --color-go/--color-caution/--color-no-go in globals.css —
   // kept in sync by hand (CHART is CSS-var-derived only where noted above;
   // MapLibre paint expressions need literal hex, not a var() reference).
-  go: "#3ddc97",
-  caution: "#ffc145",
-  noGo: "#ff5c5c",
+  go: "#2f7a4f",
+  caution: "#b8862e",
+  noGo: "#b3402c",
 } as const;
 
 /** MapLibre removed `maplibregl.supported()` in v3 — §4.7 still specifies it,

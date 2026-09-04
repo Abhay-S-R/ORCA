@@ -129,13 +129,13 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
         type="target"
         position={Position.Left}
         isConnectable={false}
-        className="!size-2 !-left-1 !border-0 !bg-sky-400/80 shadow-sm"
+        className="!size-2 !-left-1 !border-0 !bg-ocean-cyan/80 shadow-sm"
       />
       <Handle
         type="source"
         position={Position.Right}
         isConnectable={false}
-        className="!size-2 !-right-1 !border-0 !bg-sky-400/80 shadow-sm"
+        className="!size-2 !-right-1 !border-0 !bg-ocean-cyan/80 shadow-sm"
       />
 
       {/* Top row: Icon, Name, and Status Glyph */}
@@ -165,18 +165,18 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
             <motion.span
               animate={reduce ? {} : { opacity: [1, 0.4, 1] }}
               transition={{ duration: 0.8, repeat: Infinity }}
-              className="rounded-full bg-sky-400/20 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-sky-400 border border-sky-400/40"
+              className="rounded-full bg-ocean-cyan/20 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-sky-400 border border-sky-400/40"
             >
               RUNNING
             </motion.span>
           )}
           {isOk && (
-            <span className="grid size-4 place-items-center rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+            <span className="grid size-4 place-items-center rounded-full bg-go/15 text-go border border-go/30">
               <Check className="size-2.5" />
             </span>
           )}
           {isDegraded && (
-            <span className="grid size-4 place-items-center rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">
+            <span className="grid size-4 place-items-center rounded-full bg-caution/15 text-caution border border-caution/30">
               <AlertTriangle className="size-2.5" />
             </span>
           )}

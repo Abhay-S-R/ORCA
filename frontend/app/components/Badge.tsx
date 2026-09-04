@@ -8,13 +8,16 @@ import type { ReactNode } from "react";
 
 export type BadgeTone = "go" | "caution" | "no-go" | "neutral" | "accent" | "cyan";
 
+// Flat chart-paper tone, not a glow — a badge on paper reads by its border
+// and tint, the way a rubber-stamped chart annotation would, never by a
+// screen-only light effect.
 const TONE: Record<BadgeTone, string> = {
-  go: "text-go border-go/40 bg-go/10 shadow-[0_0_10px_rgba(16,229,153,0.15)]",
-  caution: "text-caution border-caution/40 bg-caution/10 shadow-[0_0_10px_rgba(245,158,11,0.15)]",
-  "no-go": "text-no-go border-no-go/45 bg-no-go/10 shadow-[0_0_10px_rgba(255,59,59,0.2)]",
+  go: "text-go border-go/40 bg-go/10",
+  caution: "text-caution border-caution/40 bg-caution/10",
+  "no-go": "text-no-go border-no-go/45 bg-no-go/10",
   neutral: "text-ink-muted border-hairline bg-shelf-2/70",
-  accent: "text-accent border-accent/40 bg-accent/10 shadow-[0_0_10px_rgba(240,70,140,0.15)]",
-  cyan: "text-ocean-cyan border-ocean-cyan/40 bg-ocean-cyan/10 shadow-[0_0_10px_rgba(0,229,255,0.15)]",
+  accent: "text-accent border-accent/40 bg-accent/10",
+  cyan: "text-ocean-cyan border-ocean-cyan/40 bg-ocean-cyan/10",
 };
 
 export function Badge({

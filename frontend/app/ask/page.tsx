@@ -7,7 +7,8 @@
 // have to navigate somewhere else to see where the answer applies.
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Send } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { Compass, Fish, MapPin, Radio, Send, Waves } from "lucide-react";
 import { AgentPill, AgentStrip, type AgentStatus } from "../components/AgentPill";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
@@ -24,11 +25,20 @@ import { useVoiceInput, VoiceMicButton, VoiceInputPanel } from "../components/Vo
 import { usePersona } from "../persona/context";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
+import { classifyQueryIntent, INTENT_LABEL, type QueryIntent } from "../lib/queryIntent";
+import type { QueryFocus } from "../components/MapView";
 
 const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapView), {
   ssr: false,
   loading: () => <Skeleton className="h-full w-full" />,
 });
+
+const INTENT_ICON: Record<QueryIntent, typeof Waves> = {
+  fishing: Fish,
+  boundary: Compass,
+  safety: Waves,
+  general: MapPin,
+};
 
 type AgentSpan = { agent_name: string; status: AgentStatus };
 type Citation = { agent_name: string; dataset: string; acquisition_timestamp: string };
@@ -56,6 +66,7 @@ const EXAMPLES = [
 
 export default function AskPage() {
   const { persona } = usePersona();
+  const reduceMotion = useReducedMotion();
   const [query, setQuery] = useState("");
   const [spans, setSpans] = useState<AgentSpan[]>([]);
   const [answer, setAnswer] = useState<FinalResponse | null>(null);
@@ -66,7 +77,13 @@ export default function AskPage() {
   // correcting one answer's rendering never silently changes what the next
   // /query call sends.
   const [renderedAs, setRenderedAs] = useState<Persona | null>(null);
+  const [focus, setFocus] = useState<QueryFocus | null>(null);
+  // Separate from `query` (the live input value) so editing the box after
+  // an answer arrives — without re-asking — never mismatches the echoed
+  // question against the answer still on screen.
+  const [askedQuery, setAskedQuery] = useState("");
   const sourceRef = useRef<EventSource | null>(null);
+  const focusNonce = useRef(0);
 
   // Switching persona (nav-wide setting) changes how an answer would render,
   // so a stale answer from the old persona stays around — clear the
@@ -84,6 +101,7 @@ export default function AskPage() {
     setRenderedAs(null);
     setFailed(false);
     setStreaming(false);
+    setFocus(null);
   }, [persona]);
 
   const voice = useVoiceInput({
@@ -101,6 +119,12 @@ export default function AskPage() {
     setRenderedAs(null);
     setFailed(false);
     setStreaming(true);
+    // Chart focus reacts to the question itself, not the answer — real
+    // layers (boundaries/PFZ) and a real fit-to-geometry, so the map moves
+    // the moment you ask rather than waiting on the round trip (plan §7/§8).
+    focusNonce.current += 1;
+    setFocus({ intent: classifyQueryIntent(q), nonce: focusNonce.current });
+    setAskedQuery(q);
 
     // Persona is an explicit rendering choice only — Agent 9 renders with it,
     // no classifier reads it (Ground Rule 1). "unresolved" = don't send one.
@@ -148,7 +172,7 @@ export default function AskPage() {
             e.preventDefault();
             ask(query);
           }}
-          className="flex flex-col gap-2.5"
+          className="flex flex-col gap-3 rounded-xl border border-hairline/70 bg-shelf-1/30 p-3.5 shadow-inner"
         >
           <div className="flex gap-2">
             <label htmlFor="query" className="sr-only">
@@ -178,12 +202,16 @@ export default function AskPage() {
             </Button>
           </div>
 
-          {/* Quick preset sector query chips */}
-          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          {/* Quick preset sector query chips — each icon reflects the same
+              intent classifier that drives the chart's query focus, so a
+              chip already previews what asking it will do to the map. */}
+          <div className="flex flex-wrap items-center gap-1.5 border-t border-hairline/50 pt-2.5">
             <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
-              Presets:
+              Presets
             </span>
-            {EXAMPLES.map((ex) => (
+            {EXAMPLES.map((ex) => {
+              const Icon = INTENT_ICON[classifyQueryIntent(ex)];
+              return (
               <button
                 key={ex}
                 type="button"
@@ -192,11 +220,13 @@ export default function AskPage() {
                   ask(ex);
                 }}
                 disabled={streaming}
-                className="rounded border border-hairline/60 bg-shelf-2/50 px-2.5 py-1 text-[11px] text-ink-muted transition-colors hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-hairline/60 bg-shelf-2/50 px-2.5 py-1.5 text-[11px] text-ink-muted transition-colors hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink disabled:opacity-50"
               >
+                <Icon className="size-3 shrink-0 text-ink-dim" aria-hidden="true" />
                 {ex}
               </button>
-            ))}
+              );
+            })}
           </div>
         </form>
 
@@ -209,12 +239,18 @@ export default function AskPage() {
         {/* Differentiator 1 (§4.5): twelve agents run per query, and this is
             where a user watches that happen instead of a spinner. */}
         {spans.length > 0 && (
-          <AgentStrip>
-            {spans.map((s, i) => (
-              <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} />
-            ))}
-            {streaming && <AgentPill name="working" status="running" />}
-          </AgentStrip>
+          <div className="flex flex-col gap-1.5">
+            <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
+              <Radio className="size-3" aria-hidden="true" />
+              Agent trace
+            </span>
+            <AgentStrip>
+              {spans.map((s, i) => (
+                <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} />
+              ))}
+              {streaming && <AgentPill name="working" status="running" />}
+            </AgentStrip>
+          </div>
         )}
 
         {failed && (
@@ -238,6 +274,11 @@ export default function AskPage() {
         )}
 
         {answer && (
+          <>
+            <p className="flex items-start gap-2 self-end rounded-2xl rounded-tr-sm border border-hairline-strong bg-shelf-3 px-4 py-2 text-sm text-ink shadow-sm">
+              <span className="font-mono text-[10px] font-semibold tracking-wider text-ink-dim uppercase">You</span>
+              <span className="min-w-0 break-words">{askedQuery}</span>
+            </p>
           <Panel title="Answer">
             <div className="flex flex-col gap-4">
               {/* Architecture §2.6 rendering matrix — same facts, structure
@@ -259,17 +300,41 @@ export default function AskPage() {
                 />
               )}
 
-              <div className="flex flex-col gap-2.5">
-                <FormattedResponse
-                  text={answer.final_vernacular_response || answer.final_english_response}
-                />
-                <AnswerSpeaker
-                  text={answer.final_vernacular_response || answer.final_english_response}
-                  language={answer.detected_language ?? "en"}
-                  persona={renderedAs ?? persona}
-                  queryId={answer.query_id}
-                />
-              </div>
+              {/* The chart already moved for this question (ask() sets focus
+                  immediately) — this line is what ties the answer to that
+                  move, rather than leaving the map to look like a second,
+                  unrelated panel. */}
+              {focus && (
+                <p className="flex items-center gap-1.5 text-[11px] text-ink-dim">
+                  <MapPin className="size-3 text-accent" aria-hidden="true" />
+                  Chart focused on {INTENT_LABEL[focus.intent]}
+                </p>
+              )}
+
+              {(() => {
+                const answerBody = answer.final_vernacular_response || answer.final_english_response;
+                // Agent 9 emits "VERDICT: reason" as the whole English
+                // response today — identical to what VerdictBadge already
+                // shows above. Rendering it again here would just be the
+                // same sentence twice; skip it and keep this space for
+                // content that isn't already on screen (a vernacular
+                // translation still differs, so it still renders).
+                const verdictLine = answer.risk_assessment
+                  ? `${answer.risk_assessment.go_no_go}: ${answer.risk_assessment.reason}`
+                  : null;
+                const isRedundant = verdictLine != null && answerBody.trim() === verdictLine.trim();
+                return (
+                  <div className="flex flex-col gap-2.5">
+                    {!isRedundant && <FormattedResponse text={answerBody} />}
+                    <AnswerSpeaker
+                      text={answerBody}
+                      language={answer.detected_language ?? "en"}
+                      persona={renderedAs ?? persona}
+                      queryId={answer.query_id}
+                    />
+                  </div>
+                );
+              })()}
 
               {answer.final_vernacular_response &&
                 answer.detected_language !== "en" &&
@@ -286,24 +351,31 @@ export default function AskPage() {
 
               {/* Differentiator 4 — Agent 3's source-selection reasoning, on
                   the card, not buried in the trace. */}
-              {answer.source_selections && answer.source_selections.length > 0 && (
-                <div className="flex flex-col gap-1.5">
-                  {answer.source_selections.map((s) => (
-                    <SourceNarration key={s.data_type} selection={s} />
-                  ))}
-                </div>
-              )}
-
-              {answer.citations && answer.citations.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {answer.citations.map((c, i) => (
-                    <SourceChip
-                      key={i}
-                      dataset={c.dataset}
-                      acquisitionTimestamp={c.acquisition_timestamp}
-                      detail={`Read by ${c.agent_name}.`}
-                    />
-                  ))}
+              {((answer.source_selections && answer.source_selections.length > 0) ||
+                (answer.citations && answer.citations.length > 0)) && (
+                <div className="flex flex-col gap-2 border-t border-hairline/50 pt-3.5">
+                  <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
+                    Sources &amp; provenance
+                  </span>
+                  {answer.source_selections && answer.source_selections.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                      {answer.source_selections.map((s) => (
+                        <SourceNarration key={s.data_type} selection={s} />
+                      ))}
+                    </div>
+                  )}
+                  {answer.citations && answer.citations.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {answer.citations.map((c, i) => (
+                        <SourceChip
+                          key={i}
+                          dataset={c.dataset}
+                          acquisitionTimestamp={c.acquisition_timestamp}
+                          detail={`Read by ${c.agent_name}.`}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -327,6 +399,7 @@ export default function AskPage() {
               />
             </div>
           </Panel>
+          </>
         )}
 
         {!answer && !streaming && !failed && (
@@ -355,10 +428,17 @@ export default function AskPage() {
       </div>
 
       <div className="relative min-h-[400px] overflow-hidden rounded-2xl border border-hairline bg-shelf-1/60 shadow-2xl lg:min-h-0">
-        <div className="pointer-events-none absolute top-3 left-3 z-10 rounded bg-shelf-1/85 px-2 py-0.5 font-mono text-[10px] font-medium text-ocean-cyan border border-ocean-cyan/30 backdrop-blur-sm shadow-sm">
-          CHART TELEMETRY // LIVE FIX
-        </div>
-        <MapView className="h-full w-full" showPanels={false} />
+        {/* Depth shading + surface currents on by default (plan §9) — the
+            only Ask-specific default; /map and /voyage keep their own tuned
+            defaults via the same `initialLayers` prop. */}
+        <MapView
+          className="h-full w-full"
+          initialLayers={{ srvBathymetry: true, currents: true }}
+          queryFocus={focus}
+          defaultCollapsedSounding
+          showLayerPanel={false}
+          showRegionSwitcher={false}
+        />
       </div>
     </div>
   );

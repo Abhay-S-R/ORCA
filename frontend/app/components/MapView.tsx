@@ -35,7 +35,7 @@ type BoundaryGeoJson = { type: "FeatureCollection"; features: GeoJsonFeature[] }
 type GeoJsonFeature = {
   type: "Feature";
   geometry: unknown;
-  properties: { name: string; designation: string };
+  properties: { name: string; designation: string; near?: boolean };
 };
 type PfzProperties = {
   sector?: string;
@@ -108,6 +108,35 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+// Initial great-circle bearing from one point to another, in degrees
+// (0 = north, 90 = east) — what the ship marker below rotates to, so it
+// visibly points at whatever real geometry the chart just focused on.
+function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const y = Math.sin(toRad(lon2 - lon1)) * Math.cos(toRad(lat2));
+  const x =
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lon2 - lon1));
+  return (Math.atan2(y, x) * 180) / Math.PI;
+}
+
+// Flattens a GeoJSON Polygon/MultiPolygon/LineString's nested coordinate
+// arrays into a flat [lon, lat][] list — enough to fitBounds around a real
+// boundary feature, not a full geometry library.
+function flattenCoords(geometry: unknown): [number, number][] {
+  const out: [number, number][] = [];
+  const walk = (node: unknown) => {
+    if (!Array.isArray(node)) return;
+    if (typeof node[0] === "number") {
+      out.push(node as [number, number]);
+      return;
+    }
+    for (const child of node) walk(child);
+  };
+  walk((geometry as { coordinates?: unknown })?.coordinates);
+  return out;
+}
+
 // The region dashboard holds while the chart is looking at the selected sector.
 const REGION_DRIFT_KM = 300;
 const REGION_ZOOM_SLACK = 2.2;
@@ -157,17 +186,34 @@ export type RouteGeoJson = {
 };
 export type MapPin = { lat: number; lon: number; label: string; color: string };
 
+// Ask page's query -> chart behaviour (plan §7/§8): which real layer to bring
+// forward and where to look, derived from the query's classified intent.
+// `nonce` must change on every ask() call (even a repeat of the same intent)
+// so the effect below re-runs and re-focuses the chart each time.
+export type QueryFocus = { intent: "fishing" | "boundary" | "safety" | "general"; nonce: number };
+
 export function MapView({
   className = "h-full w-full",
   showPanels = true,
+  showLayerPanel = true,
+  showRegionSwitcher = true,
   onPointClick,
   routeGeoJson,
   pins,
   showSoundingHud = true,
   defaultCollapsedSounding = false,
+  initialLayers,
+  queryFocus,
 }: {
   className?: string;
   showPanels?: boolean;
+  // Ask page keeps the base panel chrome (recenter, legends, sounding HUD)
+  // but hides the two controls that let a user override the query-driven
+  // defaults — the chart is meant to read as "already focused for you," not
+  // as a console with knobs. /map keeps both, since it has no query to
+  // derive a focus from.
+  showLayerPanel?: boolean;
+  showRegionSwitcher?: boolean;
   // Additive hook for /voyage's click-to-set origin/destination — fires
   // alongside the existing depth/bearing "sounding" lookup below, never
   // replacing it.
@@ -176,6 +222,20 @@ export function MapView({
   pins?: MapPin[];
   showSoundingHud?: boolean;
   defaultCollapsedSounding?: boolean;
+  // Ask-page-only default: both /voyage and /map keep their own tuned
+  // defaults (a bathymetry/current layer costs one of the 2-4 concurrent
+  // heavy-layer budget), so this only overrides what the caller passes.
+  initialLayers?: Partial<{
+    boundaries: boolean;
+    pfz: boolean;
+    seamarks: boolean;
+    srvBathymetry: boolean;
+    waveForecast: boolean;
+    currents: boolean;
+    wind: boolean;
+    watchBadges: boolean;
+  }>;
+  queryFocus?: QueryFocus | null;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -203,6 +263,7 @@ export function MapView({
     currents: false,
     wind: false,
     watchBadges: true,
+    ...initialLayers,
   });
   const [rasterLayers, setRasterLayers] = useState<RasterLayerMeta[]>([]);
   const [currentVectors, setCurrentVectors] = useState<CurrentVector[] | null>(null);
@@ -219,6 +280,10 @@ export function MapView({
   // Kept alongside the map-source copies of the same fetches (never a second
   // fetch) purely so the region dashboard below can filter them by distance.
   const [pfzFeatures, setPfzFeatures] = useState<PfzFeature[]>([]);
+  // Same reasoning, for the Ask-page query-focus effect below: it needs the
+  // "near" flag already computed onto the boundary features to fit the chart
+  // around the actual nearby boundary geometry, not just fly to a fixed zoom.
+  const [boundaryFeatures, setBoundaryFeatures] = useState<BoundaryGeoJson>(EMPTY as BoundaryGeoJson);
   const [watchBadgeFeatures, setWatchBadgeFeatures] = useState<WatchBadge[]>([]);
   const [frameIndex, setFrameIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -227,7 +292,7 @@ export function MapView({
   // §4.7 layer lifecycle: heavy-layer LRU + eviction notice.
   const [heavyLimit, setHeavyLimit] = useState(4);
   const [evictionNotice, setEvictionNotice] = useState<string | null>(null);
-  const lru = useRef<HeavyKey[]>([]);
+  const lru = useRef<HeavyKey[]>(HEAVY_KEYS.filter((k) => layers[k]));
 
   const [selectedRegion, setSelectedRegion] = useState("all");
   const [regionDropdownOpen, setRegionDropdownOpen] = useState(false);
@@ -392,9 +457,9 @@ export function MapView({
     m.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
     m.on("load", () => {
-      // Dark Matter is a city basemap: it paints water LIGHTER than land,
-      // which is backwards on a chart. Recolour to the ECDIS depth ramp so
-      // the sea reads as the subject and the coast as the frame.
+      // Positron's own water tone is close, but recolouring it to the exact
+      // admiralty-chart pale teal keeps the sea reading as the subject (the
+      // thing the product is about) rather than as generic basemap water.
       recolourSea(m);
 
       /* Raster overlays first, so vector boundaries always draw above them. */
@@ -548,15 +613,30 @@ export function MapView({
     };
   }, [supported, handleClick]);
 
-  /* ---- user position marker ---- */
+  /* ---- user position marker: a ship's-bow pointer, not a plain dot ----
+     Rotates to the bearing computed above so it visibly points at whatever
+     real geometry the chart just fit to (a boundary, a cluster of fishing
+     zones); resting orientation (north) when a query has no directional
+     target. Rotation is set via the marker API directly rather than a
+     teardown/recreate, same "update in place" rule §4.7 uses everywhere
+     else on this map. */
+  const shipMarkerRef = useRef<maplibregl.Marker | null>(null);
   useEffect(() => {
     if (!ready || !map.current) return;
     const el = document.createElement("div");
-    el.style.cssText = `width:12px;height:12px;border-radius:9999px;background:${CHART.accent};box-shadow:0 0 0 4px ${CHART.accent}33`;
     el.setAttribute("aria-label", "Your position, Thoothukudi");
-    const marker = new maplibregl.Marker({ element: el }).setLngLat(DEFAULT_USER).addTo(map.current);
+    el.innerHTML = `
+      <svg width="30" height="34" viewBox="0 0 30 34" style="filter:drop-shadow(0 2px 3px rgba(28,41,57,0.4))">
+        <path d="M15 1 L26.5 24.5 Q15 30.5 3.5 24.5 Z" fill="${CHART.eezNear}" stroke="#fffdf6" stroke-width="1.75" stroke-linejoin="round" />
+        <circle cx="15" cy="19.5" r="2.2" fill="#fffdf6" />
+      </svg>`;
+    const marker = new maplibregl.Marker({ element: el, rotationAlignment: "map" })
+      .setLngLat(DEFAULT_USER)
+      .addTo(map.current);
+    shipMarkerRef.current = marker;
     return () => {
       marker.remove();
+      shipMarkerRef.current = null;
     };
   }, [ready]);
 
@@ -671,6 +751,7 @@ export function MapView({
       };
 
       (map.current.getSource("boundaries") as maplibregl.GeoJSONSource)?.setData(tagged as never);
+      setBoundaryFeatures(tagged as BoundaryGeoJson);
       const pfzRaw = (pfzRes.features ?? pfzRes.thermal_front_proxy?.features ?? []) as PfzFeature[];
       setPfzFeatures(pfzRaw);
       (map.current.getSource("pfz") as maplibregl.GeoJSONSource)?.setData({
@@ -689,6 +770,93 @@ export function MapView({
       cancelled = true;
     };
   }, [ready]);
+
+  // Ask page query -> chart focus, layer half (plan §7/§8): adjusted during
+  // render when `queryFocus` changes, the pattern React's own docs recommend
+  // for "state derived from a prop change" instead of a setState-in-effect
+  // (https://react.dev/learn/you-might-not-need-an-effect) — the camera move
+  // below is the actual external-system side effect, this isn't.
+  const [focusedNonce, setFocusedNonce] = useState<number | undefined>(undefined);
+  // The ship marker's heading — null points it at its resting orientation
+  // (north). Set from the same real geometry the camera below fits to, so
+  // it is never a bearing toward something not actually on screen.
+  const [shipBearing, setShipBearing] = useState<number | null>(null);
+  if (queryFocus && queryFocus.nonce !== focusedNonce) {
+    setFocusedNonce(queryFocus.nonce);
+    let bearing: number | null = null;
+    if (queryFocus.intent === "boundary") {
+      setLayers((s) => (s.boundaries ? s : { ...s, boundaries: true }));
+      const coords = boundaryFeatures.features.filter((f) => f.properties.near).flatMap((f) => flattenCoords(f.geometry));
+      if (coords.length) {
+        const lon = coords.reduce((s, c) => s + c[0], 0) / coords.length;
+        const lat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
+        bearing = bearingDeg(DEFAULT_USER[1], DEFAULT_USER[0], lat, lon);
+      }
+    } else if (queryFocus.intent === "fishing") {
+      setLayers((s) => (s.pfz ? s : { ...s, pfz: true }));
+      const near = pfzFeatures.filter(
+        (f) => haversineKm(DEFAULT_USER[1], DEFAULT_USER[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
+      );
+      if (near.length) {
+        const lon = near.reduce((s, f) => s + f.geometry.coordinates[0], 0) / near.length;
+        const lat = near.reduce((s, f) => s + f.geometry.coordinates[1], 0) / near.length;
+        bearing = bearingDeg(DEFAULT_USER[1], DEFAULT_USER[0], lat, lon);
+      }
+    }
+    setShipBearing(bearing);
+  }
+
+  // The rotation itself is an imperative call on the marker instance (an
+  // external system, same as the camera move below), so it stays in an
+  // effect rather than joining the state-adjustment block above.
+  useEffect(() => {
+    shipMarkerRef.current?.setRotation(shipBearing ?? 0);
+  }, [shipBearing]);
+
+  /* ---- Ask page query -> chart focus, camera half: fits the chart around
+     real geometry already on screen (the nearest tagged boundary, the
+     nearby PFZ points) — never a fabricated pin. Re-runs on every ask() via
+     `nonce`, even for a repeated intent, so the chart re-settles each time
+     rather than only on the first change. */
+  useEffect(() => {
+    if (!ready || !map.current || !queryFocus) return;
+    const m = map.current;
+
+    if (queryFocus.intent === "boundary") {
+      const near = boundaryFeatures.features.filter((f) => f.properties.near);
+      const coords = near.flatMap((f) => flattenCoords(f.geometry));
+      if (coords.length) {
+        const lons = [DEFAULT_USER[0], ...coords.map((c) => c[0])];
+        const lats = [DEFAULT_USER[1], ...coords.map((c) => c[1])];
+        m.fitBounds(
+          [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+          { padding: 72, maxZoom: 9.5, duration: 900 },
+        );
+      } else {
+        m.flyTo({ center: DEFAULT_USER, zoom: 8.2, duration: 900 });
+      }
+    } else if (queryFocus.intent === "fishing") {
+      const near = pfzFeatures.filter(
+        (f) => haversineKm(DEFAULT_USER[1], DEFAULT_USER[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
+      );
+      if (near.length) {
+        const lons = [DEFAULT_USER[0], ...near.map((f) => f.geometry.coordinates[0])];
+        const lats = [DEFAULT_USER[1], ...near.map((f) => f.geometry.coordinates[1])];
+        m.fitBounds(
+          [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+          { padding: 80, maxZoom: 9, duration: 900 },
+        );
+      } else {
+        m.flyTo({ center: DEFAULT_USER, zoom: 8.6, duration: 900 });
+      }
+    } else {
+      m.flyTo({ center: DEFAULT_USER, zoom: 8.2, duration: 900 });
+    }
+    // Only the nonce should retrigger this — `boundaryFeatures`/`pfzFeatures`
+    // are read for their current value, not watched (both settle long
+    // before a user can ask a second question).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, queryFocus?.nonce]);
 
   /* ---- Sentinel watch badges (D2 -> D3, plan §14/§20): polled while signed
      in, pushed through setData() only — never a map remount. Silently absent
@@ -824,6 +992,7 @@ export function MapView({
 
       {showPanels && (
         <div className="pointer-events-none absolute inset-0">
+          {showLayerPanel && (
           <div className="pointer-events-auto absolute top-3 left-3 w-56">
             <Panel dense>
               <button
@@ -926,9 +1095,14 @@ export function MapView({
               </p>
             )}
           </div>
+          )}
 
           {layers.srvBathymetry && (
-            <div className="pointer-events-auto absolute top-3 right-14 hidden sm:block rounded-xl border border-hairline/80 bg-shelf-1/95 px-3 py-2 backdrop-blur-md shadow-lg">
+            // Sits directly under the recenter button, one column clear of
+            // the region switcher — the two used to share "top-3 right-14",
+            // a pre-existing collision that was just never visible while Ask
+            // kept srvBathymetry off by default.
+            <div className={`pointer-events-auto absolute hidden sm:block rounded-xl border border-hairline/80 bg-shelf-1/95 px-3 py-2 backdrop-blur-md shadow-lg ${showRegionSwitcher ? "top-16 right-3" : "top-3 right-14"}`}>
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-[#ccebc5]" />
                 <span className="text-[11px] font-medium text-ink">Depth Shading (ETOPO/GEBCO) meters</span>
@@ -950,7 +1124,7 @@ export function MapView({
           )}
 
           {layers.waveForecast && !layers.srvBathymetry && (
-            <div className="pointer-events-auto absolute top-3 right-14 hidden sm:block rounded-xl border border-hairline/80 bg-shelf-1/95 px-3 py-2 backdrop-blur-md shadow-lg">
+            <div className={`pointer-events-auto absolute hidden sm:block rounded-xl border border-hairline/80 bg-shelf-1/95 px-3 py-2 backdrop-blur-md shadow-lg ${showRegionSwitcher ? "top-16 right-3" : "top-3 right-14"}`}>
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-[#e87050]" />
                 <span className="text-[11px] font-medium text-ink">Wave Height (Hs Forecast) meters</span>
@@ -971,6 +1145,7 @@ export function MapView({
           {/* Coastal Region Quick Switcher — the control stays put; only the
               dashboard below it moves side, so picking a region never
               relocates the button itself. */}
+          {showRegionSwitcher && (
           <div ref={regionDropdownRef} className="pointer-events-auto absolute top-3 right-14 z-20">
             <div className="relative">
               <button
@@ -1022,13 +1197,17 @@ export function MapView({
               )}
             </div>
           </div>
+          )}
 
           {/* Region dashboard — three numbers only (fishing zones, wind,
               hazards), docked to whichever side of the region is open water
               (region.coast) so it never sits over the coastline. Clears
               itself via the moveend effect once the chart no longer looks
-              at that region. */}
-          {regionStats && (
+              at that region. Tied to the same prop as the switcher above —
+              without the switcher a user has no way to pick a region, so a
+              dashboard for one would be explaining a control that isn't
+              there. */}
+          {showRegionSwitcher && regionStats && (
             <div
               className={`pointer-events-auto absolute top-14 z-20 w-52 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl p-3 shadow-lg ${
                 regionStats.region.coast === "west" ? "left-3" : "right-14"
@@ -1118,28 +1297,28 @@ export function MapView({
               </div>
             )}
             {selectedPfz && (
-              <div className="mb-2.5 overflow-hidden rounded-xl border border-emerald-500/30 bg-[#07131e]/95 backdrop-blur-xl shadow-[0_12px_32px_rgba(0,0,0,0.65)] ring-1 ring-white/10 transition-all">
+              <div className="mb-2.5 overflow-hidden rounded-xl border border-go/30 bg-shelf-3/95 backdrop-blur-xl shadow-xl  transition-all">
                 {/* Glowing top line */}
-                <div className="h-0.5 bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400" />
+                <div className="h-0.5 bg-gradient-to-r from-go to-ocean-cyan" />
 
                 {/* Header */}
-                <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2.5 bg-gradient-to-b from-white/[0.03] to-transparent">
+                <div className="flex items-center justify-between border-b border-hairline px-3.5 py-2.5 bg-gradient-to-b from-white/[0.03] to-transparent">
                   <div className="flex items-center gap-2">
                     <span className="relative flex h-2 w-2">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-go opacity-75" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-go" />
                     </span>
-                    <span className="rounded-full border border-emerald-500/40 bg-emerald-950/60 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300">
+                    <span className="rounded-full border border-go/40 bg-go/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-go">
                       PFZ Advisory
                     </span>
-                    <h4 className="text-xs font-bold tracking-tight text-white truncate max-w-[140px]">
+                    <h4 className="text-xs font-bold tracking-tight text-ink truncate max-w-[140px]">
                       {selectedPfz.landing_center ? String(selectedPfz.landing_center) : "Fishing Zone"}
                     </h4>
                   </div>
                   <button
                     type="button"
                     onClick={() => setSelectedPfz(null)}
-                    className="flex size-6 cursor-pointer items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                    className="flex size-6 cursor-pointer items-center justify-center rounded-lg text-ink-dim hover:bg-hairline/40 hover:text-ink transition-colors"
                     aria-label="Close PFZ details"
                   >
                     <X className="size-3.5" />
@@ -1150,69 +1329,69 @@ export function MapView({
                 <div className="p-3">
                   <div className="grid grid-cols-2 gap-2">
                     {/* Sector Tile */}
-                    <div className="rounded-lg border border-white/5 bg-[#0d2235]/70 p-2">
-                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                        <MapPin className="size-2.5 text-emerald-400" /> Sector
+                    <div className="rounded-lg border border-hairline/50 bg-shelf-2/60 p-2">
+                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
+                        <MapPin className="size-2.5 text-go" /> Sector
                       </span>
-                      <p className="mt-1 text-xs font-bold text-white truncate">
+                      <p className="mt-1 text-xs font-bold text-ink truncate">
                         {String(selectedPfz.sector || "General Offshore")}
                       </p>
                     </div>
 
                     {/* Advised Depth Tile */}
-                    <div className="rounded-lg border border-white/5 bg-[#0d2235]/70 p-2">
-                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                        <Waves className="size-2.5 text-cyan-400" /> Advised Depth
+                    <div className="rounded-lg border border-hairline/50 bg-shelf-2/60 p-2">
+                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
+                        <Waves className="size-2.5 text-ocean-cyan" /> Advised Depth
                       </span>
-                      <p className="mt-1 font-mono text-xs font-bold text-cyan-300">
+                      <p className="mt-1 font-mono text-xs font-bold text-ocean-cyan">
                         {selectedPfz.depth_m ? (
                           <>
                             {String(selectedPfz.depth_m)}{" "}
-                            <span className="text-[10px] font-normal text-cyan-400/80">m</span>
+                            <span className="text-[10px] font-normal text-ocean-cyan/80">m</span>
                           </>
                         ) : "Surface / Mid-water"}
                       </p>
                     </div>
 
                     {/* Distance & Bearing Tile */}
-                    <div className="rounded-lg border border-white/5 bg-[#0d2235]/70 p-2">
-                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                        <Navigation className="size-2.5 text-sky-400" /> From Landing
+                    <div className="rounded-lg border border-hairline/50 bg-shelf-2/60 p-2">
+                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
+                        <Navigation className="size-2.5 text-ocean-cyan" /> From Landing
                       </span>
-                      <p className="mt-1 font-mono text-xs font-bold text-white">
+                      <p className="mt-1 font-mono text-xs font-bold text-ink">
                         {selectedPfz.distance_km != null ? `${selectedPfz.distance_km} km` : "—"}
                       </p>
                       {selectedPfz.direction && (
-                        <span className="mt-1 inline-flex items-center rounded border border-white/10 bg-slate-800/80 px-1 py-0.5 font-mono text-[9px] text-slate-300">
+                        <span className="mt-1 inline-flex items-center rounded border border-hairline bg-shelf-2/80 px-1 py-0.5 font-mono text-[9px] text-ink-muted">
                           {selectedPfz.direction} {selectedPfz.bearing_deg != null ? `(${selectedPfz.bearing_deg}°)` : ""}
                         </span>
                       )}
                     </div>
 
                     {/* Validity & Status Tile */}
-                    <div className="rounded-lg border border-white/5 bg-[#0d2235]/70 p-2">
-                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                        <Calendar className="size-2.5 text-emerald-400" /> Valid Until
+                    <div className="rounded-lg border border-hairline/50 bg-shelf-2/60 p-2">
+                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
+                        <Calendar className="size-2.5 text-go" /> Valid Until
                       </span>
-                      <p className="mt-1 font-mono text-[11px] font-semibold text-slate-200 truncate">
+                      <p className="mt-1 font-mono text-[11px] font-semibold text-ink-muted truncate">
                         {selectedPfz.valid_for ? String(selectedPfz.valid_for) : "Current cycle"}
                       </p>
-                      <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-950/60 px-1.5 py-0.5 text-[8px] font-bold uppercase text-emerald-400">
-                        <span className="size-1 rounded-full bg-emerald-400 animate-pulse" /> Active
+                      <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-go/30 bg-go/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-go">
+                        <span className="size-1 rounded-full bg-go animate-pulse" /> Active
                       </span>
                     </div>
                   </div>
 
                   {/* Optional Micro-Metrics Row (SST & Area) */}
                   {(selectedPfz.mean_sst_c != null || selectedPfz.approx_area_km2 != null) && (
-                    <div className="mt-2 flex flex-wrap gap-1.5 border-t border-white/5 pt-2">
+                    <div className="mt-2 flex flex-wrap gap-1.5 border-t border-hairline/50 pt-2">
                       {selectedPfz.mean_sst_c != null && (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/20 bg-amber-950/40 px-2 py-0.5 text-[10px] font-mono text-amber-300">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-caution/20 bg-caution/15 px-2 py-0.5 text-[10px] font-mono text-caution">
                           <span>🌡</span> {selectedPfz.mean_sst_c}°C SST
                         </span>
                       )}
                       {selectedPfz.approx_area_km2 != null && (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-cyan-500/20 bg-cyan-950/40 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-ocean-cyan/20 bg-ocean-cyan/15 px-2 py-0.5 text-[10px] font-mono text-ocean-cyan">
                           <span>📐</span> {selectedPfz.approx_area_km2} km² Area
                         </span>
                       )}
@@ -1220,11 +1399,11 @@ export function MapView({
                   )}
 
                   {/* Provenance footer */}
-                  <div className="mt-2.5 flex items-center justify-between border-t border-white/10 pt-2 text-[9px] text-slate-400">
-                    <span className="flex items-center gap-1 text-emerald-400/90 font-medium">
-                      <ShieldCheck className="size-3 text-emerald-400" /> INCOIS Official PFZ
+                  <div className="mt-2.5 flex items-center justify-between border-t border-hairline pt-2 text-[9px] text-ink-dim">
+                    <span className="flex items-center gap-1 text-go/90 font-medium">
+                      <ShieldCheck className="size-3 text-go" /> INCOIS Official PFZ
                     </span>
-                    <span className="text-slate-500 font-mono">Satellite SST + Chlorophyll</span>
+                    <span className="text-ink-dim font-mono">Satellite SST + Chlorophyll</span>
                   </div>
                 </div>
               </div>
@@ -1240,32 +1419,32 @@ export function MapView({
                       setSoundingDismissed(false);
                       setSoundingCollapsed(false);
                     }}
-                    className="flex items-center gap-2 rounded-full border border-cyan-500/40 bg-[#07131e]/95 px-3 py-1.5 backdrop-blur-xl text-[11px] font-semibold text-cyan-300 shadow-[0_8px_24px_rgba(0,0,0,0.6)] hover:border-cyan-400 hover:bg-cyan-950/50 transition-all cursor-pointer"
+                    className="flex items-center gap-2 rounded-full border border-ocean-cyan/40 bg-shelf-3/95 px-3 py-1.5 backdrop-blur-xl text-[11px] font-semibold text-ocean-cyan shadow-lg hover:border-ocean-cyan hover:bg-ocean-cyan/15 transition-all cursor-pointer"
                   >
-                    <Crosshair className="size-3 text-cyan-400" />
+                    <Crosshair className="size-3 text-ocean-cyan" />
                     <span>Sounding HUD</span>
                     {depth?.depth_m != null && !depth.on_land && (
-                      <span className="font-mono font-bold text-cyan-400">{depth.depth_m}m</span>
+                      <span className="font-mono font-bold text-ocean-cyan">{depth.depth_m}m</span>
                     )}
                   </button>
                 </div>
               ) : (
-                <div className="overflow-hidden rounded-xl border border-cyan-500/30 bg-[#07131e]/95 backdrop-blur-xl shadow-[0_12px_32px_rgba(0,0,0,0.65)] ring-1 ring-white/10 transition-all">
+                <div className="overflow-hidden rounded-xl border border-ocean-cyan/30 bg-shelf-3/95 backdrop-blur-xl shadow-xl  transition-all">
                   {/* Glowing top line */}
-                  <div className="h-0.5 bg-gradient-to-r from-cyan-500 via-sky-400 to-indigo-500" />
+                  <div className="h-0.5 bg-gradient-to-r from-ocean-cyan to-accent" />
 
                   {/* Header */}
-                  <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2 bg-gradient-to-b from-white/[0.03] to-transparent">
+                  <div className="flex items-center justify-between border-b border-hairline px-3.5 py-2 bg-gradient-to-b from-white/[0.03] to-transparent">
                     <div className="flex items-center gap-2">
                       <span className="relative flex h-2 w-2">
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
-                        <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-500" />
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ocean-cyan opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-ocean-cyan" />
                       </span>
-                      <h3 className="text-xs font-bold tracking-wider uppercase text-cyan-300">
+                      <h3 className="text-xs font-bold tracking-wider uppercase text-ocean-cyan">
                         Acoustic Sounding HUD
                       </h3>
                       {soundingCollapsed && depth?.depth_m != null && !depth.on_land && (
-                        <span className="rounded bg-cyan-950/80 px-1.5 py-0.5 font-mono text-[10px] font-bold text-cyan-300 border border-cyan-500/30">
+                        <span className="rounded bg-ocean-cyan/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-ocean-cyan border border-ocean-cyan/30">
                           {depth.depth_m}m
                         </span>
                       )}
@@ -1274,16 +1453,16 @@ export function MapView({
                       <button
                         type="button"
                         onClick={() => setSoundingCollapsed(!soundingCollapsed)}
-                        className="flex size-6 cursor-pointer items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                        className="flex size-6 cursor-pointer items-center justify-center rounded-lg text-ink-dim hover:bg-hairline/40 hover:text-ink transition-colors"
                         aria-label={soundingCollapsed ? "Expand HUD" : "Collapse HUD"}
                         title={soundingCollapsed ? "Expand HUD" : "Collapse HUD"}
                       >
-                        {soundingCollapsed ? <ChevronUp className="size-3.5 text-cyan-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
+                        {soundingCollapsed ? <ChevronUp className="size-3.5 text-ocean-cyan" /> : <ChevronDown className="size-3.5 text-ink-dim" />}
                       </button>
                       <button
                         type="button"
                         onClick={() => setSoundingDismissed(true)}
-                        className="flex size-6 cursor-pointer items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                        className="flex size-6 cursor-pointer items-center justify-center rounded-lg text-ink-dim hover:bg-hairline/40 hover:text-ink transition-colors"
                         aria-label="Dismiss HUD"
                         title="Dismiss HUD"
                       >
@@ -1297,13 +1476,13 @@ export function MapView({
                     <div className="p-3">
                       {!clicked ? (
                         <div className="py-2 text-center">
-                          <div className="mx-auto mb-1.5 flex size-8 items-center justify-center rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
+                          <div className="mx-auto mb-1.5 flex size-8 items-center justify-center rounded-full bg-ocean-cyan/15 border border-ocean-cyan/30 text-ocean-cyan">
                             <Waves className="size-4 animate-pulse" />
                           </div>
-                          <p className="text-[11px] font-medium text-slate-300">
+                          <p className="text-[11px] font-medium text-ink-muted">
                             Tap chart to sound seafloor depth
                           </p>
-                          <p className="mt-0.5 text-[9px] text-slate-500">
+                          <p className="mt-0.5 text-[9px] text-ink-dim">
                             Reads NOAA ETOPO 2022 &amp; GEBCO 2026 topography
                           </p>
                         </div>
@@ -1312,46 +1491,46 @@ export function MapView({
                           {/* Hero Readout Grid */}
                           <div className="grid grid-cols-2 gap-2">
                             {/* Depth Hero Tile */}
-                            <div className="rounded-lg border border-cyan-500/20 bg-gradient-to-br from-[#0c2438] to-[#081826] p-2.5">
-                              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                                <Waves className="size-2.5 text-cyan-400" /> Seafloor Depth
+                            <div className="rounded-lg border border-ocean-cyan/20 bg-gradient-to-br from-shelf-2 to-shelf-1 p-2.5">
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-ink-dim flex items-center gap-1">
+                                <Waves className="size-2.5 text-ocean-cyan" /> Seafloor Depth
                               </span>
                               <div className="mt-1">
                                 {depth ? (
                                   depth.on_land ? (
-                                    <p className="font-mono text-base font-bold text-amber-400">On Land</p>
+                                    <p className="font-mono text-base font-bold text-caution">On Land</p>
                                   ) : depth.depth_m != null ? (
                                     <>
-                                      <p className="font-mono text-2xl font-black text-cyan-300 tracking-tight leading-none drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">
+                                      <p className="font-mono text-2xl font-black text-ocean-cyan tracking-tight leading-none ">
                                         {depth.depth_m}
-                                        <span className="ml-1 text-xs font-bold text-cyan-400/80">m</span>
+                                        <span className="ml-1 text-xs font-bold text-ocean-cyan/80">m</span>
                                       </p>
-                                      <span className="mt-1 block font-mono text-[10px] text-slate-400">
+                                      <span className="mt-1 block font-mono text-[10px] text-ink-dim">
                                         ({(depth.depth_m * 0.5468).toFixed(1)} fm)
                                       </span>
                                     </>
                                   ) : (
-                                    <p className="font-mono text-sm text-slate-400">Outside coverage</p>
+                                    <p className="font-mono text-sm text-ink-dim">Outside coverage</p>
                                   )
                                 ) : (
-                                  <p className="font-mono text-base text-slate-400 animate-pulse">Measuring…</p>
+                                  <p className="font-mono text-base text-ink-dim animate-pulse">Measuring…</p>
                                 )}
                               </div>
                             </div>
 
                             {/* Position Telemetry Tile */}
-                            <div className="rounded-lg border border-white/5 bg-[#0a1e30]/60 p-2.5 flex flex-col justify-between">
+                            <div className="rounded-lg border border-hairline/50 bg-shelf-2/50 p-2.5 flex flex-col justify-between">
                               <div>
-                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                                  <Crosshair className="size-2.5 text-cyan-400" /> Position
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-ink-dim flex items-center gap-1">
+                                  <Crosshair className="size-2.5 text-ocean-cyan" /> Position
                                 </span>
-                                <div className="mt-1 font-mono text-[11px] font-semibold text-slate-200">
+                                <div className="mt-1 font-mono text-[11px] font-semibold text-ink-muted">
                                   <p>{clicked.lat >= 0 ? `${clicked.lat.toFixed(2)}°N` : `${(-clicked.lat).toFixed(2)}°S`}</p>
                                   <p>{clicked.lon >= 0 ? `${clicked.lon.toFixed(2)}°E` : `${(-clicked.lon).toFixed(2)}°W`}</p>
                                 </div>
                               </div>
                               {nearNames.length > 0 && (
-                                <p className="mt-1 text-[9px] text-cyan-400/80 truncate">
+                                <p className="mt-1 text-[9px] text-ocean-cyan/80 truncate">
                                   nr {nearNames[0]}
                                 </p>
                               )}
@@ -1364,8 +1543,8 @@ export function MapView({
                               <div
                                 className={`rounded-md border px-2 py-1 text-[10px] font-semibold ${
                                   depth.shallow_hazard
-                                    ? "border-amber-500/40 bg-amber-950/40 text-amber-300"
-                                    : "border-cyan-500/30 bg-cyan-950/40 text-cyan-300"
+                                    ? "border-caution/40 bg-caution/15 text-caution"
+                                    : "border-ocean-cyan/30 bg-ocean-cyan/15 text-ocean-cyan"
                                 }`}
                               >
                                 <span className="font-mono">
@@ -1382,24 +1561,24 @@ export function MapView({
                           )}
 
                           {/* Bearing & Distance Navigation Telemetry */}
-                          <div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/5 pt-2">
-                            <div className="rounded-lg border border-white/5 bg-[#0a1e30]/60 p-2">
-                              <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                                <Compass className="size-2.5 text-cyan-400" /> Bearing from Port
+                          <div className="mt-2 grid grid-cols-2 gap-2 border-t border-hairline/50 pt-2">
+                            <div className="rounded-lg border border-hairline/50 bg-shelf-2/50 p-2">
+                              <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
+                                <Compass className="size-2.5 text-ocean-cyan" /> Bearing from Port
                               </span>
-                              <p className="mt-1 font-mono text-xs font-bold text-white">
+                              <p className="mt-1 font-mono text-xs font-bold text-ink">
                                 {bearing ? `${bearing.bearing_deg}° True` : "…"}
                               </p>
                             </div>
-                            <div className="rounded-lg border border-white/5 bg-[#0a1e30]/60 p-2">
-                              <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                                <Navigation className="size-2.5 text-sky-400" /> Distance & Steam
+                            <div className="rounded-lg border border-hairline/50 bg-shelf-2/50 p-2">
+                              <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
+                                <Navigation className="size-2.5 text-ocean-cyan" /> Distance & Steam
                               </span>
-                              <p className="mt-1 font-mono text-xs font-bold text-white">
+                              <p className="mt-1 font-mono text-xs font-bold text-ink">
                                 {bearing ? (
                                   <>
-                                    {bearing.distance_nm} <span className="text-[10px] font-normal text-slate-400">nm</span>{" "}
-                                    <span className="text-[10px] text-sky-300 font-normal">
+                                    {bearing.distance_nm} <span className="text-[10px] font-normal text-ink-dim">nm</span>{" "}
+                                    <span className="text-[10px] text-ocean-cyan font-normal">
                                       (~{(bearing.distance_nm / 10).toFixed(1)}h)
                                     </span>
                                   </>
@@ -1409,11 +1588,11 @@ export function MapView({
                           </div>
 
                           {/* Provenance citation */}
-                          <div className="mt-2.5 flex items-center justify-between border-t border-white/10 pt-2 text-[9px] text-slate-400">
-                            <span className="flex items-center gap-1 text-cyan-400/90 font-medium">
-                              <ShieldCheck className="size-3 text-cyan-400" /> NOAA ETOPO 2022 / GEBCO
+                          <div className="mt-2.5 flex items-center justify-between border-t border-hairline pt-2 text-[9px] text-ink-dim">
+                            <span className="flex items-center gap-1 text-ocean-cyan/90 font-medium">
+                              <ShieldCheck className="size-3 text-ocean-cyan" /> NOAA ETOPO 2022 / GEBCO
                             </span>
-                            <span className="text-slate-500 font-mono">30 Aug, 00:00 UTC</span>
+                            <span className="text-ink-dim font-mono">30 Aug, 00:00 UTC</span>
                           </div>
                         </>
                       )}
@@ -1452,19 +1631,19 @@ function recolourSea(m: maplibregl.Map) {
     }
   };
 
-  set("background", "background-color", "#050f16");
+  set("background", "background-color", "#f2ead4");
 
   for (const layer of m.getStyle().layers ?? []) {
     const src = "source-layer" in layer ? layer["source-layer"] : undefined;
     if (src !== "water" && src !== "waterway") continue;
     if (layer.type === "fill") {
-      set(layer.id, "fill-color", "#0a2c40");
+      set(layer.id, "fill-color", "#cfe3e0");
       set(layer.id, "fill-opacity", 1);
     } else if (layer.type === "line") {
-      set(layer.id, "line-color", "#123f57");
+      set(layer.id, "line-color", "#a9c9c6");
     } else if (layer.type === "symbol") {
-      set(layer.id, "text-color", "#5f8ba3");
-      set(layer.id, "text-halo-color", "#0a2c40");
+      set(layer.id, "text-color", "#5c6f6d");
+      set(layer.id, "text-halo-color", "#f2ead4");
     }
   }
 }

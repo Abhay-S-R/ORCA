@@ -60,16 +60,16 @@ function renderInlineMarkdown(str: string): React.ReactNode[] {
 function getSectionIcon(title: string) {
   const lower = title.toLowerCase();
   if (lower.includes("geospatial") || lower.includes("boundary") || lower.includes("imbl")) {
-    return <Compass className="size-4 text-sky-400" />;
+    return <Compass className="size-4 text-ocean-cyan" />;
   }
   if (lower.includes("meteorological") || lower.includes("weather") || lower.includes("atmospheric")) {
-    return <Cloud className="size-4 text-sky-400" />;
+    return <Cloud className="size-4 text-ocean-cyan" />;
   }
   if (lower.includes("oceanographic") || lower.includes("tidal") || lower.includes("tide")) {
-    return <Waves className="size-4 text-cyan-400" />;
+    return <Waves className="size-4 text-ocean-cyan" />;
   }
   if (lower.includes("fishing") || lower.includes("pfz") || lower.includes("sector")) {
-    return <Crosshair className="size-4 text-emerald-400" />;
+    return <Crosshair className="size-4 text-go" />;
   }
   if (lower.includes("summary") || lower.includes("directive") || lower.includes("operational")) {
     return <ShieldCheck className="size-4 text-accent" />;
@@ -90,7 +90,14 @@ export function FormattedResponse({ text, className = "" }: FormattedResponsePro
 
     // 1. Check for leading Verdict banner (e.g. "GO: All Parameters Within Safe Operational Limits")
     let verdictHeader: { type: "GO" | "CAUTION" | "NO_GO"; text: string } | null = null;
-    const verdictMatch = raw.match(/^(GO|CAUTION|NO_GO):\s*([^\n*]+)/i);
+    // Non-greedy up to the first sentence break (". " + a capital letter) or
+    // end of string — so a terse "GO: reason" still captures the whole
+    // reason (no period to stop at), but "GO: reason. Then two more
+    // sentences of elaboration." puts only the reason in the banner and
+    // leaves the elaboration to flow into the normal paragraph/section
+    // parsing below, instead of one banner growing to swallow a whole
+    // paragraph.
+    const verdictMatch = raw.match(/^(GO|CAUTION|NO_GO):\s*([^\n*]+?)(?:\.\s+(?=[A-Z])|$)/i);
     if (verdictMatch) {
       const vType = verdictMatch[1].toUpperCase() as "GO" | "CAUTION" | "NO_GO";
       verdictHeader = {
@@ -178,7 +185,7 @@ export function FormattedResponse({ text, className = "" }: FormattedResponsePro
                 ? "border-no-go/40 bg-no-go/10 text-no-go"
                 : parsed.verdictHeader.type === "CAUTION"
                 ? "border-caution/40 bg-caution/10 text-caution"
-                : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                : "border-go/30 bg-go/10 text-go"
             }`}
           >
             {parsed.verdictHeader.type === "NO_GO" ? (
@@ -212,7 +219,7 @@ export function FormattedResponse({ text, className = "" }: FormattedResponsePro
               ? "border-no-go/40 bg-no-go/15 text-no-go"
               : parsed.verdictHeader.type === "CAUTION"
               ? "border-caution/40 bg-caution/15 text-caution"
-              : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+              : "border-go/30 bg-go/10 text-go"
           }`}
         >
           <div className="flex items-center gap-2.5 min-w-0">
@@ -264,7 +271,7 @@ export function FormattedResponse({ text, className = "" }: FormattedResponsePro
               key={sIdx}
               className={`overflow-hidden rounded-xl border backdrop-blur-md transition-all ${
                 isDirective
-                  ? "border-emerald-500/30 bg-[#07171e]/70 shadow-md"
+                  ? "border-go/30 bg-go/5 shadow-md"
                   : "border-hairline/70 bg-shelf-1/60 hover:border-hairline-strong"
               }`}
             >
@@ -272,7 +279,7 @@ export function FormattedResponse({ text, className = "" }: FormattedResponsePro
               <div
                 className={`flex items-center gap-2 border-b px-3.5 py-2 text-xs font-semibold ${
                   isDirective
-                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                    ? "border-go/20 bg-go/10 text-go"
                     : "border-hairline/60 bg-shelf-2/50 text-ink"
                 }`}
               >

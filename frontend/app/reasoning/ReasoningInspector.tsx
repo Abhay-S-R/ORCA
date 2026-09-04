@@ -154,10 +154,10 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                   <div
                     className={`size-2 rounded-full ${
                       node.status === "ok"
-                        ? "bg-emerald-400"
+                        ? "bg-go"
                         : node.status === "running"
-                        ? "bg-sky-400 animate-ping"
-                        : "bg-amber-400"
+                        ? "bg-ocean-cyan animate-ping"
+                        : "bg-caution"
                     }`}
                   />
                   <span className="text-[11px] font-medium text-ink capitalize">
@@ -252,7 +252,7 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                     className="flex items-center gap-1 text-[10px] text-ink-dim hover:text-ink"
                   >
                     {copiedKey === "inputs" ? (
-                      <Check className="size-3 text-emerald-400" />
+                      <Check className="size-3 text-go" />
                     ) : (
                       <Copy className="size-3" />
                     )}
@@ -275,14 +275,14 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                     className="flex items-center gap-1 text-[10px] text-ink-dim hover:text-ink"
                   >
                     {copiedKey === "outputs" ? (
-                      <Check className="size-3 text-emerald-400" />
+                      <Check className="size-3 text-go" />
                     ) : (
                       <Copy className="size-3" />
                     )}
                     {copiedKey === "outputs" ? "Copied" : "Copy"}
                   </button>
                 </div>
-                <pre className="max-h-[220px] overflow-auto rounded-lg border border-hairline bg-abyss/80 p-2.5 font-mono text-[10px] text-emerald-200">
+                <pre className="max-h-[220px] overflow-auto rounded-lg border border-hairline bg-abyss/80 p-2.5 font-mono text-[10px] text-go">
                   {outputsJson}
                 </pre>
               </div>
@@ -303,7 +303,7 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                 </div>
                 <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-shelf-2">
                   <div
-                    className="h-full rounded-full bg-sky-400 transition-all duration-500"
+                    className="h-full rounded-full bg-ocean-cyan transition-all duration-500"
                     style={{
                       width: `${Math.min(100, Math.max(5, ((node.latency_ms ?? 0) / 600) * 100))}%`,
                     }}
@@ -332,7 +332,7 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
 
               <div className="rounded-xl border border-hairline bg-abyss/40 p-3 space-y-2">
                 <div className="flex items-center gap-2">
-                  <Zap className="size-3.5 text-amber-400" />
+                  <Zap className="size-3.5 text-caution" />
                   <span className="text-[12px] font-semibold text-ink">
                     Ground Rule Adherence
                   </span>

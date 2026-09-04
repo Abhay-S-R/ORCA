@@ -97,7 +97,7 @@ export function ReasoningTimeline({
           onClick={onTogglePlay}
           className={`grid size-8 place-items-center rounded-lg border transition-all ${
             isPlaying
-              ? "border-amber-400/50 bg-amber-950/40 text-amber-300 shadow-md shadow-amber-950/50"
+              ? "border-caution/40 bg-caution/15 text-caution shadow-md shadow-caution/20"
               : "border-sky-400/50 bg-sky-950/40 text-sky-300 shadow-md shadow-sky-950/50 hover:border-sky-400"
           }`}
           title={isPlaying ? "Pause playback" : "Play step-by-step trace"}
@@ -149,7 +149,7 @@ export function ReasoningTimeline({
                 onClick={() => onSelectStage(idx)}
                 className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
                   isCurrent
-                    ? "bg-sky-400 shadow-sm shadow-sky-400 ring-1 ring-sky-400/50"
+                    ? "bg-ocean-cyan shadow-sm shadow-sky-400 ring-1 ring-sky-400/50"
                     : isCompleted
                     ? "bg-sky-800"
                     : "bg-shelf-2"

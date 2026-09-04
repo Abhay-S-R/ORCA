@@ -394,12 +394,12 @@ function ReasoningContent() {
                   className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide border ${
                     isStreaming
                       ? "border-sky-400/60 bg-sky-950/50 text-sky-400 shadow-sm shadow-sky-400/30"
-                      : "border-emerald-500/40 bg-emerald-950/30 text-emerald-400"
+                      : "border-go/40 bg-go/15 text-go"
                   }`}
                 >
                   <span
                     className={`size-1.5 rounded-full ${
-                      isStreaming ? "bg-sky-400 animate-ping" : "bg-emerald-400"
+                      isStreaming ? "bg-ocean-cyan animate-ping" : "bg-go"
                     }`}
                   />
                   {isStreaming ? "LIVE EXECUTION" : "READY · REAL-TIME"}
@@ -469,10 +469,10 @@ function ReasoningContent() {
                               <span
                                 className={`rounded px-1.5 py-0.2 text-[9px] font-bold ${
                                   item.verdict === "GO"
-                                    ? "bg-emerald-950 text-emerald-400 border border-emerald-800/40"
+                                    ? "bg-go/15 text-go border border-go/30"
                                     : item.verdict === "DISTRESS"
                                     ? "bg-red-950 text-red-400 border border-red-800/40"
-                                    : "bg-amber-950 text-amber-400 border border-amber-800/40"
+                                    : "bg-caution/15 text-caution border border-caution/30"
                                 }`}
                               >
                                 {item.verdict}
@@ -586,10 +586,10 @@ function ReasoningContent() {
                   <span
                     className={`rounded-md px-2 py-0.5 text-xs font-bold ${
                       finalVerdict.verdict === "GO"
-                        ? "bg-emerald-950 text-emerald-400 border border-emerald-800/60"
+                        ? "bg-go/15 text-go border border-go/30"
                         : finalVerdict.verdict === "DISTRESS"
                         ? "bg-red-950 text-red-400 border border-red-800/60"
-                        : "bg-amber-950 text-amber-400 border border-amber-800/60"
+                        : "bg-caution/15 text-caution border border-caution/30"
                     }`}
                   >
                     VERDICT: {finalVerdict.verdict}
@@ -673,17 +673,17 @@ function ReasoningContent() {
           fitView
           fitViewOptions={{ padding: 0.18 }}
           proOptions={{ hideAttribution: true }}
-          colorMode="dark"
+          colorMode="light"
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable
         >
-          <Background gap={24} color="#17384c" />
+          <Background gap={24} color="#d8cfb0" />
           <Controls showInteractive={false} className="!bg-shelf-1/90 !border-hairline !rounded-xl" />
           <MiniMap
             className="!bg-shelf-1/90 !border-hairline !rounded-xl"
-            nodeColor={() => "#24576f"}
-            maskColor="rgba(4, 18, 28, 0.75)"
+            nodeColor={() => "#2f6f74"}
+            maskColor="rgba(242, 234, 212, 0.75)"
           />
         </ReactFlow>
         </div>

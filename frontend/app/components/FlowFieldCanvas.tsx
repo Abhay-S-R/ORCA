@@ -226,10 +226,12 @@ export function FlowFieldCanvas({
         const height = container.clientHeight;
         const b = getBounds();
 
-        // 1. Draw Currents (Electric Cyan / Aquatic Azure)
+        // 1. Draw Currents (Electric Cyan / Aquatic Azure). A dark halo is
+        // stroked first so the line reads against BOTH the pale shelf colours
+        // and the near-black abyssal fill of the depth ramp underneath —
+        // without it, cyan-on-pale-shelf was nearly invisible (the two are
+        // close in lightness) even though cyan-on-abyss looked fine alone.
         if (currentGrid) {
-          ctx.strokeStyle = "rgba(56, 189, 248, 0.9)";
-          ctx.lineWidth = 1.6;
           ctx.lineCap = "round";
 
           ctx.beginPath();
@@ -262,13 +264,18 @@ export function FlowFieldCanvas({
             ctx.moveTo(p1.x, p1.y);
             ctx.lineTo(p2.x, p2.y);
           }
+          // Halo pass (wider, dark) then the colour pass on the same path —
+          // stroke() doesn't clear the path, so this re-draws it twice.
+          ctx.strokeStyle = "rgba(3, 14, 20, 0.55)";
+          ctx.lineWidth = 3;
+          ctx.stroke();
+          ctx.strokeStyle = "rgba(14, 165, 233, 0.95)";
+          ctx.lineWidth = 1.7;
           ctx.stroke();
         }
 
-        // 2. Draw Wind (Golden Amber / Solar Yellow)
+        // 2. Draw Wind (Golden Amber / Solar Yellow) — same halo treatment.
         if (windGrid) {
-          ctx.strokeStyle = "rgba(251, 191, 36, 0.9)";
-          ctx.lineWidth = 1.4;
           ctx.lineCap = "round";
 
           ctx.beginPath();
@@ -301,6 +308,11 @@ export function FlowFieldCanvas({
             ctx.moveTo(p1.x, p1.y);
             ctx.lineTo(p2.x, p2.y);
           }
+          ctx.strokeStyle = "rgba(3, 14, 20, 0.5)";
+          ctx.lineWidth = 2.6;
+          ctx.stroke();
+          ctx.strokeStyle = "rgba(251, 191, 36, 0.95)";
+          ctx.lineWidth = 1.4;
           ctx.stroke();
         }
       }

@@ -21,6 +21,7 @@ import {
   Map as MapIcon,
   Navigation,
   Radio,
+  Sailboat,
   ShieldAlert,
   Workflow,
   type LucideIcon,
@@ -79,12 +80,8 @@ export function NavRail() {
       >
         {/* "/" is the public landing page, outside this rail entirely —
             inside the app, the mark goes back to Ask, the app's own home. */}
-        <Link
-          href="/ask"
-          aria-label="ORCA home"
-          className="group mb-3 relative grid size-10 place-items-center rounded-lg border border-hairline/60 bg-shelf-2/60 transition-all hover:border-ocean-cyan/60 hover:bg-shelf-3/70"
-        >
-          <OrcaMark className="size-6 transition-transform group-hover:scale-110" />
+        <Link href="/ask" aria-label="ORCA home" className="group mb-3 relative grid place-items-center transition-transform hover:scale-105">
+          <OrcaMark className="size-9" />
           <span className="sr-only">ORCA</span>
         </Link>
         {visible.map(({ href, visibility }) => {
@@ -106,7 +103,7 @@ export function NavRail() {
               {active && (
                 <span
                   aria-hidden="true"
-                  className="absolute -left-[17px] h-6 w-1 rounded-r bg-ocean-cyan shadow-[0_0_8px_rgba(0,229,255,0.7)]"
+                  className="absolute -left-[17px] h-6 w-1 rounded-r bg-ocean-cyan"
                 />
               )}
               <Icon className="size-[18px] transition-transform group-hover:scale-105" strokeWidth={active ? 2.2 : 1.75} aria-hidden="true" />
@@ -146,24 +143,24 @@ export function NavRail() {
   );
 }
 
-// The mark: a depth sounding. Three descending strokes, which is what a
-// sounding line looks like on a chart, and what the product actually does.
-// Exported (rather than redrawn) so /landing can reuse it at hero size, with
-// an opt-in `animated` pass that draws the three strokes in as an actual
-// sounding — motion tied to what the mark already means, not decoration
-// bolted on. Nav rail usage is unaffected (animated defaults off).
+// The mark: a vessel under sail, in a chart-compass roundel — what the
+// product is actually about (a boat's own bridge console), not an abstract
+// glyph. Exported (rather than redrawn) so /landing and /login reuse it at
+// hero size. `animated` gives it a small settle-in on mount; off by default
+// so the nav rail's icon never re-plays it on every route change.
 export function OrcaMark({ className = "size-6", animated = false }: { className?: string; animated?: boolean }) {
   const reduce = useReducedMotion();
-  const draw = animated && !reduce;
-  const Stroke = draw ? motion.path : "path";
-  const drawProps = (delay: number) =>
-    draw ? { initial: { pathLength: 0 }, animate: { pathLength: 1 }, transition: { duration: 0.5, delay, ease: "easeOut" as const } } : {};
+  const play = animated && !reduce;
   return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
-      <Stroke d="M3 6h18" stroke="var(--color-ocean-cyan)" strokeWidth="1.75" strokeLinecap="round" {...drawProps(0)} />
-      <Stroke d="M5 12h14" stroke="var(--color-shoal)" strokeWidth="1.75" strokeLinecap="round" {...drawProps(0.15)} />
-      <Stroke d="M8 18h8" stroke="var(--color-accent)" strokeWidth="1.75" strokeLinecap="round" {...drawProps(0.3)} />
-    </svg>
+    <motion.div
+      className={`relative grid place-items-center rounded-full border-[1.5px] border-current ${className}`}
+      style={{ color: "var(--color-ink)" }}
+      initial={play ? { opacity: 0, scale: 0.85 } : false}
+      animate={play ? { opacity: 1, scale: 1 } : undefined}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+    >
+      <Sailboat className="size-[62%]" style={{ color: "var(--color-ocean-cyan)" }} strokeWidth={2} aria-hidden="true" />
+    </motion.div>
   );
 }
 
@@ -209,7 +206,7 @@ export function SosButton() {
         type="button"
         onClick={trigger}
         aria-label="Send a distress alert"
-        className="group fixed right-4 bottom-18 z-50 flex size-14 items-center justify-center rounded-full border-2 border-no-go/60 bg-no-go text-sm font-black tracking-widest text-abyss shadow-[0_0_24px_rgba(255,59,59,0.4)] transition-all hover:scale-105 active:scale-95 sm:right-6 sm:bottom-6"
+        className="group fixed right-4 bottom-18 z-50 flex size-14 items-center justify-center rounded-full border-2 border-no-go/60 bg-no-go text-sm font-black tracking-widest text-on-accent shadow-lg transition-all hover:scale-105 active:scale-95 sm:right-6 sm:bottom-6"
       >
         <span className="absolute inset-0 -z-10 rounded-full bg-no-go/30 animate-ping opacity-75 pointer-events-none" />
         <span className="relative z-10 font-mono text-base font-black">SOS</span>
