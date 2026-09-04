@@ -16,11 +16,15 @@ import { FlowFieldCanvas } from "./FlowFieldCanvas";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Calendar, ChevronDown, ChevronUp, Compass, Crosshair, Layers, MapPin, Navigation, ShieldCheck, Waves, X } from "lucide-react";
 import { BASEMAP_STYLE, CHART, DEFAULT_USER, PILOT_BOUNDS, RASTER_OVERLAYS, webglAvailable } from "../map/basemap";
+import { Badge, type BadgeTone } from "./Badge";
 import { LayerToggle } from "./LayerToggle";
 import { Panel } from "./Panel";
+import { Readout, ReadoutGrid } from "./Readout";
 import { EmptyState } from "./States";
 import { TimeSlider } from "./TimeSlider";
+import { getToken } from "../lib/auth";
 import { measureLayerToggle, reportLayerMetrics } from "../lib/layerPerf";
+import { watchBadges as fetchWatchBadges, type WatchBadge } from "../lib/watches";
 
 // See scripts/copy-maplibre-worker.mjs — Turbopack will not emit the worker's
 // sibling module next to it, so the worker is served from public/ instead.
@@ -51,6 +55,20 @@ type PfzFeature = {
   geometry: { coordinates: [number, number] };
   properties: PfzProperties;
 };
+// D2 -> D3 handoff (plan §14, orca/notifications/watch_badges.py) — same
+// severity vocabulary as the notification feed, never re-derived here.
+const SEVERITY_TONE: Record<WatchBadge["severity"], BadgeTone> = {
+  info: "neutral",
+  advisory: "accent",
+  warning: "caution",
+  danger: "no-go",
+};
+const SEVERITY_COLOR: Record<WatchBadge["severity"], string> = {
+  info: "#7a8a99",
+  advisory: CHART.eez,
+  warning: CHART.caution,
+  danger: CHART.noGo,
+};
 type DepthResult = { depth_m: number | null; on_land: boolean; shallow_hazard: boolean };
 type Bearing = { bearing_deg: number; distance_nm: number };
 type CurrentVector = { lat: number; lon: number; speed_ms: number; direction_deg: number };
@@ -65,6 +83,29 @@ type RasterLayerMeta = {
 };
 
 const EMPTY = { type: "FeatureCollection", features: [] };
+
+interface MarinePortPreset {
+  id: string;
+  name: string;
+  sub: string;
+  center: [number, number];
+  zoom: number;
+}
+
+const COASTAL_REGIONS: MarinePortPreset[] = [
+  { id: "all", name: "All India Coastline", sub: "National Overview", center: [78.5, 15.5], zoom: 4.8 },
+  { id: "gulf_mannar", name: "Gulf of Mannar / Thoothukudi", sub: "Pilot Sector", center: [78.8, 8.8], zoom: 7.8 },
+  { id: "gujarat", name: "Gujarat (Kutch & Saurashtra)", sub: "West Coast", center: [69.6, 21.8], zoom: 7.2 },
+  { id: "mumbai", name: "Mumbai & Konkan Coast", sub: "Maharashtra", center: [72.8, 18.9], zoom: 8.2 },
+  { id: "goa", name: "Goa & Karwar", sub: "Goa / Karnataka", center: [73.8, 15.4], zoom: 8.4 },
+  { id: "kochi", name: "Kochi & Malabar Coast", sub: "Kerala", center: [76.1, 9.9], zoom: 8.2 },
+  { id: "lakshadweep", name: "Lakshadweep Islands", sub: "Arabian Sea", center: [72.6, 10.5], zoom: 8.0 },
+  { id: "chennai", name: "Chennai & Coromandel", sub: "Tamil Nadu", center: [80.3, 13.1], zoom: 8.2 },
+  { id: "vizag", name: "Visakhapatnam & Circars", sub: "Andhra Pradesh", center: [83.3, 17.7], zoom: 8.0 },
+  { id: "kolkata", name: "Odisha & Sundarbans", sub: "East Coast", center: [87.5, 20.8], zoom: 7.5 },
+  { id: "andaman", name: "Andaman & Nicobar", sub: "Bay of Bengal", center: [92.8, 11.6], zoom: 7.0 },
+];
+
 
 // `/tiles/{layer_id}/{time}/{z}/{x}/{y}.png` — the on-disk frame directory
 // has `:` replaced with `-` (illegal in a Windows path); orca/tiles.py keeps
@@ -140,6 +181,7 @@ export function MapView({
     waveForecast: false,
     currents: false,
     wind: false,
+    watchBadges: true,
   });
   const [rasterLayers, setRasterLayers] = useState<RasterLayerMeta[]>([]);
   const [currentVectors, setCurrentVectors] = useState<CurrentVector[] | null>(null);
@@ -152,6 +194,7 @@ export function MapView({
   const [windBounds, setWindBounds] = useState<[number, number, number, number] | null>(null);
   const [windAcquisitionDate, setWindAcquisitionDate] = useState<string | null>(null);
   const [selectedPfz, setSelectedPfz] = useState<PfzProperties | null>(null);
+  const [selectedBadge, setSelectedBadge] = useState<WatchBadge | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const forecastLayer = rasterLayers.find((l) => l.forecast_frames && l.forecast_frames.length > 0);
@@ -160,6 +203,22 @@ export function MapView({
   const [heavyLimit, setHeavyLimit] = useState(4);
   const [evictionNotice, setEvictionNotice] = useState<string | null>(null);
   const lru = useRef<HeavyKey[]>([]);
+
+  const [selectedRegion, setSelectedRegion] = useState("all");
+  const [regionDropdownOpen, setRegionDropdownOpen] = useState(false);
+  const regionDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (regionDropdownRef.current && !regionDropdownRef.current.contains(e.target as Node)) {
+        setRegionDropdownOpen(false);
+      }
+    }
+    if (regionDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [regionDropdownOpen]);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 640px)");
@@ -290,6 +349,7 @@ export function MapView({
       m.addSource("boundaries", { type: "geojson", data: EMPTY as never });
       m.addSource("pfz", { type: "geojson", data: EMPTY as never });
       m.addSource("route", { type: "geojson", data: EMPTY as never });
+      m.addSource("watch-badges", { type: "geojson", data: EMPTY as never });
 
       // The per-feature JS style function from Leaflet becomes a data-driven
       // paint expression evaluated on the GPU. This is what buys the 60 fps
@@ -342,6 +402,27 @@ export function MapView({
         },
       });
 
+      // Sentinel watch badges (D2 -> D3 handoff, plan §14/§20) — one circle
+      // per watch the signed-in user owns, coloured by unread severity.
+      // enabled=false watches still get a badge (dimmed), disabled ones never
+      // fire, per orca/notifications/watch_badges.py's own contract.
+      const badgeSeverityColor: maplibregl.ExpressionSpecification = [
+        "match", ["get", "severity"],
+        "danger", CHART.noGo, "warning", CHART.caution, "advisory", CHART.eez, "#7a8a99",
+      ];
+      m.addLayer({
+        id: "watch-badges-circles",
+        type: "circle",
+        source: "watch-badges",
+        paint: {
+          "circle-radius": ["case", ["==", ["get", "status"], "active"], 7, 5],
+          "circle-color": badgeSeverityColor,
+          "circle-opacity": ["case", ["get", "enabled"], 0.9, 0.35],
+          "circle-stroke-width": ["case", ["==", ["get", "status"], "active"], 2, 1],
+          "circle-stroke-color": "#04121a",
+        },
+      });
+
       // /voyage's corridor (plan §5) — colour AND a text label per leg
       // (voyage_route_layer's own contract: never colour-alone), status
       // reusing the same go/caution/no-go hex the rest of the product uses.
@@ -372,6 +453,13 @@ export function MapView({
     });
 
     m.on("click", (e) => {
+      const badgeFeatures = m.queryRenderedFeatures(e.point, { layers: ["watch-badges-circles"] });
+      if (badgeFeatures.length && badgeFeatures[0].properties) {
+        setSelectedBadge(badgeFeatures[0].properties as WatchBadge);
+        setSelectedPfz(null);
+        return;
+      }
+      setSelectedBadge(null);
       const pfzFeatures = m.queryRenderedFeatures(e.point, { layers: ["pfz-circles"] });
       if (pfzFeatures.length && pfzFeatures[0].properties) {
         setSelectedPfz(pfzFeatures[0].properties as PfzProperties);
@@ -380,7 +468,7 @@ export function MapView({
       }
       void handleClick(e.lngLat.lat, e.lngLat.lng);
     });
-    for (const id of ["boundaries-fill", "pfz-circles"]) {
+    for (const id of ["boundaries-fill", "pfz-circles", "watch-badges-circles"]) {
       m.on("mouseenter", id, () => {
         m.getCanvas().style.cursor = "pointer";
       });
@@ -536,6 +624,36 @@ export function MapView({
     };
   }, [ready]);
 
+  /* ---- Sentinel watch badges (D2 -> D3, plan §14/§20): polled while signed
+     in, pushed through setData() only — never a map remount. Silently absent
+     for a signed-out visitor, same "degraded, not broken" rule as every
+     other data effect on this map. */
+  useEffect(() => {
+    if (!ready || !map.current) return;
+    if (!getToken()) return;
+    let cancelled = false;
+
+    const refresh = () => {
+      fetchWatchBadges()
+        .then((res) => {
+          if (cancelled || !map.current) return;
+          const layer = res.map_layer as { geojson: GeoJSON.FeatureCollection } | undefined;
+          (map.current.getSource("watch-badges") as maplibregl.GeoJSONSource)?.setData(
+            (layer?.geojson ?? EMPTY) as never,
+          );
+        })
+        .catch(() => {
+          /* A missing badge feed degrades to no badges, never a broken map. */
+        });
+    };
+    refresh();
+    const interval = setInterval(refresh, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [ready]);
+
   /* ---- layer visibility: a layout change, never a remount ---- */
   useEffect(() => {
     if (!ready || !map.current) return;
@@ -546,6 +664,7 @@ export function MapView({
     vis("boundaries-fill", layers.boundaries);
     vis("boundaries-line", layers.boundaries);
     vis("pfz-circles", layers.pfz);
+    vis("watch-badges-circles", layers.watchBadges);
     vis("seamarks-raster", layers.seamarks);
     for (const layer of rasterLayers) {
       const on = layer.forecast_frames?.length ? layers.waveForecast : layers.srvBathymetry;
@@ -669,6 +788,14 @@ export function MapView({
                   checked={layers.pfz}
                   onChange={(v) => setLayers((s) => ({ ...s, pfz: v }))}
                 />
+                {getToken() && (
+                  <LayerToggle
+                    label="My watch badges"
+                    swatch={CHART.caution}
+                    checked={layers.watchBadges}
+                    onChange={(v) => setLayers((s) => ({ ...s, watchBadges: v }))}
+                  />
+                )}
                 <LayerToggle
                   label="Seamarks (Port Buoys & Lights)"
                   swatch={CHART.ink}
@@ -774,6 +901,80 @@ export function MapView({
             </div>
           )}
 
+          {/* Coastal Region & Port Quick Switcher */}
+          <div ref={regionDropdownRef} className="pointer-events-auto absolute top-3 right-14 z-20">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setRegionDropdownOpen(!regionDropdownOpen)}
+                className="flex items-center gap-2 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl px-3 py-1.5 text-xs font-medium text-ink shadow-lg transition-all hover:bg-shelf-2 hover:border-hairline-strong focus:outline-none"
+                aria-label="Select coastal sector"
+              >
+                <MapPin className="size-3.5 text-accent" />
+                <span className="max-w-[140px] sm:max-w-none truncate font-medium">
+                  {COASTAL_REGIONS.find((r) => r.id === selectedRegion)?.name ?? "Select Sector"}
+                </span>
+                <ChevronDown
+                  className={`size-3 text-ink-dim transition-transform duration-200 ${
+                    regionDropdownOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+              {regionDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-64 max-h-80 overflow-y-auto rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-2xl p-1.5 shadow-2xl z-30">
+                  <div className="px-2.5 py-1.5 text-[10px] font-semibold tracking-wider text-ink-dim uppercase border-b border-hairline/50 mb-1">
+                    Coastal Navigation Regions
+                  </div>
+                  {COASTAL_REGIONS.map((region) => (
+                    <button
+                      key={region.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedRegion(region.id);
+                        setRegionDropdownOpen(false);
+                        map.current?.flyTo({
+                          center: region.center,
+                          zoom: region.zoom,
+                          duration: 1200,
+                          essential: true,
+                        });
+                      }}
+                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${
+                        selectedRegion === region.id
+                          ? "bg-accent/15 text-accent font-semibold"
+                          : "text-ink hover:bg-shelf-2"
+                      }`}
+                    >
+                      <span className="truncate">{region.name}</span>
+                      <span className="ml-2 text-[10px] text-ink-dim shrink-0">{region.sub}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Quick recenter button */}
+          <div className="pointer-events-auto absolute top-28 right-2.5 z-10">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedRegion("gulf_mannar");
+                map.current?.flyTo({
+                  center: DEFAULT_USER,
+                  zoom: 8.5,
+                  duration: 800,
+                  essential: true,
+                });
+              }}
+              title="Recenter chart on Gulf of Mannar pilot sector"
+              aria-label="Recenter chart on Gulf of Mannar"
+              className="flex size-[29px] items-center justify-center rounded-md border border-hairline bg-shelf-1/90 backdrop-blur-md text-ink-muted shadow transition-colors hover:bg-shelf-2 hover:text-ink focus:outline-none"
+            >
+              <Crosshair className="size-4" />
+            </button>
+          </div>
+
           <div
             className={`pointer-events-auto absolute right-3 left-3 sm:left-auto sm:w-80 transition-all ${
               Boolean(layers.waveForecast && forecastLayer?.forecast_frames?.length)
@@ -781,6 +982,38 @@ export function MapView({
                 : "bottom-4 sm:bottom-4"
             }`}
           >
+            {selectedBadge && (
+              <div className="mb-2.5">
+                <Panel
+                  dense
+                  title={selectedBadge.label}
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBadge(null)}
+                      aria-label="Close watch badge details"
+                      className="text-ink-dim hover:text-ink"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  }
+                >
+                  <div className="flex items-center gap-2">
+                    <Badge tone={SEVERITY_TONE[selectedBadge.severity]}>{selectedBadge.severity}</Badge>
+                    <Badge tone={selectedBadge.status === "active" ? "caution" : "neutral"}>
+                      {selectedBadge.status === "active" ? "unread crossing" : "clear"}
+                    </Badge>
+                    {!selectedBadge.enabled && <Badge tone="neutral">disabled</Badge>}
+                  </div>
+                  <div className="mt-2.5">
+                    <ReadoutGrid cols={2}>
+                      <Readout label="Unread" value={selectedBadge.unread_count} />
+                      <Readout label="Last fired" value={selectedBadge.last_fired_at ? new Date(selectedBadge.last_fired_at).toLocaleString() : "never"} />
+                    </ReadoutGrid>
+                  </div>
+                </Panel>
+              </div>
+            )}
             {selectedPfz && (
               <div className="mb-2.5 overflow-hidden rounded-xl border border-emerald-500/30 bg-[#07131e]/95 backdrop-blur-xl shadow-[0_12px_32px_rgba(0,0,0,0.65)] ring-1 ring-white/10 transition-all">
                 {/* Glowing top line */}

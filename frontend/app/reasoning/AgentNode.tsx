@@ -12,6 +12,7 @@ import {
   Compass,
   Cpu,
   Database,
+  Eye,
   FileText,
   Languages,
   Layers,
@@ -40,7 +41,7 @@ const ICON: Record<string, ComponentType<{ className?: string }>> = {
   risk_assessment: ShieldAlert,
   visualization: Sparkles,
   reporting: FileText,
-  critic: CheckCheck,
+  critic: Eye,
   language_egress: Languages,
 };
 

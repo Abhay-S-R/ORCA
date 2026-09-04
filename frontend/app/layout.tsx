@@ -1,8 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Barlow, IBM_Plex_Mono, Noto_Sans_Tamil } from "next/font/google";
-import { NavRail, SosButton } from "./nav";
-import { NotificationBell } from "./components/NotificationBell";
-import { StatusBar } from "./components/StatusBar";
+import { AppChrome } from "./components/AppChrome";
 import { PersonaProvider } from "./persona/context";
 import "./globals.css";
 
@@ -57,21 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Skip to content
         </a>
         <PersonaProvider>
-          <div className="flex h-full">
-            <NavRail />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <StatusBar />
-              {/* The only scroll container in the app. The shell is fixed so
-                  a full-bleed chart can fill the viewport exactly. */}
-              <main id="main-content" className="min-h-0 flex-1 overflow-y-auto pb-16 sm:pb-0">
-                {children}
-              </main>
-            </div>
-          </div>
-          <SosButton />
-          {/* Sentinel notification feed — persistent, like SOS. Renders
-              nothing until there is an authenticated session. */}
-          <NotificationBell />
+          <AppChrome>{children}</AppChrome>
         </PersonaProvider>
       </body>
     </html>

@@ -208,12 +208,15 @@ def _reasoning_summary(agent_name: str, outputs: dict[str, Any], status: str = "
         charts = outputs.get("chart_specs") or []
         return f"Generated {len(layers)} map layers and {len(charts)} chart specs"
     if agent_name == "reporting":
+        citations = outputs.get("citations", [])
+        if citations:
+            return f"Assembled the narrative, citing {len(citations)} source{'s' if len(citations) != 1 else ''}."
         eng = outputs.get("final_english_response")
         if eng:
             return eng
         return "Synthesized final narrative with authoritative citations"
     if agent_name == "language_egress":
-        return "Translated narrative back to target vernacular"
+        return "Translated the verdict and reasoning back to the query's language."
     if agent_name == "critic":
         if status == "degraded":
             return "Critic unavailable — narrative shipped unreviewed"

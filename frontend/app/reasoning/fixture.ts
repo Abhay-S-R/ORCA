@@ -1,16 +1,18 @@
-// D1 owns the real `TraceGraph` payload and `/trace/{query_id}` replay API
-// (plan §5.1) — neither exists on `main` yet. This fixture matches that
-// contract's documented shape exactly, so swapping it for a live fetch later
-// is a data-source change, not a rewrite of this page.
+// D1's real `TraceGraph` payload and `GET /trace/{query_id}` replay API
+// (plan §5.1, orca/api/trace_routes.py) now ship — reasoning/page.tsx swaps
+// to a live trace via trace-adapter.ts the moment a run through its panel
+// finishes. This fixture stays as the page's default/example view (labelled
+// "Example trace — replay, not live") and as the shape reference the
+// adapter's output is normalized to.
 //
 // It is not invented data: every node/edge here is the *actual* current
 // LangGraph wiring in orca/graph/graph.py (distress_check -> language_ingress
 // -> planning -> [weather_intelligence, geospatial, ocean_analytics] ->
 // [risk_assessment, visualization] -> reporting -> language_egress), with
-// plausible-but-labelled-as-example per-node numbers. What it deliberately
-// does NOT contain: a Critic node or a `critic_loop` edge — Agent 10 is D1's
-// unshipped work, and a fixture-backed stand-in for it would misrepresent a
-// subsystem that does not exist yet (out of scope, D3 plan §8).
+// plausible-but-labelled-as-example per-node numbers. It does not include a
+// Critic node/`critic_loop` edge — the Critic only appears on a DEEP query
+// that it actually flagged, and a real one now shows up automatically for
+// any live trace where that happened, so a fixture stand-in isn't needed.
 import type { ConfidenceTier } from "../components/Badge";
 import type { AgentStatus } from "../components/AgentPill";
 

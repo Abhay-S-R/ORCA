@@ -3,7 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 
 // Day 21 a11y CI gate (plan §6 D1 Day 21, acceptance row 5: "axe-core zero
 // criticals in CI"). D1 owns this harness and audits its own two named
-// flows — Ask (`/`) and Safety (`/safety`); D2/D3 add their own spec files
+// flows — Ask (`/ask`) and Safety (`/safety`); D2/D3 add their own spec files
 // against the same AxeBuilder + config for /watches, /ops, /map, /voyage,
 // /reasoning. NVDA keyboard/screen-reader passes are a separate manual
 // step recorded per-flow (not automatable in a headless CI runner).
@@ -13,15 +13,15 @@ async function expectNoCriticalViolations(page: import("@playwright/test").Page,
   expect(critical, `${label}: ${JSON.stringify(critical, null, 2)}`).toEqual([]);
 }
 
-test.describe("Ask flow (/)", () => {
+test.describe("Ask flow (/ask)", () => {
   test("empty state has no critical a11y violations", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/ask");
     await expect(page.getByRole("heading", { name: "Ask about conditions at sea" })).toBeVisible();
     await expectNoCriticalViolations(page, "Ask — empty state");
   });
 
   test("persona switcher selection has no critical a11y violations", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/ask");
     // A native <select> — its popup is OS-rendered and outside Playwright's
     // DOM snapshot, so exercise it via selectOption rather than click+visible.
     await page.getByRole("combobox", { name: "Viewing as" }).selectOption("fisherman");
@@ -30,7 +30,7 @@ test.describe("Ask flow (/)", () => {
   });
 
   test("query input and submit button are reachable by keyboard", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/ask");
     const input = page.getByRole("textbox", { name: "Your question about marine conditions" });
     await input.fill("Is it safe to go out tomorrow morning?"); // enables the submit button — disabled buttons never receive focus
     await input.focus();
