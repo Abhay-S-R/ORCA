@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from orca.agents.geospatial import (
     DATA_ROOT,
+    PAN_INDIA_BBOX_WSEN,
     PILOT_BBOX_WSEN,
     bearing_and_distance,
     check_boundary_proximity,
@@ -67,6 +68,17 @@ def current_vectors_route(pan_india: bool = True) -> dict:
                 return json.load(f)
         except Exception:
             pass
+    if pan_india:
+        pts = current_vectors(bbox=PAN_INDIA_BBOX_WSEN, stride=4)
+        result = {"points": pts, "bounds": list(PAN_INDIA_BBOX_WSEN)}
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_path, "w", encoding="utf-8") as f:
+                import json
+                json.dump(result, f)
+        except Exception:
+            pass
+        return result
     return {"points": current_vectors(), "bounds": list(PILOT_BBOX_WSEN)}
 
 
@@ -83,6 +95,16 @@ def wind_vectors_route(pan_india: bool = True) -> dict:
                 return json.load(f)
         except Exception:
             pass
+    if pan_india:
+        res = wind_vectors(bbox=PAN_INDIA_BBOX_WSEN, stride=4)
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_path, "w", encoding="utf-8") as f:
+                import json
+                json.dump(res, f)
+        except Exception:
+            pass
+        return res
     return wind_vectors()
 
 
