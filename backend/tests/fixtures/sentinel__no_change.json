@@ -1,0 +1,31 @@
+{
+  "scenario": "a second identical Sentinel poll on an unchanged CAUTION condition — must produce zero notifications (no-spam functional requirement)",
+  "watch": {
+    "watch_type": "weather",
+    "lat": 8.8,
+    "lon": 78.14,
+    "thresholds": {},
+    "channels": ["in_app"]
+  },
+  "last_payload": {
+    "go_no_go": "CAUTION",
+    "reason": "Rough Sea State / Boundary Proximity",
+    "wave_height_m": 3.1,
+    "wind_speed_ms": 9.0,
+    "lightning_active": false,
+    "cyclone_alert": null,
+    "active_hazard_types": [],
+    "confidence": "HIGH"
+  },
+  "snapshot": {
+    "go_no_go": "CAUTION",
+    "reason": "Rough Sea State / Boundary Proximity",
+    "wave_height_m": 3.0,
+    "wind_speed_ms": 8.5,
+    "lightning_active": false,
+    "cyclone_alert": null,
+    "active_hazard_types": [],
+    "confidence": "HIGH"
+  },
+  "expected_decision": { "fired": false }
+}

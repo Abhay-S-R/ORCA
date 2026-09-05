@@ -6,14 +6,18 @@
 // loudest thing on the old light theme and competed with the verdict.
 import type { ReactNode } from "react";
 
-export type BadgeTone = "go" | "caution" | "no-go" | "neutral" | "accent";
+export type BadgeTone = "go" | "caution" | "no-go" | "neutral" | "accent" | "cyan";
 
+// Flat chart-paper tone, not a glow — a badge on paper reads by its border
+// and tint, the way a rubber-stamped chart annotation would, never by a
+// screen-only light effect.
 const TONE: Record<BadgeTone, string> = {
   go: "text-go border-go/40 bg-go/10",
   caution: "text-caution border-caution/40 bg-caution/10",
   "no-go": "text-no-go border-no-go/45 bg-no-go/10",
-  neutral: "text-ink-muted border-hairline bg-shelf-2/60",
+  neutral: "text-ink-muted border-hairline bg-shelf-2/70",
   accent: "text-accent border-accent/40 bg-accent/10",
+  cyan: "text-ocean-cyan border-ocean-cyan/40 bg-ocean-cyan/10",
 };
 
 export function Badge({
@@ -27,7 +31,7 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-[11px] font-semibold tracking-wide ${TONE[tone]}`}
+      className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] font-semibold tracking-wide ${TONE[tone]}`}
     >
       {icon}
       {children}

@@ -218,7 +218,10 @@ def main():
     payload = {
         "generated_at": now,
         "layer_type": "DERIVED_PROXY",
-        "confidence_tier": "LOW-DATA",
+        # The canonical enum, not the docs' hyphenated spelling: this value is
+# served verbatim by /api/zones and has to match confidence_tier in
+# infra/db/001_init.sql ("Do not introduce 'LOW-DATA' anywhere").
+        "confidence_tier": "LOW_DATA",
         "applies_to_sector": "SEC006 (SOUTH TAMILNADU)",
         "not_an_advisory": (
             "This is NOT an INCOIS PFZ advisory. It is a thermal-front proxy computed "

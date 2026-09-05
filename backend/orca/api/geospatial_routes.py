@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from orca.agents.geospatial import (
+    DATA_ROOT,
     PILOT_BBOX_WSEN,
     bearing_and_distance,
     check_boundary_proximity,
@@ -18,9 +19,11 @@ from orca.agents.geospatial import (
     generate_map_layers,
     point_in_polygon,
     spatial_query_zones,
+    wind_vectors,
 )
 from orca.agents.visualization import generate_map_layers as agent8_generate_map_layers
 from orca.trace import record_layer_metric
+from orca.api.params import Lat, Lon, OptLat, OptLon
 
 router = APIRouter(prefix="/api", tags=["geospatial"])
 
@@ -30,12 +33,12 @@ def _feature_summary(f) -> dict:
 
 
 @router.get("/map-layers")
-def map_layers(lat: float | None = None, lon: float | None = None, zoom: int = 11) -> dict:
+def map_layers(lat: OptLat = None, lon: OptLon = None, zoom: int = 11) -> dict:
     return generate_map_layers(user_lat=lat, user_lon=lon, zoom=zoom)
 
 
 @router.get("/raster-layers")
-def raster_layers(lat: float | None = None, lon: float | None = None) -> dict:
+def raster_layers(lat: OptLat = None, lon: OptLon = None) -> dict:
     """Agent 8's Heatmap/Raster map layers (plan §5.10 Day 13 `/map`
     explorer) — a standalone REST surface, separate from `/map-layers`
     above (Agent 6's own boundaries/position, an older, narrower shape kept
@@ -52,13 +55,35 @@ def raster_layers(lat: float | None = None, lon: float | None = None) -> dict:
 
 
 @router.get("/current-vectors")
-def current_vectors_route() -> dict:
+def current_vectors_route(pan_india: bool = True) -> dict:
     """Real HYCOM surface current vectors (plan's revised D3 stack — the
-    `maplibre-gl-wind` particle layer). Points, not a MapLayer: a vector
-    field the frontend turns into a texture client-side has no slot in the
-    frozen MapLayer contract's 7 layer types, so this is a standalone REST
-    surface, the same pattern as `/raster-layers` above."""
+    flow particle layer). Points, not a MapLayer: a vector field the frontend
+    turns into an animated flow field client-side."""
+    cache_path = DATA_ROOT / "tier1" / "vectors" / "pan_india_currents.json"
+    if pan_india and cache_path.exists():
+        import json
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
     return {"points": current_vectors(), "bounds": list(PILOT_BBOX_WSEN)}
+
+
+@router.get("/wind-vectors")
+def wind_vectors_route(pan_india: bool = True) -> dict:
+    """Archived ScatSat 10m wind. NOT live — one snapshot per day —
+    so `acquisition_date` ships in the response for the frontend to render
+    as an honest freshness label, never silently presented as 'now'."""
+    cache_path = DATA_ROOT / "tier1" / "vectors" / "pan_india_wind.json"
+    if pan_india and cache_path.exists():
+        import json
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return wind_vectors()
 
 
 class LayerMetricIn(BaseModel):
@@ -80,7 +105,7 @@ def layer_metrics_route(metric: LayerMetricIn) -> dict:
 
 
 @router.get("/boundary-proximity")
-def boundary_proximity(lat: float, lon: float, boundary_name: str) -> dict:
+def boundary_proximity(lat: Lat, lon: Lon, boundary_name: str) -> dict:
     try:
         result = check_boundary_proximity(lat, lon, boundary_name)
     except ValueError as exc:
@@ -89,21 +114,21 @@ def boundary_proximity(lat: float, lon: float, boundary_name: str) -> dict:
 
 
 @router.get("/point-in-polygon")
-def point_in_polygon_route(lat: float, lon: float) -> dict:
+def point_in_polygon_route(lat: Lat, lon: Lon) -> dict:
     return {"boundaries": [_feature_summary(f) for f in point_in_polygon(lat, lon)]}
 
 
 @router.get("/depth")
-def depth(lat: float, lon: float) -> dict:
+def depth(lat: Lat, lon: Lon) -> dict:
     return asdict(depth_at_point(lat, lon))
 
 
 @router.get("/bearing")
-def bearing(from_lat: float, from_lon: float, to_lat: float, to_lon: float) -> dict:
+def bearing(from_lat: Lat, from_lon: Lon, to_lat: Lat, to_lon: Lon) -> dict:
     bearing_deg, distance_nm = bearing_and_distance(from_lat, from_lon, to_lat, to_lon)
     return {"bearing_deg": bearing_deg, "distance_nm": distance_nm}
 
 
 @router.get("/zones-nearby")
-def zones_nearby(lat: float, lon: float, radius_nm: float = 25.0) -> dict:
+def zones_nearby(lat: Lat, lon: Lon, radius_nm: float = 25.0) -> dict:
     return {"boundaries": [_feature_summary(f) for f in spatial_query_zones(lat, lon, radius_nm)]}

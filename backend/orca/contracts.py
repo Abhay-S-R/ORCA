@@ -105,6 +105,40 @@ class ChartSpec:
     source_provenance: tuple[SourceProvenance, ...]
 
 
+@dataclass(frozen=True)
+class RouteSegment:
+    """One geodesic leg of a VoyagePlan, already resolved to a hazard class —
+    the frontend renders these, it does not reclassify them (plan §5.1,
+    D3-owned)."""
+    segment_id: str
+    start: tuple[float, float]  # (lat, lon)
+    end: tuple[float, float]
+    distance_nm: float
+    eta: str  # ISO 8601 UTC — when the vessel is expected to be at `end`
+    hazard_class: Literal["SHALLOW", "BOUNDARY", "MPA", "ROUGH_SEA", "LIGHTNING", "CLEAR"]
+    status: Literal["CLEAR", "CAUTION", "BLOCKED"]
+    detail: str  # e.g. "Depth 3.2m at draft 4.0m — BLOCKED" — the sentence a waypoint-table row needs
+    source_provenance: tuple[SourceProvenance, ...]
+
+
+@dataclass(frozen=True)
+class VoyagePlan:
+    """Voyage-corridor output (plan §5.1, D3-owned). `verdict` rolls up
+    per-segment status to the same GO/CAUTION/NO_GO vocabulary
+    risk_assessment.py already uses — any BLOCKED segment forces NO_GO,
+    never averaged (Ground Rule 4)."""
+    voyage_id: str
+    origin: tuple[float, float]
+    destination: tuple[float, float]
+    vessel_class: str
+    departure_time: str  # ISO 8601 UTC
+    segments: tuple[RouteSegment, ...]
+    verdict: Literal["GO", "CAUTION", "NO_GO"]
+    verdict_reason: str
+    corridor_geojson: dict[str, Any]  # ~2NM-buffer polygon, for the map layer
+    confidence: Confidence
+
+
 _VALID_REASONING_DEPTHS = ("SHALLOW", "STANDARD", "DEEP")
 
 
@@ -134,3 +168,17 @@ def coerce_confidence_score(value: str) -> Literal["HIGH", "MEDIUM", "LOW_DATA"]
     if value in _VALID_CONFIDENCE_SCORES:
         return value  # type: ignore[return-value]  # narrowed by the check above
     return "LOW_DATA"
+
+
+_VALID_STATUSES = ("ok", "degraded", "failed", "skipped", "cancelled")
+
+
+def coerce_status(value: str) -> Literal["ok", "degraded", "failed", "skipped", "cancelled"]:
+    """Same gap as coerce_reasoning_depth/coerce_confidence_score, for
+    AgentResult.status — a row read back from audit_trace_log carries it as
+    a plain `str` column, not the stricter Literal. An invalid/stale value
+    degrades to "failed" (never "ok"), the same never-overclaim direction
+    coerce_confidence_score takes."""
+    if value in _VALID_STATUSES:
+        return value  # type: ignore[return-value]  # narrowed by the check above
+    return "failed"

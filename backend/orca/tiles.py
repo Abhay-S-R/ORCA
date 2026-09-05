@@ -67,12 +67,12 @@ _TMS = morecantile.tms.get("WebMercatorQuad")
 # scientific color ramps, not a generic heatmap gradient) — extend this table
 # as later D3 steps add SST/chlorophyll/wave/current layers.
 COLOR_RAMPS: dict[str, Any] = {
-    "bathymetry": cmocean.cm.deep,
-    "sst": cmocean.cm.thermal,
-    "salinity": cmocean.cm.haline,
-    "chlorophyll": cmocean.cm.algae,
-    "wave_height": cmocean.cm.amp,
-    "current_speed": cmocean.cm.speed,
+    "bathymetry": cmocean.cm.cmap_d["deep"],
+    "sst": cmocean.cm.cmap_d["thermal"],
+    "salinity": cmocean.cm.cmap_d["haline"],
+    "chlorophyll": cmocean.cm.cmap_d["algae"],
+    "wave_height": cmocean.cm.cmap_d["amp"],
+    "current_speed": cmocean.cm.cmap_d["speed"],
 }
 
 
@@ -237,34 +237,44 @@ def generate_forecast_tiles(
     data_min, data_max = _global_percentiles(np.concatenate(all_display_valid))
     cmap = COLOR_RAMPS[cmap_name]
 
-    tile_count = 0
-    bounds: tuple[float, float, float, float] | None = None
-    for ts, da in prepared:
+    import concurrent.futures
+    import os
+
+    def _render_frame(item):
+        ts, da = item
+        frame_dir = out_dir / _sanitize_frame_dirname(ts)
+        local_count = 0
         lon_min, lat_min = float(da.lon.min()), float(da.lat.min())
         lon_max, lat_max = float(da.lon.max()), float(da.lat.max())
-        bounds = (lon_min, lat_min, lon_max, lat_max)
-        # ":" is illegal in a Windows path component — the on-disk frame
-        # directory is the ISO timestamp with colons swapped for hyphens;
-        # `timestamps` in meta.json keeps the real ISO 8601 string (what the
-        # slider displays/parses), and `tile_url_template`'s `{time}` token
-        # must be substituted with this same sanitized form, not the raw
-        # timestamp — frontend/map/basemap.ts does exactly that swap.
-        frame_dir = out_dir / _sanitize_frame_dirname(ts)
+        local_bounds = (lon_min, lat_min, lon_max, lat_max)
         with XarrayReader(da) as src:
             for z in range(zoom_range[0], zoom_range[1] + 1):
-                for t in _TMS.tiles(*bounds, zooms=[z]):
-                    img = src.tile(t.x, t.y, t.z, tilesize=TILE_SIZE, reproject_method=reproject_method)
-                    arr = img.array
-                    band = arr[0]
-                    display = to_display(np.ma.filled(band, np.nan))
-                    cell_valid = ~np.ma.getmaskarray(band)[:] & valid_predicate(np.ma.filled(band, np.nan))
-                    if not cell_valid.any():
+                for t in _TMS.tiles(*local_bounds, zooms=[z]):
+                    try:
+                        img = src.tile(t.x, t.y, t.z, tilesize=TILE_SIZE, reproject_method=reproject_method)
+                        arr = img.array
+                        band = arr[0]
+                        vals = np.ma.filled(band, np.nan)
+                        cell_valid = ~np.ma.getmaskarray(band)[:] & valid_predicate(vals)
+                        if not cell_valid.any():
+                            continue
+                        display = to_display(vals)
+                        rgba = _colorize_tile(display, cell_valid, data_min, data_max, cmap)
+                        tile_path = frame_dir / str(z) / str(t.x) / f"{t.y}.png"
+                        tile_path.parent.mkdir(parents=True, exist_ok=True)
+                        Image.fromarray(rgba, mode="RGBA").save(tile_path)
+                        local_count += 1
+                    except Exception:  # noqa: BLE001, S112 — tile outside spatial envelope or invalid reprojection
                         continue
-                    rgba = _colorize_tile(display, cell_valid, data_min, data_max, cmap)
-                    tile_path = frame_dir / str(z) / str(t.x) / f"{t.y}.png"
-                    tile_path.parent.mkdir(parents=True, exist_ok=True)
-                    Image.fromarray(rgba, mode="RGBA").save(tile_path)
-                    tile_count += 1
+        return local_count, local_bounds
+
+    tile_count = 0
+    bounds: tuple[float, float, float, float] | None = None
+    workers = min(8, os.cpu_count() or 4)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        for local_count, local_bounds in executor.map(_render_frame, prepared):
+            tile_count += local_count
+            bounds = local_bounds
 
     meta = {
         "layer_id": layer_id,

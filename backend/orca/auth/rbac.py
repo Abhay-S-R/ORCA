@@ -6,6 +6,7 @@ possible here too — one call site to audit, not many.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import Depends, HTTPException, status
@@ -18,6 +19,7 @@ from orca.db.models import User
 from orca.db.repositories import get_user_by_id
 
 _bearer = HTTPBearer(auto_error=False)
+_log = logging.getLogger(__name__)
 
 
 def get_current_user(
@@ -29,7 +31,11 @@ def get_current_user(
     try:
         payload = decode_token(credentials.credentials, expected_type="access")
     except TokenError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"invalid token: {exc}") from exc
+        # The reason goes to the log, never to the caller: "signature expired"
+        # vs "signature verification failed" tells an attacker which half of a
+        # forged token to keep working on. One opaque 401 for every failure.
+        _log.info("rejected access token: %s", exc)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid token") from exc
 
     user = get_user_by_id(db, uuid.UUID(payload["sub"]))
     if user is None or user.status != "active":

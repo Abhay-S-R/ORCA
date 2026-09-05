@@ -1,0 +1,36 @@
+{
+  "scenario": "wave_height watch at Thoothukudi crosses its 2.5 m threshold between two polls",
+  "watch": {
+    "watch_type": "wave_height",
+    "lat": 8.8,
+    "lon": 78.14,
+    "radius_km": 10,
+    "thresholds": { "wave_height_m": 2.5 },
+    "channels": ["sms"]
+  },
+  "last_payload": {
+    "go_no_go": "GO",
+    "reason": "All Parameters Within Safe Operational Limits",
+    "wave_height_m": 1.8,
+    "wind_speed_ms": 4.0,
+    "lightning_active": false,
+    "cyclone_alert": null,
+    "active_hazard_types": [],
+    "confidence": "HIGH"
+  },
+  "snapshot": {
+    "go_no_go": "CAUTION",
+    "reason": "Rough Sea State / Boundary Proximity",
+    "wave_height_m": 3.1,
+    "wind_speed_ms": 9.0,
+    "lightning_active": false,
+    "cyclone_alert": null,
+    "active_hazard_types": [],
+    "confidence": "HIGH"
+  },
+  "expected_decision": {
+    "fired": true,
+    "severity": "warning",
+    "title": "Conditions worsened to CAUTION"
+  }
+}

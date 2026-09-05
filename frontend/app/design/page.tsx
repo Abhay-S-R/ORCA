@@ -5,7 +5,9 @@
 // judgement call — and so the axe-core pass has one place to run first.
 //
 // Deliberately not in NAV_ROUTES: it is a team tool, not a product surface.
-import { useState } from "react";
+import "@xyflow/react/dist/style.css";
+import { ReactFlow, Background, type Node } from "@xyflow/react";
+import { useMemo, useState } from "react";
 import { Anchor } from "lucide-react";
 import { AgentPill, AgentStrip, type AgentStatus } from "../components/AgentPill";
 import { Badge, type BadgeTone, type ConfidenceTier, type Verdict } from "../components/Badge";
@@ -16,10 +18,73 @@ import { LayerToggle } from "../components/LayerToggle";
 import { PageBody, PageHeader } from "../components/PageHeader";
 import { Card, Panel } from "../components/Panel";
 import { Readout, ReadoutGrid } from "../components/Readout";
+import { AgentNode, FanoutGroupNode } from "../reasoning/AgentNode";
+import { layoutTrace } from "../reasoning/dagre-layout";
+import type { TraceGraph } from "../reasoning/fixture";
 import { SourceChip } from "../components/SourceChip";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
 import { TimeSlider } from "../components/TimeSlider";
 import { VerdictBadge } from "../components/VerdictBadge";
+import { FeedbackControl } from "../components/FeedbackControl";
+import { WatchCard } from "../components/WatchCard";
+
+// Stable identity — same reason /reasoning/page.tsx defines this at module
+// scope: a fresh object per render makes React Flow warn and remount nodes.
+const nodeTypes = { agent: AgentNode, fanoutGroup: FanoutGroupNode };
+
+// One node per AgentStatus, one confidence tier not otherwise covered by
+// the "Agent activity" AgentPill row above, and a real parallel-fanout pair
+// — not the /reasoning trace, so nothing here implies a query actually ran.
+const GALLERY_TRACE: TraceGraph = {
+  query_id: "design-gallery",
+  nodes: [
+    {
+      id: "weather_intelligence", agent_name: "Weather Intelligence", depth: 0, status: "pending",
+      confidence_tier: "HIGH", latency_ms: 0, reasoning_summary: "Queued — waiting on planning's fan-out.",
+      source_count: 0, used_llm: false, model: null, tier: null,
+    },
+    {
+      id: "geospatial", agent_name: "Geospatial", depth: 1, status: "running",
+      confidence_tier: "HIGH", latency_ms: 0, reasoning_summary: "Computing distance to the IMBL proxy…",
+      source_count: 0, used_llm: false, model: null, tier: null,
+    },
+    {
+      id: "ocean_analytics", agent_name: "Ocean Analytics", depth: 2, status: "ok",
+      confidence_tier: "HIGH", latency_ms: 260, reasoning_summary: "Falling tide, nearest PFZ 4.2 km.",
+      source_count: 2, used_llm: false, model: null, tier: null,
+    },
+    {
+      id: "risk_assessment", agent_name: "Risk Assessment", depth: 2, status: "ok",
+      confidence_tier: "MEDIUM", latency_ms: 40, reasoning_summary: "Worst-tier rollup — one input stale beyond 6h.",
+      source_count: 3, used_llm: false, model: null, tier: null,
+    },
+    {
+      id: "visualization", agent_name: "Visualization", depth: 3, status: "ok",
+      confidence_tier: "LOW_DATA", latency_ms: 75, reasoning_summary: "Built map layers from a partial input set.",
+      source_count: 0, used_llm: false, model: null, tier: null,
+    },
+    {
+      id: "reporting", agent_name: "Reporting", depth: 4, status: "failed",
+      confidence_tier: "MEDIUM", latency_ms: 900, reasoning_summary: "LLM call timed out after 3 retries.",
+      source_count: 4, used_llm: true, model: "gemini-3.5-flash-lite", tier: "mid",
+    },
+    {
+      id: "language_egress", agent_name: "Language Egress", depth: 5, status: "skipped",
+      confidence_tier: "LOW_DATA", latency_ms: 0, reasoning_summary: "Skipped — upstream reporting failed.",
+      source_count: 0, used_llm: false, model: null, tier: null,
+    },
+  ],
+  edges: [
+    { from: "weather_intelligence", to: "geospatial", kind: "handoff" },
+    { from: "geospatial", to: "ocean_analytics", kind: "handoff" },
+    { from: "geospatial", to: "risk_assessment", kind: "handoff" },
+    { from: "ocean_analytics", to: "visualization", kind: "handoff" },
+    { from: "risk_assessment", to: "visualization", kind: "handoff" },
+    { from: "visualization", to: "reporting", kind: "handoff" },
+    { from: "reporting", to: "language_egress", kind: "handoff" },
+  ],
+  groups: [{ id: "fanout-demo", node_ids: ["ocean_analytics", "risk_assessment"], reason: "parallel_fanout" }],
+};
 
 const TONES: BadgeTone[] = ["go", "caution", "no-go", "neutral", "accent"];
 const VERDICTS: Verdict[] = ["GO", "CAUTION", "NO_GO"];
@@ -48,6 +113,7 @@ export default function DesignPage() {
   const [layer, setLayer] = useState(true);
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const { nodes: galleryNodes, edges: galleryEdges } = useMemo(() => layoutTrace(GALLERY_TRACE), []);
 
   return (
     <PageBody className="mx-auto max-w-4xl">
@@ -137,6 +203,35 @@ export default function DesignPage() {
           </AgentStrip>
         </Section>
 
+        <Section title="Reasoning graph — AgentNode & FanoutGroupNode">
+          <p className="mb-3 text-[11px] text-ink-dim">
+            Border is confidence tier, fill is execution status — every AgentStatus, plus a confidence tier the
+            AgentPill row above doesn&apos;t cover, and a real parallel-fanout group. Not a query result: see{" "}
+            <a href="/reasoning" className="underline">
+              /reasoning
+            </a>{" "}
+            for that.
+          </p>
+          <div className="h-[300px] overflow-hidden rounded-md border border-hairline bg-shelf-1/40">
+            <ReactFlow
+              nodes={galleryNodes as Node[]}
+              edges={galleryEdges}
+              nodeTypes={nodeTypes}
+              fitView
+              fitViewOptions={{ padding: 0.15 }}
+              proOptions={{ hideAttribution: true }}
+              colorMode="dark"
+              nodesDraggable={false}
+              nodesConnectable={false}
+              elementsSelectable={false}
+              zoomOnScroll={false}
+              panOnDrag={false}
+            >
+              <Background gap={22} color="#17384c" />
+            </ReactFlow>
+          </div>
+        </Section>
+
         <Section title="Controls">
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
@@ -205,6 +300,53 @@ export default function DesignPage() {
               action={<Button variant="ghost">Try again</Button>}
             />
           </div>
+        </Section>
+
+        {/* Phase 3 D2 — Sentinel / alerting / feedback primitives. Built on
+            the existing tokens; every state shown so the Day-21 axe pass has
+            them. */}
+        <Section title="Notification feed (D2)">
+          <div className="flex flex-col gap-2">
+            {(["info", "advisory", "warning", "danger"] as const).map((sev) => (
+              <div key={sev} className="glass rounded-md border-l-2 border-accent p-3 text-sm">
+                <p className="flex items-center gap-2 font-semibold text-ink">
+                  <Badge tone={{ info: "neutral", advisory: "accent", warning: "caution", danger: "no-go" }[sev] as BadgeTone}>
+                    {sev}
+                  </Badge>
+                  Conditions worsened to CAUTION
+                </p>
+                <p className="mt-1 text-ink-muted">Forecast wave height 3.1 m at your watch point.</p>
+                {sev !== "info" && (
+                  <p className="mt-1 text-[11px] text-ink-dim">
+                    Channel <span className="text-ink-muted">sms</span> — SIMULATED, no message transmitted.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <Section title="Advisory feedback (D2)">
+          <FeedbackControl queryId="00000000-0000-0000-0000-000000000000" advisoryRef="demo" />
+        </Section>
+
+        <Section title="Watch card (D2)">
+          <WatchCard
+            watch={{
+              id: "demo",
+              watch_type: "wave_height",
+              lat: 8.8,
+              lon: 78.14,
+              radius_km: 10,
+              vessel_id: null,
+              thresholds: { wave_height_m: 2.5 },
+              channels: ["in_app"],
+              enabled: true,
+              last_fired_at: null,
+              created_at: new Date().toISOString(),
+            }}
+            onChange={() => {}}
+          />
         </Section>
       </div>
     </PageBody>

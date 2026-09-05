@@ -32,7 +32,7 @@ class ORCAState(TypedDict):
 
     target_bbox: dict[str, float]
     target_time_window: dict[str, str]
-    user_location: dict[str, float] | None
+    user_location: dict[str, Any] | None
     vessel_class: str | None  # required by Agent 7's vessel-class threshold deltas (§4.6)
 
     discovery_data: dict[str, Any]

@@ -16,8 +16,8 @@ import { Readout, ReadoutGrid } from "../components/Readout";
 import { SourceChip } from "../components/SourceChip";
 import { EmptyState, Skeleton } from "../components/States";
 import { VerdictBadge } from "../components/VerdictBadge";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+import { FormattedResponse } from "../components/FormattedResponse";
+import { API_BASE } from "../lib/apiBase";
 
 type VesselClass = "small_fishing" | "mechanized_trawler" | "cargo_vessel";
 const VESSEL_LABELS: Record<VesselClass, string> = {
@@ -102,34 +102,41 @@ export default function SafetyPage() {
         lede="Pick your vessel and ask. The verdict accounts for wave height, wind, lightning, cyclone alerts and how close you are to a boundary you must not cross."
       />
 
-      <form onSubmit={check} className="mb-5">
-        <div className="grid gap-x-4 sm:grid-cols-2">
-          <Field label="Question">
-            {(id) => (
-              <input id={id} value={query} onChange={(e) => setQuery(e.target.value)} className={inputClass} />
-            )}
-          </Field>
-          <Field label="Vessel class" hint={VESSEL_DELTAS[vesselClass]}>
-            {(id) => (
-              <select
-                id={id}
-                value={vesselClass}
-                onChange={(e) => setVesselClass(e.target.value as VesselClass)}
-                className={inputClass}
-              >
-                {(Object.keys(VESSEL_LABELS) as VesselClass[]).map((v) => (
-                  <option key={v} value={v} className="bg-shelf-2">
-                    {VESSEL_LABELS[v]}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-        </div>
-        <Button type="submit" variant="primary" disabled={streaming} icon={<ShieldCheck className="size-4" />}>
-          {streaming ? "Checking" : "Check safety"}
-        </Button>
-      </form>
+      <div className="mb-6 rounded-2xl border border-hairline bg-shelf-1/80 p-5 shadow-xl backdrop-blur-md">
+        <form onSubmit={check}>
+          <div className="grid gap-x-5 sm:grid-cols-2">
+            <Field label="Question">
+              {(id) => (
+                <input id={id} value={query} onChange={(e) => setQuery(e.target.value)} className={inputClass} />
+              )}
+            </Field>
+            <Field label="Vessel class" hint={VESSEL_DELTAS[vesselClass]}>
+              {(id) => (
+                <select
+                  id={id}
+                  value={vesselClass}
+                  onChange={(e) => setVesselClass(e.target.value as VesselClass)}
+                  className={inputClass}
+                >
+                  {(Object.keys(VESSEL_LABELS) as VesselClass[]).map((v) => (
+                    <option key={v} value={v} className="bg-shelf-2">
+                      {VESSEL_LABELS[v]}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+          </div>
+          <div className="mt-2 flex items-center justify-between pt-2 border-t border-hairline/50">
+            <span className="font-mono text-[10px] text-ink-dim uppercase">
+              THRESHOLD SAFETY GATE // AGENT 7
+            </span>
+            <Button type="submit" variant="primary" disabled={streaming} icon={<ShieldCheck className="size-4" />}>
+              {streaming ? "Evaluating Telemetry..." : "Check Safety Verdict"}
+            </Button>
+          </div>
+        </form>
+      </div>
 
       {spans.length > 0 && (
         <div className="mb-5">
@@ -159,7 +166,7 @@ export default function SafetyPage() {
       {answer && (
         <div aria-live="polite" className="flex flex-col gap-4">
           {answer.risk_assessment && (
-            <VerdictBadge verdict={answer.risk_assessment.go_no_go} summary={answer.risk_assessment.reason}>
+            <VerdictBadge verdict={answer.risk_assessment.go_no_go} summary={answer.risk_assessment.reason} confidenceTier={answer.confidence_tier}>
               <div className="mt-3">
                 <ConfidenceMeter tier={answer.confidence_tier} />
               </div>
@@ -167,7 +174,7 @@ export default function SafetyPage() {
           )}
 
           <Panel title="What ORCA is telling you">
-            <p className="text-[15px] leading-relaxed text-ink">{answer.final_vernacular_response}</p>
+            <FormattedResponse text={answer.final_vernacular_response} />
           </Panel>
 
           <Panel title="Weather" action={weatherCite && <SourceChip dataset={weatherCite.dataset} acquisitionTimestamp={weatherCite.acquisition_timestamp} />}>

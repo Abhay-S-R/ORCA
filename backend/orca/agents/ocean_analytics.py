@@ -33,6 +33,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
+from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.agents import geospatial
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.data import analytics_loaders as al
@@ -45,10 +47,10 @@ _COMPASS_16 = (
     "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
 )
 
-# South Tamil Nadu is the pilot sector (SEC006); the pilot region's own
-# default position is Thoothukudi, matching the Phase 1 acceptance query.
+# South Tamil Nadu is the pilot sector (SEC006). The default position itself
+# lives in loaders.DEFAULT_LAT/LON — one copy, so it cannot drift out of step
+# with what /query actually answers a locationless request at.
 _PILOT_SECTOR = "SEC006"
-_DEFAULT_LAT, _DEFAULT_LON = 8.80, 78.14
 
 
 def _compass(bearing_deg: float) -> str:
@@ -725,7 +727,28 @@ def run(state: ORCAState) -> AgentResult:
         "source_selections": source_selections,
     }
 
-    contributing = [tide.confidence, persistence["confidence"], correlation["confidence"]]
+    # Primary operational confidence: tide + PFZ proximity
+    contributing = [tide.confidence]
+    if near.found:
+        compass_str = f" ({near.compass})" if near.compass else ""
+        contributing.append(Confidence(score="HIGH", rationale=f"Active INCOIS PFZ advisory at {near.distance_km} km{compass_str}"))
+    elif near.sector_id:
+        contributing.append(Confidence(score="MEDIUM", rationale=f"No PFZ advisory within sector {near.sector_id}"))
+    else:
+        contributing.append(Confidence(score="LOW_DATA", rationale="No PFZ advisory data found"))
+
+    # Multi-day persistence is an analytical trend: if multi-day history is present (>= 2 days),
+    # it contributes to overall confidence; if only 1 snapshot exists, it is indicative
+    # and recorded on pfz_persistence without degrading live operational safety.
+    if persistence.get("days_on_record", 0) >= 2:
+        contributing.append(persistence["confidence"])
+
+    # Gridded SST/chlorophyll correlation is a specialized oceanographic layer (D3 seam).
+    # If the user specifically asks about ocean temperature/colour, or if gridded data is available,
+    # it contributes to confidence.
+    is_ocean_color_query = any(w in query for w in ("sst", "chlorophyll", "temperature", "plankton", "water quality", "satellite"))
+    if correlation.get("available") or is_ocean_color_query:
+        contributing.append(correlation["confidence"])
 
     is_decline_query = any(w in query for w in ("decline", "declined", "why has", "productivity", "catch dropped", "fewer fish"))
     if is_decline_query or depth == "DEEP":
@@ -757,7 +780,7 @@ if __name__ == "__main__":
         "raw_user_query": "why has catch declined near Thoothukudi and where are the PFZs",
         "normalized_english_query": "why has catch declined near Thoothukudi and where are the PFZs",
         "reasoning_depth": "DEEP",
-        "user_location": {"lat": 8.80, "lon": 78.14},
+        "user_location": {"lat": _DEFAULT_LAT, "lon": _DEFAULT_LON},
     }
     res = run(st)
     assert res.agent_name == "ocean_analytics"

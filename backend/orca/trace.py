@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -19,6 +20,25 @@ from opentelemetry.sdk.trace import TracerProvider
 
 from orca.contracts import AgentResult, Confidence, SourceProvenance
 from orca.state import ORCAState
+
+
+def _json_safe(value: Any) -> Any:
+    """Recursively converts frozen dataclasses (MapLayer, ChartSpec, Confidence,
+    ...) to plain dicts so an AgentResult's outputs/inputs_consumed can reach
+    a JSONB column and json.dumps without every agent having to remember to
+    asdict() its own outputs before returning them. Some agents' AgentResult
+    (visualization.run, in particular) intentionally hand back real
+    dataclass instances rather than pre-flattened dicts — that is a
+    reasonable thing for an agent to return, so the trace/persistence
+    boundary normalizes it here rather than pushing an asdict() call into
+    every agent module."""
+    if is_dataclass(value) and not isinstance(value, type):
+        return {k: _json_safe(v) for k, v in asdict(value).items()}
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
 
 # A bare TracerProvider with no exporter attached is intentional for Phase 1
 # — spans are created and can be inspected via the SDK, but nothing is
@@ -77,6 +97,21 @@ def run_traced_node(
         "ended_at": _utc_iso(ended),
         "latency_ms": round((ended - started) * 1000, 1),
         "error_detail": result.error_detail,
+        # Persisted so /trace/{query_id} and /render (Phase 3 D1) can
+        # reconstruct the full AgentResult from Postgres alone — replay must
+        # not depend on ORCAState still being in memory, and /render must
+        # never re-invoke a specialist agent to get its numbers back.
+        # _json_safe: some agents (visualization.run, in particular) return
+        # real MapLayer/ChartSpec dataclass instances in .outputs rather
+        # than pre-flattened dicts — flattened here once, at the
+        # trace/persistence boundary, rather than in every agent module.
+        "inputs_consumed": _json_safe(result.inputs_consumed),
+        "outputs": _json_safe(result.outputs),
+        "source_provenance": {
+            "dataset": result.source_provenance.dataset,
+            "acquisition_timestamp": result.source_provenance.acquisition_timestamp,
+            "freshness_minutes": result.source_provenance.freshness_minutes,
+        },
     }
     return result, entry
 

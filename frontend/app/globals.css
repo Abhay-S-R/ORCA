@@ -1,82 +1,87 @@
 @import "tailwindcss";
 
-/* ORCA — ECDIS night palette (plan §4.1 "maritime command centre").
-   The vernacular is an electronic chart display on a bridge at night, not a
-   dark dashboard: a cold navy base, a surface ramp that reads as increasing
-   depth, and chart magenta — the nautical convention for lights and
-   cautionary areas — as the single interactive accent.
-
-   Dark is the base, not a `prefers-color-scheme` branch. There is no light
-   theme: the product is read on a bridge at night and on a deck in sun, and
-   both of those want the same high-contrast dark surface. */
+/* ORCA — Admiralty Chart & Ship's Log.
+   The vernacular is a paper nautical chart on a chart table: warm parchment,
+   dark ink soundings, chart-teal for the brand mark, chart-emerald/amber/rust
+   for the safety triad, and a muted rose reserved for caution/boundary
+   vectors. Same token NAMES as the console this replaced (so every component
+   that reads `bg-shelf-1`, `text-ink`, `border-hairline` etc. re-themes for
+   free) — only the values moved from a night-vision console to daylight
+   paper. */
 @theme {
-  /* Depth ramp. Each step is a surface elevation AND, on the map, a literal
-     water-depth band — same ramp drives both, which is why the panels sit
-     visually "in" the chart rather than on top of it. */
-  --color-abyss: #04121c;
-  --color-shelf-1: #08202e;
-  --color-shelf-2: #0e3346;
-  --color-shelf-3: #164861;
-  --color-shoal: #22617f;
+  /* Paper ramp: base canvas to the most-elevated card */
+  --color-abyss: #f2ead4;
+  --color-trench: #ece1c4;
+  --color-shelf-1: #faf6ea;
+  --color-shelf-2: #f5efdc;
+  --color-shelf-3: #fffdf6;
+  --color-shoal: #8a7f66;
 
-  /* Hairlines. Chart cartography rules a graticule, it does not draw boxes —
-     so borders here are 1px and low-contrast by design. */
-  --color-hairline: #17384c;
-  --color-hairline-strong: #24576f;
+  /* Chart hairlines & rules — ink at low opacity, not a grey */
+  --color-hairline: rgba(27, 38, 51, 0.16);
+  --color-hairline-strong: rgba(27, 38, 51, 0.32);
+  --color-hairline-glow: rgba(47, 111, 116, 0.25);
 
-  /* Type tones on --color-abyss: 15.8:1, 7.1:1, 4.6:1 respectively. */
-  --color-ink: #dce9f0;
-  --color-ink-muted: #8fadbe;
-  --color-ink-dim: #64879a;
+  /* Type tones on parchment */
+  --color-ink: #1c2939;
+  --color-ink-muted: #5b5646;
+  --color-ink-dim: #8c8672;
 
-  /* Chart magenta. Interactive state only — active nav, focus ring,
-     selection, cautionary chart features. It must never appear on a number. */
-  --color-accent: #f0468c;
-  --color-accent-dim: #8e2a56;
+  /* Chart-teal: the brand accent (was the console's ocean-cyan) */
+  --color-ocean-cyan: #2f6f74;
+  --color-ocean-cyan-dim: #1f4d51;
+  --color-accent: #8a3b52;
+  --color-accent-dim: #5e2837;
 
-  /* The safety triad (plan §4.1). Reserved EXCLUSIVELY for verdicts and
-     hazard severity. Nothing else in the UI may use these three, because
-     nothing else may compete with the verdict badge for contrast.
-     Contrast on --color-abyss: go 11.4:1, caution 13.2:1, no-go 6.8:1. */
-  --color-go: #3ddc97;
-  --color-caution: #ffc145;
-  --color-no-go: #ff5c5c;
+  /* The safety triad: verdicts and hazard telemetry */
+  --color-go: #2f7a4f;
+  --color-caution: #b8862e;
+  --color-no-go: #b3402c;
 
-  /* Confidence tiers are deliberately NOT the safety triad — a LOW_DATA
-     caveat is not a hazard, and colouring it red would overstate it
-     (Ground Rule 3: a treatment may not make data look more certain, or
-     more alarming, than its tier says). */
-  --color-confidence-high: #7fd4e8;
-  --color-confidence-medium: #9aa8d8;
-  --color-confidence-low: #b08cc4;
+  /* Confidence tiers — deliberately outside the safety triad's palette */
+  --color-confidence-high: #3f7f86;
+  --color-confidence-medium: #6b6ba0;
+  --color-confidence-low: #9b6ba8;
+  --color-data-limited: #a56a1f;
+
+  /* Text placed on a solid accent/danger button — needs to stay light
+     regardless of theme, since those backgrounds are mid-tone saturated
+     colours rather than the page's own light/dark base. */
+  --color-on-accent: #fffdf6;
 
   --font-sans: var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-fraunces), Georgia, serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
   --font-tamil: var(--font-noto-tamil), var(--font-barlow), sans-serif;
 
-  /* Glass elevation. Panels float over the chart; blur is what keeps the
-     map legible underneath instead of being boxed out by it. */
-  --blur-glass: 14px;
+  --blur-glass: 12px;
 }
 
 @layer base {
   html {
     background-color: var(--color-abyss);
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   body {
     background-color: var(--color-abyss);
     color: var(--color-ink);
     font-family: var(--font-sans);
-    /* Barlow's default figures are proportional; readouts need tabular so a
-       streaming wave height does not jitter its own column width. */
-    font-feature-settings: "cv05";
+    font-feature-settings: "cv05", "tnum";
     -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(47, 111, 116, 0.06), transparent),
+      linear-gradient(180deg, rgba(255, 253, 246, 0.5) 0%, var(--color-abyss) 260px);
   }
 
-  /* Every numeric readout — depth, bearing, lat/lon, wave height — is
-     tabular. This is functional, not stylistic: values update live. */
+  /* Display serif — the "ORCA" wordmark and section heads only. A page-wide
+     serif would fight the mono readouts for attention; restraint is the
+     signature move here, not omnipresence. */
+  h1, h2, .font-display {
+    font-family: var(--font-serif);
+  }
+
+  /* Numeric and spatial readouts */
   .tnum,
   [data-readout] {
     font-family: var(--font-mono);
@@ -85,18 +90,17 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-ocean-cyan);
     outline-offset: 2px;
-    border-radius: 2px;
+    border-radius: 3px;
   }
 
   ::selection {
-    background: var(--color-accent-dim);
+    background: rgba(47, 111, 116, 0.22);
     color: var(--color-ink);
   }
 
-  /* Scrollbars are chrome; keep them in the palette rather than letting the
-     browser punch a light-grey hole in a dark console. */
+  /* Warm paper scrollbars */
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--color-hairline-strong) transparent;
@@ -104,18 +108,83 @@
 }
 
 @layer components {
-  /* The glass panel. One definition, used by Panel and every docked map
-     readout, so "a panel" cannot drift into six interpretations (§4.1). */
+  /* Chart card: a sheet of paper lifted off the table, not a pane of glass —
+     the blur stays (it still separates a floating panel from the chart
+     underneath it) but the shadow and highlight read as paper, not screen. */
   .glass {
-    background: color-mix(in oklab, var(--color-shelf-1) 82%, transparent);
-    backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
-    -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.4);
+    background: color-mix(in oklab, var(--color-shelf-1) 92%, transparent);
+    backdrop-filter: blur(var(--blur-glass)) saturate(1.05);
+    -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.05);
     border: 1px solid var(--color-hairline);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.7),
+      0 6px 20px -6px rgba(40, 32, 16, 0.18);
+  }
+
+  /* Deep chassis for high-importance telemetry instruments */
+  .marine-chassis {
+    background: linear-gradient(180deg, rgba(255, 253, 246, 0.6) 0%, rgba(245, 239, 220, 0.7) 100%);
+    border: 1px solid var(--color-hairline);
+    border-top-color: rgba(255, 255, 255, 0.8);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.8),
+      0 10px 28px -8px rgba(40, 32, 16, 0.16);
+  }
+
+  /* Subtle chart latitude/longitude grid pattern */
+  .chart-grid {
+    background-size: 32px 32px;
+    background-image:
+      linear-gradient(to right, rgba(27, 38, 51, 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(27, 38, 51, 0.05) 1px, transparent 1px);
+  }
+
+  /* Tactical corner brackets [ ] for target frames and telemetry blocks */
+  .tactical-frame {
+    position: relative;
+  }
+  .tactical-frame::before,
+  .tactical-frame::after {
+    content: "";
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    pointer-events: none;
+    border-color: rgba(47, 111, 116, 0.4);
+  }
+  .tactical-frame::before {
+    top: -1px;
+    left: -1px;
+    border-top: 1.5px solid;
+    border-left: 1.5px solid;
+  }
+  .tactical-frame::after {
+    bottom: -1px;
+    right: -1px;
+    border-bottom: 1.5px solid;
+    border-right: 1.5px solid;
   }
 }
 
-/* Motion is never the only carrier of state (§4.11). Every animation below
-   has a non-motion equivalent — a colour, a label, or a value change. */
+/* Radar & Telemetry Animations */
+@keyframes radar-sweep {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes beacon-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.08); }
+}
+
+.radar-sweep {
+  animation: radar-sweep 6s linear infinite;
+}
+
+.beacon-pulse {
+  animation: beacon-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -127,10 +196,9 @@
   }
 }
 
-/* MapLibre's own chrome ships light-themed; bring it into the palette here
-   rather than fighting it per-instance in MapView. */
+/* MapLibre chart-paper theme styling */
 .maplibregl-ctrl-attrib {
-  background: color-mix(in oklab, var(--color-abyss) 85%, transparent) !important;
+  background: color-mix(in oklab, var(--color-shelf-1) 90%, transparent) !important;
   color: var(--color-ink-dim) !important;
   font-family: var(--font-sans);
   font-size: 10px;
@@ -139,27 +207,26 @@
   color: var(--color-ink-muted) !important;
 }
 .maplibregl-ctrl-group {
-  background: var(--color-shelf-2) !important;
+  background: var(--color-shelf-3) !important;
   border: 1px solid var(--color-hairline) !important;
-  box-shadow: none !important;
+  box-shadow: 0 4px 12px rgba(40, 32, 16, 0.15) !important;
 }
 .maplibregl-ctrl-group button + button {
   border-top: 1px solid var(--color-hairline) !important;
 }
 .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
-  filter: invert(1) brightness(1.4);
+  filter: invert(0.15) brightness(0.9);
 }
-/* The scale bar is a chart instrument, not a widget: hairline rule, mono
-   figures, no white chip floating over the sea. */
 .maplibregl-ctrl-scale {
-  background: color-mix(in oklab, var(--color-abyss) 70%, transparent) !important;
+  background: color-mix(in oklab, var(--color-shelf-1) 85%, transparent) !important;
   border: 1px solid var(--color-hairline-strong) !important;
   border-top: none !important;
   color: var(--color-ink-muted) !important;
   font-family: var(--font-mono);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
-  padding: 1px 5px !important;
+  padding: 2px 6px !important;
+  border-radius: 0 0 2px 2px !important;
 }
 .maplibregl-popup-content {
   background: transparent !important;

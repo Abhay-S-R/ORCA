@@ -86,3 +86,56 @@ def test_export_json_contains_full_provenance_per_data_point():
     assert payload["query_id"] == "q-1"
     assert payload["citations"][0]["dataset"] == "Open-Meteo Marine"
     assert payload["result_refs"][0]["outputs"]["wind_speed_10m"] == 5.0
+
+
+# --- location honesty ---------------------------------------------------------
+# The narrative prompt sees the raw user query, so if it is not told which
+# position the telemetry belongs to it will narrate the default position's
+# numbers under whatever place the user typed.
+
+def test_describe_location_names_a_resolved_place():
+    from orca.agents.reporting import describe_location
+
+    text = describe_location({"lat": 9.2833, "lon": 79.2, "place_name": "pamban", "place_source": "pilot_gazetteer"})
+    assert "pamban" in text
+    assert "9.2833" in text and "79.2" in text
+
+
+def test_describe_location_admits_the_regional_default():
+    from orca.agents.reporting import describe_location
+
+    text = describe_location({"lat": 8.8, "lon": 78.3, "place_name": None, "place_source": "regional_default"})
+    assert "default" in text.lower()
+    assert "no location that could be resolved" in text
+
+
+def test_the_prompt_carries_the_location_and_forbids_naming_another():
+    """A GO computed at the default position must not be narrated as a GO for
+    the place the user named. The instruction is what stops that."""
+    import orca.agents.reporting as reporting
+
+    captured = {}
+
+    class _Client:
+        def complete(self, messages):
+            captured["prompt"] = messages[0]["content"]
+            return "NO_GO: nope"
+
+    import orca.llm.tiers as tiers
+
+    original = tiers.llm
+    tiers.llm = lambda tier: _Client()
+    try:
+        reporting.synthesize_narrative(
+            "is it safe off Mangalore", {"go_no_go": "NO_GO", "reason": "nope"}, [],
+            user_location={"lat": 8.8, "lon": 78.3, "place_name": None, "place_source": "regional_default"},
+        )
+    finally:
+        tiers.llm = original
+
+    prompt = captured["prompt"]
+    assert "LOCATION THIS ADVICE IS FOR" in prompt
+    assert "default position" in prompt
+    assert "Never name a place the location line does not name." in prompt
+    # No agent-identity leak into user-facing text.
+    assert "Agent 9" not in prompt and "ORCA Reporting Agent" not in prompt

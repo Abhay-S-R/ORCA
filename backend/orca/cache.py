@@ -49,11 +49,18 @@ def cache_stats() -> dict[str, int]:
     return dict(_stats)
 
 
-def _redis_client() -> Any:
+def redis_client() -> Any:
+    """The one place a Redis connection is opened — `orca/query_cache.py`
+    (phase4 plan §2.2/§2.3) reuses this rather than a second client
+    construction, same short connect/socket timeouts so a Redis outage
+    degrades fast everywhere, not just here."""
     import redis  # already-installed dependency (backend/requirements.txt)
 
     url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
     return redis.from_url(url, socket_connect_timeout=1, socket_timeout=1)
+
+
+_redis_client = redis_client  # internal alias, kept so existing call sites below are untouched
 
 
 def _cache_key(source_name: str, fn: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
@@ -65,34 +72,67 @@ def _cache_key(source_name: str, fn: Callable[..., Any], args: tuple[Any, ...], 
     return f"orca:cache:{source_name}:{fn.__name__}:{digest}"
 
 
-def orca_cache(source_name: str) -> Callable[[Callable[..., T]], Callable[..., T]]:
+def _background_refresh(fn: Callable[..., Any], args: tuple, kwargs: dict, key: str, fresh_key: str, ttl: int, stale_ttl: int) -> None:
+    import threading
+
+    def _run() -> None:
+        try:
+            result = fn(*args, **kwargs)
+            client = redis_client()
+            client.setex(key, stale_ttl, json.dumps(result, default=str))
+            client.setex(fresh_key, ttl, b"1")
+        except Exception as exc:  # noqa: BLE001 — a failed background refresh just leaves the stale value in place
+            logger.warning("orca_cache: stale-while-revalidate background refresh failed (%s)", exc)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def orca_cache(source_name: str, *, stale_ok: bool = False) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Decorator: `@orca_cache("open_meteo")` on an agent tool fetch. Cache
     hit returns the stored JSON-decoded value; a miss calls the real `fn`,
     stores its result (must be JSON-serializable) with the cadence's TTL,
     and returns it. Any Redis error (down, timeout, unreachable) degrades
     silently to calling `fn` directly — never a cache failure blocking the
-    pipeline."""
+    pipeline.
+
+    `stale_ok=True` (Architecture §9.14, phase4 plan §2.4) — for non-safety
+    data only (SST snapshots, PFZ persistence; never anything
+    risk_assessment reads) — returns the last cached value immediately once
+    it has passed its normal cadence TTL, up to a fixed 4x hard ceiling,
+    while a background thread refreshes it. Ordinary sources (stale_ok
+    unset) are unchanged: a miss past TTL always blocks on a fresh fetch."""
     ttl = TTL_SECONDS.get(source_name, DEFAULT_TTL_SECONDS)
+    stale_ttl = ttl * 4  # ponytail: fixed hard ceiling; make per-source if one ever needs a different bound
 
     def decorator(fn: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(fn)
         def wrapped(*args: Any, **kwargs: Any) -> T:
             key = _cache_key(source_name, fn, args, kwargs)
+            fresh_key = f"{key}:fresh"
             try:
-                client = _redis_client()
+                client = redis_client()
+                fresh = client.get(fresh_key)
                 cached = client.get(key)
             except Exception as exc:  # noqa: BLE001 — Redis outage falls through to the real fetch
                 logger.warning("orca_cache: Redis unavailable (%s), calling %s directly", exc, fn.__name__)
                 return fn(*args, **kwargs)
 
-            if cached is not None:
+            if fresh is not None and cached is not None:
                 _stats["hits"] += 1
+                return json.loads(cached)  # type: ignore[no-any-return]
+
+            if stale_ok and cached is not None:
+                # Past cadence TTL but within the hard ceiling: serve stale,
+                # refresh in the background — never blocks the caller.
+                _stats["hits"] += 1
+                _background_refresh(fn, args, kwargs, key, fresh_key, ttl, stale_ttl)
                 return json.loads(cached)  # type: ignore[no-any-return]
 
             _stats["misses"] += 1
             result = fn(*args, **kwargs)
             try:
-                client.setex(key, ttl, json.dumps(result, default=str))
+                client.setex(key, stale_ttl if stale_ok else ttl, json.dumps(result, default=str))
+                client.setex(fresh_key, ttl, b"1")
             except Exception as exc:  # noqa: BLE001 — a write failure still returns the real result
                 logger.warning("orca_cache: failed to store %s in Redis (%s)", key, exc)
             return result
