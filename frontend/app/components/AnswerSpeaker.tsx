@@ -1,11 +1,11 @@
 "use client";
 
 // Voice egress (plan §6 D1 Day 17): TTS playback of the verdict via
-// POST /voice/speak. Auto-plays for the fisherman persona only — every
-// other persona gets the same control as a manual "Play verdict" button,
-// never an autoplay.
+// POST /voice/speak. Manual only — every persona, including fisherman,
+// gets the same "Play verdict" button. Never autoplays; playback starts
+// and stops only on explicit user action.
 import { useEffect, useRef, useState } from "react";
-import { Volume2 } from "lucide-react";
+import { Volume2, Square } from "lucide-react";
 import { Button } from "./Button";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
@@ -25,7 +25,12 @@ export function AnswerSpeaker({
   const [rung, setRung] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const urlRef = useRef<string | null>(null);
-  const autoplayedFor = useRef<string | undefined>(undefined);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  function stop() {
+    audioRef.current?.pause();
+    setPlaying(false);
+  }
 
   async function speak() {
     if (!text.trim()) return;
@@ -48,6 +53,7 @@ export function AnswerSpeaker({
       const url = URL.createObjectURL(blob);
       urlRef.current = url;
       const audio = new Audio(url);
+      audioRef.current = audio;
       audio.onended = () => setPlaying(false);
       audio.onerror = () => setPlaying(false);
       await audio.play();
@@ -57,19 +63,15 @@ export function AnswerSpeaker({
     }
   }
 
-  // Once per answer (queryId), fisherman persona only — never re-triggers on
-  // a persona-correction re-render that keeps the same query_id, and never
-  // fires for the other three personas.
+  // Stop and release any in-flight audio when the answer being narrated
+  // changes or the component unmounts — never let a stale clip keep
+  // playing over a new one.
   useEffect(() => {
-    if (persona === "fisherman" && queryId && autoplayedFor.current !== queryId) {
-      autoplayedFor.current = queryId;
-      speak();
-    }
     return () => {
+      audioRef.current?.pause();
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [persona, queryId]);
+  }, [queryId, persona]);
 
   return (
     <div className="flex items-center gap-2">
@@ -83,6 +85,11 @@ export function AnswerSpeaker({
       >
         {playing ? "Playing…" : "Play verdict"}
       </Button>
+      {playing && (
+        <Button type="button" variant="ghost" className="text-xs" icon={<Square className="size-3.5" />} onClick={stop}>
+          Stop
+        </Button>
+      )}
       {rung && <span className="text-[11px] text-ink-dim">via {rung === "mms_tts" ? "MMS-TTS (local)" : rung}</span>}
       {error && <span className="text-[11px] text-no-go">{error}</span>}
     </div>
