@@ -381,7 +381,7 @@ function ReasoningContent() {
       <div className="relative z-30 flex flex-col gap-3 rounded-2xl border border-hairline/80 bg-shelf-1/80 p-3.5 shadow-lg backdrop-blur-md">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <div className="grid size-9 place-items-center rounded-xl border border-sky-400/40 bg-sky-950/60 text-sky-400 shadow-md">
+            <div className="grid size-9 place-items-center rounded-xl border border-ocean-cyan/40 bg-ocean-cyan/10 text-ocean-cyan shadow-md">
               <Workflow className="size-5" />
             </div>
             <div>
@@ -392,7 +392,7 @@ function ReasoningContent() {
                 <span
                   className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide border ${
                     isStreaming
-                      ? "border-sky-400/60 bg-sky-950/50 text-sky-400 shadow-sm shadow-sky-400/30"
+                      ? "border-ocean-cyan/60 bg-ocean-cyan/10 text-ocean-cyan shadow-sm"
                       : "border-go/40 bg-go/15 text-go"
                   }`}
                 >
@@ -418,10 +418,10 @@ function ReasoningContent() {
                 onClick={() => setShowRecentDropdown((v) => !v)}
                 className="flex items-center gap-1.5 rounded-xl border border-hairline bg-shelf-2/60 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-hairline-strong hover:bg-shelf-2"
               >
-                <History className="size-3.5 text-sky-400" />
+                <History className="size-3.5 text-ocean-cyan" />
                 <span>Recent Traces</span>
                 {recentTraces.length > 0 && (
-                  <span className="rounded-full bg-sky-500/20 px-1.5 py-0.2 text-[10px] font-mono text-sky-300">
+                  <span className="rounded-full bg-ocean-cyan/10 px-1.5 py-0.2 text-[10px] font-mono text-ocean-cyan">
                     {recentTraces.length}
                   </span>
                 )}
@@ -470,7 +470,7 @@ function ReasoningContent() {
                                   item.verdict === "GO"
                                     ? "bg-go/15 text-go border border-go/30"
                                     : item.verdict === "DISTRESS"
-                                    ? "bg-red-950 text-red-400 border border-red-800/40"
+                                    ? "bg-no-go/10 text-no-go border border-no-go/30"
                                     : "bg-caution/15 text-caution border border-caution/30"
                                 }`}
                               >
@@ -517,18 +517,18 @@ function ReasoningContent() {
               onChange={(e) => setQueryInput(e.target.value)}
               aria-label="Ask ORCA"
               placeholder="Ask ORCA a question to observe real-time agentic reasoning..."
-              className="w-full rounded-xl border border-hairline bg-abyss/70 py-2.5 pl-10 pr-4 text-sm text-ink placeholder:text-ink-dim/60 transition-colors hover:border-hairline-strong focus:border-sky-400 focus:outline-none"
+              className="w-full rounded-xl border border-hairline bg-abyss/70 py-2.5 pl-10 pr-4 text-sm text-ink placeholder:text-ink-dim/60 transition-colors hover:border-hairline-strong focus:border-ocean-cyan/70 focus:outline-none"
             />
           </div>
 
           <button
             type="submit"
             disabled={isStreaming || !queryInput.trim()}
-            className="flex items-center gap-2 rounded-xl border border-sky-400/50 bg-sky-500/20 px-4 py-2.5 text-xs font-semibold text-sky-300 shadow-md transition-all hover:bg-sky-500/30 disabled:opacity-40"
+            className="flex items-center gap-2 rounded-xl border border-ocean-cyan/50 bg-ocean-cyan/10 px-4 py-2.5 text-xs font-semibold text-ocean-cyan shadow-md transition-all hover:bg-ocean-cyan/15 disabled:opacity-40"
           >
             {isStreaming ? (
               <>
-                <span className="size-3 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
+                <span className="size-3 rounded-full border-2 border-ocean-cyan border-t-transparent animate-spin" />
                 <span>Executing Pipeline...</span>
               </>
             ) : (
@@ -540,32 +540,36 @@ function ReasoningContent() {
           </button>
         </form>
 
-        {/* Quick Scenario Chips */}
-        <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-hairline/40">
-          <span className="text-[11px] font-semibold text-ink-dim mr-1">
-            Scenarios:
+        {/* Quick Scenario Chips — a real grid (equal widths, deliberate row
+            alignment) rather than left-aligned wrapping chips, so a
+            shorter second row never reads as an accidental gap. */}
+        <div className="border-t border-hairline/40 pt-2">
+          <span className="mb-1.5 block text-[11px] font-semibold text-ink-dim">
+            Scenarios
           </span>
-          {SCENARIOS.map((sc) => {
-            const ScIcon = sc.icon;
-            return (
-              <button
-                key={sc.id}
-                type="button"
-                onClick={() => {
-                  setQueryInput(sc.query);
-                  runLiveQuery(sc.query);
-                }}
-                disabled={isStreaming}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-hairline/80 bg-shelf-2/40 px-2.5 py-1 text-[11px] text-ink-muted transition-all hover:border-sky-400/60 hover:bg-shelf-2 hover:text-ink disabled:opacity-40"
-              >
-                <ScIcon className="size-3 text-sky-400" />
-                <span>{sc.title}</span>
-                <span className="rounded bg-abyss/80 px-1 py-0.2 text-[9px] font-mono text-ink-dim">
-                  {sc.badge}
-                </span>
-              </button>
-            );
-          })}
+          <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-4">
+            {SCENARIOS.map((sc) => {
+              const ScIcon = sc.icon;
+              return (
+                <button
+                  key={sc.id}
+                  type="button"
+                  onClick={() => {
+                    setQueryInput(sc.query);
+                    runLiveQuery(sc.query);
+                  }}
+                  disabled={isStreaming}
+                  className="flex items-center gap-1.5 rounded-lg border border-hairline/80 bg-shelf-2/40 px-2.5 py-1.5 text-[11px] text-ink-muted transition-all hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink disabled:opacity-40"
+                >
+                  <ScIcon className="size-3 shrink-0 text-ocean-cyan" />
+                  <span className="min-w-0 flex-1 truncate text-left">{sc.title}</span>
+                  <span className="shrink-0 rounded bg-shelf-1/80 px-1 py-0.2 text-[9px] font-mono text-ink-dim">
+                    {sc.badge}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -578,7 +582,7 @@ function ReasoningContent() {
               initial={{ y: -50, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: -50, opacity: 0 }}
-              className="absolute top-4 left-4 right-4 z-20 mx-auto max-w-2xl rounded-2xl border border-hairline-strong/90 bg-shelf-1/95 p-3.5 shadow-2xl shadow-black/80 backdrop-blur-xl"
+              className="absolute top-4 left-4 right-4 z-20 mx-auto max-w-2xl rounded-2xl border border-hairline-strong/90 bg-shelf-1/95 p-3.5 shadow-xl backdrop-blur-xl"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -587,7 +591,7 @@ function ReasoningContent() {
                       finalVerdict.verdict === "GO"
                         ? "bg-go/15 text-go border border-go/30"
                         : finalVerdict.verdict === "DISTRESS"
-                        ? "bg-red-950 text-red-400 border border-red-800/60"
+                        ? "bg-no-go/10 text-no-go border border-no-go/30"
                         : "bg-caution/15 text-caution border border-caution/30"
                     }`}
                   >
@@ -722,7 +726,7 @@ export default function ReasoningPage() {
       fallback={
         <div className="grid h-[calc(100vh-70px)] place-items-center bg-abyss text-ink-dim">
           <div className="flex items-center gap-2">
-            <span className="size-4 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
+            <span className="size-4 rounded-full border-2 border-ocean-cyan border-t-transparent animate-spin" />
             <span>Loading Reasoning Pipeline...</span>
           </div>
         </div>

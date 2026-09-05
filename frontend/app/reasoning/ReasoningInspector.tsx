@@ -71,12 +71,12 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
         animate={{ x: 0, opacity: 1 }}
         exit={{ x: 380, opacity: 0 }}
         transition={{ type: "spring", damping: 26, stiffness: 280 }}
-        className="absolute top-4 right-4 bottom-4 z-30 flex w-[380px] flex-col rounded-2xl border border-hairline-strong/80 bg-shelf-1/95 p-4 shadow-2xl shadow-black/80 backdrop-blur-xl"
+        className="absolute top-4 right-4 bottom-4 z-30 flex w-[380px] flex-col rounded-2xl border border-hairline-strong/80 bg-shelf-1/95 p-4 shadow-xl backdrop-blur-xl"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-hairline/80 pb-3">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="grid size-8 shrink-0 place-items-center rounded-lg border border-sky-400/40 bg-sky-950/50 text-sky-300">
+            <div className="grid size-8 shrink-0 place-items-center rounded-lg border border-ocean-cyan/40 bg-ocean-cyan/10 text-ocean-cyan">
               <Icon className="size-4" />
             </div>
             <div className="min-w-0">
@@ -100,7 +100,7 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
         </div>
 
         {/* Tab Switcher */}
-        <div className="mt-3 flex gap-1 rounded-lg border border-hairline bg-abyss/60 p-1">
+        <div className="mt-3 flex gap-1 rounded-lg border border-hairline bg-shelf-2/50 p-1">
           {(
             [
               { id: "reasoning", label: "Reasoning" },
@@ -141,7 +141,7 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
                   Decision Summary
                 </span>
-                <p className="mt-1.5 rounded-lg border border-hairline/60 bg-abyss/40 p-3 text-[12px] leading-relaxed text-ink">
+                <p className="mt-1.5 rounded-lg border border-hairline/60 bg-shelf-2/50 p-3 text-[12px] leading-relaxed text-ink">
                   {formatReasoningSummary(node.reasoning_summary)}
                 </p>
               </div>
@@ -188,15 +188,15 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
                   Source Provenance
                 </span>
-                <span className="rounded bg-sky-950/60 border border-sky-800/40 px-1.5 py-0.5 text-[10px] font-mono text-sky-300">
+                <span className="rounded bg-ocean-cyan/10 border border-ocean-cyan/30 px-1.5 py-0.5 text-[10px] font-mono text-ocean-cyan">
                   {node.source_count} dataset{node.source_count === 1 ? "" : "s"}
                 </span>
               </div>
 
               {node.source_provenance ? (
-                <div className="rounded-xl border border-hairline bg-abyss/40 p-3 space-y-2">
+                <div className="rounded-xl border border-hairline bg-shelf-2/50 p-3 space-y-2">
                   <div className="flex items-center gap-2">
-                    <Database className="size-3.5 text-sky-400" />
+                    <Database className="size-3.5 text-ocean-cyan" />
                     <span className="text-[12px] font-semibold text-ink">
                       {node.source_provenance.dataset}
                     </span>
@@ -259,7 +259,7 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                     {copiedKey === "inputs" ? "Copied" : "Copy"}
                   </button>
                 </div>
-                <pre className="max-h-[160px] overflow-auto rounded-lg border border-hairline bg-abyss/80 p-2.5 font-mono text-[10px] text-sky-200">
+                <pre className="max-h-[160px] overflow-auto rounded-lg border border-white/10 bg-[#141b24] p-2.5 font-mono text-[10px] text-sky-300">
                   {inputsJson}
                 </pre>
               </div>
@@ -282,7 +282,7 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                     {copiedKey === "outputs" ? "Copied" : "Copy"}
                   </button>
                 </div>
-                <pre className="max-h-[220px] overflow-auto rounded-lg border border-hairline bg-abyss/80 p-2.5 font-mono text-[10px] text-go">
+                <pre className="max-h-[220px] overflow-auto rounded-lg border border-white/10 bg-[#141b24] p-2.5 font-mono text-[10px] text-emerald-300">
                   {outputsJson}
                 </pre>
               </div>
@@ -291,10 +291,10 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
 
           {activeTab === "telemetry" && (
             <div className="space-y-4">
-              <div className="rounded-xl border border-hairline bg-abyss/40 p-3">
+              <div className="rounded-xl border border-hairline bg-shelf-2/50 p-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-[11px] text-ink-dim">
-                    <Clock className="size-3.5 text-sky-400" />
+                    <Clock className="size-3.5 text-ocean-cyan" />
                     <span>Execution Latency</span>
                   </div>
                   <span className="font-mono text-sm font-semibold text-ink">
@@ -316,9 +316,9 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-hairline bg-abyss/40 p-3 space-y-2">
+              <div className="rounded-xl border border-hairline bg-shelf-2/50 p-3 space-y-2">
                 <div className="flex items-center gap-2">
-                  <Cpu className="size-3.5 text-purple-400" />
+                  <Cpu className="size-3.5 text-accent" />
                   <span className="text-[12px] font-semibold text-ink">
                     Execution Architecture
                   </span>
@@ -330,7 +330,7 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                 </p>
               </div>
 
-              <div className="rounded-xl border border-hairline bg-abyss/40 p-3 space-y-2">
+              <div className="rounded-xl border border-hairline bg-shelf-2/50 p-3 space-y-2">
                 <div className="flex items-center gap-2">
                   <Zap className="size-3.5 text-caution" />
                   <span className="text-[12px] font-semibold text-ink">

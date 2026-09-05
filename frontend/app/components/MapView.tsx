@@ -483,7 +483,17 @@ export function MapView({
       // Clustered so 3+ nearby advisories read as one tasteful cluster
       // instead of a pile of overlapping markers — real zoom-aware
       // decluttering via MapLibre's own supercluster, not a custom index.
-      m.addSource("pfz", { type: "geojson", data: EMPTY as never, cluster: true, clusterMaxZoom: 9, clusterRadius: 48 });
+      // clusterMaxZoom sits BELOW every REGIONS zoom (4.8 the lowest) so
+      // clustering only ever applies to the all-India overview: at any
+      // working zoom the points stay individual and therefore clickable.
+      m.addSource("pfz", {
+        type: "geojson",
+        data: EMPTY as never,
+        cluster: true,
+        clusterMaxZoom: 4.5,
+        clusterMinPoints: 3,
+        clusterRadius: 48,
+      });
       m.addSource("route", { type: "geojson", data: EMPTY as never });
       m.addSource("watch-badges", { type: "geojson", data: EMPTY as never });
 
@@ -970,6 +980,8 @@ export function MapView({
     vis("boundaries-fill", layers.boundaries);
     vis("boundaries-line", layers.boundaries);
     vis("pfz-circles", layers.pfz);
+    vis("pfz-clusters", layers.pfz);
+    vis("pfz-cluster-count", layers.pfz);
     vis("watch-badges-circles", layers.watchBadges);
     vis("seamarks-raster", layers.seamarks);
     for (const layer of rasterLayers) {
@@ -1059,6 +1071,8 @@ export function MapView({
         showWind={layers.wind}
         currentVectors={currentVectors}
         windVectors={windVectors}
+        currentBounds={currentBounds}
+        windBounds={windBounds}
       />
 
       {showPanels && (
@@ -1225,7 +1239,7 @@ export function MapView({
                 className="flex items-center gap-2 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl px-3 py-1.5 text-xs font-medium text-ink shadow-lg transition-all hover:bg-shelf-2 hover:border-hairline-strong focus:outline-none"
                 aria-label="Select coastal sector"
               >
-                <MapPin className="size-3.5 text-accent shrink-0" />
+                <Compass className="size-3.5 text-ocean-cyan shrink-0" />
                 <span className="max-w-[140px] sm:max-w-none truncate font-medium">
                   {COASTAL_REGIONS.find((r) => r.id === selectedRegion)?.name ?? "Select Sector"}
                 </span>

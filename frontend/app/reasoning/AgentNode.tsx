@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   Anchor,
   Check,
-  CheckCheck,
   Clock,
   Cloud,
   Compass,
@@ -25,7 +24,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import type { AgentStatus } from "../components/AgentPill";
-import { confidenceClass, confidenceLabel, type ConfidenceTier } from "../components/Badge";
+import { confidenceClass, confidenceLabel } from "../components/Badge";
 import type { AgentNodeData } from "./dagre-layout";
 
 export type AgentFlowNode = Node<AgentNodeData, "agent">;
@@ -56,27 +55,27 @@ const STATUS_CONFIG: Record<
     label: "Queued",
   },
   running: {
-    border: "border-sky-400",
-    bg: "bg-sky-950/40",
-    glow: "shadow-[0_0_25px_rgba(56,189,248,0.35)] ring-1 ring-sky-400/50",
+    border: "border-ocean-cyan",
+    bg: "bg-ocean-cyan/5",
+    glow: "ring-1 ring-ocean-cyan/40",
     label: "Running",
   },
   ok: {
     border: "border-hairline-strong",
     bg: "bg-shelf-1/90",
-    glow: "shadow-[0_8px_20px_-6px_rgba(0,0,0,0.6)]",
+    glow: "shadow-sm",
     label: "Completed",
   },
   degraded: {
     border: "border-caution/70",
     bg: "bg-caution/10",
-    glow: "shadow-[0_0_20px_rgba(251,191,36,0.25)]",
+    glow: "",
     label: "Degraded",
   },
   failed: {
     border: "border-no-go/80",
-    bg: "bg-no-go/15",
-    glow: "shadow-[0_0_20px_rgba(255,92,92,0.3)]",
+    bg: "bg-no-go/10",
+    glow: "",
     label: "Failed",
   },
   skipped: {
@@ -85,12 +84,6 @@ const STATUS_CONFIG: Record<
     glow: "",
     label: "Skipped",
   },
-};
-
-const CONFIDENCE_ACCENT: Record<ConfidenceTier, string> = {
-  HIGH: "border-l-sky-400",
-  MEDIUM: "border-l-indigo-400",
-  LOW_DATA: "border-l-amber-400",
 };
 
 export function formatReasoningSummary(summary?: string): string {
@@ -123,7 +116,7 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
 
   return (
     <div
-      className={`relative h-[124px] w-[270px] min-w-[270px] max-w-[270px] select-none overflow-hidden rounded-xl border border-t-white/10 p-3 text-left backdrop-blur-md transition-all duration-200 ${statusCfg.border} ${statusCfg.bg} ${statusCfg.glow} ${CONFIDENCE_ACCENT[node.confidence_tier]} border-l-4 ${selected ? "!border-accent ring-2 ring-accent ring-offset-2 ring-offset-abyss scale-[1.02]" : "hover:border-hairline-strong"}`}
+      className={`relative h-[124px] w-[270px] min-w-[270px] max-w-[270px] select-none overflow-hidden rounded-xl border p-3 text-left backdrop-blur-md transition-all duration-200 ${statusCfg.border} ${statusCfg.bg} ${statusCfg.glow} ${selected ? "!border-accent ring-2 ring-accent ring-offset-2 ring-offset-shelf-1 scale-[1.02]" : "hover:border-hairline-strong"}`}
     >
       <Handle
         type="target"
@@ -142,14 +135,14 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
       <div className="flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-2 min-w-0">
           <div
-            className={`grid size-6 shrink-0 place-items-center rounded-md border ${isRunning ? "border-sky-400/60 bg-sky-900/50 text-sky-400" : isOk ? "border-hairline-strong bg-shelf-2/80 text-ink" : "border-hairline bg-shelf-2/40 text-ink-dim"}`}
+            className={`grid size-6 shrink-0 place-items-center rounded-md border ${isRunning ? "border-ocean-cyan/60 bg-ocean-cyan/10 text-ocean-cyan" : isOk ? "border-hairline-strong bg-shelf-2/80 text-ink" : "border-hairline bg-shelf-2/40 text-ink-dim"}`}
           >
             {isRunning ? (
               <motion.div
                 animate={reduce ? {} : { rotate: 360 }}
                 transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
               >
-                <Loader2 className="size-3.5 text-sky-400" />
+                <Loader2 className="size-3.5 text-ocean-cyan" />
               </motion.div>
             ) : (
               <Icon className="size-3.5" />
@@ -165,7 +158,7 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
             <motion.span
               animate={reduce ? {} : { opacity: [1, 0.4, 1] }}
               transition={{ duration: 0.8, repeat: Infinity }}
-              className="rounded-full bg-ocean-cyan/20 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-sky-400 border border-sky-400/40"
+              className="rounded-full bg-ocean-cyan/10 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-ocean-cyan border border-ocean-cyan/40"
             >
               RUNNING
             </motion.span>
@@ -181,7 +174,7 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
             </span>
           )}
           {isFailed && (
-            <span className="grid size-4 place-items-center rounded-full bg-red-500/15 text-red-400 border border-red-500/30">
+            <span className="grid size-4 place-items-center rounded-full bg-no-go/15 text-no-go border border-no-go/30">
               <X className="size-2.5" />
             </span>
           )}
@@ -210,19 +203,19 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
           )}
         </div>
 
-        <div className="flex items-center gap-1 text-[9px]">
+        {/* Execution method is engineering provenance, not a category to
+            color-code — quiet, monospace, same treatment either way. */}
+        <div className="flex items-center gap-1 text-[9px] text-ink-dim font-mono">
           {node.used_llm ? (
             <span
-              className="inline-flex items-center gap-1 rounded bg-purple-950/50 border border-purple-800/40 px-1.5 py-0.5 text-purple-300 font-mono"
+              className="inline-flex items-center gap-1"
               title={`LLM Model: ${node.model || "gemini-3.5-flash-lite"} (${node.tier || "mid"} tier)`}
             >
               <Cpu className="size-2.5 shrink-0" />
               <span>{node.model || "gemini-3.5-flash-lite"}</span>
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1 rounded bg-sky-950/40 border border-sky-800/30 px-1 py-0.5 text-sky-300 font-mono">
-              Deterministic
-            </span>
+            <span>Deterministic</span>
           )}
           {node.source_count > 0 && (
             <span className="inline-flex items-center gap-0.5 text-ink-dim font-mono">
@@ -239,9 +232,9 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
 export function FanoutGroupNode({ data }: NodeProps) {
   const label = (data as { label?: string })?.label || "Parallel Specialists · 3 Concurrent Streams";
   return (
-    <div className="relative h-full w-full rounded-2xl border border-dashed border-sky-500/25 bg-shelf-2/10 backdrop-blur-[2px]">
-      <div className="absolute -top-3 left-4 flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-abyss px-2.5 py-0.5 text-[10px] font-medium tracking-wide text-sky-300 shadow-md">
-        <Layers className="size-3 text-sky-400" />
+    <div className="relative h-full w-full rounded-2xl border border-dashed border-ocean-cyan/30 bg-shelf-2/10 backdrop-blur-[2px]">
+      <div className="absolute -top-3 left-4 flex items-center gap-1.5 rounded-full border border-ocean-cyan/30 bg-shelf-1 px-2.5 py-0.5 text-[10px] font-medium tracking-wide text-ocean-cyan shadow-md">
+        <Layers className="size-3 text-ocean-cyan" />
         <span>{label}</span>
       </div>
     </div>

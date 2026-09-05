@@ -43,23 +43,24 @@ export function AnimatedFlowEdge({
     borderRadius: 16,
   });
 
-  // Base stroke styling
-  let strokeColor = "#17384c"; // hairline
+  // Base stroke styling — the chart-paper palette, not the retired
+  // dark-console hex values these were hardcoded to before.
+  let strokeColor = "#c9bd9a"; // hairline
   let strokeWidth = 1.5;
   let strokeDasharray: string | undefined = undefined;
 
   if (isCriticLoop) {
-    strokeColor = "#f0468c"; // chart magenta / critic loop
+    strokeColor = "#8a3b52"; // accent / critic loop
     strokeWidth = 2;
     strokeDasharray = "4 4";
   } else if (isCancelled) {
-    strokeColor = "#24576f";
+    strokeColor = "#b8ae95";
     strokeDasharray = "3 3";
   } else if (isActive) {
-    strokeColor = "#38bdf8"; // cyan active
+    strokeColor = "#0e7490"; // ocean-cyan, saturated for "live"
     strokeWidth = 2.5;
   } else if (isCompleted) {
-    strokeColor = "#24576f"; // hairline-strong
+    strokeColor = "#6b6455"; // hairline-strong equivalent
     strokeWidth = 2;
   }
 
@@ -70,10 +71,9 @@ export function AnimatedFlowEdge({
         <path
           d={edgePath}
           fill="none"
-          stroke="#38bdf8"
-          strokeWidth={6}
-          strokeOpacity={0.25}
-          className="blur-[2px]"
+          stroke="#0e7490"
+          strokeWidth={5}
+          strokeOpacity={0.18}
         />
       )}
 
@@ -92,7 +92,7 @@ export function AnimatedFlowEdge({
 
       {/* Travelling glowing particle when edge is active */}
       {isActive && (
-        <circle r="3.5" fill="#38bdf8" className="shadow-lg shadow-sky-400">
+        <circle r="3.5" fill="#0e7490">
           <animateMotion
             path={edgePath}
             dur="1.2s"
@@ -104,7 +104,7 @@ export function AnimatedFlowEdge({
 
       {/* Critic loop pulsing particle in reverse */}
       {isCriticLoop && (
-        <circle r="3" fill="#f0468c">
+        <circle r="3" fill="#8a3b52">
           <animateMotion
             path={edgePath}
             dur="1.8s"
@@ -128,7 +128,7 @@ export function AnimatedFlowEdge({
             className="nodrag nopan"
           >
             {isCriticLoop ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-abyss/90 px-2 py-0.5 text-[10px] font-medium text-accent shadow-md backdrop-blur-sm">
+              <span className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-shelf-1/95 px-2 py-0.5 text-[10px] font-medium text-accent shadow-sm backdrop-blur-sm">
                 <AlertTriangle className="size-2.5 shrink-0" />
                 {edgeData.label}
               </span>
