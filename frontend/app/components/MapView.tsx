@@ -1225,7 +1225,7 @@ export function MapView({
                 className="flex items-center gap-2 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl px-3 py-1.5 text-xs font-medium text-ink shadow-lg transition-all hover:bg-shelf-2 hover:border-hairline-strong focus:outline-none"
                 aria-label="Select coastal sector"
               >
-                <MapPin className="size-3.5 text-accent shrink-0" />
+                <Compass className="size-3.5 text-ocean-cyan shrink-0" />
                 <span className="max-w-[140px] sm:max-w-none truncate font-medium">
                   {COASTAL_REGIONS.find((r) => r.id === selectedRegion)?.name ?? "Select Sector"}
                 </span>

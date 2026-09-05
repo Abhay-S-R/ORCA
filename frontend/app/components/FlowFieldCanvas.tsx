@@ -154,7 +154,7 @@ export function FlowFieldCanvas({
     // Particle pools. Density tuned for "a flow field", not "a starfield" —
     // the earlier 1800 read as noise once the field covered a whole ocean
     // basin at typical zoom.
-    const NUM_PARTICLES = 700;
+    const NUM_PARTICLES = 480;
     const currentParticles: Particle[] = [];
     const windParticles: Particle[] = [];
 
@@ -228,7 +228,7 @@ export function FlowFieldCanvas({
       if (!isMoving) {
         // Subtle trail fade: dark tint over previous frame
         ctx.globalCompositeOperation = "destination-out";
-        ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
+        ctx.fillStyle = "rgba(0, 0, 0, 0.1)";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.globalCompositeOperation = "source-over";
 
@@ -293,26 +293,29 @@ export function FlowFieldCanvas({
               ctx.moveTo(seg.lon, seg.lat);
               ctx.lineTo(seg.lon2, seg.lat2);
             }
-            // Halo pass (wider, dark) then the colour pass on the same path —
-            // stroke() doesn't clear the path, so this re-draws it twice.
+            // A thin, faint halo pass first — just enough edge definition to
+            // stay legible over both the pale shelf and the dark abyssal end
+            // of the depth ramp — then a thin colour pass. Both stay narrow:
+            // a wide dark outline under every particle was what actually
+            // read as "harsh scratches" rather than water.
             ctx.strokeStyle = opts.haloRgb;
-            ctx.lineWidth = opts.widths[t] + 1.3;
+            ctx.lineWidth = opts.widths[t] + 0.5;
             ctx.stroke();
-            const alpha = [0.55, 0.72, 0.92][t];
+            const alpha = [0.32, 0.5, 0.72][t];
             ctx.strokeStyle = opts.colorRgb.replace("ALPHA", String(alpha));
             ctx.lineWidth = opts.widths[t];
             ctx.stroke();
           }
         };
 
-        // 1. Currents — chart-teal, darker halo for legibility over the pale
-        // depth-shading ramp.
+        // 1. Currents — a clean water-blue, thin enough to read as threads
+        // of flow rather than a bold overlay competing with the depth ramp.
         if (currentGrid) {
           drawField(currentGrid, currentParticles, {
             maxSpeed: 1.2,
-            haloRgb: "rgba(3, 14, 20, 0.5)",
-            colorRgb: "rgba(14, 116, 144, ALPHA)",
-            widths: [1.1, 1.6, 2.2],
+            haloRgb: "rgba(4, 20, 28, 0.28)",
+            colorRgb: "rgba(8, 145, 178, ALPHA)",
+            widths: [0.55, 0.8, 1.15],
             pxPerFrame: [0.7, 1.4, 2.2],
           });
         }
@@ -322,9 +325,9 @@ export function FlowFieldCanvas({
         if (windGrid) {
           drawField(windGrid, windParticles, {
             maxSpeed: 12,
-            haloRgb: "rgba(3, 14, 20, 0.45)",
-            colorRgb: "rgba(217, 119, 6, ALPHA)",
-            widths: [0.9, 1.3, 1.8],
+            haloRgb: "rgba(4, 20, 28, 0.24)",
+            colorRgb: "rgba(202, 138, 4, ALPHA)",
+            widths: [0.5, 0.7, 1.0],
             pxPerFrame: [0.6, 1.2, 1.9],
           });
         }
