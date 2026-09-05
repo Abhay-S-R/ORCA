@@ -1071,6 +1071,8 @@ export function MapView({
         showWind={layers.wind}
         currentVectors={currentVectors}
         windVectors={windVectors}
+        currentBounds={currentBounds}
+        windBounds={windBounds}
       />
 
       {showPanels && (
