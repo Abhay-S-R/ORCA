@@ -197,6 +197,7 @@ export function MapView({
   showPanels = true,
   showLayerPanel = true,
   showRegionSwitcher = true,
+  showLegends = true,
   onPointClick,
   routeGeoJson,
   pins,
@@ -207,13 +208,15 @@ export function MapView({
 }: {
   className?: string;
   showPanels?: boolean;
-  // Ask page keeps the base panel chrome (recenter, legends, sounding HUD)
-  // but hides the two controls that let a user override the query-driven
-  // defaults — the chart is meant to read as "already focused for you," not
-  // as a console with knobs. /map keeps both, since it has no query to
-  // derive a focus from.
+  // Ask page keeps the base panel chrome (recenter) but hides the controls
+  // that let a user override the query-driven defaults — the chart is meant
+  // to read as "already focused for you," not as a console with knobs.
+  // /map keeps all of it, since it has no query to derive a focus from.
   showLayerPanel?: boolean;
   showRegionSwitcher?: boolean;
+  // The floating depth/wave-height colour-key cards — real information, but
+  // one more floating box Ask's tighter layout doesn't have room for.
+  showLegends?: boolean;
   // Additive hook for /voyage's click-to-set origin/destination — fires
   // alongside the existing depth/bearing "sounding" lookup below, never
   // replacing it.
@@ -477,7 +480,10 @@ export function MapView({
       }
 
       m.addSource("boundaries", { type: "geojson", data: EMPTY as never });
-      m.addSource("pfz", { type: "geojson", data: EMPTY as never });
+      // Clustered so 3+ nearby advisories read as one tasteful cluster
+      // instead of a pile of overlapping markers — real zoom-aware
+      // decluttering via MapLibre's own supercluster, not a custom index.
+      m.addSource("pfz", { type: "geojson", data: EMPTY as never, cluster: true, clusterMaxZoom: 9, clusterRadius: 48 });
       m.addSource("route", { type: "geojson", data: EMPTY as never });
       m.addSource("watch-badges", { type: "geojson", data: EMPTY as never });
 
@@ -501,11 +507,15 @@ export function MapView({
         },
       });
 
+      // A maritime boundary reads as a fence line on a real chart — short
+      // dashes, modest width, never the solid hard rule a coastline or a
+      // road gets. "near" (within 25 nm) still stands out, just by being
+      // less transparent, not by turning into a thick solid stroke.
       m.addLayer({
         id: "boundaries-line",
         type: "line",
         source: "boundaries",
-        layout: { "line-join": "round" },
+        layout: { "line-join": "round", "line-cap": "round" },
         paint: {
           "line-color": [
             "case",
@@ -513,22 +523,61 @@ export function MapView({
             CHART.eezNear,
             ["case", isMpa, CHART.mpa, CHART.eez],
           ],
-          "line-width": ["case", ["get", "near"], 2.5, 1],
-          "line-opacity": ["case", ["get", "near"], 0.95, 0.4],
+          "line-width": ["case", ["get", "near"], 1.6, 1],
+          "line-opacity": ["case", ["get", "near"], 0.75, 0.32],
+          "line-dasharray": [2.5, 1.75],
         },
+      });
+
+      // Fishing-zone marker: a small diamond target rather than a plain
+      // circle — reads as an intentional chart symbol at a glance, distinct
+      // from both the ship's-bow position marker and a generic map pin.
+      // Rendered once as a bitmap and GPU-instanced by the symbol layer
+      // below, so hundreds of zones cost one draw call, not hundreds of
+      // DOM nodes.
+      if (!m.hasImage("pfz-marker")) {
+        m.addImage("pfz-marker", buildPfzMarkerIcon(), { pixelRatio: 2 });
+      }
+
+      // 3+ nearby advisories collapse into one cluster circle (supercluster,
+      // built into the GeoJSON source below) rather than a pile of
+      // overlapping markers — expands automatically as the chart zooms in.
+      m.addLayer({
+        id: "pfz-clusters",
+        type: "circle",
+        source: "pfz",
+        filter: ["has", "point_count"],
+        paint: {
+          "circle-radius": ["step", ["get", "point_count"], 13, 5, 16, 15, 20],
+          "circle-color": CHART.pfz,
+          "circle-opacity": 0.22,
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": CHART.pfz,
+          "circle-stroke-opacity": 0.7,
+        },
+      });
+      m.addLayer({
+        id: "pfz-cluster-count",
+        type: "symbol",
+        source: "pfz",
+        filter: ["has", "point_count"],
+        layout: {
+          "text-field": ["get", "point_count_abbreviated"],
+          "text-font": ["Open Sans Regular"],
+          "text-size": 11,
+        },
+        paint: { "text-color": CHART.pfz },
       });
 
       m.addLayer({
         id: "pfz-circles",
-        type: "circle",
+        type: "symbol",
         source: "pfz",
-        paint: {
-          // N CircleMarker components become one layer with a zoom expression.
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 3.5, 7, 5, 11, 9],
-          "circle-color": CHART.pfz,
-          "circle-opacity": 0.85,
-          "circle-stroke-width": 1.5,
-          "circle-stroke-color": "#04121a",
+        filter: ["!", ["has", "point_count"]],
+        layout: {
+          "icon-image": "pfz-marker",
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 4, 0.55, 7, 0.8, 11, 1.05],
+          "icon-allow-overlap": true,
         },
       });
 
@@ -582,6 +631,19 @@ export function MapView({
       setReady(true);
     });
 
+    // Clicking a cluster zooms in on it — the standard supercluster
+    // interaction, so "3+ zones nearby" is one tap away from "which 3".
+    m.on("click", "pfz-clusters", (e) => {
+      const feature = m.queryRenderedFeatures(e.point, { layers: ["pfz-clusters"] })[0];
+      const clusterId = feature?.properties?.cluster_id;
+      const source = m.getSource("pfz") as maplibregl.GeoJSONSource | undefined;
+      if (clusterId == null || !source) return;
+      source.getClusterExpansionZoom(clusterId).then((zoom) => {
+        const geometry = feature.geometry as { type: "Point"; coordinates: [number, number] };
+        m.easeTo({ center: geometry.coordinates, zoom, duration: 500 });
+      }).catch(() => {});
+    });
+
     m.on("click", (e) => {
       const badgeFeatures = m.queryRenderedFeatures(e.point, { layers: ["watch-badges-circles"] });
       if (badgeFeatures.length && badgeFeatures[0].properties) {
@@ -598,7 +660,7 @@ export function MapView({
       }
       void handleClick(e.lngLat.lat, e.lngLat.lng);
     });
-    for (const id of ["boundaries-fill", "pfz-circles", "watch-badges-circles"]) {
+    for (const id of ["boundaries-fill", "pfz-circles", "pfz-clusters", "watch-badges-circles"]) {
       m.on("mouseenter", id, () => {
         m.getCanvas().style.cursor = "pointer";
       });
@@ -656,13 +718,22 @@ export function MapView({
     }
   }, [ready, routeGeoJson]);
 
+  // A chart pin, not a Google Maps balloon: a flat lozenge on a short stem,
+  // in the caller's own colour, distinct in silhouette from both the ship's
+  // bow marker (position/heading) and the fishing-zone diamond (a dataset
+  // point) — this is a user-placed waypoint, a third kind of thing.
   useEffect(() => {
     if (!ready || !map.current || !pins?.length) return;
     const built = pins.map((p) => {
       const el = document.createElement("div");
-      el.style.cssText = `width:14px;height:14px;border-radius:9999px;background:${p.color};border:2px solid #04121a;box-shadow:0 0 0 3px ${p.color}33`;
       el.setAttribute("aria-label", p.label);
-      return new maplibregl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map.current!);
+      el.innerHTML = `
+        <svg width="22" height="30" viewBox="0 0 22 30" style="filter:drop-shadow(0 2px 3px rgba(28,41,57,0.4))">
+          <path d="M11 1c5.5 0 9 4 9 8.8 0 6.2-9 18.2-9 18.2S2 16 2 9.8C2 5 5.5 1 11 1Z" fill="${p.color}" stroke="#fffdf6" stroke-width="1.5" />
+          <circle cx="11" cy="10.5" r="3.2" fill="#fffdf6" />
+        </svg>`;
+      el.style.transform = "translateY(2px)";
+      return new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([p.lon, p.lat]).addTo(map.current!);
     });
     return () => {
       for (const m of built) m.remove();
@@ -1097,7 +1168,7 @@ export function MapView({
           </div>
           )}
 
-          {layers.srvBathymetry && (
+          {showLegends && layers.srvBathymetry && (
             // Sits directly under the recenter button, one column clear of
             // the region switcher — the two used to share "top-3 right-14",
             // a pre-existing collision that was just never visible while Ask
@@ -1123,7 +1194,7 @@ export function MapView({
             </div>
           )}
 
-          {layers.waveForecast && !layers.srvBathymetry && (
+          {showLegends && layers.waveForecast && !layers.srvBathymetry && (
             <div className={`pointer-events-auto absolute hidden sm:block rounded-xl border border-hairline/80 bg-shelf-1/95 px-3 py-2 backdrop-blur-md shadow-lg ${showRegionSwitcher ? "top-16 right-3" : "top-3 right-14"}`}>
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-[#e87050]" />
@@ -1622,6 +1693,36 @@ export function MapView({
 // Repaint the basemap's water in ORCA's depth ramp. Done against the loaded
 // style rather than a forked style.json so the basemap stays swappable via
 // NEXT_PUBLIC_BASEMAP_STYLE — any style with a `water` source-layer works.
+// A small diamond target — a chart symbol, not a pin. Drawn once on an
+// offscreen canvas at module load and reused as a GPU sprite by every
+// unclustered PFZ point (see the "pfz-circles" symbol layer).
+function buildPfzMarkerIcon(): ImageData {
+  const size = 28;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const cx = size / 2;
+  const cy = size / 2;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(Math.PI / 4);
+  const half = 6;
+  ctx.beginPath();
+  ctx.roundRect(-half, -half, half * 2, half * 2, 2);
+  ctx.fillStyle = CHART.pfz;
+  ctx.fill();
+  ctx.lineWidth = 1.75;
+  ctx.strokeStyle = "#0d2a20";
+  ctx.stroke();
+  ctx.restore();
+  ctx.beginPath();
+  ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
+  ctx.fillStyle = "#fffdf6";
+  ctx.fill();
+  return ctx.getImageData(0, 0, size, size);
+}
+
 function recolourSea(m: maplibregl.Map) {
   const set = (id: string, prop: string, value: string | number) => {
     try {

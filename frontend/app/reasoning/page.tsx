@@ -5,7 +5,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   type Node,
   type Edge,
   type NodeTypes,
@@ -680,11 +679,6 @@ function ReasoningContent() {
         >
           <Background gap={24} color="#d8cfb0" />
           <Controls showInteractive={false} className="!bg-shelf-1/90 !border-hairline !rounded-xl" />
-          <MiniMap
-            className="!bg-shelf-1/90 !border-hairline !rounded-xl"
-            nodeColor={() => "#2f6f74"}
-            maskColor="rgba(242, 234, 212, 0.75)"
-          />
         </ReactFlow>
         </div>
 
@@ -695,27 +689,29 @@ function ReasoningContent() {
             onClose={() => setSelectedNode(null)}
           />
         )}
-
-        {/* Floating Timeline & Step Scrubber at Bottom */}
-        <ReasoningTimeline
-          currentStageIndex={timelineIndex}
-          maxStages={PIPELINE_STAGES.length}
-          isPlaying={isPlaying}
-          playbackSpeed={playbackSpeed}
-          totalLatencyMs={totalLatency}
-          activeStageLatencyMs={activeStageLatency}
-          onSelectStage={(idx) => {
-            setTimelineIndex(idx);
-            setIsPlaying(false);
-          }}
-          onTogglePlay={() => setIsPlaying((p) => !p)}
-          onChangeSpeed={(s) => setPlaybackSpeed(s)}
-          onReset={() => {
-            setTimelineIndex(0);
-            setIsPlaying(false);
-          }}
-        />
       </div>
+
+      {/* Execution progress — a panel below the graph, not an overlay on
+          top of it: a timer covering nodes/edges was never legible as
+          "part of the product" no matter how it was styled. */}
+      <ReasoningTimeline
+        currentStageIndex={timelineIndex}
+        maxStages={PIPELINE_STAGES.length}
+        isPlaying={isPlaying}
+        playbackSpeed={playbackSpeed}
+        totalLatencyMs={totalLatency}
+        activeStageLatencyMs={activeStageLatency}
+        onSelectStage={(idx) => {
+          setTimelineIndex(idx);
+          setIsPlaying(false);
+        }}
+        onTogglePlay={() => setIsPlaying((p) => !p)}
+        onChangeSpeed={(s) => setPlaybackSpeed(s)}
+        onReset={() => {
+          setTimelineIndex(0);
+          setIsPlaying(false);
+        }}
+      />
     </div>
   );
 }

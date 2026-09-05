@@ -69,7 +69,7 @@ export function ReasoningTimeline({
   const currentStage = PIPELINE_STAGES[Math.min(currentStageIndex, PIPELINE_STAGES.length - 1)];
 
   return (
-    <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-2xl border border-hairline-strong/80 bg-shelf-1/90 px-4 py-2.5 shadow-2xl shadow-black/80 backdrop-blur-xl">
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-hairline bg-shelf-1 px-4 py-2.5 shadow-sm">
       {/* Playback Controls */}
       <div className="flex items-center gap-1 border-r border-hairline pr-3">
         <button
@@ -98,7 +98,7 @@ export function ReasoningTimeline({
           className={`grid size-8 place-items-center rounded-lg border transition-all ${
             isPlaying
               ? "border-caution/40 bg-caution/15 text-caution shadow-md shadow-caution/20"
-              : "border-sky-400/50 bg-sky-950/40 text-sky-300 shadow-md shadow-sky-950/50 hover:border-sky-400"
+              : "border-ocean-cyan/50 bg-ocean-cyan/10 text-ocean-cyan shadow-sm hover:border-ocean-cyan"
           }`}
           title={isPlaying ? "Pause playback" : "Play step-by-step trace"}
           aria-label={isPlaying ? "Pause playback" : "Play step-by-step trace"}
@@ -128,7 +128,7 @@ export function ReasoningTimeline({
       </div>
 
       {/* Stage Dots / Progress Scrubber */}
-      <div className="flex flex-col gap-1.5 min-w-[260px]">
+      <div className="flex min-w-[260px] flex-1 flex-col gap-1.5">
         <div className="flex items-center justify-between text-[11px]">
           <span className="font-semibold text-ink">
             {currentStage?.label ?? "All Stages Complete"}
@@ -149,9 +149,9 @@ export function ReasoningTimeline({
                 onClick={() => onSelectStage(idx)}
                 className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
                   isCurrent
-                    ? "bg-ocean-cyan shadow-sm shadow-sky-400 ring-1 ring-sky-400/50"
+                    ? "bg-ocean-cyan ring-2 ring-ocean-cyan/30"
                     : isCompleted
-                    ? "bg-sky-800"
+                    ? "bg-ocean-cyan/40"
                     : "bg-shelf-2"
                 }`}
                 title={`Jump to step ${idx + 1}`}
@@ -165,7 +165,7 @@ export function ReasoningTimeline({
       {/* Telemetry / Speed / Reset */}
       <div className="flex items-center gap-2 border-l border-hairline pl-3">
         <div className="flex items-center gap-1 font-mono text-[11px] text-ink-dim" title="Cumulative Execution Latency">
-          <Clock className="size-3 text-sky-400" />
+          <Clock className="size-3 text-ocean-cyan" />
           <span className="text-ink">{activeStageLatencyMs || totalLatencyMs}ms</span>
         </div>
 

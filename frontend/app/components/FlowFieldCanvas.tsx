@@ -151,10 +151,21 @@ export function FlowFieldCanvas({
         ? new VectorGrid(windVectors)
         : null;
 
-    // Particle pools
-    const NUM_PARTICLES = 1800;
+    // Particle pools. Density tuned for "a flow field", not "a starfield" —
+    // the earlier 1800 read as noise once the field covered a whole ocean
+    // basin at typical zoom.
+    const NUM_PARTICLES = 700;
     const currentParticles: Particle[] = [];
     const windParticles: Particle[] = [];
+
+    // Web Mercator meters-per-pixel at a latitude/zoom — the standard
+    // formula MapLibre itself uses internally. Converting each particle's
+    // step to a fixed PIXEL distance (via this) rather than a fixed DEGREE
+    // delta is what actually fixes the "frozen dust" look: a hardcoded
+    // degree step is imperceptible pixels at an ocean-basin zoom and wildly
+    // oversized at a harbour zoom, so the old version never looked like
+    // flow at any zoom except the one it was tuned against.
+    const metersPerPixel = (lat: number) => (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, map.getZoom());
 
     const getBounds = () => {
       const b = map.getBounds();
@@ -226,94 +237,96 @@ export function FlowFieldCanvas({
         const height = container.clientHeight;
         const b = getBounds();
 
-        // 1. Draw Currents (Electric Cyan / Aquatic Azure). A dark halo is
-        // stroked first so the line reads against BOTH the pale shelf colours
-        // and the near-black abyssal fill of the depth ramp underneath —
-        // without it, cyan-on-pale-shelf was nearly invisible (the two are
-        // close in lightness) even though cyan-on-abyss looked fine alone.
-        if (currentGrid) {
-          ctx.lineCap = "round";
+        // Shared stepper for both fields: moves each particle a fixed PIXEL
+        // distance per frame (scaled to local Mercator scale) rather than a
+        // fixed degree delta, so the field reads as flowing streamlines at
+        // any zoom instead of a near-static dust cloud at ocean-basin zooms
+        // and a wild streak at harbour zooms. Particles are bucketed into
+        // three speed tiers so faster water/wind draws visibly bolder and
+        // brighter than slack water — "meaningful intensity variation" —
+        // for the cost of 3 stroke() calls instead of 1, not per-particle.
+        const drawField = (
+          grid: VectorGrid,
+          particles: Particle[],
+          opts: { maxSpeed: number; haloRgb: string; colorRgb: string; widths: [number, number, number]; pxPerFrame: [number, number, number] },
+        ) => {
+          const tiers: { lon: number; lat: number; lon2: number; lat2: number }[][] = [[], [], []];
 
-          ctx.beginPath();
-          for (let i = 0; i < currentParticles.length; i++) {
-            const p = currentParticles[i];
-            const vec = currentGrid.lookup(p.lon, p.lat);
+          for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            const vec = grid.lookup(p.lon, p.lat);
 
             if (!vec || p.age >= p.maxAge || p.lon < b.west || p.lon > b.east || p.lat < b.south || p.lat > b.north) {
-              currentParticles[i] = spawnParticle(currentGrid);
+              particles[i] = spawnParticle(grid);
               continue;
             }
 
             const p1 = map.project([p.lon, p.lat]);
             if (p1.x < 0 || p1.x > width || p1.y < 0 || p1.y > height) {
-              currentParticles[i] = spawnParticle(currentGrid);
+              particles[i] = spawnParticle(grid);
               continue;
             }
 
-            // Current speed factor
-            const speedFactor = 0.0035;
-            const cosLat = Math.cos((p.lat * Math.PI) / 180);
-            const dLon = (vec.u * speedFactor) / (cosLat > 0.01 ? cosLat : 1);
-            const dLat = vec.v * speedFactor;
+            const speedFrac = Math.min(vec.speed / opts.maxSpeed, 1);
+            const tier = speedFrac < 0.33 ? 0 : speedFrac < 0.7 ? 1 : 2;
+            const pxPerFrame = opts.pxPerFrame[tier];
+
+            const mpp = metersPerPixel(p.lat);
+            const ux = vec.u / vec.speed;
+            const uy = vec.v / vec.speed;
+            const dLon = (ux * pxPerFrame * mpp) / (111320 * Math.max(Math.cos((p.lat * Math.PI) / 180), 0.01));
+            const dLat = (uy * pxPerFrame * mpp) / 111320;
 
             p.lon += dLon;
             p.lat += dLat;
             p.age++;
 
             const p2 = map.project([p.lon, p.lat]);
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
+            tiers[tier].push({ lon: p1.x, lat: p1.y, lon2: p2.x, lat2: p2.y });
           }
-          // Halo pass (wider, dark) then the colour pass on the same path —
-          // stroke() doesn't clear the path, so this re-draws it twice.
-          ctx.strokeStyle = "rgba(3, 14, 20, 0.55)";
-          ctx.lineWidth = 3;
-          ctx.stroke();
-          ctx.strokeStyle = "rgba(14, 165, 233, 0.95)";
-          ctx.lineWidth = 1.7;
-          ctx.stroke();
+
+          ctx.lineCap = "round";
+          for (let t = 0; t < 3; t++) {
+            if (!tiers[t].length) continue;
+            ctx.beginPath();
+            for (const seg of tiers[t]) {
+              ctx.moveTo(seg.lon, seg.lat);
+              ctx.lineTo(seg.lon2, seg.lat2);
+            }
+            // Halo pass (wider, dark) then the colour pass on the same path —
+            // stroke() doesn't clear the path, so this re-draws it twice.
+            ctx.strokeStyle = opts.haloRgb;
+            ctx.lineWidth = opts.widths[t] + 1.3;
+            ctx.stroke();
+            const alpha = [0.55, 0.72, 0.92][t];
+            ctx.strokeStyle = opts.colorRgb.replace("ALPHA", String(alpha));
+            ctx.lineWidth = opts.widths[t];
+            ctx.stroke();
+          }
+        };
+
+        // 1. Currents — chart-teal, darker halo for legibility over the pale
+        // depth-shading ramp.
+        if (currentGrid) {
+          drawField(currentGrid, currentParticles, {
+            maxSpeed: 1.2,
+            haloRgb: "rgba(3, 14, 20, 0.5)",
+            colorRgb: "rgba(14, 116, 144, ALPHA)",
+            widths: [1.1, 1.6, 2.2],
+            pxPerFrame: [0.7, 1.4, 2.2],
+          });
         }
 
-        // 2. Draw Wind (Golden Amber / Solar Yellow) — same halo treatment.
+        // 2. Wind — archived ScatSat, kept visually distinct (amber) from
+        // live currents so the two are never mistaken for one field.
         if (windGrid) {
-          ctx.lineCap = "round";
-
-          ctx.beginPath();
-          for (let i = 0; i < windParticles.length; i++) {
-            const p = windParticles[i];
-            const vec = windGrid.lookup(p.lon, p.lat);
-
-            if (!vec || p.age >= p.maxAge || p.lon < b.west || p.lon > b.east || p.lat < b.south || p.lat > b.north) {
-              windParticles[i] = spawnParticle(windGrid);
-              continue;
-            }
-
-            const p1 = map.project([p.lon, p.lat]);
-            if (p1.x < 0 || p1.x > width || p1.y < 0 || p1.y > height) {
-              windParticles[i] = spawnParticle(windGrid);
-              continue;
-            }
-
-            // Wind speed factor (winds are higher m/s than currents)
-            const speedFactor = 0.0018;
-            const cosLat = Math.cos((p.lat * Math.PI) / 180);
-            const dLon = (vec.u * speedFactor) / (cosLat > 0.01 ? cosLat : 1);
-            const dLat = vec.v * speedFactor;
-
-            p.lon += dLon;
-            p.lat += dLat;
-            p.age++;
-
-            const p2 = map.project([p.lon, p.lat]);
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-          }
-          ctx.strokeStyle = "rgba(3, 14, 20, 0.5)";
-          ctx.lineWidth = 2.6;
-          ctx.stroke();
-          ctx.strokeStyle = "rgba(251, 191, 36, 0.95)";
-          ctx.lineWidth = 1.4;
-          ctx.stroke();
+          drawField(windGrid, windParticles, {
+            maxSpeed: 12,
+            haloRgb: "rgba(3, 14, 20, 0.45)",
+            colorRgb: "rgba(217, 119, 6, ALPHA)",
+            widths: [0.9, 1.3, 1.8],
+            pxPerFrame: [0.6, 1.2, 1.9],
+          });
         }
       }
 

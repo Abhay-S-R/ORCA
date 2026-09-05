@@ -12,6 +12,11 @@ import { NotificationBell } from "./NotificationBell";
 import { StatusBar } from "./StatusBar";
 
 const NO_CHROME_ROUTES = ["/"];
+// Ask's own composer already routes a "MAYDAY"-shaped query to the same
+// distress bypass (Agent 12) with the SOS dialog's own numbers one tap away
+// via voice/text — this is a requested exception to "persistent on every
+// screen," not a safety removal, and should stay narrow to this one route.
+const NO_SOS_ROUTES = ["/ask"];
 
 export function AppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -36,7 +41,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
           </main>
         </div>
       </div>
-      <SosButton />
+      {!NO_SOS_ROUTES.includes(pathname) && <SosButton />}
       {/* Sentinel notification feed — persistent, like SOS. Renders
           nothing until there is an authenticated session. */}
       <NotificationBell />

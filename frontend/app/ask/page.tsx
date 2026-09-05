@@ -435,9 +435,10 @@ export default function AskPage() {
           className="h-full w-full"
           initialLayers={{ srvBathymetry: true, currents: true }}
           queryFocus={focus}
-          defaultCollapsedSounding
           showLayerPanel={false}
           showRegionSwitcher={false}
+          showLegends={false}
+          showSoundingHud={false}
         />
       </div>
     </div>
