@@ -18,6 +18,8 @@ interface FlowFieldCanvasProps {
   showWind: boolean;
   currentVectors: VectorPoint[] | null;
   windVectors: VectorPoint[] | null;
+  currentBounds?: [number, number, number, number] | null;
+  windBounds?: [number, number, number, number] | null;
 }
 
 interface Particle {
@@ -37,7 +39,7 @@ class VectorGrid {
   private cols: number;
   private rows: number;
 
-  constructor(points: VectorPoint[], bounds: [number, number, number, number] = [65.0, 5.0, 95.0, 25.0], res = 0.5) {
+  constructor(points: VectorPoint[], bounds: [number, number, number, number] = [65.0, 4.0, 95.0, 26.0], res = 0.25) {
     this.west = bounds[0];
     this.south = bounds[1];
     this.east = bounds[2];
@@ -107,6 +109,8 @@ export function FlowFieldCanvas({
   showWind,
   currentVectors,
   windVectors,
+  currentBounds,
+  windBounds,
 }: FlowFieldCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -140,40 +144,32 @@ export function FlowFieldCanvas({
     };
     resize();
 
-    // Build vector grids
+    // Build vector grids covering the maritime region
     const currentGrid =
       showCurrents && currentVectors?.length
-        ? new VectorGrid(currentVectors)
+        ? new VectorGrid(currentVectors, currentBounds || [65.0, 4.0, 95.0, 26.0], 0.25)
         : null;
 
     const windGrid =
       showWind && windVectors?.length
-        ? new VectorGrid(windVectors)
+        ? new VectorGrid(windVectors, windBounds || [65.0, 4.0, 95.0, 26.0], 0.35)
         : null;
 
-    // Particle pools. Density tuned for "a flow field", not "a starfield" —
-    // the earlier 1800 read as noise once the field covered a whole ocean
-    // basin at typical zoom.
-    const NUM_PARTICLES = 480;
+    // Particle pools covering the active Pan-India domain.
+    const NUM_PARTICLES = 1200;
     const currentParticles: Particle[] = [];
     const windParticles: Particle[] = [];
 
-    // Web Mercator meters-per-pixel at a latitude/zoom — the standard
-    // formula MapLibre itself uses internally. Converting each particle's
-    // step to a fixed PIXEL distance (via this) rather than a fixed DEGREE
-    // delta is what actually fixes the "frozen dust" look: a hardcoded
-    // degree step is imperceptible pixels at an ocean-basin zoom and wildly
-    // oversized at a harbour zoom, so the old version never looked like
-    // flow at any zoom except the one it was tuned against.
+    // Web Mercator meters-per-pixel at a latitude/zoom
     const metersPerPixel = (lat: number) => (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, map.getZoom());
 
     const getBounds = () => {
       const b = map.getBounds();
       return {
         west: Math.max(65.0, b.getWest()),
-        south: Math.max(5.0, b.getSouth()),
+        south: Math.max(4.0, b.getSouth()),
         east: Math.min(95.0, b.getEast()),
-        north: Math.min(25.0, b.getNorth()),
+        north: Math.min(26.0, b.getNorth()),
       };
     };
 
@@ -345,7 +341,7 @@ export function FlowFieldCanvas({
       map.off("resize", resize);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     };
-  }, [map, showCurrents, showWind, currentVectors, windVectors]);
+  }, [map, showCurrents, showWind, currentVectors, windVectors, currentBounds, windBounds]);
 
   if (!showCurrents && !showWind) return null;
 

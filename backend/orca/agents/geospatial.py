@@ -47,6 +47,7 @@ SHALLOW_HAZARD_THRESHOLD_M = 10.0
 # Pan-India maritime bounds covering Arabian Sea, Indian Ocean, and Bay of Bengal (65-95 E, 4-26 N).
 # No longer artificially clips the Indian EEZ into a small rectangle around Thoothukudi.
 _MAP_CLIP_BOX = box(65.0, 4.0, 95.0, 26.0)
+PAN_INDIA_BBOX_WSEN: tuple[float, float, float, float] = (65.0, 4.0, 95.0, 26.0)
 PILOT_BBOX_WSEN: tuple[float, float, float, float] = (76.0, 6.0, 82.0, 12.0)
 
 # Douglas-Peucker tolerance for map DISPLAY only (plan §4.7/§5.10 Day 10) —
@@ -309,22 +310,18 @@ def _hycom() -> xr.Dataset:
     return xr.open_dataset(HYCOM_FILE)
 
 
-def current_vectors(stride: int = 4) -> list[dict[str, float]]:
+def current_vectors(
+    bbox: tuple[float, float, float, float] = PILOT_BBOX_WSEN,
+    stride: int = 4,
+) -> list[dict[str, float]]:
     """Real HYCOM surface (DEPTH=0) current vectors, latest forecast step,
-    cropped to the pilot bbox and downsampled — the data behind the
-    frontend's `maplibre-gl-wind` particle layer (revised D3 stack). U/V are
-    eastward/northward m/s; `direction_deg` is the compass bearing the
+    cropped to the specified bbox (defaults to pilot bbox) and downsampled.
+    U/V are eastward/northward m/s; `direction_deg` is the compass bearing the
     current flows TOWARD (oceanographic convention — the opposite sense of
-    a meteorological wind direction), matching what a particle animation
-    needs to draw a trail in the direction of flow.
-
-    ponytail: stride=4 on the pilot bbox's ~101x100 HYCOM cells is ~630
-    points, well under the §4.7 feature budget — no server-side texture
-    generation, the frontend's `generateWindTexture` (IDW) builds the
-    particle-layer texture from these points directly.
+    a meteorological wind direction).
     """
     ds = _hycom()
-    west, south, east, north = PILOT_BBOX_WSEN
+    west, south, east, north = bbox
     u = ds["UVEL"].isel(TIME=-1, DEPTH=0).sel(LON=slice(west, east), LAT=slice(south, north))
     v = ds["VVEL"].isel(TIME=-1, DEPTH=0).sel(LON=slice(west, east), LAT=slice(south, north))
     lats = u["LAT"].values[::stride]
@@ -341,8 +338,12 @@ def current_vectors(stride: int = 4) -> list[dict[str, float]]:
             speed = math.hypot(uu, vv)
             direction = math.degrees(math.atan2(uu, vv)) % 360.0
             points.append({
-                "lat": float(lat), "lon": float(lon),
-                "speed_ms": round(speed, 3), "direction_deg": round(direction, 1),
+                "lat": round(float(lat), 3),
+                "lon": round(float(lon), 3),
+                "speed_ms": round(speed, 3),
+                "direction_deg": round(direction, 1),
+                "u": round(uu, 3),
+                "v": round(vv, 3),
             })
     return points
 
@@ -361,19 +362,18 @@ def _latest_wind_file() -> Path:
     return files[-1]
 
 
-def wind_vectors(stride: int = 4) -> dict[str, Any]:
+def wind_vectors(
+    bbox: tuple[float, float, float, float] = PILOT_BBOX_WSEN,
+    stride: int = 4,
+) -> dict[str, Any]:
     """Archived EOS-06 Scatterometer (ScatSat) 10m wind, most recent daily
-    snapshot on disk, cropped to the pilot bbox. This is NOT a live feed —
-    one analysis per day, not a forecast or a stream — so the caller gets
-    `acquisition_date` back explicitly rather than the caller assuming
-    "now" the way a live layer would (mirrors current_vectors() otherwise:
+    snapshot on disk, cropped to the specified bbox (defaults to pilot bbox).
     U/V m/s -> speed_ms/direction_deg, meteorological convention — the
-    direction the wind blows FROM, unlike current_vectors' oceanographic
-    "flows toward").
+    direction the wind blows FROM.
     """
     path = _latest_wind_file()
     ds = xr.open_dataset(path)
-    west, south, east, north = PILOT_BBOX_WSEN
+    west, south, east, north = bbox
     u = ds["U"].isel(time=0, lev=0).sel(lat=slice(south, north), lon=slice(west, east))
     v = ds["V"].isel(time=0, lev=0).sel(lat=slice(south, north), lon=slice(west, east))
     lats = u["lat"].values[::stride]
@@ -391,13 +391,17 @@ def wind_vectors(stride: int = 4) -> dict[str, Any]:
             # Meteorological convention: direction the wind blows FROM.
             direction = math.degrees(math.atan2(-uu, -vv)) % 360.0
             points.append({
-                "lat": float(lat), "lon": float(lon),
-                "speed_ms": round(speed, 3), "direction_deg": round(direction, 1),
+                "lat": round(float(lat), 3),
+                "lon": round(float(lon), 3),
+                "speed_ms": round(speed, 3),
+                "direction_deg": round(direction, 1),
+                "u": round(uu, 3),
+                "v": round(vv, 3),
             })
     acquisition_date = str(ds["time"].values[0])[:10]
     return {
         "points": points,
-        "bounds": list(PILOT_BBOX_WSEN),
+        "bounds": list(bbox),
         "acquisition_date": acquisition_date,
         "source_file": path.name,
     }
