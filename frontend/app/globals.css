@@ -1,57 +1,66 @@
 @import "tailwindcss";
 
-/* ORCA — Nautical Command Console & ECDIS Night Telemetry System.
-   The vernacular is an electronic chart display on a bridge at night:
-   a deep oceanic abyss base, a layered surface ramp representing depth,
-   tactical telemetry cyan, chart emerald, caution amber, and distress crimson,
-   with chart magenta reserved for caution/boundary vectors. */
+/* ORCA — Admiralty Chart & Ship's Log.
+   The vernacular is a paper nautical chart on a chart table: warm parchment,
+   dark ink soundings, chart-teal for the brand mark, chart-emerald/amber/rust
+   for the safety triad, and a muted rose reserved for caution/boundary
+   vectors. Same token NAMES as the console this replaced (so every component
+   that reads `bg-shelf-1`, `text-ink`, `border-hairline` etc. re-themes for
+   free) — only the values moved from a night-vision console to daylight
+   paper. */
 @theme {
-  /* Depth ramp: deep oceanic trench to shallow coastal shelf */
-  --color-abyss: #020b12;
-  --color-trench: #04101a;
-  --color-shelf-1: #071a28;
-  --color-shelf-2: #0e273a;
-  --color-shelf-3: #16364d;
-  --color-shoal: #22516f;
+  /* Paper ramp: base canvas to the most-elevated card */
+  --color-abyss: #f2ead4;
+  --color-trench: #ece1c4;
+  --color-shelf-1: #faf6ea;
+  --color-shelf-2: #f5efdc;
+  --color-shelf-3: #fffdf6;
+  --color-shoal: #8a7f66;
 
-  /* Tactical Instrument Wireframes & Hairlines */
-  --color-hairline: #133347;
-  --color-hairline-strong: #235674;
-  --color-hairline-glow: rgba(56, 189, 248, 0.25);
+  /* Chart hairlines & rules — ink at low opacity, not a grey */
+  --color-hairline: rgba(27, 38, 51, 0.16);
+  --color-hairline-strong: rgba(27, 38, 51, 0.32);
+  --color-hairline-glow: rgba(47, 111, 116, 0.25);
 
-  /* Type tones on oceanic abyss */
-  --color-ink: #e2eff7;
-  --color-ink-muted: #95b3c5;
-  --color-ink-dim: #60869d;
+  /* Type tones on parchment */
+  --color-ink: #1c2939;
+  --color-ink-muted: #5b5646;
+  --color-ink-dim: #8c8672;
 
-  /* Tactical Telemetry & Navigational Accents */
-  --color-ocean-cyan: #00e5ff;
-  --color-ocean-cyan-dim: #00778a;
-  --color-accent: #f0468c;
-  --color-accent-dim: #8e2a56;
+  /* Chart-teal: the brand accent (was the console's ocean-cyan) */
+  --color-ocean-cyan: #2f6f74;
+  --color-ocean-cyan-dim: #1f4d51;
+  --color-accent: #8a3b52;
+  --color-accent-dim: #5e2837;
 
   /* The safety triad: verdicts and hazard telemetry */
-  --color-go: #10e599;
-  --color-caution: #f59e0b;
-  --color-no-go: #ff3b3b;
+  --color-go: #2f7a4f;
+  --color-caution: #b8862e;
+  --color-no-go: #b3402c;
 
-  /* Confidence tiers */
-  --color-confidence-high: #38bdf8;
-  --color-confidence-medium: #818cf8;
-  --color-confidence-low: #c084fc;
-  --color-data-limited: #d97706;
+  /* Confidence tiers — deliberately outside the safety triad's palette */
+  --color-confidence-high: #3f7f86;
+  --color-confidence-medium: #6b6ba0;
+  --color-confidence-low: #9b6ba8;
+  --color-data-limited: #a56a1f;
+
+  /* Text placed on a solid accent/danger button — needs to stay light
+     regardless of theme, since those backgrounds are mid-tone saturated
+     colours rather than the page's own light/dark base. */
+  --color-on-accent: #fffdf6;
 
   --font-sans: var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-fraunces), Georgia, serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
   --font-tamil: var(--font-noto-tamil), var(--font-barlow), sans-serif;
 
-  --blur-glass: 16px;
+  --blur-glass: 12px;
 }
 
 @layer base {
   html {
     background-color: var(--color-abyss);
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   body {
@@ -60,9 +69,16 @@
     font-family: var(--font-sans);
     font-feature-settings: "cv05", "tnum";
     -webkit-font-smoothing: antialiased;
-    background-image: 
-      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(14, 39, 58, 0.4), transparent),
-      linear-gradient(180deg, rgba(2, 11, 18, 0.8) 0%, var(--color-abyss) 100%);
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(47, 111, 116, 0.06), transparent),
+      linear-gradient(180deg, rgba(255, 253, 246, 0.5) 0%, var(--color-abyss) 260px);
+  }
+
+  /* Display serif — the "ORCA" wordmark and section heads only. A page-wide
+     serif would fight the mono readouts for attention; restraint is the
+     signature move here, not omnipresence. */
+  h1, h2, .font-display {
+    font-family: var(--font-serif);
   }
 
   /* Numeric and spatial readouts */
@@ -80,11 +96,11 @@
   }
 
   ::selection {
-    background: rgba(0, 229, 255, 0.25);
-    color: #ffffff;
+    background: rgba(47, 111, 116, 0.22);
+    color: var(--color-ink);
   }
 
-  /* Thin nautical scrollbars */
+  /* Warm paper scrollbars */
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--color-hairline-strong) transparent;
@@ -92,33 +108,35 @@
 }
 
 @layer components {
-  /* Tactical Glass: Precision bridge panel with top-lit hairline bezel */
+  /* Chart card: a sheet of paper lifted off the table, not a pane of glass —
+     the blur stays (it still separates a floating panel from the chart
+     underneath it) but the shadow and highlight read as paper, not screen. */
   .glass {
-    background: color-mix(in oklab, var(--color-shelf-1) 85%, transparent);
-    backdrop-filter: blur(var(--blur-glass)) saturate(1.3);
-    -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.3);
+    background: color-mix(in oklab, var(--color-shelf-1) 92%, transparent);
+    backdrop-filter: blur(var(--blur-glass)) saturate(1.05);
+    -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.05);
     border: 1px solid var(--color-hairline);
-    box-shadow: 
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.07),
-      0 4px 20px -2px rgba(0, 0, 0, 0.45);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.7),
+      0 6px 20px -6px rgba(40, 32, 16, 0.18);
   }
 
   /* Deep chassis for high-importance telemetry instruments */
   .marine-chassis {
-    background: linear-gradient(180deg, rgba(14, 39, 58, 0.35) 0%, rgba(7, 26, 40, 0.6) 100%);
+    background: linear-gradient(180deg, rgba(255, 253, 246, 0.6) 0%, rgba(245, 239, 220, 0.7) 100%);
     border: 1px solid var(--color-hairline);
-    border-top-color: rgba(56, 189, 248, 0.2);
-    box-shadow: 
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
-      0 8px 32px -4px rgba(0, 0, 0, 0.55);
+    border-top-color: rgba(255, 255, 255, 0.8);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.8),
+      0 10px 28px -8px rgba(40, 32, 16, 0.16);
   }
 
   /* Subtle chart latitude/longitude grid pattern */
   .chart-grid {
     background-size: 32px 32px;
-    background-image: 
-      linear-gradient(to right, rgba(19, 51, 71, 0.35) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(19, 51, 71, 0.35) 1px, transparent 1px);
+    background-image:
+      linear-gradient(to right, rgba(27, 38, 51, 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(27, 38, 51, 0.05) 1px, transparent 1px);
   }
 
   /* Tactical corner brackets [ ] for target frames and telemetry blocks */
@@ -132,7 +150,7 @@
     width: 6px;
     height: 6px;
     pointer-events: none;
-    border-color: rgba(56, 189, 248, 0.45);
+    border-color: rgba(47, 111, 116, 0.4);
   }
   .tactical-frame::before {
     top: -1px;
@@ -178,9 +196,9 @@
   }
 }
 
-/* MapLibre nautical theme styling */
+/* MapLibre chart-paper theme styling */
 .maplibregl-ctrl-attrib {
-  background: color-mix(in oklab, var(--color-abyss) 85%, transparent) !important;
+  background: color-mix(in oklab, var(--color-shelf-1) 90%, transparent) !important;
   color: var(--color-ink-dim) !important;
   font-family: var(--font-sans);
   font-size: 10px;
@@ -189,18 +207,18 @@
   color: var(--color-ink-muted) !important;
 }
 .maplibregl-ctrl-group {
-  background: var(--color-shelf-2) !important;
+  background: var(--color-shelf-3) !important;
   border: 1px solid var(--color-hairline) !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+  box-shadow: 0 4px 12px rgba(40, 32, 16, 0.15) !important;
 }
 .maplibregl-ctrl-group button + button {
   border-top: 1px solid var(--color-hairline) !important;
 }
 .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
-  filter: invert(1) brightness(1.4);
+  filter: invert(0.15) brightness(0.9);
 }
 .maplibregl-ctrl-scale {
-  background: color-mix(in oklab, var(--color-abyss) 75%, transparent) !important;
+  background: color-mix(in oklab, var(--color-shelf-1) 85%, transparent) !important;
   border: 1px solid var(--color-hairline-strong) !important;
   border-top: none !important;
   color: var(--color-ink-muted) !important;

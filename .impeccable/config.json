@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "codex-grid-background",
+        "value": "*",
+        "files": [
+          "frontend/app/globals.css"
+        ],
+        "createdAt": "2026-09-05T00:17:37.046Z",
+        "reason": "single use: landing hero background for a nautical-chart product (chart-grid = lat/long graticule), 5% opacity, matches the rule's own map/blueprint exception"
+      },
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "frontend/app/reasoning/AnimatedFlowEdge.tsx"
+        ],
+        "createdAt": "2026-09-05T01:34:46.193Z",
+        "reason": "false positive: stroke-width is an SVG presentation attribute (paint-only), not CSS width/box-model — animating it does not cause layout reflow"
+      }
+    ]
+  }
+}

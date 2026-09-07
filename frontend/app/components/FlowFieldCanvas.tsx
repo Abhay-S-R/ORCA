@@ -18,6 +18,8 @@ interface FlowFieldCanvasProps {
   showWind: boolean;
   currentVectors: VectorPoint[] | null;
   windVectors: VectorPoint[] | null;
+  currentBounds?: [number, number, number, number] | null;
+  windBounds?: [number, number, number, number] | null;
 }
 
 interface Particle {
@@ -37,7 +39,7 @@ class VectorGrid {
   private cols: number;
   private rows: number;
 
-  constructor(points: VectorPoint[], bounds: [number, number, number, number] = [65.0, 5.0, 95.0, 25.0], res = 0.5) {
+  constructor(points: VectorPoint[], bounds: [number, number, number, number] = [65.0, 4.0, 95.0, 26.0], res = 0.25) {
     this.west = bounds[0];
     this.south = bounds[1];
     this.east = bounds[2];
@@ -107,6 +109,8 @@ export function FlowFieldCanvas({
   showWind,
   currentVectors,
   windVectors,
+  currentBounds,
+  windBounds,
 }: FlowFieldCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -140,29 +144,32 @@ export function FlowFieldCanvas({
     };
     resize();
 
-    // Build vector grids
+    // Build vector grids covering the maritime region
     const currentGrid =
       showCurrents && currentVectors?.length
-        ? new VectorGrid(currentVectors)
+        ? new VectorGrid(currentVectors, currentBounds || [65.0, 4.0, 95.0, 26.0], 0.25)
         : null;
 
     const windGrid =
       showWind && windVectors?.length
-        ? new VectorGrid(windVectors)
+        ? new VectorGrid(windVectors, windBounds || [65.0, 4.0, 95.0, 26.0], 0.35)
         : null;
 
-    // Particle pools
-    const NUM_PARTICLES = 1800;
+    // Particle pools covering the active Pan-India domain.
+    const NUM_PARTICLES = 1200;
     const currentParticles: Particle[] = [];
     const windParticles: Particle[] = [];
+
+    // Web Mercator meters-per-pixel at a latitude/zoom
+    const metersPerPixel = (lat: number) => (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, map.getZoom());
 
     const getBounds = () => {
       const b = map.getBounds();
       return {
         west: Math.max(65.0, b.getWest()),
-        south: Math.max(5.0, b.getSouth()),
+        south: Math.max(4.0, b.getSouth()),
         east: Math.min(95.0, b.getEast()),
-        north: Math.min(25.0, b.getNorth()),
+        north: Math.min(26.0, b.getNorth()),
       };
     };
 
@@ -217,7 +224,7 @@ export function FlowFieldCanvas({
       if (!isMoving) {
         // Subtle trail fade: dark tint over previous frame
         ctx.globalCompositeOperation = "destination-out";
-        ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
+        ctx.fillStyle = "rgba(0, 0, 0, 0.1)";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.globalCompositeOperation = "source-over";
 
@@ -226,82 +233,99 @@ export function FlowFieldCanvas({
         const height = container.clientHeight;
         const b = getBounds();
 
-        // 1. Draw Currents (Electric Cyan / Aquatic Azure)
-        if (currentGrid) {
-          ctx.strokeStyle = "rgba(56, 189, 248, 0.9)";
-          ctx.lineWidth = 1.6;
-          ctx.lineCap = "round";
+        // Shared stepper for both fields: moves each particle a fixed PIXEL
+        // distance per frame (scaled to local Mercator scale) rather than a
+        // fixed degree delta, so the field reads as flowing streamlines at
+        // any zoom instead of a near-static dust cloud at ocean-basin zooms
+        // and a wild streak at harbour zooms. Particles are bucketed into
+        // three speed tiers so faster water/wind draws visibly bolder and
+        // brighter than slack water — "meaningful intensity variation" —
+        // for the cost of 3 stroke() calls instead of 1, not per-particle.
+        const drawField = (
+          grid: VectorGrid,
+          particles: Particle[],
+          opts: { maxSpeed: number; haloRgb: string; colorRgb: string; widths: [number, number, number]; pxPerFrame: [number, number, number] },
+        ) => {
+          const tiers: { lon: number; lat: number; lon2: number; lat2: number }[][] = [[], [], []];
 
-          ctx.beginPath();
-          for (let i = 0; i < currentParticles.length; i++) {
-            const p = currentParticles[i];
-            const vec = currentGrid.lookup(p.lon, p.lat);
+          for (let i = 0; i < particles.length; i++) {
+            const p = particles[i];
+            const vec = grid.lookup(p.lon, p.lat);
 
             if (!vec || p.age >= p.maxAge || p.lon < b.west || p.lon > b.east || p.lat < b.south || p.lat > b.north) {
-              currentParticles[i] = spawnParticle(currentGrid);
+              particles[i] = spawnParticle(grid);
               continue;
             }
 
             const p1 = map.project([p.lon, p.lat]);
             if (p1.x < 0 || p1.x > width || p1.y < 0 || p1.y > height) {
-              currentParticles[i] = spawnParticle(currentGrid);
+              particles[i] = spawnParticle(grid);
               continue;
             }
 
-            // Current speed factor
-            const speedFactor = 0.0035;
-            const cosLat = Math.cos((p.lat * Math.PI) / 180);
-            const dLon = (vec.u * speedFactor) / (cosLat > 0.01 ? cosLat : 1);
-            const dLat = vec.v * speedFactor;
+            const speedFrac = Math.min(vec.speed / opts.maxSpeed, 1);
+            const tier = speedFrac < 0.33 ? 0 : speedFrac < 0.7 ? 1 : 2;
+            const pxPerFrame = opts.pxPerFrame[tier];
+
+            const mpp = metersPerPixel(p.lat);
+            const ux = vec.u / vec.speed;
+            const uy = vec.v / vec.speed;
+            const dLon = (ux * pxPerFrame * mpp) / (111320 * Math.max(Math.cos((p.lat * Math.PI) / 180), 0.01));
+            const dLat = (uy * pxPerFrame * mpp) / 111320;
 
             p.lon += dLon;
             p.lat += dLat;
             p.age++;
 
             const p2 = map.project([p.lon, p.lat]);
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
+            tiers[tier].push({ lon: p1.x, lat: p1.y, lon2: p2.x, lat2: p2.y });
           }
-          ctx.stroke();
+
+          ctx.lineCap = "round";
+          for (let t = 0; t < 3; t++) {
+            if (!tiers[t].length) continue;
+            ctx.beginPath();
+            for (const seg of tiers[t]) {
+              ctx.moveTo(seg.lon, seg.lat);
+              ctx.lineTo(seg.lon2, seg.lat2);
+            }
+            // A thin, faint halo pass first — just enough edge definition to
+            // stay legible over both the pale shelf and the dark abyssal end
+            // of the depth ramp — then a thin colour pass. Both stay narrow:
+            // a wide dark outline under every particle was what actually
+            // read as "harsh scratches" rather than water.
+            ctx.strokeStyle = opts.haloRgb;
+            ctx.lineWidth = opts.widths[t] + 0.5;
+            ctx.stroke();
+            const alpha = [0.32, 0.5, 0.72][t];
+            ctx.strokeStyle = opts.colorRgb.replace("ALPHA", String(alpha));
+            ctx.lineWidth = opts.widths[t];
+            ctx.stroke();
+          }
+        };
+
+        // 1. Currents — a clean water-blue, thin enough to read as threads
+        // of flow rather than a bold overlay competing with the depth ramp.
+        if (currentGrid) {
+          drawField(currentGrid, currentParticles, {
+            maxSpeed: 1.2,
+            haloRgb: "rgba(4, 20, 28, 0.28)",
+            colorRgb: "rgba(8, 145, 178, ALPHA)",
+            widths: [0.55, 0.8, 1.15],
+            pxPerFrame: [0.7, 1.4, 2.2],
+          });
         }
 
-        // 2. Draw Wind (Golden Amber / Solar Yellow)
+        // 2. Wind — archived ScatSat, kept visually distinct (amber) from
+        // live currents so the two are never mistaken for one field.
         if (windGrid) {
-          ctx.strokeStyle = "rgba(251, 191, 36, 0.9)";
-          ctx.lineWidth = 1.4;
-          ctx.lineCap = "round";
-
-          ctx.beginPath();
-          for (let i = 0; i < windParticles.length; i++) {
-            const p = windParticles[i];
-            const vec = windGrid.lookup(p.lon, p.lat);
-
-            if (!vec || p.age >= p.maxAge || p.lon < b.west || p.lon > b.east || p.lat < b.south || p.lat > b.north) {
-              windParticles[i] = spawnParticle(windGrid);
-              continue;
-            }
-
-            const p1 = map.project([p.lon, p.lat]);
-            if (p1.x < 0 || p1.x > width || p1.y < 0 || p1.y > height) {
-              windParticles[i] = spawnParticle(windGrid);
-              continue;
-            }
-
-            // Wind speed factor (winds are higher m/s than currents)
-            const speedFactor = 0.0018;
-            const cosLat = Math.cos((p.lat * Math.PI) / 180);
-            const dLon = (vec.u * speedFactor) / (cosLat > 0.01 ? cosLat : 1);
-            const dLat = vec.v * speedFactor;
-
-            p.lon += dLon;
-            p.lat += dLat;
-            p.age++;
-
-            const p2 = map.project([p.lon, p.lat]);
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-          }
-          ctx.stroke();
+          drawField(windGrid, windParticles, {
+            maxSpeed: 12,
+            haloRgb: "rgba(4, 20, 28, 0.24)",
+            colorRgb: "rgba(202, 138, 4, ALPHA)",
+            widths: [0.5, 0.7, 1.0],
+            pxPerFrame: [0.6, 1.2, 1.9],
+          });
         }
       }
 
@@ -317,7 +341,7 @@ export function FlowFieldCanvas({
       map.off("resize", resize);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     };
-  }, [map, showCurrents, showWind, currentVectors, windVectors]);
+  }, [map, showCurrents, showWind, currentVectors, windVectors, currentBounds, windBounds]);
 
   if (!showCurrents && !showWind) return null;
 

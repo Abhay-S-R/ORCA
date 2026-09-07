@@ -11,8 +11,8 @@
 //   unresolved           -> the fisherman banner, plus "Show technical detail"
 // LOW_DATA is not a persona branch: VerdictBadge's confidenceTier prop
 // applies the amber "data limited" treatment identically to all five above.
-import { useState } from "react";
-import { Download } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { Compass, Cloud, Crosshair, Download } from "lucide-react";
 import { Badge, type ConfidenceTier, type Verdict } from "./Badge";
 import { Button } from "./Button";
 import { Readout, ReadoutGrid } from "./Readout";
@@ -200,6 +200,22 @@ function fmt(value: unknown): string {
   return String(value);
 }
 
+// A named subsection above a ReadoutGrid — the same icon + label vocabulary
+// FormattedResponse uses for its own section cards, so a stat grid and a
+// narrative section read as one system rather than two different UIs bolted
+// together.
+function Group({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-ink-dim uppercase">
+        {icon}
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 // district threat classification (coastal_authority): a severity word
 // derived from the same verdict + hazard facts already on screen — never a
 // second opinion, just a coarser label for a broadcast context. The real
@@ -315,29 +331,41 @@ export function PersonaAnswerMatrix({
 
       {persona === "commercial_navigator" && (
         <div className="rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md">
-          <ReadoutGrid cols={4}>
-            <Readout label="Boundary distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
-            <Readout label="MPA status" value={hazard.mpa_violation ? "Inside boundary" : "Clear"} hint={hazard.mpa_alert_level ?? undefined} />
-            <Readout label="Tide" value={tide.value} unit={tide.unit} hint={tide.hint} />
-            <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" hint="bathymetry/route detail: see /voyage" />
-          </ReadoutGrid>
+          <Group icon={<Compass className="size-3.5" />} label="Navigation readout">
+            <ReadoutGrid cols={4}>
+              <Readout label="Boundary distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
+              <Readout label="MPA status" value={hazard.mpa_violation ? "Inside boundary" : "Clear"} hint={hazard.mpa_alert_level ?? undefined} />
+              <Readout label="Tide" value={tide.value} unit={tide.unit} hint={tide.hint} />
+              <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" hint="bathymetry/route detail: see /voyage" />
+            </ReadoutGrid>
+          </Group>
         </div>
       )}
 
       {persona === "researcher" && (
         <>
-          <div className="rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md shadow-sm">
-            <ReadoutGrid cols={3}>
-              <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" />
-              <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" />
-              <Readout label="Lightning" value={weather.lightning_active ? "Active" : "None"} />
-              <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
-              <Readout label="MPA violation" value={hazard.mpa_violation ? "Yes" : "No"} hint={hazard.mpa_alert_level ?? undefined} />
-              <Readout label="Tide" value={tide.value} unit={tide.unit} hint={tide.hint} />
-              <Readout label="Nearest PFZ" value={pfz.value} unit={pfz.unit} hint={pfz.hint} />
-              <Readout label="Sector status" value={sector.value} unit={sector.unit} hint={sector.hint} />
-              <Readout label="Productivity" value={productivity.value} unit={productivity.unit} hint={productivity.hint} />
-            </ReadoutGrid>
+          <div className="flex flex-col gap-4 rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md shadow-sm">
+            <Group icon={<Cloud className="size-3.5" />} label="Weather & sea state">
+              <ReadoutGrid cols={3}>
+                <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" />
+                <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" />
+                <Readout label="Lightning" value={weather.lightning_active ? "Active" : "None"} />
+              </ReadoutGrid>
+            </Group>
+            <Group icon={<Compass className="size-3.5" />} label="Boundary & hazard">
+              <ReadoutGrid cols={2}>
+                <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
+                <Readout label="MPA violation" value={hazard.mpa_violation ? "Yes" : "No"} hint={hazard.mpa_alert_level ?? undefined} />
+              </ReadoutGrid>
+            </Group>
+            <Group icon={<Crosshair className="size-3.5" />} label="Ocean & fishing activity">
+              <ReadoutGrid cols={2}>
+                <Readout label="Tide" value={tide.value} unit={tide.unit} hint={tide.hint} />
+                <Readout label="Nearest PFZ" value={pfz.value} unit={pfz.unit} hint={pfz.hint} />
+                <Readout label="Sector status" value={sector.value} unit={sector.unit} hint={sector.hint} />
+                <Readout label="Productivity" value={productivity.value} unit={productivity.unit} hint={productivity.hint} />
+              </ReadoutGrid>
+            </Group>
           </div>
           <div className="flex gap-2">
             <Button variant="ghost" className="text-xs" icon={<Download className="size-3.5" />} onClick={() => downloadExport(queryId, exportRows(queryId, weather, hazard, ocean, citations), "csv")}>
