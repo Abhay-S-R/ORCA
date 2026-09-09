@@ -1,0 +1,78 @@
+"use client";
+
+// SIH finale P0 #3 — disclose live vs. fallback vs. simulated in the product
+// itself, next to the persona selector, so a judge finds this before they
+// find the gap on their own. Same click-to-toggle popover pattern as
+// SourceChip's ProvenancePopover, reused rather than inventing a second one.
+import { useEffect, useState } from "react";
+import { ShieldCheck } from "lucide-react";
+import { API_BASE } from "../lib/apiBase";
+
+type Feature = { feature: string; status: "live" | "fallback" | "simulated"; detail: string };
+
+const DOT_CLASS: Record<Feature["status"], string> = {
+  live: "bg-go",
+  fallback: "bg-caution",
+  simulated: "bg-data-limited",
+};
+
+export function SystemStatusStrip() {
+  const [features, setFeatures] = useState<Feature[] | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/api/system-status`)
+      .then((r) => r.json())
+      .then((data) => !cancelled && setFeatures(data.features ?? []))
+      .catch(() => !cancelled && setFeatures([]));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!features || features.length === 0) return null;
+  const notLive = features.filter((f) => f.status !== "live").length;
+
+  return (
+    <span className="relative hidden sm:inline-flex">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1.5 rounded-sm border border-hairline px-1.5 py-0.5 text-ink-dim transition-colors hover:border-hairline-strong hover:text-ink-muted"
+        title="What's live vs. fallback vs. simulated"
+      >
+        <ShieldCheck className="size-3" aria-hidden="true" />
+        <span className="text-[10px] font-medium tracking-wide uppercase">
+          {notLive} of {features.length} fallback
+        </span>
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="System status"
+          onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
+          className="glass absolute top-full right-0 z-30 mt-1.5 w-80 rounded-md p-3 text-xs shadow-lg shadow-black/50"
+        >
+          <p className="font-semibold text-ink">What's live right now</p>
+          <ul className="mt-2 space-y-2">
+            {features.map((f) => (
+              <li key={f.feature} className="flex items-start gap-2">
+                <span aria-hidden="true" className={`mt-1 size-1.5 shrink-0 rounded-full ${DOT_CLASS[f.status]}`} />
+                <div className="min-w-0">
+                  <p className="flex items-center gap-1.5 text-ink-muted">
+                    <span className="font-medium text-ink">{f.feature}</span>
+                    <span className="text-[10px] uppercase tracking-wide text-ink-dim">{f.status}</span>
+                  </p>
+                  <p className="text-ink-dim">{f.detail}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </span>
+  );
+}

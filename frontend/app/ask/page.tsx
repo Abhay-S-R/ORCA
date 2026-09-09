@@ -26,6 +26,7 @@ import { usePersona } from "../persona/context";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
 import { classifyQueryIntent, INTENT_LABEL, type QueryIntent } from "../lib/queryIntent";
+import { getSessionId } from "../lib/session";
 import type { QueryFocus } from "../components/MapView";
 
 const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapView), {
@@ -51,6 +52,7 @@ type FinalResponse = {
   citations?: Citation[];
   source_selections?: SourceSelection[];
   risk_assessment?: { go_no_go: Verdict; reason: string } | null;
+  lead_with_verdict?: boolean;
   weather_summary?: WeatherSummary;
   hazard_breakdown?: HazardBreakdown;
   ocean_summary?: OceanSummary;
@@ -129,7 +131,8 @@ export default function AskPage() {
     // Persona is an explicit rendering choice only — Agent 9 renders with it,
     // no classifier reads it (Ground Rule 1). "unresolved" = don't send one.
     const personaParam = persona !== "unresolved" ? `&persona=${persona}` : "";
-    const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}`);
+    const sessionParam = `&session_id=${encodeURIComponent(getSessionId())}`;
+    const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}`);
     sourceRef.current = es;
     es.onmessage = (ev) => {
       const data = JSON.parse(ev.data);
@@ -236,8 +239,8 @@ export default function AskPage() {
             incident, not a UX annoyance). */}
         <VoiceInputPanel voice={voice} />
 
-        {/* Differentiator 1 (§4.5): twelve agents run per query, and this is
-            where a user watches that happen instead of a spinner. */}
+        {/* Differentiator 1 (§4.5): up to ten agents run per query, and this
+            is where a user watches that happen instead of a spinner. */}
         {spans.length > 0 && (
           <div className="flex flex-col gap-1.5">
             <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
@@ -297,6 +300,7 @@ export default function AskPage() {
                   hazard={answer.hazard_breakdown ?? { imbl_distance_nm: null, imbl_alert_level: null, mpa_violation: false, mpa_alert_level: null }}
                   ocean={answer.ocean_summary ?? { tide: null, nearest_pfz: null, sector_status: null, productivity_diagnosis: null }}
                   citations={answer.citations ?? []}
+                  leadWithVerdict={answer.lead_with_verdict ?? true}
                 />
               )}
 

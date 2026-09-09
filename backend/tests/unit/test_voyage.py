@@ -79,6 +79,49 @@ def test_verdict_rollup_never_averages_any_blocked_forces_no_go() -> None:
         assert plan.verdict == "NO_GO"
 
 
+# Pamban fixture coordinate (loaders.py's own comment: this snaps inside the
+# Gulf of Mannar Marine National Park polygon) — a direct route starting here
+# classifies MPA/BLOCKED immediately, giving a deterministic NO_GO to reroute
+# around.
+MPA_ORIGIN = (9.2443, 79.2281)
+MPA_DEST = (9.20, 79.10)
+
+
+def test_no_go_route_reroutes_to_a_clear_alternate_when_one_exists() -> None:
+    """Checklist P0 #2 — route optimization, not just auditing. A direct
+    route blocked by a spatial hazard (not a time-dependent one) should
+    clear on at least one of the offset detours."""
+    now = datetime.now(timezone.utc)
+    _, _, direct_verdict, _ = voyage._classify_route(
+        densify_route(MPA_ORIGIN, MPA_DEST), now, now, "small_fishing", 1.2, 8.0,
+    )
+    assert direct_verdict == "NO_GO", "fixture must actually start inside the MPA for this test to mean anything"
+
+    plan = plan_voyage(MPA_ORIGIN, MPA_DEST, vessel_class="small_fishing", speed_kn=8.0)
+    assert plan.rerouted is True
+    assert plan.verdict != "NO_GO"
+    assert len(plan.alternatives_tried) >= 1
+    # The chosen route itself must never carry a BLOCKED segment — Ground
+    # Rule 4 still applies to whichever plan is actually returned.
+    assert all(s.status != "BLOCKED" for s in plan.segments)
+    strategies = {a["strategy"] for a in plan.alternatives_tried}
+    assert strategies == {"offset_east", "offset_west", "wait_6h"}
+
+
+def test_rerouted_flag_is_false_and_verdict_stays_no_go_when_no_alternate_clears() -> None:
+    """Honesty over optimism: `plan_voyage` must never report `rerouted=True`
+    with a verdict that is still NO_GO, and must never silently swap in a
+    still-blocked alternate — see checklist P0 #2's "say so honestly rather
+    than picking the least-bad NO_GO"."""
+    plan = plan_voyage(SHALLOW_ORIGIN, SHALLOW_DEST, vessel_class="small_fishing", speed_kn=8.0)
+    if plan.verdict == "NO_GO":
+        assert plan.rerouted is False
+        assert "no clear detour found" in plan.verdict_reason
+        assert all(a["verdict"] == "NO_GO" for a in plan.alternatives_tried)
+    if plan.rerouted:
+        assert plan.verdict != "NO_GO"
+
+
 def test_segment_classification_uses_the_same_full_precision_containment_agent6_does() -> None:
     """No independent/simplified geometry check inside voyage.py — it must
     agree exactly with Agent 6's own full-precision point_in_polygon /

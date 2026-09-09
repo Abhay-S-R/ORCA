@@ -46,6 +46,30 @@ def test_hindi_bachao_detected():
     assert result["matched_language"] == "hi"
 
 
+def test_malayalam_boat_sinking_detected():
+    result = detect_distress_signal("ഞങ്ങളുടെ വള്ളം മുങ്ങുന്നു")  # "our boat is sinking"
+    assert result["is_distress"] is True
+    assert result["matched_language"] == "ml"
+
+
+def test_malayalam_save_me_detected():
+    result = detect_distress_signal("എന്നെ രക്ഷിക്കൂ")  # "save me"
+    assert result["is_distress"] is True
+    assert result["matched_language"] == "ml"
+
+
+def test_telugu_boat_sinking_detected():
+    result = detect_distress_signal("మా పడవ మునిగిపోతోంది")  # "our boat is sinking"
+    assert result["is_distress"] is True
+    assert result["matched_language"] == "te"
+
+
+def test_telugu_save_me_detected():
+    result = detect_distress_signal("నన్ను రక్షించండి")  # "save me"
+    assert result["is_distress"] is True
+    assert result["matched_language"] == "te"
+
+
 def test_ordinary_query_is_not_distress():
     result = detect_distress_signal("Is it safe to go to sea tomorrow morning?")
     assert result["is_distress"] is False

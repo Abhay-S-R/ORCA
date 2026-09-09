@@ -40,6 +40,11 @@ type VoyagePlanResponse = {
   verdict: Verdict; verdict_reason: string; confidence: { score: ConfidenceTier; rationale: string };
   route_layer: { geojson: RouteGeoJson; source_provenance: SourceProvenance[] } | null;
   route_layer_dropped: string[];
+  // Checklist P0 #2 — route optimization evidence, not just an audited
+  // straight line. `rerouted` means this plan's own segments/verdict above
+  // ARE the chosen detour, not the blocked direct route.
+  rerouted: boolean;
+  alternatives_tried: { strategy: string; verdict: Verdict; added_nm: number }[];
 };
 type Tide = {
   station_name: string; tidal_state: string; range_m: number | null; spring_neap: string;
@@ -287,6 +292,39 @@ export default function VoyagePage() {
                   <ConfidenceMeter tier={plan.confidence.score} />
                 </div>
               </VerdictBadge>
+
+              {/* Checklist P0 #2's own evidence: the direct line was blocked
+                  and ORCA chose an alternate, not just reported the block. */}
+              {plan.rerouted && (
+                <div className="flex items-start gap-2 rounded-lg border border-ocean-cyan/30 bg-ocean-cyan/10 px-3.5 py-2.5 text-xs text-ink-muted">
+                  <Navigation className="mt-0.5 size-3.5 shrink-0 text-ocean-cyan" aria-hidden="true" />
+                  <span>
+                    <span className="font-semibold text-ink">Rerouted.</span> The direct line was blocked, so this
+                    plan is the best clearing alternate ORCA found — see the reason above for which one and why.
+                  </span>
+                </div>
+              )}
+
+              {plan.alternatives_tried.length > 0 && (
+                <details className="rounded-lg border border-hairline/70 bg-shelf-1/30 px-3.5 py-2.5 text-xs text-ink-dim">
+                  <summary className="cursor-pointer font-medium text-ink-muted">
+                    {plan.alternatives_tried.length} alternate route{plan.alternatives_tried.length === 1 ? "" : "s"} checked
+                  </summary>
+                  <ul className="mt-2 space-y-1">
+                    {plan.alternatives_tried.map((a) => (
+                      <li key={a.strategy} className="flex items-center justify-between gap-3">
+                        <span className="capitalize">{a.strategy.replace(/_/g, " ")}</span>
+                        <span className="flex items-center gap-2">
+                          <Badge tone={a.verdict === "NO_GO" ? "no-go" : a.verdict === "CAUTION" ? "caution" : "go"}>
+                            {a.verdict}
+                          </Badge>
+                          <span data-readout>+{a.added_nm.toFixed(1)} nm</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
 
               {plan.route_layer_dropped.length > 0 && (
                 <ErrorState
