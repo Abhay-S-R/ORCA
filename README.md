@@ -20,9 +20,18 @@
 
 ---
 
-> 📸 **Image 1 — ORCA Interface Overview** 
-
-![ORCA Interface Overview — map view with safety verdict badge, live agent trace panel, and PFZ overlay](PASTE_YOUR_IMAGE_URL_OR_PATH_HERE)
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="assets/orca1.png" alt="ORCA Interface Overview — map view with safety verdict badge, live agent trace panel, and PFZ overlay" width="100%" />
+      <br/><sub><b>🗺️ ORCA Interface Overview</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="assets/orca2.png" alt="ORCA Command Stations — four persona cards with stats bar" width="100%" />
+      <br/><sub><b>🏛️ Four Command Stations</b></sub>
+    </td>
+  </tr>
+</table>
 
 ---
 
@@ -153,12 +162,6 @@ Any query that reaches `DEEP` reasoning depth — regardless of persona — pass
 
 ---
 
-> 📸 **Image 2 — Agent Pipeline Diagram** 
-
-![ORCA 12-Agent LangGraph Pipeline — from user query through distress check, planning, parallel specialists, risk assessment, visualization, reporting, and language egress](PASTE_YOUR_IMAGE_URL_OR_PATH_HERE)
-
----
-
 ## 🧠 The Agent Pipeline
 
 Every query flows through a compiled LangGraph `StateGraph`. Each node is a named, specialized agent. Here is the exact wiring:
@@ -234,6 +237,21 @@ Every query flows through a compiled LangGraph `StateGraph`. Each node is a name
 
 ---
 
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="assets/orca3.png" alt="ORCA agent trace panel streaming live" width="100%" />
+      <br/><sub><b>⚡ Live Agent Trace Panel</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="assets/orca4.png" alt="ORCA safety verdict and map overlay" width="100%" />
+      <br/><sub><b>🛡️ Safety Verdict &amp; Map Overlay</b></sub>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## 🏗️ Architecture
 
 ### Backend — FastAPI + LangGraph
@@ -259,6 +277,13 @@ The frontend is a Next.js 16 / React 19 application that progressively renders t
 | **Redis 7** | Query cache TTLs, request coalescing |
 
 > Phase 1 (minimal local setup) runs entirely in-memory with GeoPandas. Postgres and Redis are only needed for Phase 2+ features (auth, persistent traces, Sentinel watches).
+
+---
+
+<div align="center">
+  <img src="assets/orca5.png" alt="ORCA full system view" width="90%" />
+  <br/><sub><b>🌊 ORCA — Full System View</b></sub>
+</div>
 
 ---
 
