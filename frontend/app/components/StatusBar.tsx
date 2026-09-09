@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { PersonaSelector } from "../persona/PersonaSelector";
 import { Radio, Satellite } from "lucide-react";
+import { SystemStatusStrip } from "./SystemStatusStrip";
 
 export function StatusBar() {
   return (
@@ -34,6 +35,8 @@ export function StatusBar() {
 
       <div className="flex items-center gap-4">
         <FeedStatus />
+        <div className="hidden h-3.5 w-px bg-hairline sm:block" />
+        <SystemStatusStrip />
         <div className="hidden h-3.5 w-px bg-hairline sm:block" />
         <Clock />
         <PersonaSelector />

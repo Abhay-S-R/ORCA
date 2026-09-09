@@ -365,6 +365,7 @@ def reporting_run(state: ORCAState) -> AgentResult:
         # that teaches people to skim the one line that matters when it is not
         # GO. Non-GO verdicts still lead, whatever was asked.
         lead_with_verdict=reporting.should_lead_with_verdict(verdict, matched_rows),
+        session_history=state.get("session_history"),
     )
 
     return AgentResult(

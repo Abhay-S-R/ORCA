@@ -1,8 +1,9 @@
 "use client";
 
 // The live agent activity strip (differentiator 1 — "what makes the UI
-// visibly agentic", §4.5). Twelve agents execute per query; this is how a
-// user sees that happening instead of watching a spinner.
+// visibly agentic", §4.5). Up to ten agents execute per query (nine on the
+// query path plus the conditional Critic on DEEP depth); this is how a user
+// sees that happening instead of watching a spinner.
 //
 // Status is carried by BOTH a glyph and a colour, and the running state adds
 // motion on top — three redundant channels, so reduced-motion and colour

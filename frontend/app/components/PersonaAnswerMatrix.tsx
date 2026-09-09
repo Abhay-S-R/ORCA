@@ -284,6 +284,11 @@ export function PersonaAnswerMatrix({
   hazard,
   ocean,
   citations,
+  // Backend's reporting.should_lead_with_verdict decision (Ground Rule 2
+  // still computes the verdict for every query; this only gates whether the
+  // banner is worth showing). Defaults true so callers that don't pass it —
+  // and a non-GO verdict, which the backend never demotes — still get it.
+  leadWithVerdict = true,
 }: {
   persona: Persona;
   queryId: string | undefined;
@@ -294,6 +299,7 @@ export function PersonaAnswerMatrix({
   hazard: HazardBreakdown;
   ocean: OceanSummary;
   citations: Citation[];
+  leadWithVerdict?: boolean;
 }) {
   const [showTechnical, setShowTechnical] = useState(false);
   const direction = hazard.imbl_distance_nm !== null ? `boundary ${hazard.imbl_distance_nm.toFixed(1)} nm away` : "boundary distance unknown";
@@ -304,7 +310,7 @@ export function PersonaAnswerMatrix({
 
   return (
     <div className="flex flex-col gap-3">
-      <VerdictBadge verdict={verdict} summary={reason} confidenceTier={confidenceTier} />
+      {leadWithVerdict && <VerdictBadge verdict={verdict} summary={reason} confidenceTier={confidenceTier} />}
 
       {persona === "fisherman" && (
         <p className="text-sm text-ink-muted">{direction}. See the map for the single nearest pin.</p>

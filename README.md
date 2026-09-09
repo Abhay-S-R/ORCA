@@ -91,8 +91,8 @@ ORCA serves four distinct user personas. Every persona receives a different dept
 <tr>
 <td width="50%">
 
-**🤖 12-Agent Multi-Agent Pipeline**
-A LangGraph `StateGraph` orchestrates twelve specialized agents that genuinely collaborate. Not one LLM call wearing different hats.
+**🤖 10-Agent Multi-Agent Pipeline**
+A LangGraph `StateGraph` orchestrates ten specialized agents that genuinely collaborate. Not one LLM call wearing different hats.
 
 </td>
 <td width="50%">
@@ -165,6 +165,8 @@ Any query that reaches `DEEP` reasoning depth — regardless of persona — pass
 ## 🧠 The Agent Pipeline
 
 Every query flows through a compiled LangGraph `StateGraph`. Each node is a named, specialized agent. Here is the exact wiring:
+
+> **Why the labels below run to Agent 12 while we say "ten agents":** the numbers are stable role IDs, not a headcount. Agent 3 (Discovery) rides inside Agent 5's (Ocean Analytics) output as a source-selection narrative rather than running as its own node, and Agent 1 (Language) appears twice in the diagram — ingress and egress — because it's the same agent used at both ends of the pipeline. That gives nine on the query path (Distress, Language, Planning, Weather, Ocean Analytics, Geospatial, Risk Assessment, Visualization, Reporting) plus Agent 11 (Sentinel) running continuously in the background — ten. Agent 10 (Critic) is real but conditional — it only engages when a query reaches `DEEP` reasoning depth — so it's counted as a bonus verification pass, not one of the headline ten.
 
 ```
  ┌─────────────────────────────────────────────────────────────────────┐
@@ -403,12 +405,6 @@ ORCA integrates the following authoritative Indian and global marine data source
 
 ---
 
-> 📸 **Image 3 — Pilot Region Map**
-
-![Pilot Region — South Tamil Nadu, Palk Bay, Gulf of Mannar — with PFZ zones, IMBL boundary line, and Gulf of Mannar MPA polygon](PASTE_YOUR_IMAGE_URL_OR_PATH_HERE)
-
----
-
 ## 📦 Tech Stack
 
 <div align="center">
@@ -443,7 +439,7 @@ These ten principles are non-negotiable. Every agent, every API response, and ev
 
 | # | Principle |
 |---|---|
-| **1** | **Nine core agents, mapped 1:1 to ISRO's named roles.** The architecture builds exactly what the problem statement asked for. |
+| **1** | **Ten core agents, mapped 1:1 to ISRO's named roles.** The architecture builds exactly what the problem statement asked for. |
 | **2** | **Intent decides what fires. Persona decides how it's said.** The planning agent is completely persona-blind. Only the reporting agent reads persona. A misclassified fisherman never gets silently truncated analysis. |
 | **3** | **Zero LLM hallucination on safety.** Go/no-go decisions, geofence breaches, and hazard tiers are deterministic Python math — never generated text. |
 | **4** | **Every claim is provenance-stamped.** Source dataset, acquisition timestamp, and confidence tier travel with every fact to the user. |
