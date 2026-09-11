@@ -10,7 +10,7 @@
 // radio because that is how you ask a question at sea.
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   Building2,
@@ -64,10 +64,17 @@ export function NavRail() {
   const pathname = usePathname();
   const { persona } = usePersona();
 
+  // Hydration-safe: render with "unresolved" on both the server pass and the
+  // first client render so the HTML matches, then swap in the real persona
+  // once the component has mounted (localStorage has been read by then).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const effectivePersona = mounted ? persona : "unresolved";
+
   // Nav visibility is a rendering concern only, never a capability gate
   // (§4.3) — a hidden item is simply not listed; the route still renders at
   // full depth on a direct visit, since Next's router never consults this.
-  const visible = NAV_ROUTES.map((href) => ({ href, visibility: visibilityFor(href, persona) })).filter(
+  const visible = NAV_ROUTES.map((href) => ({ href, visibility: visibilityFor(href, effectivePersona) })).filter(
     (r) => r.visibility !== "hidden",
   );
 
@@ -76,7 +83,7 @@ export function NavRail() {
       {/* Desktop rail */}
       <nav
         aria-label="Primary"
-        className="hidden w-16 shrink-0 flex-col items-center gap-1.5 border-r border-hairline bg-shelf-1/80 py-4 sm:flex backdrop-blur-md shadow-lg"
+        className="hidden w-16 shrink-0 flex-col items-center gap-1.5 border-r border-hairline bg-shelf-1/80 py-4 sm:flex backdrop-blur-md shadow-lg z-40"
       >
         {/* "/" is the public landing page, outside this rail entirely —
             inside the app, the mark goes back to Ask, the app's own home. */}
