@@ -4,7 +4,6 @@
 // what it is, in one screen, before a visitor ever opens the console.
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
@@ -71,16 +70,10 @@ const TRY_QUERIES = [
 ];
 
 export default function LandingPage() {
-  const router = useRouter();
   const { setPersona } = usePersona();
   const reduce = useReducedMotion();
   const stationSectionRef = useRef<HTMLDivElement>(null);
   const [openStation, setOpenStation] = useState<Persona | null>(null);
-
-  function launchWithPersona(id: Persona) {
-    setPersona(id);
-    router.push("/ask");
-  }
 
   return (
     <div className="min-h-screen bg-abyss text-ink">
@@ -136,14 +129,14 @@ export default function LandingPage() {
             </p>
 
             <div className="mt-7 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => launchWithPersona("fisherman")}
+              <Link
+                href="/ask"
+                onClick={() => setPersona("fisherman")}
                 className="inline-flex items-center gap-2 rounded-lg border border-ink bg-ink px-5 py-2.5 text-sm font-bold text-on-accent transition-transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
               >
                 Open ORCA
                 <ArrowRight className="size-4" />
-              </button>
+              </Link>
               <button
                 type="button"
                 onClick={() => stationSectionRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth" })}
@@ -234,14 +227,14 @@ export default function LandingPage() {
                       ))}
                     </ul>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => launchWithPersona(station.id)}
+                  <Link
+                    href="/ask"
+                    onClick={() => setPersona(station.id)}
                     className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-hairline-strong bg-shelf-2 py-2 text-xs font-bold text-ink transition-colors hover:bg-ink hover:text-on-accent cursor-pointer"
                   >
                     Open
                     <ArrowRight className="size-3.5" />
-                  </button>
+                  </Link>
                 </div>
               );
             })}
