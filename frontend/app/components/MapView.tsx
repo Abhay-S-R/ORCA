@@ -1136,7 +1136,7 @@ export function MapView({
       />
 
       {showPanels && (
-        <div className="pointer-events-none absolute inset-0">
+        <div className="pointer-events-none absolute inset-0 z-10">
           {showLayerPanel && (
           <div className="pointer-events-auto absolute top-3 left-3 w-56">
             <Panel dense>

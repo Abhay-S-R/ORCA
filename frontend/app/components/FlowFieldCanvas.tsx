@@ -390,7 +390,7 @@ export function FlowFieldCanvas({
   return (
     <canvas
       ref={canvasRef}
-      className="pointer-events-none absolute inset-0 z-10"
+      className="pointer-events-none absolute inset-0 z-[1]"
       style={{ width: "100%", height: "100%" }}
     />
   );
