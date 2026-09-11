@@ -49,7 +49,7 @@ export const CHART = {
   eez: "#2f6f74",
   eezNear: "#1c4a4d",
   mpa: "#b8862e",
-  pfz: "#1f7a4f",
+  pfz: "#05df72",
   accent: "#8a3b52",
   ink: "#1c2939",
   // Same hex as --color-go/--color-caution/--color-no-go in globals.css —

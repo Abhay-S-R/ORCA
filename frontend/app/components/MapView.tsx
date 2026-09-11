@@ -563,15 +563,62 @@ export function MapView({
         },
       });
 
+      // Coastal boundary highlighting — razor-sharp shoreline demarcation over
+      // heavy raster layers (bathymetry / wave forecast) so coastlines and land
+      // remain clean, distinct, and visible without raster blur bleed.
+      const waterLayer = m.getStyle().layers?.find((l) => "source-layer" in l && l["source-layer"] === "water");
+      const vectorSource = (waterLayer && "source" in waterLayer ? waterLayer.source : "carto") as string;
+      if (m.getSource(vectorSource)) {
+        m.addLayer({
+          id: "coastal-boundary-casing",
+          type: "line",
+          source: vectorSource,
+          "source-layer": "water",
+          filter: ["in", ["get", "class"], ["literal", ["ocean", "sea"]]],
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: {
+            "line-color": "#041724",
+            "line-width": [
+              "interpolate", ["linear"], ["zoom"],
+              3, 2.0,
+              6, 2.8,
+              10, 4.0,
+              14, 5.5
+            ],
+            "line-opacity": 0.85,
+          },
+        });
+        m.addLayer({
+          id: "coastal-boundary-highlight",
+          type: "line",
+          source: vectorSource,
+          "source-layer": "water",
+          filter: ["in", ["get", "class"], ["literal", ["ocean", "sea"]]],
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: {
+            "line-color": "#00d2ff",
+            "line-width": [
+              "interpolate", ["linear"], ["zoom"],
+              3, 1.0,
+              6, 1.5,
+              10, 2.2,
+              14, 3.0
+            ],
+            "line-opacity": 0.95,
+          },
+        });
+      }
+
       // Fishing-zone marker: a small diamond target rather than a plain
       // circle — reads as an intentional chart symbol at a glance, distinct
       // from both the ship's-bow position marker and a generic map pin.
       // Rendered once as a bitmap and GPU-instanced by the symbol layer
       // below, so hundreds of zones cost one draw call, not hundreds of
       // DOM nodes.
-      if (!m.hasImage("pfz-marker")) {
-        m.addImage("pfz-marker", buildPfzMarkerIcon(), { pixelRatio: 2 });
+      if (m.hasImage("pfz-marker")) {
+        m.removeImage("pfz-marker");
       }
+      m.addImage("pfz-marker", buildPfzMarkerIcon(), { pixelRatio: 2 });
 
       // 3+ nearby advisories collapse into one cluster circle (supercluster,
       // built into the GeoJSON source below) rather than a pile of
@@ -584,10 +631,10 @@ export function MapView({
         paint: {
           "circle-radius": ["step", ["get", "point_count"], 13, 5, 16, 15, 20],
           "circle-color": CHART.pfz,
-          "circle-opacity": 0.22,
-          "circle-stroke-width": 1.5,
-          "circle-stroke-color": CHART.pfz,
-          "circle-stroke-opacity": 0.7,
+          "circle-opacity": 0.85,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-opacity": 0.95,
         },
       });
       m.addLayer({
@@ -600,7 +647,10 @@ export function MapView({
           "text-font": ["Open Sans Regular"],
           "text-size": 11,
         },
-        paint: { "text-color": CHART.pfz },
+        paint: {
+          "text-color": "#2629cfff",
+
+        },
       });
 
       m.addLayer({
@@ -675,7 +725,7 @@ export function MapView({
       source.getClusterExpansionZoom(clusterId).then((zoom) => {
         const geometry = feature.geometry as { type: "Point"; coordinates: [number, number] };
         m.easeTo({ center: geometry.coordinates, zoom, duration: 500 });
-      }).catch(() => {});
+      }).catch(() => { });
     });
 
     m.on("click", (e) => {
@@ -839,13 +889,36 @@ export function MapView({
           minzoom: layer.style_hints.min_zoom,
           maxzoom: layer.style_hints.max_zoom,
         });
+        const beforeLayer = m0.getLayer("coastal-boundary-casing")
+          ? "coastal-boundary-casing"
+          : (m0.getLayer("boundaries-fill")
+            ? "boundaries-fill"
+            : (m0.getLayer("pfz-clusters") ? "pfz-clusters" : undefined));
         m0.addLayer({
           id: `${sourceId}-raster`,
           type: "raster",
           source: sourceId,
           layout: { visibility: "none" },
           paint: { "raster-opacity": layer.style_hints.opacity },
-        });
+        }, beforeLayer);
+      }
+
+      // Ensure vector layers (coastline, boundaries, PFZ, routes, watches) stay above all raster overlays
+      for (const id of [
+        "boundaries-fill",
+        "boundaries-line",
+        "coastal-boundary-casing",
+        "coastal-boundary-highlight",
+        "watch-badges-circles",
+        "route-corridor",
+        "route-line",
+        "pfz-clusters",
+        "pfz-cluster-count",
+        "pfz-circles",
+      ]) {
+        if (m0.getLayer(id)) {
+          m0.moveLayer(id);
+        }
       }
 
       const near = new Set((nearRes.boundaries as { name: string }[]).map((b) => b.name));
@@ -1039,6 +1112,9 @@ export function MapView({
     };
     vis("boundaries-fill", layers.boundaries);
     vis("boundaries-line", layers.boundaries);
+    const showCoast = layers.boundaries || layers.srvBathymetry || layers.waveForecast;
+    vis("coastal-boundary-casing", showCoast);
+    vis("coastal-boundary-highlight", showCoast);
     vis("pfz-circles", layers.pfz);
     vis("pfz-clusters", layers.pfz);
     vis("pfz-cluster-count", layers.pfz);
@@ -1138,108 +1214,108 @@ export function MapView({
       {showPanels && (
         <div className="pointer-events-none absolute inset-0 z-10">
           {showLayerPanel && (
-          <div className="pointer-events-auto absolute top-3 left-3 w-56">
-            <Panel dense>
-              <button
-                type="button"
-                onClick={() => setLayersOpen((v) => !v)}
-                aria-expanded={layersOpen}
-                className="flex w-full items-center justify-between gap-3 text-left"
-              >
-                <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
-                  <Layers className="size-3.5 text-ink-dim" aria-hidden="true" />
-                  Chart layers
-                </span>
-                <ChevronDown
-                  aria-hidden="true"
-                  className={`size-3.5 text-ink-dim transition-transform ${layersOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-              {layersOpen && (
-              <div className="-mx-2 mt-3">
-                <LayerToggle
-                  label="Boundaries"
-                  swatch={CHART.eez}
-                  checked={layers.boundaries}
-                  onChange={(v) => setLayers((s) => ({ ...s, boundaries: v }))}
-                />
-                <LayerToggle
-                  label="Fishing zones (PFZ)"
-                  swatch={CHART.pfz}
-                  checked={layers.pfz}
-                  onChange={(v) => setLayers((s) => ({ ...s, pfz: v }))}
-                />
-                {getToken() && (
-                  <LayerToggle
-                    label="My watch badges"
-                    swatch={CHART.caution}
-                    checked={layers.watchBadges}
-                    onChange={(v) => setLayers((s) => ({ ...s, watchBadges: v }))}
+            <div className="pointer-events-auto absolute top-3 left-3 w-56">
+              <Panel dense>
+                <button
+                  type="button"
+                  onClick={() => setLayersOpen((v) => !v)}
+                  aria-expanded={layersOpen}
+                  className="flex w-full items-center justify-between gap-3 text-left"
+                >
+                  <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+                    <Layers className="size-3.5 text-ink-dim" aria-hidden="true" />
+                    Chart layers
+                  </span>
+                  <ChevronDown
+                    aria-hidden="true"
+                    className={`size-3.5 text-ink-dim transition-transform ${layersOpen ? "rotate-180" : ""}`}
                   />
+                </button>
+                {layersOpen && (
+                  <div className="-mx-2 mt-3">
+                    <LayerToggle
+                      label="Boundaries"
+                      swatch={CHART.eez}
+                      checked={layers.boundaries}
+                      onChange={(v) => setLayers((s) => ({ ...s, boundaries: v }))}
+                    />
+                    <LayerToggle
+                      label="Fishing zones (PFZ)"
+                      swatch={CHART.pfz}
+                      checked={layers.pfz}
+                      onChange={(v) => setLayers((s) => ({ ...s, pfz: v }))}
+                    />
+                    {getToken() && (
+                      <LayerToggle
+                        label="My watch badges"
+                        swatch={CHART.caution}
+                        checked={layers.watchBadges}
+                        onChange={(v) => setLayers((s) => ({ ...s, watchBadges: v }))}
+                      />
+                    )}
+                    <LayerToggle
+                      label="Seamarks (Port Buoys & Lights)"
+                      swatch={CHART.ink}
+                      checked={layers.seamarks}
+                      onChange={(v) => setLayers((s) => ({ ...s, seamarks: v }))}
+                    />
+                    {rasterLayers.some((l) => !l.forecast_frames?.length) && (
+                      <LayerToggle
+                        label="Depth shading (India Coast)"
+                        swatch={CHART.eezNear}
+                        heavy
+                        checked={layers.srvBathymetry}
+                        onChange={(v) => toggleHeavy("srvBathymetry", v)}
+                      />
+                    )}
+                    {forecastLayer && (
+                      <LayerToggle
+                        label="Wave height forecast"
+                        swatch={CHART.accent}
+                        heavy
+                        checked={layers.waveForecast}
+                        onChange={(v) => toggleHeavy("waveForecast", v)}
+                      />
+                    )}
+                    {currentVectors && currentVectors.length > 0 && (
+                      <LayerToggle
+                        label="Surface currents"
+                        swatch={CHART.pfz}
+                        heavy
+                        checked={layers.currents}
+                        onChange={(v) => toggleHeavy("currents", v)}
+                      />
+                    )}
+                    {windVectors && windVectors.length > 0 && (
+                      <LayerToggle
+                        label={
+                          windAcquisitionDate
+                            ? `Wind (${windAcquisitionDate})`
+                            : "Wind (ScatSat)"
+                        }
+                        swatch="#e8b25a"
+                        heavy
+                        checked={layers.wind}
+                        onChange={(v) => toggleHeavy("wind", v)}
+                      />
+                    )}
+                  </div>
                 )}
-                <LayerToggle
-                  label="Seamarks (Port Buoys & Lights)"
-                  swatch={CHART.ink}
-                  checked={layers.seamarks}
-                  onChange={(v) => setLayers((s) => ({ ...s, seamarks: v }))}
-                />
-                {rasterLayers.some((l) => !l.forecast_frames?.length) && (
-                  <LayerToggle
-                    label="Depth shading (India Coast)"
-                    swatch={CHART.eezNear}
-                    heavy
-                    checked={layers.srvBathymetry}
-                    onChange={(v) => toggleHeavy("srvBathymetry", v)}
-                  />
+                {layersOpen && nearNames.length > 0 && (
+                  <p className="mt-2 border-t border-hairline pt-2 text-[11px] text-ink-dim">
+                    {nearNames.length} within 25 nm, drawn brighter
+                  </p>
                 )}
-                {forecastLayer && (
-                  <LayerToggle
-                    label="Wave height forecast"
-                    swatch={CHART.accent}
-                    heavy
-                    checked={layers.waveForecast}
-                    onChange={(v) => toggleHeavy("waveForecast", v)}
-                  />
-                )}
-                {currentVectors && currentVectors.length > 0 && (
-                  <LayerToggle
-                    label="Surface currents"
-                    swatch={CHART.pfz}
-                    heavy
-                    checked={layers.currents}
-                    onChange={(v) => toggleHeavy("currents", v)}
-                  />
-                )}
-                {windVectors && windVectors.length > 0 && (
-                  <LayerToggle
-                    label={
-                      windAcquisitionDate
-                        ? `Wind (${windAcquisitionDate})`
-                        : "Wind (ScatSat)"
-                    }
-                    swatch="#e8b25a"
-                    heavy
-                    checked={layers.wind}
-                    onChange={(v) => toggleHeavy("wind", v)}
-                  />
-                )}
-              </div>
-              )}
-              {layersOpen && nearNames.length > 0 && (
-                <p className="mt-2 border-t border-hairline pt-2 text-[11px] text-ink-dim">
-                  {nearNames.length} within 25 nm, drawn brighter
+              </Panel>
+              {evictionNotice && (
+                <p
+                  role="status"
+                  className="mt-2 rounded-sm border border-hairline bg-shelf-2/90 px-2 py-1.5 text-[11px] text-ink-muted"
+                >
+                  {evictionNotice}
                 </p>
               )}
-            </Panel>
-            {evictionNotice && (
-              <p
-                role="status"
-                className="mt-2 rounded-sm border border-hairline bg-shelf-2/90 px-2 py-1.5 text-[11px] text-ink-muted"
-              >
-                {evictionNotice}
-              </p>
-            )}
-          </div>
+            </div>
           )}
 
           {showLegends && layers.srvBathymetry && (
@@ -1291,57 +1367,55 @@ export function MapView({
               dashboard below it moves side, so picking a region never
               relocates the button itself. */}
           {showRegionSwitcher && (
-          <div ref={regionDropdownRef} className="pointer-events-auto absolute top-3 right-14 z-20">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setRegionDropdownOpen(!regionDropdownOpen)}
-                className="flex items-center gap-2 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl px-3 py-1.5 text-xs font-medium text-ink shadow-lg transition-all hover:bg-shelf-2 hover:border-hairline-strong focus:outline-none"
-                aria-label="Select coastal sector"
-              >
-                <Compass className="size-3.5 text-ocean-cyan shrink-0" />
-                <span className="max-w-[140px] sm:max-w-none truncate font-medium">
-                  {COASTAL_REGIONS.find((r) => r.id === selectedRegion)?.name ?? "Select Sector"}
-                </span>
-                <ChevronDown
-                  className={`size-3 text-ink-dim transition-transform duration-200 shrink-0 ${
-                    regionDropdownOpen ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-              {regionDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-64 max-h-80 overflow-y-auto rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-2xl p-1.5 shadow-2xl z-30">
-                  <div className="px-2.5 py-1.5 text-[10px] font-semibold tracking-wider text-ink-dim uppercase border-b border-hairline/50 mb-1">
-                    Coastal Navigation Regions
-                  </div>
-                  {COASTAL_REGIONS.map((region) => (
-                    <button
-                      key={region.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedRegion(region.id);
-                        setRegionDropdownOpen(false);
-                        map.current?.flyTo({
-                          center: region.center,
-                          zoom: region.zoom,
-                          duration: 1200,
-                          essential: true,
-                        });
-                      }}
-                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${
-                        selectedRegion === region.id
+            <div ref={regionDropdownRef} className="pointer-events-auto absolute top-3 right-14 z-20">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setRegionDropdownOpen(!regionDropdownOpen)}
+                  className="flex items-center gap-2 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl px-3 py-1.5 text-xs font-medium text-ink shadow-lg transition-all hover:bg-shelf-2 hover:border-hairline-strong focus:outline-none"
+                  aria-label="Select coastal sector"
+                >
+                  <Compass className="size-3.5 text-ocean-cyan shrink-0" />
+                  <span className="max-w-[140px] sm:max-w-none truncate font-medium">
+                    {COASTAL_REGIONS.find((r) => r.id === selectedRegion)?.name ?? "Select Sector"}
+                  </span>
+                  <ChevronDown
+                    className={`size-3 text-ink-dim transition-transform duration-200 shrink-0 ${regionDropdownOpen ? "rotate-180" : ""
+                      }`}
+                  />
+                </button>
+                {regionDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-64 max-h-80 overflow-y-auto rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-2xl p-1.5 shadow-2xl z-30">
+                    <div className="px-2.5 py-1.5 text-[10px] font-semibold tracking-wider text-ink-dim uppercase border-b border-hairline/50 mb-1">
+                      Coastal Navigation Regions
+                    </div>
+                    {COASTAL_REGIONS.map((region) => (
+                      <button
+                        key={region.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedRegion(region.id);
+                          setRegionDropdownOpen(false);
+                          map.current?.flyTo({
+                            center: region.center,
+                            zoom: region.zoom,
+                            duration: 1200,
+                            essential: true,
+                          });
+                        }}
+                        className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${selectedRegion === region.id
                           ? "bg-accent/15 text-accent font-semibold"
                           : "text-ink hover:bg-shelf-2"
-                      }`}
-                    >
-                      <span className="truncate">{region.name}</span>
-                      <span className="ml-2 text-[10px] text-ink-dim shrink-0">{region.sub}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+                          }`}
+                      >
+                        <span className="truncate">{region.name}</span>
+                        <span className="ml-2 text-[10px] text-ink-dim shrink-0">{region.sub}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
           )}
 
           {/* Region dashboard — three numbers only (fishing zones, wind,
@@ -1354,9 +1428,8 @@ export function MapView({
               there. */}
           {showRegionSwitcher && regionStats && (
             <div
-              className={`pointer-events-auto absolute top-14 z-20 w-52 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl p-3 shadow-lg ${
-                regionStats.region.coast === "west" ? "left-3" : "right-14"
-              }`}
+              className={`pointer-events-auto absolute top-14 z-20 w-52 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl p-3 shadow-lg ${regionStats.region.coast === "west" ? "left-3" : "right-14"
+                }`}
             >
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="truncate text-xs font-semibold text-ink">{regionStats.region.name}</span>
@@ -1410,11 +1483,10 @@ export function MapView({
           </div>
 
           <div
-            className={`pointer-events-auto absolute right-3 left-3 sm:left-auto sm:w-80 transition-all ${
-              Boolean(layers.waveForecast && forecastLayer?.forecast_frames?.length)
-                ? "bottom-36 sm:bottom-24"
-                : "bottom-4 sm:bottom-4"
-            }`}
+            className={`pointer-events-auto absolute right-3 left-3 sm:left-auto sm:w-80 transition-all ${Boolean(layers.waveForecast && forecastLayer?.forecast_frames?.length)
+              ? "bottom-36 sm:bottom-24"
+              : "bottom-4 sm:bottom-4"
+              }`}
           >
             {selectedBadge && (
               <div className="mb-2.5">
@@ -1693,11 +1765,10 @@ export function MapView({
                           {depth && !depth.on_land && depth.depth_m != null && (
                             <div className="mt-2">
                               <div
-                                className={`rounded-md border px-2 py-1 text-[10px] font-semibold ${
-                                  depth.shallow_hazard
-                                    ? "border-caution/40 bg-caution/15 text-caution"
-                                    : "border-ocean-cyan/30 bg-ocean-cyan/15 text-ocean-cyan"
-                                }`}
+                                className={`rounded-md border px-2 py-1 text-[10px] font-semibold ${depth.shallow_hazard
+                                  ? "border-caution/40 bg-caution/15 text-caution"
+                                  : "border-ocean-cyan/30 bg-ocean-cyan/15 text-ocean-cyan"
+                                  }`}
                               >
                                 <span className="font-mono">
                                   {depth.depth_m < 10
@@ -1778,29 +1849,49 @@ export function MapView({
 // offscreen canvas at module load and reused as a GPU sprite by every
 // unclustered PFZ point (see the "pfz-circles" symbol layer).
 function buildPfzMarkerIcon(): ImageData {
-  const size = 28;
+  const size = 32;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d")!;
   const cx = size / 2;
   const cy = size / 2;
+
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(Math.PI / 4);
-  const half = 6;
+  const half = 7;
+
+  // 1. High-contrast outer boundary (sharp definition on light basemap / bright wave colors)
+  ctx.beginPath();
+  ctx.roundRect(-half - 1.5, -half - 1.5, (half + 1.5) * 2, (half + 1.5) * 2, 3);
+  ctx.fillStyle = "rgba(4, 16, 26, 0.9)";
+  ctx.fill();
+
+  // 2. Vibrant emerald diamond fill
   ctx.beginPath();
   ctx.roundRect(-half, -half, half * 2, half * 2, 2);
   ctx.fillStyle = CHART.pfz;
   ctx.fill();
-  ctx.lineWidth = 1.75;
-  ctx.strokeStyle = "#0d2a20";
+
+  // 3. Crisp white inner stroke (ensures beacon-like visibility on dark depth shading)
+  ctx.lineWidth = 1.25;
+  ctx.strokeStyle = "#ffffff";
   ctx.stroke();
+
   ctx.restore();
+
+  // 4. Center nautical target bullseye
   ctx.beginPath();
-  ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
-  ctx.fillStyle = "#fffdf6";
+  ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffffff";
   ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, 0.8, 0, Math.PI * 2);
+  ctx.fillStyle = "#041017";
+  ctx.fill();
+
   return ctx.getImageData(0, 0, size, size);
 }
 
