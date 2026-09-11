@@ -243,9 +243,11 @@ export function FlowFieldCanvas({
 
     const step = () => {
       if (!isMoving) {
-        // Subtle trail fade: dark tint over previous frame
+        // Subtle trail fade: dark tint over previous frame. A lower alpha
+        // than the original 0.1 keeps trails longer and softer, reading as
+        // a steady drift instead of a flickering scatter of short streaks.
         ctx.globalCompositeOperation = "destination-out";
-        ctx.fillStyle = "rgba(0, 0, 0, 0.1)";
+        ctx.fillStyle = "rgba(0, 0, 0, 0.06)";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.globalCompositeOperation = "source-over";
 
@@ -327,13 +329,15 @@ export function FlowFieldCanvas({
 
         // 1. Currents — a clean water-blue, thin enough to read as threads
         // of flow rather than a bold overlay competing with the depth ramp.
+        // pxPerFrame tuned down from the original [0.7,1.4,2.2] to read as a
+        // steady, professional drift rather than a fast/chaotic sprint.
         if (currentGrid) {
           drawField(currentGrid, currentParticles, {
             maxSpeed: 1.2,
             haloRgb: "rgba(4, 20, 28, 0.28)",
             colorRgb: "rgba(8, 145, 178, ALPHA)",
             widths: [0.55, 0.8, 1.15],
-            pxPerFrame: [0.7, 1.4, 2.2],
+            pxPerFrame: [0.28, 0.55, 0.85],
           });
         }
 
@@ -345,7 +349,7 @@ export function FlowFieldCanvas({
             haloRgb: "rgba(4, 20, 28, 0.24)",
             colorRgb: "rgba(202, 138, 4, ALPHA)",
             widths: [0.5, 0.7, 1.0],
-            pxPerFrame: [0.6, 1.2, 1.9],
+            pxPerFrame: [0.25, 0.48, 0.75],
           });
         }
       }

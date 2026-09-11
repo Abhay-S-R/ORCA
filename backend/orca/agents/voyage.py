@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
+from typing import Any, Literal
 
 import xarray as xr
 from pyproj import Proj, Transformer
@@ -191,22 +192,14 @@ def _segment(segment_id, start, end, distance_nm, eta, hazard_class, status, det
     )
 
 
-def plan_voyage(
-    origin: tuple[float, float], destination: tuple[float, float], *,
-    vessel_class: VesselClass = "small_fishing", departure_time: str | None = None,
-    speed_kn: float = 8.0, draft_m: float | None = None,
-) -> VoyagePlan:
-    """Densifies origin->destination, classifies each leg at the time the
-    vessel would actually reach it, and rolls the legs up to one verdict:
-    any BLOCKED segment forces NO_GO, any CAUTION (with no BLOCKED) forces
-    CAUTION, never averaged (Ground Rule 4)."""
-    now = datetime.now(timezone.utc)
-    departure = datetime.fromisoformat(departure_time.replace("Z", "+00:00")) if departure_time else now
-    if departure.tzinfo is None:
-        departure = departure.replace(tzinfo=timezone.utc)
-    draft = draft_m if draft_m is not None else _DEFAULT_DRAFT_M.get(vessel_class, 1.2)
-
-    points = densify_route(origin, destination)
+def _classify_route(
+    points: list[tuple[float, float]], departure: datetime, now: datetime,
+    vessel_class: VesselClass, draft: float, speed_kn: float,
+) -> tuple[list[RouteSegment], list[Confidence], Literal["GO", "CAUTION", "NO_GO"], str]:
+    """The leg-by-leg walk shared by the direct route and every detour
+    candidate — classifies each leg with the existing `_classify_segment`
+    (unchanged) and rolls the legs up to one verdict, never averaged
+    (Ground Rule 4)."""
     segments: list[RouteSegment] = []
     confidences: list[Confidence] = []
     cumulative_nm = 0.0
@@ -227,6 +220,106 @@ def plan_voyage(
         verdict, reason = "CAUTION", f"{len(caution)} segment(s) need caution: {', '.join(sorted({s.hazard_class for s in caution}))}"
     else:
         verdict, reason = "GO", "All segments clear"
+    return segments, confidences, verdict, reason
+
+
+def _offset_point(lat: float, lon: float, bearing_deg: float, distance_nm: float) -> tuple[float, float]:
+    """A point `distance_nm` from (lat, lon) along `bearing_deg`, geodesic —
+    same `_GEOD` instance `densify_route` already uses, not a flat-plane
+    approximation that would drift at higher pilot-region latitudes."""
+    from orca.agents.geospatial import _GEOD
+
+    lon2, lat2, _ = _GEOD.fwd(lon, lat, bearing_deg, distance_nm * 1852.0)
+    return lat2, lon2
+
+
+# Hazard buffer + a real margin, not a token offset — CORRIDOR_BUFFER_NM is
+# the width already drawn on the map for the direct route, so a detour has
+# to clear that plus room to spare or it is not meaningfully a different
+# corridor.
+_DETOUR_OFFSET_NM = CORRIDOR_BUFFER_NM + 2.0
+_DETOUR_WAIT_HOURS = 6.0
+
+
+def _detour_candidates(
+    origin: tuple[float, float], destination: tuple[float, float], departure: datetime,
+) -> list[tuple[str, tuple[float, float], tuple[float, float], datetime]]:
+    """(strategy, candidate_origin, candidate_destination, candidate_departure)
+    for each alternate worth trying when the direct route is NO_GO: the
+    corridor shifted perpendicular to the original bearing, both directions,
+    plus departing later so an ETA-dependent hazard (lightning nowcast,
+    wave forecast) may have cleared by the time the vessel would reach it —
+    checklist P0 #2's own three-candidate scope, not a full path solver."""
+    bearing, _ = bearing_and_distance(origin[0], origin[1], destination[0], destination[1])
+    return [
+        (
+            "offset_east", _offset_point(*origin, bearing + 90, _DETOUR_OFFSET_NM),
+            _offset_point(*destination, bearing + 90, _DETOUR_OFFSET_NM), departure,
+        ),
+        (
+            "offset_west", _offset_point(*origin, bearing - 90, _DETOUR_OFFSET_NM),
+            _offset_point(*destination, bearing - 90, _DETOUR_OFFSET_NM), departure,
+        ),
+        ("wait_6h", origin, destination, departure + timedelta(hours=_DETOUR_WAIT_HOURS)),
+    ]
+
+
+def plan_voyage(
+    origin: tuple[float, float], destination: tuple[float, float], *,
+    vessel_class: VesselClass = "small_fishing", departure_time: str | None = None,
+    speed_kn: float = 8.0, draft_m: float | None = None,
+) -> VoyagePlan:
+    """Densifies origin->destination, classifies each leg at the time the
+    vessel would actually reach it, and rolls the legs up to one verdict:
+    any BLOCKED segment forces NO_GO, any CAUTION (with no BLOCKED) forces
+    CAUTION, never averaged (Ground Rule 4).
+
+    A NO_GO direct route is not the final answer: this tries the detour
+    candidates above and, if one clears, returns THAT as the plan
+    (`rerouted=True`) rather than a blocked line the caller has to notice
+    and re-request around. Never returns a re-routed line that is itself
+    NO_GO — a candidate that doesn't clear is recorded in
+    `alternatives_tried` and discarded, same as the checklist asks
+    ("say so honestly rather than picking the least-bad NO_GO")."""
+    now = datetime.now(timezone.utc)
+    departure = datetime.fromisoformat(departure_time.replace("Z", "+00:00")) if departure_time else now
+    if departure.tzinfo is None:
+        departure = departure.replace(tzinfo=timezone.utc)
+    draft = draft_m if draft_m is not None else _DEFAULT_DRAFT_M.get(vessel_class, 1.2)
+
+    points = densify_route(origin, destination)
+    segments, confidences, verdict, reason = _classify_route(points, departure, now, vessel_class, draft, speed_kn)
+    _, direct_nm = bearing_and_distance(origin[0], origin[1], destination[0], destination[1])
+
+    rerouted = False
+    alternatives_tried: list[dict[str, Any]] = []
+    if verdict == "NO_GO":
+        best: dict[str, Any] | None = None
+        for name, cand_origin, cand_destination, cand_departure in _detour_candidates(origin, destination, departure):
+            cand_points = densify_route(cand_origin, cand_destination)
+            cand_segments, cand_confidences, cand_verdict, cand_reason = _classify_route(
+                cand_points, cand_departure, now, vessel_class, draft, speed_kn,
+            )
+            _, cand_nm = bearing_and_distance(cand_origin[0], cand_origin[1], cand_destination[0], cand_destination[1])
+            added_nm = round(max(cand_nm - direct_nm, 0.0), 1)
+            alternatives_tried.append({"strategy": name, "verdict": cand_verdict, "added_nm": added_nm})
+            if cand_verdict != "NO_GO" and (best is None or added_nm < best["added_nm"]):
+                best = {
+                    "strategy": name, "added_nm": added_nm, "origin": cand_origin, "destination": cand_destination,
+                    "departure": cand_departure, "points": cand_points, "segments": cand_segments,
+                    "confidences": cand_confidences, "verdict": cand_verdict, "reason": cand_reason,
+                }
+        if best is not None:
+            rerouted = True
+            origin, destination, departure, points = best["origin"], best["destination"], best["departure"], best["points"]
+            segments, confidences, verdict = best["segments"], best["confidences"], best["verdict"]
+            reason = (
+                f"Direct route blocked; rerouted via {best['strategy'].replace('_', ' ')} "
+                f"(+{best['added_nm']:.1f} nm). {best['reason']}"
+            )
+        else:
+            tried = ", ".join(f"{a['strategy']}: {a['verdict']}" for a in alternatives_tried)
+            reason = f"{reason} — no clear detour found ({tried})"
 
     corridor = _corridor_polygon([(lon, lat) for lat, lon in points], CORRIDOR_BUFFER_NM)
 
@@ -234,7 +327,7 @@ def plan_voyage(
         voyage_id=str(uuid.uuid4()), origin=origin, destination=destination, vessel_class=vessel_class,
         departure_time=departure.isoformat().replace("+00:00", "Z"), segments=tuple(segments),
         verdict=verdict, verdict_reason=reason, corridor_geojson=corridor,
-        confidence=compute_confidence(confidences),
+        confidence=compute_confidence(confidences), rerouted=rerouted, alternatives_tried=tuple(alternatives_tried),
     )
 
 

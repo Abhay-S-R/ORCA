@@ -7,10 +7,7 @@ import {
   Waves,
   Crosshair,
   ShieldCheck,
-  ShieldAlert,
-  AlertTriangle,
   FileText,
-  CheckCircle2,
   Clock,
   MapPin,
 } from "lucide-react";
@@ -174,32 +171,15 @@ export function FormattedResponse({ text, className = "" }: FormattedResponsePro
 
   if (!parsed) return null;
 
-  // Simple unsectioned response (e.g. Fisherman persona or vernacular text)
+  // Simple unsectioned response (e.g. Fisherman persona or vernacular text).
+  // The leading "GO: reason" token is stripped (above) but no longer gets
+  // its own coloured banner box here — PersonaAnswerMatrix's status row
+  // already states the verdict once; repeating it as a second banner inside
+  // the narrative was the Go/No-Go banner pattern this response redesign
+  // removes.
   if (parsed.sections.length === 0) {
     return (
       <div className={`space-y-3 ${className}`}>
-        {parsed.verdictHeader && (
-          <div
-            className={`flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-xs font-semibold ${
-              parsed.verdictHeader.type === "NO_GO"
-                ? "border-no-go/40 bg-no-go/10 text-no-go"
-                : parsed.verdictHeader.type === "CAUTION"
-                ? "border-caution/40 bg-caution/10 text-caution"
-                : "border-go/30 bg-go/10 text-go"
-            }`}
-          >
-            {parsed.verdictHeader.type === "NO_GO" ? (
-              <ShieldAlert className="size-4 shrink-0" />
-            ) : parsed.verdictHeader.type === "CAUTION" ? (
-              <AlertTriangle className="size-4 shrink-0" />
-            ) : (
-              <CheckCircle2 className="size-4 shrink-0" />
-            )}
-            <span>
-              {parsed.verdictHeader.type}: {parsed.verdictHeader.text}
-            </span>
-          </div>
-        )}
         {parsed.paragraphs.map((p, i) => (
           <p key={i} className="text-[14px] leading-relaxed text-ink">
             {renderInlineMarkdown(p)}
@@ -211,34 +191,9 @@ export function FormattedResponse({ text, className = "" }: FormattedResponsePro
 
   return (
     <div className={`space-y-3.5 ${className}`}>
-      {/* 1. Verdict Banner */}
-      {parsed.verdictHeader && (
-        <div
-          className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-2.5 shadow-sm backdrop-blur-md ${
-            parsed.verdictHeader.type === "NO_GO"
-              ? "border-no-go/40 bg-no-go/15 text-no-go"
-              : parsed.verdictHeader.type === "CAUTION"
-              ? "border-caution/40 bg-caution/15 text-caution"
-              : "border-go/30 bg-go/10 text-go"
-          }`}
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            {parsed.verdictHeader.type === "NO_GO" ? (
-              <ShieldAlert className="size-4 shrink-0" />
-            ) : parsed.verdictHeader.type === "CAUTION" ? (
-              <AlertTriangle className="size-4 shrink-0" />
-            ) : (
-              <CheckCircle2 className="size-4 shrink-0" />
-            )}
-            <span className="truncate text-xs font-semibold tracking-wide">
-              {parsed.verdictHeader.type}: {parsed.verdictHeader.text}
-            </span>
-          </div>
-          <span className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-ink-dim shrink-0">
-            Directive
-          </span>
-        </div>
-      )}
+      {/* Verdict prefix is stripped from the raw text above but, same as the
+          unsectioned branch, no longer rendered as its own banner box here —
+          PersonaAnswerMatrix's status row already states it once. */}
 
       {/* 2. Metadata Strip (Sector & Timestamp) */}
       {parsed.metadata && (

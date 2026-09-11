@@ -4,15 +4,18 @@ of a distress call is exactly the wrong tool here: it invites both false
 negatives from paraphrase and false positives from casual language, which
 is why the architecture doc specifies pattern match, not inference.
 
-HONEST GAP, stated plainly: the Tamil and Hindi phrase lists below are a
-verified STARTER set, not a validated operational one. Every phrase was
-checked against a real source while writing this (see the comment on each
-list) — none are guessed transliteration — but coverage is thin (a handful
-of phrases per language, no colloquial fishing-village variants, no dialect
-coverage) and nobody with native fluency has reviewed it. Treat MAX_ITERATIONS
-of testing against this list as a false sense of security until that review
-happens. This is the single highest-consequence piece of unverified content
-in the whole build — flag it accordingly, don't quietly ship it as done.
+HONEST GAP, stated plainly: the phrase lists below (English, Tamil, Hindi,
+Malayalam, Telugu) are a verified STARTER set, not a validated operational
+one. Every phrase was checked against a real dictionary source while writing
+this (Shabdkosh/Cambridge/Glosbe for ml and te, added SIH finale checklist
+P1 #1 — same standard the original ta/hi entries were held to) — none are
+guessed transliteration — but coverage is thin (a handful of phrases per
+language, no colloquial fishing-village variants, no dialect coverage) and
+nobody with native fluency has reviewed ANY of these five lists, ml/te
+included. Treat MAX_ITERATIONS of testing against this list as a false sense
+of security until that review happens. This is the single highest-consequence
+piece of unverified content in the whole build — flag it accordingly, don't
+quietly ship it as done.
 """
 from __future__ import annotations
 
@@ -29,6 +32,30 @@ _DISTRESS_PATTERNS: dict[str, list[str]] = {
     "en": ["sinking", "taking on water", "man overboard", "mayday", "capsizing", "capsized", "drowning", "sos", "help"],
     "ta": ["மூழ்குகிறது", "படகு மூழ்குகிறது", "மூழ்கிவிட்டேன்", "உதவி"],  # sinking / boat is sinking / I have drowned / help
     "hi": ["बचाओ", "डूब रहा", "डूब रही", "नाव डूब रही है"],  # save me / is drowning (m/f) / the boat is sinking
+    # Verified against Shabdkosh (English-Malayalam / Malayalam-English) while
+    # writing this — same "checked against a real source" bar as ta/hi above.
+    "ml": [
+        "മുങ്ങുന്നു",       # sinking
+        "വള്ളം മുങ്ങുന്നു",  # boat is sinking
+        "ബോട്ട് മുങ്ങുന്നു",  # boat is sinking (colloquial "boat" loanword)
+        "സഹായിക്കൂ",       # help
+        "രക്ഷിക്കൂ",        # save / rescue
+        "എന്നെ രക്ഷിക്കൂ",  # save me
+        "മുങ്ങിപ്പോകുന്നു",   # drowning
+        "വള്ളം മറിഞ്ഞു",    # boat capsized
+    ],
+    # Verified against Shabdkosh / Cambridge Dictionary (English-Telugu) and
+    # Glosbe while writing this.
+    "te": [
+        "మునిగిపోతోంది",     # is sinking
+        "పడవ మునిగిపోతోంది",  # boat is sinking
+        "సహాయం",           # help
+        "సహాయం చేయండి",    # please help
+        "నన్ను రక్షించండి",   # save me
+        "రక్షించండి",        # save / rescue
+        "మునిగిపోతున్నాను",   # I am drowning
+        "బోల్తా పడింది",     # capsized
+    ],
 }
 
 # Verified 2026-09-02: 1554 is the Indian Coast Guard's official nationwide

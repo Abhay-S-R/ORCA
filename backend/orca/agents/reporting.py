@@ -137,6 +137,19 @@ def describe_location(user_location: dict[str, Any] | None) -> str:
     )
 
 
+def _describe_recent_turns(session_history: list[dict[str, Any]] | None) -> str | None:
+    """Last couple of turns, for the narrative prompt only — never for the
+    verdict itself (Ground Rule 2 is untouched: risk_assessment always
+    recomputes from scratch). Lets "what about tomorrow instead?" read as a
+    continuation ("earlier you asked X, which was GO") instead of forcing
+    the user to restate context the system already has."""
+    if not session_history:
+        return None
+    recent = session_history[-2:]
+    lines = [f'- "{t.get("query", "")}" -> {t.get("verdict") or "no verdict"}' for t in recent if t.get("query")]
+    return "\n".join(lines) if lines else None
+
+
 def synthesize_narrative(
     query: str,
     verdict: dict[str, Any],
@@ -144,6 +157,7 @@ def synthesize_narrative(
     persona: str = "fisherman",
     user_location: dict[str, Any] | None = None,
     lead_with_verdict: bool = True,
+    session_history: list[dict[str, Any]] | None = None,
 ) -> str:
     """Synthesizes a persona-tailored narrative using the mid-tier LLM.
 
@@ -193,10 +207,17 @@ def synthesize_narrative(
         )
     )
 
+    recent_turns = _describe_recent_turns(session_history)
+    conversation_block = (
+        f"\nEARLIER IN THIS CONVERSATION (for continuity only — recompute everything above from scratch, "
+        f"never reuse an old verdict):\n{recent_turns}\n"
+        if recent_turns else ""
+    )
+
     prompt = f"""You are a marine safety advisor communicating critical advice to a {persona}.
 
 USER QUERY: "{query}"
-
+{conversation_block}
 LOCATION THIS ADVICE IS FOR:
 {describe_location(user_location)}
 
@@ -216,7 +237,10 @@ CRITICAL RULES:
    plainly that you have no data for it and that the readings are for the location
    stated above. Never name a place the location line does not name.
 5. Never mention agents, models, internal component names, or that you are an AI.
-6. Keep the tone calm, practical, direct, and authoritative for sea navigation. Do not use generic AI disclaimers."""
+6. Keep the tone calm, practical, direct, and authoritative for sea navigation. Do not use generic AI disclaimers.
+7. If EARLIER IN THIS CONVERSATION is present, you may refer back to it naturally
+   (e.g. "unlike this morning's caution...") — but never let it override today's
+   deterministic verdict above."""
 
     try:
         narrative = client.complete([{"role": "user", "content": prompt}]).strip()

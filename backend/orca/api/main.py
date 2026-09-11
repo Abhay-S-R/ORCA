@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from orca.agents import distress as distress_agent
 from orca.agents.geospatial import DATA_ROOT
 from orca.agents.language import IndicTrans2Backend, register_translation_backend
+from orca.agents import reporting
 from orca.api.analytics_routes import router as analytics_router
 from orca.api.auth_routes import router as auth_router
 from orca.api.discovery_routes import router as discovery_router
@@ -31,6 +32,7 @@ from orca.api.notifications_routes import router as notifications_router
 from orca.api.params import OptLat, OptLon
 from orca.api.ops_routes import router as ops_router
 from orca.api.replay_routes import router as replay_router
+from orca.api.system_status_routes import router as system_status_router
 from orca.api.trace_routes import (
     _LLM_AGENTS,
     _reasoning_summary,
@@ -50,6 +52,7 @@ from orca.query_cache import get as query_cache_get
 from orca.query_cache import resolved_key
 from orca.query_cache import store as query_cache_store
 from orca.query_coalescing import coalesce
+from orca import session as session_memory
 from orca.state import ORCAState
 
 
@@ -108,6 +111,7 @@ app.include_router(notifications_router)
 app.include_router(feedback_router)
 app.include_router(ops_router)
 app.include_router(replay_router)  # Phase 4 — /api/replay/gaja, historical replay (parent plan §1.3)
+app.include_router(system_status_router)  # /api/system-status — live/fallback/simulated disclosure
 
 # Agent 8 raster tile pyramid (orca/tiles.py) — serves the PNGs
 # scripts/generate_tiles.py writes offline, at the same "/tiles/{layer_id}/
@@ -160,8 +164,16 @@ def _initial_state(
     query: str, lat: float, lon: float, vessel_class: str | None,
     distress: bool = False, persona: str | None = None, depth: str | None = None,
     place: tuple[str | None, str] = (None, "explicit"),
+    session_id: str | None = None,
 ) -> ORCAState:
     return {  # type: ignore[typeddict-item]
+        "session_id": session_id or "",
+        # Last few turns of this conversation (checklist P0 #1 — multi-turn
+        # memory) — Agent 9 can reference "compared to this morning" and a
+        # follow-up with no place of its own already resolved against the
+        # last one this session actually named (see session.last_place, used
+        # by query() before this state is built).
+        "session_history": session_memory.get_turns(session_id),
         "query_id": str(uuid.uuid4()),
         "raw_user_query": query,
         # Overwritten by language_ingress_node once the graph runs — this is
@@ -228,12 +240,13 @@ async def _query_stream(
     distress: bool = False, persona: str | None = None, depth: str | None = None,
     place: tuple[str | None, str] = (None, "explicit"),
     on_final: Callable[[dict], None] | None = None,
+    session_id: str | None = None,
 ) -> AsyncIterator[str]:
     """`on_final`, when given, is called once with the same dict that gets
     JSON-serialized into the `final_response` SSE frame — the query-cache
     write hook (phase4 plan §2.3), kept as a callback rather than a return
     value so this stays a plain generator callers can iterate directly."""
-    state = _initial_state(query, lat, lon, vessel_class, distress, persona, depth, place)
+    state = _initial_state(query, lat, lon, vessel_class, distress, persona, depth, place, session_id)
     emitted = 0  # every graph node appends exactly one completed_nodes entry
     # AND exactly one audit_trace_log entry in the same call (see graph.py) —
     # so the two lists grow in lockstep and index-pairing them is correct,
@@ -298,6 +311,13 @@ async def _query_stream(
             "detected_language": final_state.get("detected_language", "en"),
             "confidence_tier": final_state.get("confidence_tier", "LOW_DATA"),
             "risk_assessment": final_state.get("risk_assessment"),
+            # Same gate graph.py already applies to the narrative's verdict
+            # header (reporting.should_lead_with_verdict) — exposed so the
+            # frontend can decide whether to show the GO/CAUTION/NO_GO badge
+            # at all, instead of banner-ing every query regardless of intent.
+            "lead_with_verdict": reporting.should_lead_with_verdict(
+                final_state.get("risk_assessment") or {}, final_state.get("matched_intent_rows") or []
+            ),
             "citations": final_state.get("evidence_citations", []),
             "distress_flag": final_state.get("distress_flag", False),
             # Which position every number in this response was computed at,
@@ -357,6 +377,15 @@ async def _query_stream(
             "source_selections": discovery.get("source_selections", []),
         }
         _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []))
+        # Remember this turn (checklist P0 #1) so a follow-up in the same
+        # session — "what about tomorrow instead?" — can resolve against the
+        # place and verdict just established instead of re-asking or
+        # silently falling back to the regional default.
+        session_memory.append_turn(session_id, {
+            "query": query,
+            "user_location": final_state.get("user_location"),
+            "verdict": (final_state.get("risk_assessment") or {}).get("go_no_go"),
+        })
         if on_final is not None:
             on_final(final)
         try:
@@ -400,12 +429,16 @@ def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
 async def query(
     q: str = "", lat: OptLat = None, lon: OptLon = None, vessel_class: str | None = None,
     distress: bool = False, persona: str | None = None, depth: str | None = None,
+    session_id: str | None = None,
 ) -> StreamingResponse:
     # An explicit lat/lon from the caller always wins — a resolved GPS fix or
     # a registered home port (Phase 2 D1) is real; a place name in free text is
     # a fallback for the caller that has no location at all yet. Only when
     # neither is given do we try to name a pilot-region place in the query text
-    # (e.g. "near Pamban"), and only then fall back to the regional default.
+    # (e.g. "near Pamban"), then the last place THIS session actually resolved
+    # (checklist P0 #1 — "what about tomorrow instead?" names no place of its
+    # own but should still mean the place just asked about), and only then
+    # fall back to the regional default.
     #
     # `place_name`/`place_source` are carried onward deliberately: falling back
     # to the default is *not* the same event as resolving a place, and the
@@ -416,10 +449,13 @@ async def query(
     place_source = "explicit"
     if lat is None or lon is None:
         place = resolve_place_from_text(q)
-        if place is None:
-            lat, lon, place_source = _DEFAULT_LAT, _DEFAULT_LON, "regional_default"
-        else:
+        if place is not None:
             lat, lon, place_name, place_source = place.lat, place.lon, place.name, place.source
+        elif (carried := session_memory.last_place(session_id)) is not None:
+            lat, lon, place_name = carried
+            place_source = "session_carried"
+        else:
+            lat, lon, place_source = _DEFAULT_LAT, _DEFAULT_LON, "regional_default"
 
     # A distress query is never cached or coalesced onto another in-flight
     # request (phase4 plan §2.2/§2.3) — every SOS is its own, always-fresh
@@ -428,7 +464,10 @@ async def query(
     # be silently folded into a stale answer meant for a different call.
     if distress:
         return StreamingResponse(
-            _query_stream(q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source)),
+            _query_stream(
+                q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
+                session_id=session_id,
+            ),
             media_type="text/event-stream"
         )
 
@@ -444,6 +483,7 @@ async def query(
             async for line in _query_stream(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
                 on_final=lambda final: query_cache_store(cache_key, final),
+                session_id=session_id,
             ):
                 yield line
 

@@ -137,6 +137,17 @@ class VoyagePlan:
     verdict_reason: str
     corridor_geojson: dict[str, Any]  # ~2NM-buffer polygon, for the map layer
     confidence: Confidence
+    # SIH finale checklist P0 #2 — route *optimization*, not just auditing: a
+    # direct-route NO_GO tries a small set of alternates (offset corridor
+    # left/right, or wait out an ETA-dependent hazard) before giving up.
+    # `rerouted=True` means `segments`/`verdict` above already ARE the chosen
+    # alternate, not the blocked direct line — Agent 8/9 render one plan
+    # either way, never a blocked one next to an unrelated clear one.
+    rerouted: bool = False
+    # Every candidate this pass tried, kept even when none cleared — "here is
+    # what we checked and rejected" is the honest answer the checklist asks
+    # for over silently picking the least-bad NO_GO.
+    alternatives_tried: tuple[dict[str, Any], ...] = ()
 
 
 _VALID_REASONING_DEPTHS = ("SHALLOW", "STANDARD", "DEEP")

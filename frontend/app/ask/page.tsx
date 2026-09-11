@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Compass, Fish, MapPin, Radio, Send, Waves } from "lucide-react";
+import { Compass, Fish, MapPin, Radio, Send, ShieldCheck, Waves, Wind } from "lucide-react";
 import { AgentPill, AgentStrip, type AgentStatus } from "../components/AgentPill";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
@@ -17,7 +17,8 @@ import { PersonaAnswerMatrix, type HazardBreakdown, type OceanSummary, type Weat
 import { SourceChip } from "../components/SourceChip";
 import { SourceNarration, type SourceSelection } from "../components/SourceNarration";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
-import { type ConfidenceTier, type Verdict } from "../components/Badge";
+import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
+import { Readout, ReadoutGrid } from "../components/Readout";
 import { AnswerSpeaker } from "../components/AnswerSpeaker";
 import { FormattedResponse } from "../components/FormattedResponse";
 import { PersonaCorrection } from "../components/PersonaCorrection";
@@ -25,7 +26,8 @@ import { useVoiceInput, VoiceMicButton, VoiceInputPanel } from "../components/Vo
 import { usePersona } from "../persona/context";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
-import { classifyQueryIntent, INTENT_LABEL, type QueryIntent } from "../lib/queryIntent";
+import { classifyQueryIntent, matchRegionInQuery, INTENT_LABEL, type QueryIntent } from "../lib/queryIntent";
+import { getSessionId } from "../lib/session";
 import type { QueryFocus } from "../components/MapView";
 
 const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapView), {
@@ -36,8 +38,23 @@ const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapV
 const INTENT_ICON: Record<QueryIntent, typeof Waves> = {
   fishing: Fish,
   boundary: Compass,
-  safety: Waves,
+  safety: ShieldCheck,
+  current: Wind,
+  wave: Waves,
   general: MapPin,
+};
+
+// Contextual next questions offered below each answer (differentiator: the
+// response never dead-ends) — keyed by the same intent classifier that
+// already drives the chart, so a chip's topic always matches what it would
+// ask next.
+const FOLLOW_UPS: Record<QueryIntent, string[]> = {
+  safety: ["What are the wind and wave timings for the next 24 hours?", "Where is the nearest fishing zone right now?"],
+  fishing: ["Is it safe to venture there tomorrow?", "How far is that zone from the maritime boundary?"],
+  boundary: ["Is it safe to go out tomorrow morning?", "Where are the fishing zones closest to my position?"],
+  current: ["Is it safe to go out tomorrow morning?", "What are the wave conditions right now?"],
+  wave: ["Is it safe to go out tomorrow morning?", "What is the surface current speed and direction?"],
+  general: ["Is it safe to go out tomorrow morning?", "Where are the fishing zones closest to my port?"],
 };
 
 type AgentSpan = { agent_name: string; status: AgentStatus };
@@ -56,12 +73,13 @@ type FinalResponse = {
   ocean_summary?: OceanSummary;
 };
 
-// Real questions in the users' own words, not feature names. These double as
-// the fastest way to try the product with no typing on a phone at sea.
+// Real questions in the users' own words, not feature names — and, since
+// ORCA's scope is the Indian coastline as a whole rather than one pilot
+// region, spanning a few different coasts rather than repeating one place.
 const EXAMPLES = [
-  "Is it safe to go out tomorrow morning near Thoothukudi?",
+  "Is it safe to go out tomorrow morning?",
   "Where are the fishing zones closest to my port?",
-  "How far am I from the maritime boundary?",
+  "What is the current speed off the Kerala coast?",
 ];
 
 export default function AskPage() {
@@ -123,13 +141,14 @@ export default function AskPage() {
     // layers (boundaries/PFZ) and a real fit-to-geometry, so the map moves
     // the moment you ask rather than waiting on the round trip (plan §7/§8).
     focusNonce.current += 1;
-    setFocus({ intent: classifyQueryIntent(q), nonce: focusNonce.current });
+    setFocus({ intent: classifyQueryIntent(q), regionId: matchRegionInQuery(q), nonce: focusNonce.current });
     setAskedQuery(q);
 
     // Persona is an explicit rendering choice only — Agent 9 renders with it,
     // no classifier reads it (Ground Rule 1). "unresolved" = don't send one.
     const personaParam = persona !== "unresolved" ? `&persona=${persona}` : "";
-    const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}`);
+    const sessionParam = `&session_id=${encodeURIComponent(getSessionId())}`;
+    const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}`);
     sourceRef.current = es;
     es.onmessage = (ev) => {
       const data = JSON.parse(ev.data);
@@ -183,7 +202,7 @@ export default function AskPage() {
                 id="query"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Is it safe to go out tomorrow morning near Thoothukudi?"
+                placeholder="Is it safe to go out tomorrow morning?"
                 className="w-full rounded-xl border border-hairline bg-shelf-1/90 px-4 py-3 text-sm text-ink placeholder:text-ink-dim/60 transition-all hover:border-hairline-strong focus:border-ocean-cyan/70 focus:bg-shelf-2/90 shadow-inner"
               />
             </div>
@@ -236,8 +255,8 @@ export default function AskPage() {
             incident, not a UX annoyance). */}
         <VoiceInputPanel voice={voice} />
 
-        {/* Differentiator 1 (§4.5): twelve agents run per query, and this is
-            where a user watches that happen instead of a spinner. */}
+        {/* Differentiator 1 (§4.5): up to ten agents run per query, and this
+            is where a user watches that happen instead of a spinner. */}
         {spans.length > 0 && (
           <div className="flex flex-col gap-1.5">
             <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
@@ -279,17 +298,26 @@ export default function AskPage() {
               <span className="font-mono text-[10px] font-semibold tracking-wider text-ink-dim uppercase">You</span>
               <span className="min-w-0 break-words">{askedQuery}</span>
             </p>
+          {(() => {
+            const weatherCitation = answer.citations?.find((c) => c.agent_name === "weather_intelligence");
+            return (
+              <>
           <Panel title="Answer">
             <div className="flex flex-col gap-4">
               {/* Architecture §2.6 rendering matrix — same facts, structure
-                  differs by persona (fisherman banner, navigator readout,
+                  differs by persona (fisherman, navigator readout,
                   researcher stats + export, authority threat level + CAP
                   preview). Only rendered once risk_assessment exists — the
-                  distress bypass path never reaches Reporting/risk_assessment. */}
+                  distress bypass path never reaches Reporting/risk_assessment.
+                  `intent` ties the response's header/emphasis to the same
+                  classification that already moved the chart, so the two
+                  always agree on what kind of question this was. */}
               {answer.risk_assessment && (
                 <PersonaAnswerMatrix
                   persona={renderedAs ?? persona}
                   queryId={answer.query_id}
+                  intent={focus?.intent ?? "general"}
+                  agentsVerified={spans.filter((s) => s.status === "ok").length}
                   verdict={answer.risk_assessment.go_no_go}
                   reason={answer.risk_assessment.reason}
                   confidenceTier={answer.confidence_tier}
@@ -314,11 +342,11 @@ export default function AskPage() {
               {(() => {
                 const answerBody = answer.final_vernacular_response || answer.final_english_response;
                 // Agent 9 emits "VERDICT: reason" as the whole English
-                // response today — identical to what VerdictBadge already
-                // shows above. Rendering it again here would just be the
-                // same sentence twice; skip it and keep this space for
-                // content that isn't already on screen (a vernacular
-                // translation still differs, so it still renders).
+                // response today — identical to what PersonaAnswerMatrix's
+                // status row already shows above. Rendering it again here
+                // would just be the same sentence twice; skip it and keep
+                // this space for content that isn't already on screen (a
+                // vernacular translation still differs, so it still renders).
                 const verdictLine = answer.risk_assessment
                   ? `${answer.risk_assessment.go_no_go}: ${answer.risk_assessment.reason}`
                   : null;
@@ -379,6 +407,30 @@ export default function AskPage() {
                 </div>
               )}
 
+              {/* Follow-up suggestions — the response never dead-ends into a
+                  blank input; each chip re-asks with the new question. */}
+              {focus && (
+                <div className="flex flex-wrap items-center gap-1.5 border-t border-hairline/50 pt-3.5">
+                  <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
+                    Follow-up
+                  </span>
+                  {FOLLOW_UPS[focus.intent].map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      onClick={() => {
+                        setQuery(q);
+                        ask(q);
+                      }}
+                      disabled={streaming}
+                      className="rounded-lg border border-hairline/60 bg-shelf-2/50 px-2.5 py-1.5 text-[11px] text-ink-muted transition-colors hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink disabled:opacity-50"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <PersonaCorrection
                 queryId={answer.query_id}
                 currentPersona={renderedAs ?? persona}
@@ -399,6 +451,51 @@ export default function AskPage() {
               />
             </div>
           </Panel>
+
+          {/* Weather banner — same Panel/ReadoutGrid pattern /safety already
+              uses, kept below the prediction response rather than above it. */}
+          {answer.weather_summary && (
+            <Panel
+              title="Weather"
+              action={
+                weatherCitation && (
+                  <SourceChip dataset={weatherCitation.dataset} acquisitionTimestamp={weatherCitation.acquisition_timestamp} />
+                )
+              }
+            >
+              <ReadoutGrid cols={4}>
+                <Readout label="Wave height" value={answer.weather_summary.wave_height_m ?? "—"} unit="m" />
+                <Readout
+                  label="Wind speed"
+                  value={
+                    answer.weather_summary.wind_speed_ms != null
+                      ? (answer.weather_summary.wind_speed_ms * 3.6).toFixed(1)
+                      : "—"
+                  }
+                  unit="km/h"
+                />
+                <Readout
+                  label="Lightning"
+                  value={
+                    <Badge tone={answer.weather_summary.lightning_active ? "no-go" : "go"}>
+                      {answer.weather_summary.lightning_active ? "Active" : "Clear"}
+                    </Badge>
+                  }
+                />
+                <Readout
+                  label="Cyclone alert"
+                  value={
+                    <Badge tone={answer.weather_summary.cyclone_alert ? "no-go" : "go"}>
+                      {answer.weather_summary.cyclone_alert ?? "None"}
+                    </Badge>
+                  }
+                />
+              </ReadoutGrid>
+            </Panel>
+          )}
+              </>
+            );
+          })()}
           </>
         )}
 

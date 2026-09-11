@@ -12,12 +12,72 @@
 // LOW_DATA is not a persona branch: VerdictBadge's confidenceTier prop
 // applies the amber "data limited" treatment identically to all five above.
 import { useState, type ReactNode } from "react";
-import { Compass, Cloud, Crosshair, Download } from "lucide-react";
-import { Badge, type ConfidenceTier, type Verdict } from "./Badge";
+import { AlertTriangle, CheckCircle2, Compass, Cloud, Crosshair, Download, OctagonX, ShieldCheck, Waves } from "lucide-react";
+import { Badge, verdictTone, type ConfidenceTier, type Verdict } from "./Badge";
 import { Button } from "./Button";
 import { Readout, ReadoutGrid } from "./Readout";
-import { VerdictBadge } from "./VerdictBadge";
 import { type Persona } from "../persona/config";
+import { type QueryIntent } from "../lib/queryIntent";
+
+// Header title/icon per query intent — the response now opens with "what
+// kind of answer is this" instead of a full-width Go/No-Go slab (removed
+// per the response redesign; the map beside the chat carries the matching
+// visualization instead of a second one here).
+const INTENT_TITLE: Record<QueryIntent, string> = {
+  safety: "Sea Safety Assessment",
+  fishing: "Potential Fishing Zone Advisory",
+  boundary: "Maritime Boundary Standoff",
+  current: "Surface Current Outlook",
+  wave: "Wave & Swell Outlook",
+  general: "Marine Conditions Summary",
+};
+const INTENT_ICON: Record<QueryIntent, typeof ShieldCheck> = {
+  safety: ShieldCheck,
+  fishing: Crosshair,
+  boundary: Compass,
+  current: Waves,
+  wave: Waves,
+  general: ShieldCheck,
+};
+const VERDICT_ICON: Record<Verdict, typeof CheckCircle2> = {
+  GO: CheckCircle2,
+  CAUTION: AlertTriangle,
+  NO_GO: OctagonX,
+};
+const VERDICT_LABEL: Record<Verdict, string> = { GO: "Go", CAUTION: "Caution", NO_GO: "No go" };
+
+// A verdict + confidence collapse to one 0-100 score for the gauge — never a
+// second opinion, just a visual read of the same facts the badge states in
+// words (the word and colour stay the source of truth, same rule the old
+// VerdictBadge followed).
+function verdictScore(verdict: Verdict, confidenceTier: ConfidenceTier): number {
+  const base = verdict === "GO" ? 88 : verdict === "CAUTION" ? 55 : 16;
+  const penalty = confidenceTier === "LOW_DATA" ? 10 : confidenceTier === "MEDIUM" ? 4 : 0;
+  return Math.max(2, Math.min(98, base - penalty));
+}
+
+function ScoreRing({ verdict, score }: { verdict: Verdict; score: number }) {
+  const r = 30;
+  const c = 2 * Math.PI * r;
+  const toneClass = verdict === "GO" ? "text-go" : verdict === "CAUTION" ? "text-caution" : "text-no-go";
+  return (
+    <div className="relative grid size-[76px] shrink-0 place-items-center">
+      <svg viewBox="0 0 76 76" className="size-[76px] -rotate-90">
+        <circle cx="38" cy="38" r={r} fill="none" stroke="currentColor" strokeWidth="6" className="text-hairline" />
+        <circle
+          cx="38" cy="38" r={r} fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round"
+          strokeDasharray={c} strokeDashoffset={c - (score / 100) * c} className={toneClass}
+        />
+      </svg>
+      <div className="absolute flex flex-col items-center leading-none">
+        <span className="font-mono text-xl font-black text-ink">{score}</span>
+        <span className={`mt-0.5 text-[8px] font-semibold uppercase tracking-wider ${toneClass}`}>
+          {VERDICT_LABEL[verdict]}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export type HazardBreakdown = {
   imbl_distance_nm: number | null;
@@ -234,7 +294,7 @@ function buildCapPreview(
   return {
     event: weather.cyclone_alert ? `Cyclone advisory: ${weather.cyclone_alert}` : "Marine safety advisory",
     severity: threatSeverity(verdict, hazard, weather),
-    area: hazard.mpa_violation ? "Gulf of Mannar MPA corridor" : "Thoothukudi coastal sector",
+    area: hazard.mpa_violation ? "Marine protected area corridor" : "Indian coastal sector",
     effective: new Date().toISOString(),
     instruction: reason,
   };
@@ -277,6 +337,8 @@ function downloadExport(queryId: string | undefined, rows: ReturnType<typeof exp
 export function PersonaAnswerMatrix({
   persona,
   queryId,
+  intent,
+  agentsVerified,
   verdict,
   reason,
   confidenceTier,
@@ -287,6 +349,12 @@ export function PersonaAnswerMatrix({
 }: {
   persona: Persona;
   queryId: string | undefined;
+  // Drives the response's header title/icon and which follow-on detail is
+  // worth leading with — the same classification that already moves the map
+  // (ask/page.tsx's `focus.intent`), so the response and the chart always
+  // agree on what kind of question this was.
+  intent: QueryIntent;
+  agentsVerified: number;
   verdict: Verdict;
   reason: string;
   confidenceTier: ConfidenceTier;
@@ -301,13 +369,66 @@ export function PersonaAnswerMatrix({
   const pfz = formatPfzData(ocean.nearest_pfz);
   const sector = formatSectorStatusData(ocean.sector_status);
   const productivity = formatProductivityData(ocean.productivity_diagnosis);
+  const HeaderIcon = INTENT_ICON[intent];
+  const VerdictIcon = VERDICT_ICON[verdict];
+  const showRing = intent === "safety" || intent === "general";
 
   return (
-    <div className="flex flex-col gap-3">
-      <VerdictBadge verdict={verdict} summary={reason} confidenceTier={confidenceTier} />
+    <div className="flex flex-col gap-3.5">
+      {/* Response header — replaces the old full-width Go/No-Go slab with a
+          compact "what this answer is" line, matching the reference
+          response layouts' title + verified-agent badge pattern. */}
+      <div className="flex items-center justify-between gap-3 border-b border-hairline/60 pb-2.5">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-hairline bg-shelf-2/60 text-accent">
+            <HeaderIcon className="size-4" aria-hidden="true" />
+          </span>
+          <p className="truncate text-sm font-bold tracking-tight text-ink">{INTENT_TITLE[intent]}</p>
+        </div>
+        {agentsVerified > 0 && (
+          <Badge tone="cyan" icon={<ShieldCheck className="size-3" aria-hidden="true" />}>
+            {agentsVerified} Agents Verified
+          </Badge>
+        )}
+      </div>
+
+      {/* Status row — the verdict word and reason stay visible for every
+          persona (what VerdictBadge's `summary` prop used to guarantee),
+          just without the loud banner chrome. */}
+      <div className="flex items-start gap-3.5">
+        {showRing && <ScoreRing verdict={verdict} score={verdictScore(verdict, confidenceTier)} />}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={verdictTone(verdict)} icon={<VerdictIcon className="size-3" aria-hidden="true" />}>
+              {VERDICT_LABEL[verdict]}
+            </Badge>
+            {confidenceTier === "LOW_DATA" && (
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-data-limited">
+                Data limited — verify locally
+              </span>
+            )}
+          </div>
+          {reason && <p className="mt-1.5 text-sm leading-relaxed text-ink">{reason}</p>}
+        </div>
+      </div>
 
       {persona === "fisherman" && (
-        <p className="text-sm text-ink-muted">{direction}. See the map for the single nearest pin.</p>
+        <>
+          <p className="text-sm text-ink-muted">{direction}. See the map for the single nearest pin.</p>
+          <Button variant="ghost" className="w-fit text-xs" icon={<ShieldCheck className="size-3.5" aria-hidden="true" />} onClick={() => setShowTechnical((v) => !v)}>
+            {showTechnical ? "Hide reasoning" : "Why this answer?"}
+          </Button>
+          {showTechnical && (
+            <div className="rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md">
+              <ReadoutGrid cols={4}>
+                <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" />
+                <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" />
+                <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
+                <Readout label="MPA status" value={hazard.mpa_violation ? "Inside" : "Clear"} />
+              </ReadoutGrid>
+            </div>
+          )}
+        </>
       )}
 
       {persona === "unresolved" && (
