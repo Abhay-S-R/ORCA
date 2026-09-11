@@ -1243,11 +1243,9 @@ export function MapView({
           )}
 
           {showLegends && layers.srvBathymetry && (
-            // Sits directly under the recenter button, one column clear of
-            // the region switcher — the two used to share "top-3 right-14",
-            // a pre-existing collision that was just never visible while Ask
-            // kept srvBathymetry off by default.
-            <div className={`pointer-events-auto absolute hidden sm:block rounded-xl border border-hairline/80 bg-shelf-1/95 px-3 py-2 backdrop-blur-md shadow-lg ${showRegionSwitcher ? "top-16 right-3" : "top-3 right-14"}`}>
+            // Depth legend: to the left of the zoom controls column and
+            // right below the Coastal Navigation Regions dropdown.
+            <div className="pointer-events-auto absolute top-14 right-14 z-10 hidden sm:block rounded-xl border border-hairline/80 bg-shelf-1/95 px-3 py-2 backdrop-blur-md shadow-lg">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-[#ccebc5]" />
                 <span className="text-[11px] font-medium text-ink">Depth Shading (ETOPO/GEBCO) meters</span>
@@ -1269,7 +1267,9 @@ export function MapView({
           )}
 
           {showLegends && layers.waveForecast && !layers.srvBathymetry && (
-            <div className={`pointer-events-auto absolute hidden sm:block rounded-xl border border-hairline/80 bg-shelf-1/95 px-3 py-2 backdrop-blur-md shadow-lg ${showRegionSwitcher ? "top-16 right-3" : "top-3 right-14"}`}>
+            // Wave legend: same slot as depth legend — left of zoom controls,
+            // below the Coastal Navigation Regions dropdown.
+            <div className="pointer-events-auto absolute top-14 right-14 z-10 hidden sm:block rounded-xl border border-hairline/80 bg-shelf-1/95 px-3 py-2 backdrop-blur-md shadow-lg">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-[#e87050]" />
                 <span className="text-[11px] font-medium text-ink">Wave Height (Hs Forecast) meters</span>
@@ -1381,9 +1381,11 @@ export function MapView({
             </div>
           )}
 
-          {/* Quick recenter button — your GPS fix when granted, otherwise
-              the national overview. Never flies to a fixed pilot sector. */}
-          <div className="pointer-events-auto absolute top-3 right-3 z-10">
+          {/* Quick recenter button — sits directly below the MapLibre
+              zoom/compass controls (NavigationControl, ~96px tall at top-right).
+              Your GPS fix when granted, otherwise the national overview.
+              Never flies to a fixed pilot sector. */}
+          <div className="pointer-events-auto absolute top-[120px] right-[10px] z-10">
             <button
               type="button"
               onClick={() => {

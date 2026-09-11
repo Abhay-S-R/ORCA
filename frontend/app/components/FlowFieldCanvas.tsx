@@ -267,7 +267,14 @@ export function FlowFieldCanvas({
         const drawField = (
           grid: VectorGrid,
           particles: Particle[],
-          opts: { maxSpeed: number; haloRgb: string; colorRgb: string; widths: [number, number, number]; pxPerFrame: [number, number, number] },
+          opts: {
+            maxSpeed: number;
+            haloRgb: string;
+            lightHaloRgb: string;
+            colorRgb: string;
+            widths: [number, number, number];
+            pxPerFrame: [number, number, number];
+          },
         ) => {
           const tiers: { lon: number; lat: number; lon2: number; lat2: number }[][] = [[], [], []];
 
@@ -312,11 +319,19 @@ export function FlowFieldCanvas({
               ctx.moveTo(seg.lon, seg.lat);
               ctx.lineTo(seg.lon2, seg.lat2);
             }
-            // A thin, faint halo pass first — just enough edge definition to
-            // stay legible over both the pale shelf and the dark abyssal end
-            // of the depth ramp — then a thin colour pass. Both stay narrow:
-            // a wide dark outline under every particle was what actually
-            // read as "harsh scratches" rather than water.
+            // Two halo passes of opposite luminance, then the colour pass.
+            // A dark halo alone only buys contrast over the pale shelf end
+            // of the depth ramp — over its dark abyssal end (or any other
+            // dark layer stacked underneath) a dark halo disappears into the
+            // background and the particle reads as invisible, which is
+            // exactly what made currents vanish under depth shading. Adding
+            // a light halo first guarantees one of the two always contrasts,
+            // regardless of what's rendered underneath. Both stay narrow: a
+            // wide outline under every particle read as "harsh scratches"
+            // rather than water.
+            ctx.strokeStyle = opts.lightHaloRgb;
+            ctx.lineWidth = opts.widths[t] + 0.9;
+            ctx.stroke();
             ctx.strokeStyle = opts.haloRgb;
             ctx.lineWidth = opts.widths[t] + 0.5;
             ctx.stroke();
@@ -335,6 +350,7 @@ export function FlowFieldCanvas({
           drawField(currentGrid, currentParticles, {
             maxSpeed: 1.2,
             haloRgb: "rgba(4, 20, 28, 0.28)",
+            lightHaloRgb: "rgba(255, 255, 255, 0.4)",
             colorRgb: "rgba(8, 145, 178, ALPHA)",
             widths: [0.55, 0.8, 1.15],
             pxPerFrame: [0.28, 0.55, 0.85],
@@ -347,6 +363,7 @@ export function FlowFieldCanvas({
           drawField(windGrid, windParticles, {
             maxSpeed: 12,
             haloRgb: "rgba(4, 20, 28, 0.24)",
+            lightHaloRgb: "rgba(255, 255, 255, 0.35)",
             colorRgb: "rgba(202, 138, 4, ALPHA)",
             widths: [0.5, 0.7, 1.0],
             pxPerFrame: [0.25, 0.48, 0.75],
