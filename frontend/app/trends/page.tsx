@@ -162,8 +162,9 @@ export default function TrendsPage() {
               <ConfidenceMeter tier={data.sst_chlorophyll_correlation.confidence.score} />
             </div>
           </Panel>
+          {/* uncomment this for the footnote lol 
+          {data.source_selection && <SourceNarration selection={data.source_selection} />} */}
 
-          {data.source_selection && <SourceNarration selection={data.source_selection} />}
         </div>
       )}
     </PageBody>
