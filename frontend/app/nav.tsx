@@ -215,7 +215,7 @@ export function SosButton() {
         aria-label="Send a distress alert"
         className={`group fixed z-50 flex size-14 items-center justify-center rounded-full border-2 border-no-go/60 bg-no-go text-sm font-black tracking-widest text-on-accent shadow-lg transition-all hover:scale-105 active:scale-95 ${isMapPage
           ? "left-16 bottom-12 sm:left-16.5 sm:bottom-19.5"
-          : "right-4 bottom-18 sm:right-6 sm:bottom-6"
+          : "right-4 bottom-18 sm:right-2.5 sm:bottom-1.5"
           }`}
       >
         <span className="absolute inset-0 -z-10 rounded-full bg-no-go/30 animate-ping opacity-75 pointer-events-none" />

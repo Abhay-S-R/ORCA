@@ -4,7 +4,7 @@
 // itself, next to the persona selector, so a judge finds this before they
 // find the gap on their own. Same click-to-toggle popover pattern as
 // SourceChip's ProvenancePopover, reused rather than inventing a second one.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { API_BASE } from "../lib/apiBase";
 
@@ -19,6 +19,7 @@ const DOT_CLASS: Record<Feature["status"], string> = {
 export function SystemStatusStrip() {
   const [features, setFeatures] = useState<Feature[] | null>(null);
   const [open, setOpen] = useState(false);
+  const stripRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -31,11 +32,22 @@ export function SystemStatusStrip() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!open) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (stripRef.current && !stripRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [open]);
+
   if (!features || features.length === 0) return null;
   const notLive = features.filter((f) => f.status !== "live").length;
 
   return (
-    <span className="relative hidden sm:inline-flex">
+    <span ref={stripRef} className="relative hidden sm:inline-flex">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -54,7 +66,7 @@ export function SystemStatusStrip() {
           role="dialog"
           aria-label="System status"
           onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
-          className="glass absolute top-full right-0 z-30 mt-1.5 w-80 rounded-md p-3 text-xs shadow-lg shadow-black/50"
+          className="glass absolute top-full right-0 z-50 mt-1.5 w-80 rounded-md p-3 text-xs shadow-2xl shadow-black/50"
         >
           <p className="font-semibold text-ink">What's live right now</p>
           <ul className="mt-2 space-y-2">

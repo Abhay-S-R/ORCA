@@ -12,7 +12,7 @@ import { SystemStatusStrip } from "./SystemStatusStrip";
 
 export function StatusBar() {
   return (
-    <header className="flex h-10 shrink-0 items-center justify-between border-b border-hairline bg-shelf-1/70 px-4 text-[11px] backdrop-blur-md">
+    <header className="relative z-40 flex h-10 shrink-0 items-center justify-between border-b border-hairline bg-shelf-1/70 px-4 text-[11px] backdrop-blur-md">
       <div className="flex items-center gap-3.5">
         <div className="flex items-center gap-2">
           <span className="font-bold tracking-wider text-ink">ORCA</span>
