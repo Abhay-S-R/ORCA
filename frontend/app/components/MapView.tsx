@@ -440,14 +440,18 @@ export function MapView({
     setClicked({ lat, lon });
     setDepth(null);
     setBearing(null);
-    const [d, b] = await Promise.all([
-      fetch(`${API_BASE}/api/depth?lat=${lat}&lon=${lon}`).then((r) => r.json()),
-      fetch(
-        `${API_BASE}/api/bearing?from_lat=${focusPoint[1]}&from_lon=${focusPoint[0]}&to_lat=${lat}&to_lon=${lon}`,
-      ).then((r) => r.json()),
-    ]);
-    setDepth(d);
-    setBearing(b);
+    try {
+      const [d, b] = await Promise.all([
+        fetch(`${API_BASE}/api/depth?lat=${lat}&lon=${lon}`).then((r) => r.json()),
+        fetch(
+          `${API_BASE}/api/bearing?from_lat=${focusPoint[1]}&from_lon=${focusPoint[0]}&to_lat=${lat}&to_lon=${lon}`,
+        ).then((r) => r.json()),
+      ]);
+      setDepth(d);
+      setBearing(b);
+    } catch (err) {
+      console.warn("MapView: depth/bearing fetch failed (backend may be starting up)", err);
+    }
   }, [onPointClick]);
 
   /* ---- map instance: created once, never recreated ---- */
