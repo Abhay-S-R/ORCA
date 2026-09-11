@@ -93,11 +93,10 @@ export function NavRail() {
               href={href}
               aria-current={active ? "page" : undefined}
               title={label}
-              className={`group relative grid size-10 place-items-center rounded-lg border transition-all ${
-                active
-                  ? "border-ocean-cyan/60 bg-shelf-3/90 text-ocean-cyan shadow-md shadow-ocean-cyan/15"
-                  : "border-transparent text-ink-dim hover:border-hairline hover:bg-shelf-2/80 hover:text-ink"
-              } ${visibility === "secondary" && !active ? "opacity-55" : ""}`}
+              className={`group relative grid size-10 place-items-center rounded-lg border transition-all ${active
+                ? "border-ocean-cyan/60 bg-shelf-3/90 text-ocean-cyan shadow-md shadow-ocean-cyan/15"
+                : "border-transparent text-ink-dim hover:border-hairline hover:bg-shelf-2/80 hover:text-ink"
+                } ${visibility === "secondary" && !active ? "opacity-55" : ""}`}
             >
               {/* Active indicator bar */}
               {active && (
@@ -129,9 +128,8 @@ export function NavRail() {
               key={href}
               href={href}
               aria-current={active ? "page" : undefined}
-              className={`flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium tracking-wide transition-colors ${
-                active ? "text-ocean-cyan border-t-2 border-ocean-cyan -mt-px bg-shelf-2/40" : "text-ink-dim hover:text-ink"
-              }`}
+              className={`flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium tracking-wide transition-colors ${active ? "text-ocean-cyan border-t-2 border-ocean-cyan -mt-px bg-shelf-2/40" : "text-ink-dim hover:text-ink"
+                }`}
             >
               <Icon className="size-5" strokeWidth={active ? 2.2 : 1.75} aria-hidden="true" />
               {label}
@@ -176,6 +174,8 @@ export function SosButton() {
   const dialog = useRef<HTMLDialogElement>(null);
   const [contact, setContact] = useState<MrccContact | null>(null);
   const [reachedBackend, setReachedBackend] = useState<boolean | null>(null);
+  const pathname = usePathname();
+  const isMapPage = pathname === "/map";
 
   function trigger() {
     dialog.current?.showModal();
@@ -206,7 +206,10 @@ export function SosButton() {
         type="button"
         onClick={trigger}
         aria-label="Send a distress alert"
-        className="group fixed right-4 bottom-18 z-50 flex size-14 items-center justify-center rounded-full border-2 border-no-go/60 bg-no-go text-sm font-black tracking-widest text-on-accent shadow-lg transition-all hover:scale-105 active:scale-95 sm:right-6 sm:bottom-6"
+        className={`group fixed z-50 flex size-14 items-center justify-center rounded-full border-2 border-no-go/60 bg-no-go text-sm font-black tracking-widest text-on-accent shadow-lg transition-all hover:scale-105 active:scale-95 ${isMapPage
+          ? "left-16 bottom-12 sm:left-16.5 sm:bottom-19.5"
+          : "right-4 bottom-18 sm:right-6 sm:bottom-6"
+          }`}
       >
         <span className="absolute inset-0 -z-10 rounded-full bg-no-go/30 animate-ping opacity-75 pointer-events-none" />
         <span className="relative z-10 font-mono text-base font-black">SOS</span>
