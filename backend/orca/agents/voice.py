@@ -38,8 +38,12 @@ round-trip verified.
 """
 from __future__ import annotations
 
+import hashlib
 import io
+import logging
 import os
+import re
+import time
 import wave
 from dataclasses import dataclass
 from typing import Literal, Protocol
@@ -166,6 +170,32 @@ class FasterWhisperBackend:
         )
 
 
+logger = logging.getLogger(__name__)
+
+# Sentence-boundary regex for chunking long text before VITS synthesis.
+# VITS latency is super-linear in token count — 5×short chunks is far
+# cheaper than 1×long pass, and the resulting audio is identical to
+# concatenation at sentence boundaries.
+_SENTENCE_RE = re.compile(r'(?<=[.!?])\s+')
+_MAX_CHUNK_CHARS = 200  # keep each chunk under this many characters
+
+
+def _split_for_tts(text: str) -> list[str]:
+    """Split text into sentence-sized chunks for chunked VITS inference."""
+    sentences = _SENTENCE_RE.split(text.strip())
+    chunks: list[str] = []
+    current = ""
+    for s in sentences:
+        if current and len(current) + len(s) + 1 > _MAX_CHUNK_CHARS:
+            chunks.append(current.strip())
+            current = s
+        else:
+            current = f"{current} {s}".strip() if current else s
+    if current:
+        chunks.append(current.strip())
+    return chunks or [text]
+
+
 class MmsTtsBackend:
     """Local TTS, facebook/mms-tts-<lang> (VITS), one model per language,
     loaded lazily on first use of that language."""
@@ -175,12 +205,14 @@ class MmsTtsBackend:
 
     def _get_model(self, lang_code: str):
         if lang_code not in self._models:
+            t0 = time.monotonic()
             from transformers import AutoTokenizer, VitsModel
 
             tokenizer = AutoTokenizer.from_pretrained(f"facebook/mms-tts-{lang_code}")
             model = VitsModel.from_pretrained(f"facebook/mms-tts-{lang_code}")
             model.eval()
             self._models[lang_code] = (tokenizer, model)
+            logger.info("MMS-TTS model loaded for %s in %.1fs", lang_code, time.monotonic() - t0)
         return self._models[lang_code]
 
     def speak(self, text: str, language: Language) -> bytes:
@@ -189,17 +221,25 @@ class MmsTtsBackend:
 
         lang_code = _MMS_CODE[language]
         tokenizer, model = self._get_model(lang_code)
-        inputs = tokenizer(text, return_tensors="pt")
-        with torch.no_grad():
-            waveform = model(**inputs).waveform
-        pcm = (waveform.squeeze().cpu().numpy() * 32767).astype(np.int16)
+
+        chunks = _split_for_tts(text)
+        all_pcm: list[np.ndarray] = []
+        t0 = time.monotonic()
+        for chunk in chunks:
+            inputs = tokenizer(chunk, return_tensors="pt")
+            with torch.no_grad():
+                waveform = model(**inputs).waveform
+            pcm = (waveform.squeeze().cpu().numpy() * 32767).astype(np.int16)
+            all_pcm.append(pcm)
+        combined = np.concatenate(all_pcm) if len(all_pcm) > 1 else all_pcm[0]
+        logger.info("MMS-TTS synthesized %d chars (%d chunks) in %.1fs", len(text), len(chunks), time.monotonic() - t0)
 
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wav:
             wav.setnchannels(1)
             wav.setsampwidth(2)  # int16
             wav.setframerate(model.config.sampling_rate)
-            wav.writeframes(pcm.tobytes())
+            wav.writeframes(combined.tobytes())
         return buf.getvalue()
 
 
@@ -231,15 +271,42 @@ def speech_to_text(audio: bytes, language_hint: Language | None = None) -> Trans
     return TranscriptionResult(transcript="", confidence=0.0, rung="unavailable", detected_language=None)
 
 
+# In-memory LRU cache for TTS results — keyed on (text_hash, language).
+# Avoids re-synthesizing the exact same verdict on repeated clicks.
+# Bounded to 32 entries (~10 MB worst case for typical verdict lengths).
+_tts_cache: dict[str, tuple[bytes, TtsRung]] = {}
+_TTS_CACHE_MAX = 32
+
+
+def _tts_cache_key(text: str, language: Language) -> str:
+    return hashlib.sha256(f"{language}:{text}".encode()).hexdigest()[:16]
+
+
 def text_to_speech(text: str, language: Language) -> tuple[bytes | None, TtsRung]:
     """Two configured rungs (Bhashini, MMS-TTS) plus the same explicit
     "unavailable" third rung as speech_to_text — returns (None,
     "unavailable") rather than raising, so the voice UI degrades to
-    text-only playback instead of a broken request."""
+    text-only playback instead of a broken request.
+
+    Results are cached in-memory so repeated clicks on the same verdict
+    return instantly without re-running inference."""
+    key = _tts_cache_key(text, language)
+    if key in _tts_cache:
+        logger.info("TTS cache hit for key %s", key)
+        return _tts_cache[key]
+
+    t0 = time.monotonic()
     for backend in _tts_backends:
         try:
             audio = backend.speak(text, language)
             rung: TtsRung = "bhashini" if isinstance(backend, BhashiniTtsBackend) else "mms_tts"
+            # Cache the result
+            if len(_tts_cache) >= _TTS_CACHE_MAX:
+                # Evict oldest entry (FIFO)
+                oldest = next(iter(_tts_cache))
+                del _tts_cache[oldest]
+            _tts_cache[key] = (audio, rung)
+            logger.info("TTS synthesis completed in %.1fs (rung=%s), cached as %s", time.monotonic() - t0, rung, key)
             return audio, rung
         except (RuntimeError, OSError):
             # See the matching comment in speech_to_text — same contract, same gap.

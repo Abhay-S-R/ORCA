@@ -6,15 +6,18 @@ channel already uses, not a parallel graph.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Literal, get_args
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
 from orca.agents.language import Language
 from orca.agents.voice import LOW_CONFIDENCE_THRESHOLD, speech_to_text, text_to_speech
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/voice", tags=["voice"])
 _VALID_LANGUAGES = set(get_args(Language))
 
@@ -57,9 +60,30 @@ class SpeakRequest(BaseModel):
 
 
 @router.post("/speak")
-def speak(req: SpeakRequest) -> Response:
+async def speak(req: SpeakRequest) -> Response:
+    """TTS synthesis — runs in a thread pool so CPU-bound VITS inference
+    doesn't block the async event loop. Results are cached in voice.py's
+    _tts_cache so repeated clicks return instantly."""
     lang = _coerce_language_hint(req.language) or "en"
-    audio, rung = text_to_speech(req.text, lang)
+    loop = asyncio.get_running_loop()
+    audio, rung = await loop.run_in_executor(None, text_to_speech, req.text, lang)
     if audio is None:
         raise HTTPException(status_code=503, detail="No TTS backend available (Bhashini uncredentialed, MMS-TTS failed)")
     return Response(content=audio, media_type="audio/wav", headers={"X-TTS-Rung": rung})
+
+
+@router.post("/prefetch")
+async def prefetch(req: SpeakRequest, background_tasks: BackgroundTasks) -> dict:
+    """Fire-and-forget TTS warm-up — the frontend calls this as soon as the
+    answer arrives so the audio is cached by the time the user clicks Play.
+    Returns immediately with 202-like status; synthesis runs in background."""
+    lang = _coerce_language_hint(req.language) or "en"
+
+    def _warm():
+        try:
+            text_to_speech(req.text, lang)
+        except Exception:
+            logger.warning("TTS prefetch failed (non-fatal)", exc_info=True)
+
+    background_tasks.add_task(_warm)
+    return {"status": "prefetch_queued"}

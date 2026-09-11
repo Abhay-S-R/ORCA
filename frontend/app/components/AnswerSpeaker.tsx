@@ -4,6 +4,11 @@
 // POST /voice/speak. Manual only — every persona, including fisherman,
 // gets the same "Play verdict" button. Never autoplays; playback starts
 // and stops only on explicit user action.
+//
+// Performance: on mount, fires a /voice/prefetch to warm the backend's
+// TTS cache in the background. By the time the user reads the answer
+// and clicks Play, the audio is already synthesized and cached — the
+// /voice/speak call then returns a cache hit in <50ms instead of 5-15s.
 import { useEffect, useRef, useState } from "react";
 import { Volume2, Square } from "lucide-react";
 import { Button } from "./Button";
@@ -26,6 +31,24 @@ export function AnswerSpeaker({
   const [error, setError] = useState<string | null>(null);
   const urlRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Client-side cache: once we have the audio blob, don't fetch again.
+  const cachedBlobRef = useRef<{ text: string; blob: Blob; rung: string } | null>(null);
+
+  // Fire-and-forget prefetch as soon as the answer text is known —
+  // this warms the backend's TTS cache so /voice/speak is instant later.
+  useEffect(() => {
+    if (!text.trim()) return;
+    // Don't prefetch if we already have this text cached client-side
+    if (cachedBlobRef.current?.text === text) return;
+    const controller = new AbortController();
+    fetch(`${API_BASE}/voice/prefetch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, language }),
+      signal: controller.signal,
+    }).catch(() => {/* prefetch is best-effort, ignore failures */});
+    return () => controller.abort();
+  }, [text, language]);
 
   function stop() {
     audioRef.current?.pause();
@@ -37,18 +60,31 @@ export function AnswerSpeaker({
     setPlaying(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/voice/speak`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, language }),
-      });
-      if (!res.ok) {
-        setPlaying(false);
-        setError("Voice playback is unavailable right now — the text answer above is unchanged.");
-        return;
+      let blob: Blob;
+      let ttsRung: string;
+
+      // Use client-side cached blob if available for this exact text
+      if (cachedBlobRef.current?.text === text) {
+        blob = cachedBlobRef.current.blob;
+        ttsRung = cachedBlobRef.current.rung;
+      } else {
+        const res = await fetch(`${API_BASE}/voice/speak`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, language }),
+        });
+        if (!res.ok) {
+          setPlaying(false);
+          setError("Voice playback is unavailable right now — the text answer above is unchanged.");
+          return;
+        }
+        ttsRung = res.headers.get("x-tts-rung") || "";
+        blob = await res.blob();
+        // Cache for subsequent clicks
+        cachedBlobRef.current = { text, blob, rung: ttsRung };
       }
-      setRung(res.headers.get("x-tts-rung"));
-      const blob = await res.blob();
+
+      setRung(ttsRung);
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
       const url = URL.createObjectURL(blob);
       urlRef.current = url;
@@ -95,3 +131,4 @@ export function AnswerSpeaker({
     </div>
   );
 }
+
