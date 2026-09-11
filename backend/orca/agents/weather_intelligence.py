@@ -281,8 +281,12 @@ def _fetch_sachet_alerts() -> tuple[list[dict], str, Confidence]:
         resp = httpx.get(NDMA_SACHET_URL, timeout=SAFETY_PATH_TIMEOUT_S)
         resp.raise_for_status()
         alerts = resp.json()
+        # Guard against 200-with-empty-body or unexpected non-list payloads
+        if not isinstance(alerts, list):
+            raise ValueError(f"SACHET returned non-list payload: {type(alerts).__name__}")
         return alerts, "NDMA SACHET CAP feed (live)", Confidence(score="HIGH", rationale="Live government CAP feed")
-    except httpx.HTTPError:
+    except (httpx.HTTPError, ValueError):
+        # ValueError covers JSONDecodeError (its subclass) and the guard above
         alerts = load_json(cached_ndma_cap_alerts_path())
         return alerts, "NDMA SACHET CAP feed (cached fallback)", Confidence(
             score="MEDIUM", rationale="Live SACHET fetch failed; using cached snapshot"
