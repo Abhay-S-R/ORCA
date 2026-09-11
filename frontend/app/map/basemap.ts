@@ -15,12 +15,14 @@ export const BASEMAP_STYLE =
   process.env.NEXT_PUBLIC_BASEMAP_STYLE ??
   (process.env.NEXT_PUBLIC_CARTO_KEY ? `${CARTO_LIGHT}?key=${process.env.NEXT_PUBLIC_CARTO_KEY}` : CARTO_LIGHT);
 
-// Pilot region (77.5–80.5 E / 7.5–10.5 N) — matches the GEBCO extract's bbox.
-export const PILOT_BOUNDS: [number, number, number, number] = [77.5, 7.5, 80.5, 10.5];
+// Geographic centre of India — a neutral fallback for API calls that need
+// *some* coordinate to centre a query on before a real GPS fix (or none)
+// arrives. Never rendered as a location marker; that's userLocation only.
+export const INDIA_CENTER: [number, number] = [78.9, 20.5];
 
-// Thoothukudi — the §8 acceptance-test position, and the default "you are
-// here" until a real geolocation/session flow lands in Phase 2.
-export const DEFAULT_USER: [number, number] = [78.14, 8.8];
+// The chart's default camera on load — all of India, matching the product's
+// national scope. A query or region pick moves it from here.
+export const INDIA_VIEW = { center: INDIA_CENTER, zoom: 4.4 };
 
 import type { RasterSourceSpecification } from "maplibre-gl";
 

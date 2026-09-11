@@ -42,7 +42,7 @@ const notoTamil = Noto_Sans_Tamil({
 
 export const metadata: Metadata = {
   title: "ORCA — Marine decision support",
-  description: "Go / no-go verdicts, fishing zones and hazard charts for the Tamil Nadu coast.",
+  description: "Marine safety intelligence, fishing zones and hazard charts for the Indian coastline.",
 };
 
 export const viewport: Viewport = {

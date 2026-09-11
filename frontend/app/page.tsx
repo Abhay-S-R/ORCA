@@ -65,7 +65,7 @@ const HOW_IT_DECIDES = [
 ];
 
 const TRY_QUERIES = [
-  "Is it safe to go out tomorrow morning near Thoothukudi?",
+  "Is it safe to go out tomorrow morning?",
   "Where are the fishing zones closest to my port?",
   "How far am I from the maritime boundary?",
 ];
