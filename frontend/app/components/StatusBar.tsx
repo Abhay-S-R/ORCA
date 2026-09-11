@@ -1,8 +1,10 @@
 "use client";
 
 // The bezel's top edge: high-precision maritime bridge telemetry console strip.
-// Displays live geospatial fix (Thoothukudi / Gulf of Mannar), datalink telemetry,
-// UTC chronometer, and active persona command station.
+// Displays coverage status, datalink telemetry, UTC chronometer, and active
+// persona command station. No fixed coordinates here — the chart's own
+// "Your Location" marker (MapView) is the one place a real position ever
+// shows, and only once the browser actually grants a GPS fix.
 import { useEffect, useState } from "react";
 import { PersonaSelector } from "../persona/PersonaSelector";
 import { Radio, Satellite } from "lucide-react";
@@ -21,14 +23,12 @@ export function StatusBar() {
 
         <div className="hidden h-3.5 w-px bg-hairline md:block" />
 
-        {/* Live Marine Coordinates Fix */}
+        {/* Coverage status — deliberately no coordinates here; a real
+            position only ever appears once the chart's own GPS fix grants. */}
         <div className="hidden items-center gap-2 text-ink-dim md:flex">
           <span className="size-1.5 rounded-full bg-ocean-cyan beacon-pulse" aria-hidden="true" />
-          <span data-readout className="font-mono text-ink-muted">
-            08°48.0&apos;N · 078°09.0&apos;E
-          </span>
           <span className="text-[10px] text-ink-dim tracking-wider uppercase">
-            Gulf of Mannar
+            Pan-India Coastal Coverage
           </span>
         </div>
       </div>

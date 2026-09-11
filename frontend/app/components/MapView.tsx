@@ -15,7 +15,7 @@ import { setWorkerUrl } from "maplibre-gl";
 import { FlowFieldCanvas } from "./FlowFieldCanvas";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Calendar, ChevronDown, ChevronUp, Compass, Crosshair, Layers, MapPin, Navigation, ShieldCheck, Waves, X } from "lucide-react";
-import { BASEMAP_STYLE, CHART, DEFAULT_USER, PILOT_BOUNDS, RASTER_OVERLAYS, webglAvailable } from "../map/basemap";
+import { BASEMAP_STYLE, CHART, INDIA_CENTER, INDIA_VIEW, RASTER_OVERLAYS, webglAvailable } from "../map/basemap";
 import { Badge, type BadgeTone } from "./Badge";
 import { LayerToggle } from "./LayerToggle";
 import { Panel } from "./Panel";
@@ -23,6 +23,7 @@ import { Readout, ReadoutGrid } from "./Readout";
 import { EmptyState } from "./States";
 import { TimeSlider } from "./TimeSlider";
 import { getToken } from "../lib/auth";
+import { useGeolocation } from "../lib/useGeolocation";
 import { measureLayerToggle, reportLayerMetrics } from "../lib/layerPerf";
 import { watchBadges as fetchWatchBadges, type WatchBadge } from "../lib/watches";
 import { API_BASE } from "../lib/apiBase";
@@ -190,7 +191,14 @@ export type MapPin = { lat: number; lon: number; label: string; color: string };
 // forward and where to look, derived from the query's classified intent.
 // `nonce` must change on every ask() call (even a repeat of the same intent)
 // so the effect below re-runs and re-focuses the chart each time.
-export type QueryFocus = { intent: "fishing" | "boundary" | "safety" | "general"; nonce: number };
+// `regionId` is an optional direct hit against COASTAL_REGIONS (the query
+// named a place) — when present it wins the camera move outright, since a
+// named location is a stronger signal than the topic-based intent.
+export type QueryFocus = {
+  intent: "fishing" | "boundary" | "safety" | "current" | "wave" | "general";
+  regionId?: string;
+  nonce: number;
+};
 
 export function MapView({
   className = "h-full w-full",
@@ -244,6 +252,14 @@ export function MapView({
   const map = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
   const [supported] = useState(webglAvailable);
+
+  // The user's real GPS fix, when granted — never a hardcoded coordinate.
+  // Every place this component previously used a fixed "you are here" point
+  // now reads `focusPoint`, which is the real fix when we have one and a
+  // neutral India-centre otherwise; only the "Your Location" marker itself
+  // is gated on an actual granted fix (no marker at all without one).
+  const { position: userLocation, status: geoStatus } = useGeolocation();
+  const focusPoint = userLocation ?? INDIA_CENTER;
 
   const [nearNames, setNearNames] = useState<string[]>([]);
   const [clicked, setClicked] = useState<{ lat: number; lon: number } | null>(null);
@@ -427,7 +443,7 @@ export function MapView({
     const [d, b] = await Promise.all([
       fetch(`${API_BASE}/api/depth?lat=${lat}&lon=${lon}`).then((r) => r.json()),
       fetch(
-        `${API_BASE}/api/bearing?from_lat=${DEFAULT_USER[1]}&from_lon=${DEFAULT_USER[0]}&to_lat=${lat}&to_lon=${lon}`,
+        `${API_BASE}/api/bearing?from_lat=${focusPoint[1]}&from_lon=${focusPoint[0]}&to_lat=${lat}&to_lon=${lon}`,
       ).then((r) => r.json()),
     ]);
     setDepth(d);
@@ -441,8 +457,12 @@ export function MapView({
     const m = new maplibregl.Map({
       container: container.current,
       style: BASEMAP_STYLE,
-      bounds: PILOT_BOUNDS,
-      fitBoundsOptions: { padding: 48 },
+      // National overview by default (product scope is all of India, not
+      // one pilot region) — a query or the region switcher moves it from
+      // here, and the Gulf of Mannar pilot bounds are still available as a
+      // preset via COASTAL_REGIONS.
+      center: INDIA_VIEW.center,
+      zoom: INDIA_VIEW.zoom,
       // Attribution and scale live bottom-LEFT: the bottom-right corner is
       // reserved for the SOS button, which must never be covered or cover.
       // Attribution is added by hand below so it can sit bottom-LEFT: the
@@ -685,32 +705,40 @@ export function MapView({
     };
   }, [supported, handleClick]);
 
-  /* ---- user position marker: a ship's-bow pointer, not a plain dot ----
-     Rotates to the bearing computed above so it visibly points at whatever
-     real geometry the chart just fit to (a boundary, a cluster of fishing
-     zones); resting orientation (north) when a query has no directional
-     target. Rotation is set via the marker API directly rather than a
+  /* ---- "Your Location" marker: a ship's-bow pointer over a pulsing GPS
+     halo, shown ONLY once the browser actually grants a position — never a
+     hardcoded stand-in. Rotates to the bearing computed below so it visibly
+     points at whatever real geometry the chart just fit to (a boundary, a
+     cluster of fishing zones); resting orientation (north) otherwise.
+     Rotation/position are set via the marker API directly rather than a
      teardown/recreate, same "update in place" rule §4.7 uses everywhere
-     else on this map. */
+     else on this map — so a later position update (if the browser refines
+     the fix) just moves the existing marker. */
   const shipMarkerRef = useRef<maplibregl.Marker | null>(null);
   useEffect(() => {
-    if (!ready || !map.current) return;
-    const el = document.createElement("div");
-    el.setAttribute("aria-label", "Your position, Thoothukudi");
-    el.innerHTML = `
-      <svg width="30" height="34" viewBox="0 0 30 34" style="filter:drop-shadow(0 2px 3px rgba(28,41,57,0.4))">
-        <path d="M15 1 L26.5 24.5 Q15 30.5 3.5 24.5 Z" fill="${CHART.eezNear}" stroke="#fffdf6" stroke-width="1.75" stroke-linejoin="round" />
-        <circle cx="15" cy="19.5" r="2.2" fill="#fffdf6" />
-      </svg>`;
-    const marker = new maplibregl.Marker({ element: el, rotationAlignment: "map" })
-      .setLngLat(DEFAULT_USER)
-      .addTo(map.current);
-    shipMarkerRef.current = marker;
+    if (!ready || !map.current || !userLocation) return;
+    if (!shipMarkerRef.current) {
+      const el = document.createElement("div");
+      el.setAttribute("aria-label", "Your location");
+      el.innerHTML = `
+        <div style="position:relative;width:30px;height:34px;">
+          <span class="beacon-pulse" style="position:absolute;left:9px;top:15px;width:12px;height:12px;border-radius:9999px;background:${CHART.eezNear};opacity:0.35;"></span>
+          <svg width="30" height="34" viewBox="0 0 30 34" style="position:relative;filter:drop-shadow(0 2px 3px rgba(28,41,57,0.4))">
+            <path d="M15 1 L26.5 24.5 Q15 30.5 3.5 24.5 Z" fill="${CHART.eezNear}" stroke="#fffdf6" stroke-width="1.75" stroke-linejoin="round" />
+            <circle cx="15" cy="19.5" r="2.2" fill="#fffdf6" />
+          </svg>
+        </div>`;
+      shipMarkerRef.current = new maplibregl.Marker({ element: el, rotationAlignment: "map" })
+        .setLngLat(userLocation)
+        .addTo(map.current);
+    } else {
+      shipMarkerRef.current.setLngLat(userLocation);
+    }
     return () => {
-      marker.remove();
+      shipMarkerRef.current?.remove();
       shipMarkerRef.current = null;
     };
-  }, [ready]);
+  }, [ready, userLocation]);
 
   /* ---- /voyage: route corridor + origin/destination pins (both optional,
      absent for every other page that mounts this component) ---- */
@@ -757,12 +785,12 @@ export function MapView({
 
     (async () => {
       const [layerRes, nearRes, pfzRes, rasterRes, currentsRes, windRes] = await Promise.all([
-        fetch(`${API_BASE}/api/map-layers?lat=${DEFAULT_USER[1]}&lon=${DEFAULT_USER[0]}`).then((r) => r.json()),
+        fetch(`${API_BASE}/api/map-layers?lat=${focusPoint[1]}&lon=${focusPoint[0]}`).then((r) => r.json()),
         fetch(
-          `${API_BASE}/api/zones-nearby?lat=${DEFAULT_USER[1]}&lon=${DEFAULT_USER[0]}&radius_nm=25`,
+          `${API_BASE}/api/zones-nearby?lat=${focusPoint[1]}&lon=${focusPoint[0]}&radius_nm=25`,
         ).then((r) => r.json()),
         fetch(`${API_BASE}/api/zones`).then((r) => r.json()),
-        fetch(`${API_BASE}/api/raster-layers?lat=${DEFAULT_USER[1]}&lon=${DEFAULT_USER[0]}`)
+        fetch(`${API_BASE}/api/raster-layers?lat=${focusPoint[1]}&lon=${focusPoint[0]}`)
           .then((r) => r.json())
           .catch(() => ({ layers: [] })),
         fetch(`${API_BASE}/api/current-vectors`)
@@ -864,6 +892,13 @@ export function MapView({
   const [shipBearing, setShipBearing] = useState<number | null>(null);
   if (queryFocus && queryFocus.nonce !== focusedNonce) {
     setFocusedNonce(queryFocus.nonce);
+    // A named place (plan item 8) is set here rather than in the camera
+    // effect below — both are "state derived from a prop change", so both
+    // belong in this render-phase block; the effect stays limited to the
+    // actual external-system side effect (the camera move itself).
+    if (queryFocus.regionId) {
+      setSelectedRegion(queryFocus.regionId);
+    }
     let bearing: number | null = null;
     if (queryFocus.intent === "boundary") {
       setLayers((s) => (s.boundaries ? s : { ...s, boundaries: true }));
@@ -871,18 +906,22 @@ export function MapView({
       if (coords.length) {
         const lon = coords.reduce((s, c) => s + c[0], 0) / coords.length;
         const lat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
-        bearing = bearingDeg(DEFAULT_USER[1], DEFAULT_USER[0], lat, lon);
+        bearing = bearingDeg(focusPoint[1], focusPoint[0], lat, lon);
       }
     } else if (queryFocus.intent === "fishing") {
       setLayers((s) => (s.pfz ? s : { ...s, pfz: true }));
       const near = pfzFeatures.filter(
-        (f) => haversineKm(DEFAULT_USER[1], DEFAULT_USER[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
+        (f) => haversineKm(focusPoint[1], focusPoint[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
       );
       if (near.length) {
         const lon = near.reduce((s, f) => s + f.geometry.coordinates[0], 0) / near.length;
         const lat = near.reduce((s, f) => s + f.geometry.coordinates[1], 0) / near.length;
-        bearing = bearingDeg(DEFAULT_USER[1], DEFAULT_USER[0], lat, lon);
+        bearing = bearingDeg(focusPoint[1], focusPoint[0], lat, lon);
       }
+    } else if (queryFocus.intent === "current") {
+      setLayers((s) => (s.currents ? s : { ...s, currents: true }));
+    } else if (queryFocus.intent === "wave") {
+      setLayers((s) => (s.waveForecast ? s : { ...s, waveForecast: true }));
     }
     setShipBearing(bearing);
   }
@@ -903,35 +942,52 @@ export function MapView({
     if (!ready || !map.current || !queryFocus) return;
     const m = map.current;
 
+    // A named place in the query (plan item 8, "location-specific query")
+    // wins outright — the user asked about somewhere specific, so the chart
+    // goes there over any topic-based default.
+    if (queryFocus.regionId) {
+      const region = COASTAL_REGIONS.find((r) => r.id === queryFocus.regionId);
+      if (region) {
+        m.flyTo({ center: region.center, zoom: region.zoom, duration: 1000 });
+        return;
+      }
+    }
+
     if (queryFocus.intent === "boundary") {
       const near = boundaryFeatures.features.filter((f) => f.properties.near);
       const coords = near.flatMap((f) => flattenCoords(f.geometry));
       if (coords.length) {
-        const lons = [DEFAULT_USER[0], ...coords.map((c) => c[0])];
-        const lats = [DEFAULT_USER[1], ...coords.map((c) => c[1])];
+        const lons = [focusPoint[0], ...coords.map((c) => c[0])];
+        const lats = [focusPoint[1], ...coords.map((c) => c[1])];
         m.fitBounds(
           [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
           { padding: 72, maxZoom: 9.5, duration: 900 },
         );
       } else {
-        m.flyTo({ center: DEFAULT_USER, zoom: 8.2, duration: 900 });
+        m.flyTo({ center: focusPoint, zoom: 8.2, duration: 900 });
       }
     } else if (queryFocus.intent === "fishing") {
       const near = pfzFeatures.filter(
-        (f) => haversineKm(DEFAULT_USER[1], DEFAULT_USER[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
+        (f) => haversineKm(focusPoint[1], focusPoint[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
       );
       if (near.length) {
-        const lons = [DEFAULT_USER[0], ...near.map((f) => f.geometry.coordinates[0])];
-        const lats = [DEFAULT_USER[1], ...near.map((f) => f.geometry.coordinates[1])];
+        const lons = [focusPoint[0], ...near.map((f) => f.geometry.coordinates[0])];
+        const lats = [focusPoint[1], ...near.map((f) => f.geometry.coordinates[1])];
         m.fitBounds(
           [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
           { padding: 80, maxZoom: 9, duration: 900 },
         );
       } else {
-        m.flyTo({ center: DEFAULT_USER, zoom: 8.6, duration: 900 });
+        m.flyTo({ center: focusPoint, zoom: 8.6, duration: 900 });
       }
+    } else if (queryFocus.intent === "current" && currentBounds) {
+      const [w, s, e, n] = currentBounds;
+      m.fitBounds([[w, s], [e, n]], { padding: 60, maxZoom: 6.5, duration: 900 });
+    } else if (queryFocus.intent === "wave" && forecastLayer?.bounds) {
+      const [w, s, e, n] = forecastLayer.bounds;
+      m.fitBounds([[w, s], [e, n]], { padding: 60, maxZoom: 8, duration: 900 });
     } else {
-      m.flyTo({ center: DEFAULT_USER, zoom: 8.2, duration: 900 });
+      m.flyTo({ center: focusPoint, zoom: 8.2, duration: 900 });
     }
     // Only the nonce should retrigger this — `boundaryFeatures`/`pfzFeatures`
     // are read for their current value, not watched (both settle long
@@ -1321,25 +1377,30 @@ export function MapView({
             </div>
           )}
 
-          {/* Quick recenter button */}
+          {/* Quick recenter button — your GPS fix when granted, otherwise
+              the national overview. Never flies to a fixed pilot sector. */}
           <div className="pointer-events-auto absolute top-3 right-3 z-10">
             <button
               type="button"
               onClick={() => {
-                setSelectedRegion("gulf_mannar");
-                map.current?.flyTo({
-                  center: DEFAULT_USER,
-                  zoom: 8.5,
-                  duration: 800,
-                  essential: true,
-                });
+                setSelectedRegion("all");
+                map.current?.flyTo(
+                  userLocation
+                    ? { center: userLocation, zoom: 8.5, duration: 800, essential: true }
+                    : { center: INDIA_VIEW.center, zoom: INDIA_VIEW.zoom, duration: 800, essential: true },
+                );
               }}
-              title="Recenter chart on Gulf of Mannar pilot sector"
-              aria-label="Recenter chart on Gulf of Mannar"
+              title={userLocation ? "Recenter chart on your location" : "Recenter chart on India overview"}
+              aria-label={userLocation ? "Recenter chart on your location" : "Recenter chart on India overview"}
               className="flex size-[34px] items-center justify-center rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-md text-ink-muted shadow transition-colors hover:bg-shelf-2 hover:text-ink focus:outline-none"
             >
               <Crosshair className="size-4 text-accent" />
             </button>
+            {(geoStatus === "denied" || geoStatus === "unavailable") && (
+              <p className="mt-1.5 w-max max-w-[9rem] rounded-md border border-hairline/70 bg-shelf-1/95 px-1.5 py-1 text-right text-[9px] leading-snug text-ink-dim shadow">
+                Location unavailable — showing India overview
+              </p>
+            )}
           </div>
 
           <div
