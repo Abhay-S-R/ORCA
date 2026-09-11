@@ -60,7 +60,7 @@ def current_vectors_route(pan_india: bool = True) -> dict:
     """Real HYCOM surface current vectors (plan's revised D3 stack — the
     flow particle layer). Points, not a MapLayer: a vector field the frontend
     turns into an animated flow field client-side."""
-    cache_path = DATA_ROOT / "tier1" / "vectors" / "pan_india_currents.json"
+    cache_path = DATA_ROOT / "tier1" / "vectors" / "pan_india_currents_v2.json"
     if pan_india and cache_path.exists():
         import json
         try:
@@ -69,7 +69,7 @@ def current_vectors_route(pan_india: bool = True) -> dict:
         except Exception:
             pass
     if pan_india:
-        pts = current_vectors(bbox=PAN_INDIA_BBOX_WSEN, stride=4)
+        pts = current_vectors(bbox=PAN_INDIA_BBOX_WSEN, stride=3)
         result = {"points": pts, "bounds": list(PAN_INDIA_BBOX_WSEN)}
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)

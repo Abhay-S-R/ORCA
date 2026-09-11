@@ -29,6 +29,26 @@ interface Particle {
   maxAge: number;
 }
 
+/** Auto-detect the grid spacing from point coordinates instead of hardcoding.
+ *  Finds the median of all consecutive unique lat/lon differences — robust
+ *  against irregular coastline gaps and single-point outliers. */
+function detectResolution(points: VectorPoint[]): number {
+  const lats = [...new Set(points.map((p) => p.lat))].sort((a, b) => a - b);
+  const lons = [...new Set(points.map((p) => p.lon))].sort((a, b) => a - b);
+  const diffs: number[] = [];
+  for (let i = 1; i < lats.length; i++) {
+    const d = lats[i] - lats[i - 1];
+    if (d > 0.001) diffs.push(d);
+  }
+  for (let i = 1; i < lons.length; i++) {
+    const d = lons[i] - lons[i - 1];
+    if (d > 0.001) diffs.push(d);
+  }
+  if (diffs.length === 0) return 0.25; // fallback
+  diffs.sort((a, b) => a - b);
+  return diffs[Math.floor(diffs.length / 2)];
+}
+
 class VectorGrid {
   private grid: ({ u: number; v: number; speed: number } | null)[][];
   private west: number;
@@ -39,19 +59,20 @@ class VectorGrid {
   private cols: number;
   private rows: number;
 
-  constructor(points: VectorPoint[], bounds: [number, number, number, number] = [65.0, 4.0, 95.0, 26.0], res = 0.25) {
+  constructor(points: VectorPoint[], bounds: [number, number, number, number] = [65.0, 4.0, 95.0, 26.0], res?: number) {
+    const effectiveRes = res ?? detectResolution(points);
     this.west = bounds[0];
     this.south = bounds[1];
     this.east = bounds[2];
     this.north = bounds[3];
-    this.resolution = res;
-    this.cols = Math.ceil((this.east - this.west) / res) + 1;
-    this.rows = Math.ceil((this.north - this.south) / res) + 1;
+    this.resolution = effectiveRes;
+    this.cols = Math.ceil((this.east - this.west) / effectiveRes) + 1;
+    this.rows = Math.ceil((this.north - this.south) / effectiveRes) + 1;
     this.grid = Array.from({ length: this.rows }, () => Array.from({ length: this.cols }, () => null));
 
     for (const p of points) {
-      const c = Math.round((p.lon - this.west) / res);
-      const r = Math.round((p.lat - this.south) / res);
+      const c = Math.round((p.lon - this.west) / effectiveRes);
+      const r = Math.round((p.lat - this.south) / effectiveRes);
       if (r >= 0 && r < this.rows && c >= 0 && c < this.cols) {
         let u = p.u;
         let v = p.v;
@@ -97,7 +118,7 @@ class VectorGrid {
     const v = v0 * (1 - fy) + v1 * fy;
 
     const speed = Math.hypot(u, v);
-    if (speed < 0.02) return null;
+    if (speed < 0.005) return null;
 
     return { u, v, speed };
   }
@@ -147,16 +168,16 @@ export function FlowFieldCanvas({
     // Build vector grids covering the maritime region
     const currentGrid =
       showCurrents && currentVectors?.length
-        ? new VectorGrid(currentVectors, currentBounds || [65.0, 4.0, 95.0, 26.0], 0.25)
+        ? new VectorGrid(currentVectors, currentBounds || [65.0, 4.0, 95.0, 26.0])
         : null;
 
     const windGrid =
       showWind && windVectors?.length
-        ? new VectorGrid(windVectors, windBounds || [65.0, 4.0, 95.0, 26.0], 0.35)
+        ? new VectorGrid(windVectors, windBounds || [65.0, 4.0, 95.0, 26.0])
         : null;
 
     // Particle pools covering the active Pan-India domain.
-    const NUM_PARTICLES = 1200;
+    const NUM_PARTICLES = 2000;
     const currentParticles: Particle[] = [];
     const windParticles: Particle[] = [];
 
