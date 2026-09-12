@@ -1,7 +1,7 @@
 "use client";
 
 // The bezel's top edge: high-precision maritime bridge telemetry console strip.
-// Displays coverage status, datalink telemetry, UTC chronometer, and active
+// Displays coverage status, datalink telemetry, IST chronometer, and active
 // persona command station. No fixed coordinates here — the chart's own
 // "Your Location" marker (MapView) is the one place a real position ever
 // shows, and only once the browser actually grants a GPS fix.
@@ -51,11 +51,12 @@ function Clock() {
   useEffect(() => {
     const tick = () =>
       setNow(
-        new Date().toLocaleTimeString("en-GB", {
+        new Date().toLocaleTimeString("en-IN", {
           hour: "2-digit",
           minute: "2-digit",
           second: "2-digit",
-          timeZone: "UTC",
+          timeZone: "Asia/Kolkata",
+          hour12: true,
         }),
       );
     tick();
@@ -64,12 +65,12 @@ function Clock() {
   }, []);
 
   return (
-    <div className="flex items-center gap-1.5 text-ink-muted" title="Coordinated Universal Time">
+    <div className="flex items-center gap-1.5 text-ink-muted" title="Indian Standard Time (UTC+5:30)">
       <Radio className="size-3 text-ocean-cyan/70" aria-hidden="true" />
       <span data-readout className="font-mono text-ink">
         {now ?? "--:--:--"}
       </span>
-      <span className="text-[9px] font-semibold text-ink-dim tracking-wider">UTC</span>
+      <span className="text-[9px] font-semibold text-ink-dim tracking-wider">IST</span>
     </div>
   );
 }
