@@ -24,11 +24,15 @@ export function Readout({
   return (
     <div className="min-w-0 rounded-lg border border-hairline/60 bg-shelf-2/40 p-3 transition-colors hover:border-hairline-strong">
       <dt className="text-[10px] font-mono font-semibold tracking-wider uppercase text-ink-dim truncate" title={label}>{label}</dt>
-      <dd className="mt-1 flex min-w-0 items-baseline gap-1.5">
+      <dd className={compact ? "mt-1 flex min-w-0 flex-col" : "mt-1 flex min-w-0 items-baseline gap-1.5"}>
         <span data-readout className={`min-w-0 whitespace-nowrap font-mono font-bold tracking-tight text-ink ${compact ? "text-lg" : "text-xl"}`}>
           {value}
         </span>
-        {unit && <span className="text-xs font-mono font-medium text-ink-dim shrink-0">{unit}</span>}
+        {unit && (
+          <span className={`font-mono font-medium text-ink-dim ${compact ? "text-[10px] leading-tight" : "text-xs shrink-0"}`}>
+            {unit}
+          </span>
+        )}
       </dd>
       {hint && (
         <p

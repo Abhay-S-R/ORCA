@@ -1315,7 +1315,7 @@ export function MapView({
                   {evictionNotice}
                 </p>
               )}
-              {showRegionSwitcher && regionStats && regionStats.region.coast === "west" && (
+              {showRegionSwitcher && regionStats && (
                 <div className="w-72 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl p-3 shadow-lg">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className="truncate text-xs font-semibold text-ink">{regionStats.region.name}</span>
@@ -1329,13 +1329,14 @@ export function MapView({
                     </button>
                   </div>
                   <ReadoutGrid cols={3}>
-                    <Readout label="Zones" value={regionStats.zoneCount} />
+                    <Readout compact label="Zones" value={regionStats.zoneCount} />
                     <Readout
+                      compact
                       label="Wind"
                       value={regionStats.avgWindMs != null ? regionStats.avgWindMs.toFixed(1) : "—"}
                       unit={regionStats.avgWindMs != null ? "m/s" : undefined}
                     />
-                    <Readout label="Hazards" value={regionStats.hazardCount} />
+                    <Readout compact label="Hazards" value={regionStats.hazardCount} />
                   </ReadoutGrid>
                 </div>
               )}
@@ -1439,38 +1440,6 @@ export function MapView({
                   </div>
                 )}
               </div>
-            </div>
-          )}
-
-          {/* Region dashboard (east/other coasts) — three numbers only
-              (fishing zones, wind, hazards), docked to the open-water side
-              so it never sits over the coastline. West-coast regions render
-              their dashboard inside the Chart layers panel above instead,
-              so it stacks below that panel rather than overlapping it. */}
-          {showRegionSwitcher && regionStats && regionStats.region.coast !== "west" && (
-            <div
-              className="pointer-events-auto absolute top-14 right-14 z-20 w-72 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl p-3 shadow-lg"
-            >
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="truncate text-xs font-semibold text-ink">{regionStats.region.name}</span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedRegion("all")}
-                  aria-label="Close region dashboard"
-                  className="shrink-0 text-ink-dim hover:text-ink"
-                >
-                  <X className="size-3.5" />
-                </button>
-              </div>
-              <ReadoutGrid cols={3}>
-                <Readout label="Zones" value={regionStats.zoneCount} />
-                <Readout
-                  label="Wind"
-                  value={regionStats.avgWindMs != null ? regionStats.avgWindMs.toFixed(1) : "—"}
-                  unit={regionStats.avgWindMs != null ? "m/s" : undefined}
-                />
-                <Readout label="Hazards" value={regionStats.hazardCount} />
-              </ReadoutGrid>
             </div>
           )}
 
