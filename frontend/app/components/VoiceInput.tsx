@@ -229,7 +229,7 @@ export function VoiceInputPanel({ voice }: { voice: VoiceInputState }) {
             value={transcript}
             onChange={(e) => setTranscript(e.target.value)}
             rows={2}
-            className="w-full resize-none rounded border border-hairline bg-shelf-0/60 px-2 py-1.5 text-sm text-ink"
+            className="w-full resize-none rounded border border-hairline bg-shelf-1/60 px-2 py-1.5 text-sm text-ink"
           />
           <div className="mt-2 flex gap-2">
             <Button type="button" variant="primary" className="text-xs" icon={<Check className="size-3.5" />} onClick={confirm}>

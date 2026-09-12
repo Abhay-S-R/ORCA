@@ -1327,11 +1327,11 @@ export function MapView({
                 <span className="text-[11px] font-medium text-ink">Depth Shading (ETOPO/GEBCO) meters</span>
               </div>
               <div className="mt-1.5 flex h-2 w-48 overflow-hidden rounded-full border border-hairline">
-                <div className="w-1/4 bg-[#f0f9e8]" title="0 - 50m (Shallow / Inshore)" />
-                <div className="w-1/4 bg-[#bae4bc]" title="50 - 200m (Shelf)" />
-                <div className="w-1/4 bg-[#7bccc4]" title="200 - 1000m (Slope)" />
-                <div className="w-1/4 bg-[#2b8cbe]" title="1000 - 2000m (Deep Basin)" />
-                <div className="w-1/4 bg-[#08589e]" title="2000m+ (Abyssal Plain)" />
+                <div className="w-1/5 bg-[#f0f9e8]" title="0 - 50m (Shallow / Inshore)" />
+                <div className="w-1/5 bg-[#bae4bc]" title="50 - 200m (Shelf)" />
+                <div className="w-1/5 bg-[#7bccc4]" title="200 - 1000m (Slope)" />
+                <div className="w-1/5 bg-[#2b8cbe]" title="1000 - 2000m (Deep Basin)" />
+                <div className="w-1/5 bg-[#08589e]" title="2000m+ (Abyssal Plain)" />
               </div>
               <div className="mt-1 flex justify-between text-[9px] text-ink-muted">
                 <span>0m</span>
