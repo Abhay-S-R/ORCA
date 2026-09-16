@@ -102,12 +102,13 @@ export default function AskPage() {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
-          {turns.map((turn) => (
+          {turns.map((turn, i) => (
             <ChatTurn
               key={turn.id}
               turn={turn}
               persona={persona}
               isMapFocus={activeFocus?.nonce === turn.focus?.nonce}
+              hadEarlierAnswers={turns.slice(0, i).some((t) => t.answer)}
               onViewOnMap={() => {
                 setActiveFocus(turn.focus);
                 setMapCollapsed(false);

@@ -123,7 +123,7 @@ def _tier2_embedding_similarity(normalized_query: str) -> list[tuple[str, float]
     return matches
 
 
-def _tier3_llm_fallback(normalized_query: str) -> list[tuple[str, float]]:
+def _tier3_llm_fallback(normalized_query: str, session_history: list[dict] | None = None) -> list[tuple[str, float]]:
     """Tier 3 — LLM at "cheap" (plan §5 D1 Day 11), tried only when Tiers 1
     and 2 both find nothing. Confidence is fixed at 0.7 — LLM-inferred, not
     the rules tier's certain 1.0 — and any answer outside the known routing
@@ -136,9 +136,22 @@ def _tier3_llm_fallback(normalized_query: str) -> list[tuple[str, float]]:
         return []
 
     row_names = ", ".join(row.name for row in ROUTING_TABLE)
+    # A follow-up is classified in the context of the question before it.
+    # Without this the model read "What about tomorrow evening?" cold, guessed
+    # CONDITIONS, and a safety question's follow-up lost its safety intent —
+    # carry_intent never ran because this tier had already "matched".
+    previous = (session_history or [{}])[-1]
+    previous_query = previous.get("english_query") or previous.get("query")
+    context = (
+        f'This is a follow-up. The previous question in the conversation was: "{previous_query}". '
+        "Classify what the user is asking now, reading the query in that context.\n"
+        if previous_query
+        else ""
+    )
     prompt = (
         "Classify this fisherman's marine-safety query into exactly one of "
         f"these categories: {row_names}, or NONE if none apply.\n"
+        f"{context}"
         f'Query: "{normalized_query}"\n'
         "Respond with only the category name, nothing else."
     )
@@ -153,16 +166,36 @@ def _tier3_llm_fallback(normalized_query: str) -> list[tuple[str, float]]:
     return []
 
 
-def classify_intent(normalized_query: str) -> list[tuple[str, float]]:
+def classify_intent(normalized_query: str, session_history: list[dict] | None = None) -> list[tuple[str, float]]:
     """Tool per Architecture §3.1 Agent 2. Tries Tier 1 (rules), then Tier 2
     (embedding/word-overlap similarity), then Tier 3 (LLM cheap-tier) in
     order, returning the first tier's matches — a higher tier only runs when
-    every tier before it found nothing (plan §5 D1 Day 11)."""
-    for tier in (_tier1_rules, _tier2_embedding_similarity, _tier3_llm_fallback):
+    every tier before it found nothing (plan §5 D1 Day 11). Only Tier 3 reads
+    `session_history`: the deterministic tiers match this query's own words."""
+    for tier in (_tier1_rules, _tier2_embedding_similarity):
         matches = tier(normalized_query)
         if matches:
             return matches
-    return []
+    return _tier3_llm_fallback(normalized_query, session_history)
+
+
+# Below Tier 1's certain 1.0 and Tier 3's 0.7: inherited from the conversation,
+# not read off this query's own words — planning.run reports it as MEDIUM.
+_CARRIED_INTENT_SCORE = 0.6
+
+
+def carry_intent(session_history: list[dict] | None) -> list[tuple[str, float]]:
+    """Architecture §8.8's multi-turn case: "What about tomorrow evening?"
+    matches no routing row on its own, but it is still the same question as
+    the turn before it. Only called once classify_intent found nothing, and
+    only ever reads the *immediately* previous turn — if that turn was itself
+    a general question, the conversation moved on and nothing is carried.
+    Reads session_history, never persona (Ground Rule 1)."""
+    if not session_history:
+        return []
+    valid = {row.name for row in ROUTING_TABLE}
+    rows = [r for r in session_history[-1].get("intent_rows") or [] if r in valid]
+    return [(r, _CARRIED_INTENT_SCORE) for r in rows]
 
 
 def generate_execution_plan(matched_intent_rows: list[str], reasoning_depth: str) -> list[str]:
@@ -200,7 +233,11 @@ def run(state: ORCAState) -> AgentResult:
     this table entirely," which means bypassing this agent, not a branch
     inside it."""
     query = state.get("normalized_english_query") or state.get("raw_user_query", "")
-    matches = classify_intent(query)
+    matches = classify_intent(query, state.get("session_history"))
+    carried = False
+    if not matches:
+        matches = carry_intent(state.get("session_history"))
+        carried = bool(matches)
     matched_rows = [name for name, _ in matches]
     execution_plan = generate_execution_plan(matched_rows, state.get("reasoning_depth", "SHALLOW"))
 
@@ -212,7 +249,12 @@ def run(state: ORCAState) -> AgentResult:
         avg_score = sum(score for _, score in matches) / len(matches)
         confidence = Confidence(
             score="HIGH" if avg_score >= 0.95 else "MEDIUM",
-            rationale=f"Matched routing row(s): {', '.join(matched_rows)} (avg tier confidence {avg_score:.2f})",
+            rationale=(
+                f"Follow-up with no routing match of its own — continuing the previous turn's "
+                f"{', '.join(matched_rows)}"
+                if carried
+                else f"Matched routing row(s): {', '.join(matched_rows)} (avg tier confidence {avg_score:.2f})"
+            ),
         )
     else:
         confidence = Confidence(score="MEDIUM", rationale="No routing row matched — answering the closest general-conditions interpretation")
