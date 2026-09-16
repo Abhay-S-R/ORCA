@@ -38,6 +38,7 @@ from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.agents import geospatial
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.data import analytics_loaders as al
+from orca.data import satellite_loaders as sl
 from orca.state import ORCAState
 
 NM_PER_KM = 1 / 1.852
@@ -47,10 +48,67 @@ _COMPASS_16 = (
     "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
 )
 
-# South Tamil Nadu is the pilot sector (SEC006). The default position itself
-# lives in loaders.DEFAULT_LAT/LON — one copy, so it cannot drift out of step
-# with what /query actually answers a locationless request at.
+# South Tamil Nadu is the pilot sector (SEC006) and stays the *fallback* only:
+# it is what a point outside every band below resolves to, never what a
+# located user is assumed to be in. The default position itself lives in
+# loaders.DEFAULT_LAT/LON — one copy, so it cannot drift out of step with what
+# /query actually answers a locationless request at.
 _PILOT_SECTOR = "SEC006"
+
+# INCOIS sector geometry is not published as polygons, and it cannot be
+# recovered from the advisory nodes alone: 6 of the 14 sectors (SEC001
+# Gujarat, SEC006 South TN, SEC010 Odisha, SEC011 WB, SEC012 Andaman, SEC013
+# Nicobar) have *zero* nodes on disk today because they are cloud-suppressed,
+# and a sector with no nodes would be unreachable by a nearest-node rule —
+# which is precisely the sector a user most needs named, since that is the
+# sector whose answer is "no data, here is why".
+#
+# So: coast side, then a latitude band, matching INCOIS's own state-wise
+# division. Bands below are checked against the measured node extents of the
+# 8 sectors that do have nodes (see test_wiring.py). Precision is a band
+# boundary in open water, not a coastline — good enough to name the right
+# state's sector and nothing finer is claimed.
+_ISLAND_SECTORS = (  # (sector_id, min_lat, max_lat, min_lon, max_lon)
+    ("SEC014", 8.0, 12.5, 71.0, 74.3),   # Lakshadweep
+    ("SEC013", 6.0, 10.4, 92.0, 94.5),   # Nicobar
+    ("SEC012", 10.4, 14.5, 91.5, 94.5),  # Andaman
+)
+_WEST_COAST_BANDS = (  # north -> south, Arabian Sea side
+    ("SEC001", 20.5),  # Gujarat
+    ("SEC002", 15.7),  # Maharashtra
+    ("SEC003", 14.9),  # Goa
+    ("SEC004", 12.8),  # Karnataka
+    ("SEC005", -90.0),  # Kerala (down to Kanyakumari)
+)
+_EAST_COAST_BANDS = (  # north -> south, Bay of Bengal side
+    ("SEC011", 21.4),  # West Bengal
+    ("SEC010", 19.0),  # Odisha
+    ("SEC009", 16.2),  # North Andhra Pradesh
+    ("SEC008", 13.5),  # South Andhra Pradesh
+    ("SEC007", 10.3),  # North Tamil Nadu
+    ("SEC006", -90.0),  # South Tamil Nadu
+)
+# Longitude of Kanyakumari — the peninsula's tip, and so the meridian that
+# separates "Arabian Sea coast" from "Bay of Bengal coast" for any mainland
+# point. The pilot box (78.3 E) falls east of it, as it should.
+_PENINSULA_TIP_LON = 77.6
+
+
+def sector_for_point(lat: float, lon: float) -> str:
+    """INCOIS PFZ sector id containing a position (SEC001–SEC014).
+
+    Replaces the hardcoded pilot sector. Before this, every user in India was
+    shown South Tamil Nadu's sector status — a Kerala fisherman was told his
+    sector was cloud-suppressed while SEC005 had live advisories on disk.
+    """
+    for sector_id, lat0, lat1, lon0, lon1 in _ISLAND_SECTORS:
+        if lat0 <= lat < lat1 and lon0 <= lon <= lon1:
+            return sector_id
+    bands = _WEST_COAST_BANDS if lon < _PENINSULA_TIP_LON else _EAST_COAST_BANDS
+    for sector_id, min_lat in bands:
+        if lat >= min_lat:
+            return sector_id
+    return _PILOT_SECTOR
 
 
 def _compass(bearing_deg: float) -> str:
@@ -232,46 +290,86 @@ def detect_anomaly(value: float, baseline_mean: float, baseline_std: float) -> d
     }
 
 
-def correlate_sst_chlorophyll(bbox: dict[str, float] | None = None) -> dict[str, Any]:
-    """Cross-source SST + chlorophyll relationship over the pilot bbox.
+def _sst_grid(bbox: dict[str, float] | None) -> dict[str, Any] | None:
+    """SST source cascade, in the order discovery.py advertises: ISRO INSAT-3D
+    first (national mission data, the answer this product should give), CMEMS
+    second, and D3's normalized fixture last."""
+    return (sl.load_insat_sst(bbox) or sl.load_cmems_sst(bbox)
+            or al.load_ocean_grid_fixture("sst"))
 
-    Consumes D3's normalized gridded fixtures (§4.2). Until those land this
-    returns available=False with LOW_DATA and the reason — it does not
-    synthesise a correlation from nothing.
+
+def correlate_sst_chlorophyll(bbox: dict[str, float] | None = None) -> dict[str, Any]:
+    """Cross-source SST + chlorophyll relationship over a bbox.
+
+    Reads the ISRO archives directly (INSAT-3D L3B SST, EOS-06 OCM L4
+    chlorophyll), co-locating them on a 0.25° grid because the two products
+    are on different native grids and a pairwise correlation between
+    unaligned series is a number about nothing. Falls back through CMEMS and
+    then D3's fixture; if none of the three rungs yields a grid this still
+    returns available=False with the reason rather than a synthesised number.
+
+    "Correlated with", never "caused by": upwelling raises chlorophyll and
+    lowers SST together, but this function measures association only.
     """
-    sst = al.load_ocean_grid_fixture("sst")
-    chl = al.load_ocean_grid_fixture("chl")
+    sst = _sst_grid(bbox)
+    chl = sl.load_eos06_chl(bbox) or al.load_ocean_grid_fixture("chl")
     if sst is None or chl is None:
         missing = [n for n, v in (("SST", sst), ("chlorophyll", chl)) if v is None]
         return {
             "available": False,
-            "note": f"awaiting D3 gridded loader fixtures for {', '.join(missing)} "
-                    "(Phase 2 plan §4.2 — mosdac_*__pilot__*.json)",
-            "confidence": Confidence(score="LOW_DATA", rationale="gridded ocean-colour / SST inputs not yet available"),
+            "note": f"no readable gridded source for {', '.join(missing)} "
+                    "(tried INSAT-3D/CMEMS for SST, EOS-06 for chlorophyll)",
+            "confidence": Confidence(score="LOW_DATA", rationale="gridded ocean-colour / SST inputs not available"),
         }
 
-    sst_series = [r["value"] for r in sst.get("frame", []) if r.get("value") is not None]
-    chl_series = [r["value"] for r in chl.get("frame", []) if r.get("value") is not None]
-    n = min(len(sst_series), len(chl_series))
-    if n < 3:
+    sst_cells = sl.bin_to_grid(sst.get("frame", []))
+    chl_cells = sl.bin_to_grid(chl.get("frame", []))
+    shared = sorted(set(sst_cells) & set(chl_cells))
+    if len(shared) < 3:
         return {
             "available": False,
-            "note": "fixture present but fewer than 3 co-located samples",
-            "confidence": Confidence(score="LOW_DATA", rationale="insufficient overlapping SST/chl samples"),
+            "note": f"grids read but only {len(shared)} co-located 0.25 deg cells — "
+                    "the SST and chlorophyll granules do not overlap enough to compare",
+            "sst_provenance": sst.get("provenance"),
+            "chl_provenance": chl.get("provenance"),
+            "confidence": Confidence(score="LOW_DATA", rationale="insufficient overlapping SST/chl cells"),
         }
-    r = _pearson(sst_series[:n], chl_series[:n])
+
+    r = _pearson([sst_cells[c] for c in shared], [chl_cells[c] for c in shared])
+    n = len(shared)
+    # The two granules are days or months apart (the chlorophyll archive on
+    # disk is March 2026, the SST archive August 2026). Saying so is the
+    # difference between an honest association and an implied simultaneity.
+    lag_note = _acquisition_gap(sst.get("provenance"), chl.get("provenance"))
     return {
         "available": True,
         "pearson_r": round(r, 3),
         "relationship": _describe_r(r),
         "n_samples": n,
+        "grid_resolution_deg": 0.25,
+        "acquisition_gap": lag_note,
         "sst_provenance": sst.get("provenance"),
         "chl_provenance": chl.get("provenance"),
         "confidence": Confidence(
-            score="MEDIUM" if n < 20 else "HIGH",
-            rationale=f"{n} co-located SST/chlorophyll samples over the pilot bbox",
+            score="MEDIUM" if n < 20 or lag_note else "HIGH",
+            rationale=f"{n} co-located SST/chlorophyll cells at 0.25 deg"
+                      + (f"; {lag_note}" if lag_note else ""),
         ),
     }
+
+
+def _acquisition_gap(sst_prov: dict[str, Any] | None, chl_prov: dict[str, Any] | None) -> str | None:
+    """Human-readable gap between the two granules' acquisition times, or None
+    when they are within a day of each other."""
+    try:
+        t_sst = datetime.fromisoformat(sst_prov["acquisition_timestamp"].replace("Z", "+00:00"))
+        t_chl = datetime.fromisoformat(chl_prov["acquisition_timestamp"].replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+    days = abs((t_sst - t_chl).days)
+    if days <= 1:
+        return None
+    return f"SST and chlorophyll granules are {days} days apart — association, not a simultaneous observation"
 
 
 def _pearson(xs: list[float], ys: list[float]) -> float:
@@ -685,10 +783,9 @@ def run(state: ORCAState) -> AgentResult:
                 "fallback_chain": list(d.fallback_chain),
             })
 
-    # The user's own sector governs the status they see. Pilot deployment is
-    # SEC006 (South Tamil Nadu); a full point→sector lookup is Agent 6's
-    # boundary domain, out of scope here.
-    user_sector = _PILOT_SECTOR
+    # The user's own sector governs the status they see — resolved from their
+    # actual position, not assumed to be the pilot's.
+    user_sector = sector_for_point(lat, lon)
     persistence = score_pfz_persistence(lat, lon, sector_id=near.sector_id or user_sector)
     sec_status = sector_status(user_sector)
     sec_status["nearest_advisory_out_of_sector"] = bool(

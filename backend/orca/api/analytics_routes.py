@@ -135,7 +135,7 @@ def tides(lat: Lat = _DEFAULT_LAT, lon: Lon = _DEFAULT_LON) -> dict:
 @router.get("/pfz/nearest")
 def pfz_nearest(lat: Lat = _DEFAULT_LAT, lon: Lon = _DEFAULT_LON) -> dict:
     near = oa.nearest_pfz(lat, lon)
-    persistence = oa.score_pfz_persistence(lat, lon, sector_id=near.sector_id or "SEC006")
+    persistence = oa.score_pfz_persistence(lat, lon, sector_id=near.sector_id or oa.sector_for_point(lat, lon))
     return {
         "nearest": asdict(near),
         "persistence": {k: (asdict(v) if k == "confidence" else v) for k, v in persistence.items()},
@@ -162,7 +162,7 @@ def zones(
     if home:
         lat, lon = home["lat"], home["lon"]
     near = oa.nearest_pfz(lat, lon)
-    user_sector = "SEC006"
+    user_sector = oa.sector_for_point(lat, lon)
     status = oa.sector_status(user_sector)
     persistence = oa.score_pfz_persistence(lat, lon, sector_id=near.sector_id or user_sector)
     status["nearest_advisory_out_of_sector"] = bool(

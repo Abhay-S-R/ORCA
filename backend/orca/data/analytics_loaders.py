@@ -25,6 +25,12 @@ PFZ_DIR = DATA_DIR / "incois_osf_pfz" / "pfz"
 PFZ_HISTORY_DIR = PFZ_DIR / "history"
 FISHERIES_DIR = DATA_DIR / "tier1" / "fisheries"
 OCEAN_FIXTURE_DIR = DATA_DIR / "fixtures"  # D3-owned (§4.2)
+WEATHER_DIR = DATA_DIR / "tier1" / "weather"
+HAZARDS_DIR = DATA_DIR / "tier1" / "hazards"
+BOUNDARIES_DIR = DATA_DIR / "tier1" / "boundaries"
+OSF_DIR = DATA_DIR / "incois_osf_pfz"
+NASA_DIR = DATA_DIR / "tier2" / "nasa"
+BHUVAN_DIR = DATA_DIR / "tier3" / "bhuvan"
 
 
 # --- tides -----------------------------------------------------------------
@@ -200,3 +206,175 @@ def load_ocean_grid_fixture(param: str) -> dict[str, Any] | None:
         return None
     with open(matches[-1], encoding="utf-8") as f:
         return json.load(f)
+
+
+# --- climatological baseline ------------------------------------------------
+
+def load_era5_baseline(port: str = "thoothukudi") -> dict[str, Any] | None:
+    """Mean and standard deviation per variable over the cached ERA5 reanalysis
+    window — the reference period `detect_anomaly` needs to make an anomaly
+    claim at all.
+
+    Without this, `detect_anomaly` was a function nothing could call honestly:
+    it takes a baseline mean and sigma, and no caller had one. A 30-day window
+    is a short baseline and the returned dict says so in `label` — it supports
+    "unusual for the last month", not "unusual for this time of year".
+    """
+    path = WEATHER_DIR / f"era5_historical_{port}_30d.json"
+    if not path.exists():
+        return None
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    daily = raw.get("daily") or {}
+    units = raw.get("daily_units") or {}
+    dates = daily.get("time") or []
+
+    stats: dict[str, Any] = {}
+    for variable, series in daily.items():
+        if variable == "time":
+            continue
+        values = [float(v) for v in series if v is not None]
+        if len(values) < 2:
+            continue
+        mean = sum(values) / len(values)
+        std = (sum((v - mean) ** 2 for v in values) / len(values)) ** 0.5
+        stats[variable] = {
+            "mean": round(mean, 3),
+            "std": round(std, 3),
+            "n_days": len(values),
+            "units": units.get(variable, ""),
+        }
+
+    if not stats:
+        return None
+    return {
+        "port": port,
+        "label": f"ERA5 reanalysis daily baseline, {dates[0]}..{dates[-1]} ({len(dates)} days)",
+        "period_start": dates[0] if dates else None,
+        "period_end": dates[-1] if dates else None,
+        "latitude": raw.get("latitude"),
+        "longitude": raw.get("longitude"),
+        "variables": stats,
+        "dataset": "Open-Meteo ERA5 archive (reanalysis daily aggregates)",
+    }
+
+
+# --- hazards ----------------------------------------------------------------
+
+def load_imd_nowcast_alerts() -> list[dict[str, Any]]:
+    """Cached IMD district convective nowcast entries.
+
+    The only IMD-sourced hazard content on disk. Each entry carries a point
+    centroid, an event_category ("Lightning", ...), a severity colour and a
+    validity window in IST. Returns [] when the cache is absent — the caller
+    treats that as "no second source", never as "no hazard".
+    """
+    path = HAZARDS_DIR / "imd_nowcast_alerts.json"
+    if not path.exists():
+        return []
+    with open(path, encoding="utf-8") as f:
+        return json.load(f).get("nowcastDetails", [])
+
+
+# --- INCOIS OSF pre-extracted point forecasts -------------------------------
+
+def load_osf_point_forecasts(product: str) -> list[dict[str, Any]]:
+    """Per-port HYCOM current / WW3 wave forecasts, already extracted from the
+    16 GB NetCDF pair by `scripts/extract_osf_pilot.py`.
+
+    `product` is "hycom" or "ww3". Each record is flattened to
+    `{lat, lon, **properties}`. Reading these is orders of magnitude cheaper
+    than opening the source grids, which is the entire point: a per-port
+    number does not justify a 9.9 GB file open.
+    """
+    filename = {"hycom": "hycom_latest_points.geojson", "ww3": "ww3_latest_points.geojson"}.get(product)
+    if filename is None:
+        raise ValueError(f"unknown OSF product {product!r} — expected 'hycom' or 'ww3'")
+    path = OSF_DIR / f"osf_{product}" / filename
+    if not path.exists():
+        return []
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    out: list[dict[str, Any]] = []
+    for feat in data.get("features", []):
+        coords = (feat.get("geometry") or {}).get("coordinates") or []
+        if len(coords) < 2:
+            continue
+        out.append({"lon": float(coords[0]), "lat": float(coords[1]), **feat.get("properties", {})})
+    return out
+
+
+# --- catalog / provenance sidecars ------------------------------------------
+
+def load_nasa_chl_granules() -> list[dict[str, Any]]:
+    """NASA CMR granule *index* for MODIS-Aqua chlorophyll.
+
+    Important distinction, and the reason this is named "granules" rather than
+    a loader: this file lists what NASA has, it does not contain chlorophyll.
+    Surfacing it as a catalog keeps the `nasa_ocean_color` cascade rung honest
+    — ORCA can name the granule it would fetch without pretending to hold it.
+    """
+    path = NASA_DIR / "nasa_cmr_modis_chl_granules.json"
+    if not path.exists():
+        return []
+    with open(path, encoding="utf-8") as f:
+        entries = json.load(f).get("feed", {}).get("entry", [])
+    return [
+        {
+            "granule": e.get("producer_granule_id") or e.get("title"),
+            "time_start": e.get("time_start"),
+            "dataset_id": e.get("dataset_id"),
+            "data_center": e.get("data_center"),
+            "held_locally": False,
+        }
+        for e in entries
+    ]
+
+
+def load_bhuvan_wms_services() -> list[dict[str, Any]]:
+    """ISRO Bhuvan / NRSC + SAC VEDAS OGC service descriptions.
+
+    A second ISRO-lineage surface and a cheap one: these are WMS/WMTS
+    endpoints, so they cost a map layer definition rather than a parser.
+    """
+    path = BHUVAN_DIR / "bhuvan_15days_marine_manifest.json"
+    if not path.exists():
+        return []
+    with open(path, encoding="utf-8") as f:
+        return json.load(f).get("core_wms_services", [])
+
+
+def load_boundary_provenance() -> dict[str, Any]:
+    """The evidence behind every boundary citation: the audited per-MPA
+    provenance record and the VLIZ EEZ gazetteer entries.
+
+    These files are why ORCA can say *which* WDPA site id or MRGID a boundary
+    answer rests on. They were on disk and unreferenced, which meant the
+    citations they support could not actually be shown to anyone.
+    """
+    out: dict[str, Any] = {"marine_protected_areas": [], "eez_gazetteer": []}
+
+    mpa_path = BOUNDARIES_DIR / "mpa_geofence_provenance.json"
+    if mpa_path.exists():
+        with open(mpa_path, encoding="utf-8") as f:
+            mpa = json.load(f)
+        out["generated_at"] = mpa.get("generated_at")
+        out["marine_protected_areas"] = mpa.get("features", [])
+
+    for name in ("vliz_india_eez_record.json", "vliz_srilanka_eez_record.json"):
+        path = BOUNDARIES_DIR / name
+        if not path.exists():
+            continue
+        with open(path, encoding="utf-8") as f:
+            rec = json.load(f)
+        out["eez_gazetteer"].append({
+            "name": rec.get("preferredGazetteerName"),
+            "mrgid": rec.get("MRGID"),
+            "place_type": rec.get("placeType"),
+            "citation": rec.get("gazetteerSource"),
+            "polygon_file": rec.get("orca_polygon_file"),
+            "bbox": [rec.get("minLongitude"), rec.get("minLatitude"),
+                     rec.get("maxLongitude"), rec.get("maxLatitude")],
+        })
+    return out
