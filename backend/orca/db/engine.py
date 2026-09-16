@@ -37,7 +37,12 @@ _SessionLocal: sessionmaker[Session] | None = None
 def get_engine():
     global _engine
     if _engine is None:
-        _engine = create_engine(_database_url(), pool_pre_ping=True, future=True)
+        _engine = create_engine(
+            _database_url(),
+            connect_args={"connect_timeout": 3},
+            pool_pre_ping=True,
+            future=True,
+        )
     return _engine
 
 

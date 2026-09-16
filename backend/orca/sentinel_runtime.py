@@ -114,7 +114,7 @@ def dispatch_decision(
     caught here -> the row is stored 'simulated' with the rendered payload
     verbatim, and the loop keeps going (never crashes — exit criterion 10)."""
     primary_channel = channels[0] if channels else "in_app"
-    rendered = {
+    rendered: dict[str, Any] = {
         "alert": decision.alert_payload,
         "snapshot": decision.snapshot_payload,
         "channels_requested": channels,
@@ -220,15 +220,18 @@ async def _loop() -> None:
     except Exception:  # noqa: BLE001
         logger.info("sentinel: graph unavailable, running cheap-check-only alerts")
 
+    def _tick() -> list[sentinel.WatchDecision]:
+        db = get_sessionmaker()()
+        try:
+            return [d for d in run_poll_cycle(db, escalate=escalate) if d.fired]
+        finally:
+            db.close()
+
     while True:
         try:
-            db = get_sessionmaker()()
-            try:
-                fired = [d for d in run_poll_cycle(db, escalate=escalate) if d.fired]
-                if fired:
-                    logger.info("sentinel: %d crossing(s) dispatched", len(fired))
-            finally:
-                db.close()
+            fired = await asyncio.to_thread(_tick)
+            if fired:
+                logger.info("sentinel: %d crossing(s) dispatched", len(fired))
         except Exception:
             logger.warning("sentinel poll tick failed", exc_info=True)
         await asyncio.sleep(POLL_INTERVAL_SECONDS)

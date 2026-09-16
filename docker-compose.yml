@@ -25,19 +25,5 @@ services:
     ports:
       - "6379:6379"
 
-  backend:
-    build: ./backend
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://orca:orca@postgres:5432/orca
-      REDIS_URL: redis://redis:6379/0
-    ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
-
 volumes:
   orca_pgdata:
