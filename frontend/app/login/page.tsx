@@ -7,6 +7,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "../components/Button";
 import { Field, inputClass } from "../components/Field";
+import { PasswordInput } from "../components/PasswordInput";
 import { Card } from "../components/Panel";
 import { OrcaMark } from "../nav";
 import { register, signInWithPassword } from "../lib/auth";
@@ -115,10 +116,8 @@ export default function LoginPage() {
           </Field>
           <Field label="Password" hint={registering ? "at least 8 characters" : undefined}>
             {(id) => (
-              <input
+              <PasswordInput
                 id={id}
-                type="password"
-                className={inputClass}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete={registering ? "new-password" : "current-password"}

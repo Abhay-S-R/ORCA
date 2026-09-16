@@ -11,6 +11,7 @@ import { PageBody, PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
 import { Field, inputClass } from "../components/Field";
+import { PasswordInput } from "../components/PasswordInput";
 import { Button } from "../components/Button";
 import { WatchCard } from "../components/WatchCard";
 import { usePersona } from "../persona/context";
@@ -207,10 +208,8 @@ function SignInGate() {
           </Field>
           <Field label="Password">
             {(id) => (
-              <input
+              <PasswordInput
                 id={id}
-                type="password"
-                className={inputClass}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
