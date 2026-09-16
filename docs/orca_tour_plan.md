@@ -1,0 +1,202 @@
+# ORCA — 5-Step Persona-Aware Website Tour Plan
+
+> **~3 minutes · 5 steps · 4 personas · one chart, every depth.**
+> The tour is aware of which persona card you selected on step 1.
+> Every subsequent step changes its copy, query preset, and page highlights accordingly.
+
+---
+
+## The 4 Personas — Who Is This Tour For?
+
+| Persona | Icon | Core Question | Their Language |
+|---|---|---|---|
+| 🐟 **Fisherman** | Fish | *"Is it safe to go out tomorrow morning?"* | Plain Tamil / English, voice-first |
+| ⚓ **Commercial Navigator** | Navigation | *"Is the passage corridor safe, leg by leg?"* | Nautical, technical, coordinates |
+| 🔬 **Researcher** | Workflow | *"Show me every figure, source, and reasoning step."* | Scientific, exportable |
+| 🏛️ **Coastal Authority** | Shield | *"What is the district-wide risk today? Draft the alert."* | Administrative, CAP-standard |
+
+---
+
+## Tour Step 1 of 5 — "Choose Your Role" (`/` Landing Page)
+
+### What they see
+- Admiralty chart hero — ORCA wordmark in Fraunces serif on a parchment sounding grid.
+- Stat strip: **10 agents · 4 command stations · English + தமிழ் · 7,516 km coastline**.
+- **Four persona "Command Station" cards** with taglines and bullet features.
+- Three `TRY:` quick-start query chips.
+
+### Tour tooltip copy
+> *"ORCA serves four different kinds of people — all from the same data, the same 10 agents, the same deterministic safety math. Pick your role and every answer from here will be pitched at the right depth and language for you."*
+
+### Per-persona card highlights
+
+| Card | Tagline shown | Bullets highlighted |
+|---|---|---|
+| 🐟 Fisherman | "An unambiguous go / no-go, in your own language, with the nearest fishing zone on the chart." | Plain-language safety verdict · Daily PFZ · Voice in, voice back out |
+| ⚓ Commercial Navigator | "Passage planning across boundary standoff, bathymetry and tide windows for a whole leg." | Route corridor by segment · EEZ/IMBL standoff · Berthing tide windows |
+| 🔬 Researcher | "The full reasoning trace behind a verdict, with every figure attributed and exportable." | Ten-agent reasoning trace · Chlorophyll & SST trends · CSV/JSON export |
+| 🏛️ Coastal Authority | "A district-wide risk board and CAP-shaped alert preview for the day's advisory." | Coastal risk board, ranked · CAP 1.2 alert preview · One-click evidence export |
+
+### Tour action
+→ **Highlight all four persona cards** → user clicks one → persona is set → tour advances.
+
+---
+
+## Tour Step 2 of 5 — "Ask Your First Question" (`/ask`)
+
+### What they see
+- Split screen: conversational pane left, live nautical chart right.
+- Voice mic button + text input.
+- Live agent pipeline streaming: **INCOIS · MOSDAC · IMD · PostGIS**.
+- Safety verdict badge · Telemetry strip · Tamil audio playback.
+
+### Tour tooltip copy (persona-aware)
+
+| Persona | Tooltip text |
+|---|---|
+| 🐟 Fisherman | *"Type or speak your question in Tamil or English. ORCA checks wave height, wind, and how far you'd be from the maritime boundary — and gives you a single clear answer."* |
+| ⚓ Navigator | *"Ask about a passage or a port window. ORCA checks bathymetry, tide phase, EEZ standoff, and weather window — and returns a route-level verdict."* |
+| 🔬 Researcher | *"Ask any spatial or temporal question. Every agent's dataset, timestamp, and confidence score is recorded and available for export."* |
+| 🏛️ Authority | *"Ask about conditions in any sector. The same deterministic computation that drives the go/no-go is what you'll cite in your CAP alert."* |
+
+### Preset chip shown (persona-aware)
+
+| Persona | Preset chip |
+|---|---|
+| 🐟 Fisherman | `"Is it safe to go out tomorrow morning?"` |
+| ⚓ Navigator | `"Is the passage from Thoothukudi to Chennai safe this week?"` |
+| 🔬 Researcher | `"What are the current SST and chlorophyll trends off the Kerala coast?"` |
+| 🏛️ Authority | `"What is the risk level across all sectors today?"` |
+
+### Tour action
+→ **Highlight the query chip** for their persona → auto-fire it → show agent stream → advance after verdict appears.
+
+---
+
+## Tour Step 3 of 5 — "The Safety Verdict" (`/safety`)
+
+### What they see
+- Full-bleed **GO / CAUTION / NO-GO** verdict plate (Fraunces, large).
+- Hairline telemetry strip: Significant Wave Height · Wind Force · Lightning Risk · IMBL Standoff.
+- Collapsible **"Show reasoning"** section.
+
+### Tour tooltip copy (persona-aware)
+
+| Persona | Tooltip text |
+|---|---|
+| 🐟 Fisherman | *"This is your answer. Green means go. The numbers below show why. Tap the speaker to hear it in Tamil."* |
+| ⚓ Navigator | *"The verdict applies to your current query parameters. Each figure carries its source dataset and acquisition time."* |
+| 🔬 Researcher | *"Tap 'Show reasoning' to see the full weighted hazard breakdown — every figure attributed, all 10 agents listed, confidence tier shown."* |
+| 🏛️ Authority | *"The verdict is deterministic — computed from INCOIS and IMD data, never generated by the AI. This is what you cite."* |
+
+### Nav visibility note
+`/safety` is **primary** for Fisherman, Navigator, and Authority. It is **secondary** (accessible but not in the primary nav rail) for Researcher.
+
+### Tour action
+→ **Highlight the verdict plate** → then highlight the telemetry strip → then pulse the "Show reasoning" toggle for Researcher and Authority personas.
+
+---
+
+## Tour Step 4 of 5 — "Zones & Voyage" (`/zones` + `/voyage`)
+
+> This step shows `/zones` **or** `/voyage` depending on persona, since `/voyage` is hidden for Fisherman and Researcher.
+
+### What they see — `/zones` (Fisherman · Navigator · Researcher)
+- Home sector's Potential Fishing Zone (PFZ) status leads.
+- Cloud-covered sectors flagged clearly.
+- Nearest advisory nodes with heading and estimated sail time.
+- Chlorophyll-rich thermal fronts on the chart.
+
+### What they see — `/voyage` (Navigator · Authority)
+- Click two chart points → origin harbour + destination.
+- Per-leg route assessment: each segment GO / CAUTION / NO-GO.
+- IMBL buffer overlaid directly on the planned route.
+
+### Tour tooltip copy (persona-aware)
+
+| Persona | Page shown | Tooltip text |
+|---|---|---|
+| 🐟 Fisherman | `/zones` | *"These are today's Potential Fishing Zones — where INCOIS satellite data shows fish are likely to be. The nearest one from your port, with heading and sail time."* |
+| ⚓ Navigator | `/voyage` | *"Plan your passage. Drop start and end points on the chart. ORCA classifies every leg — if one leg crosses a hazard, you see it before you leave."* |
+| 🔬 Researcher | `/zones` | *"Fishing zones derived from INCOIS chlorophyll and SST composites. Raw data is exportable from the Data page."* |
+| 🏛️ Authority | `/voyage` | *"Use Voyage to model a route during an active advisory — see which sectors a vessel would cross and what risk they'd encounter."* |
+
+### Nav visibility matrix for this step
+
+| Persona | `/zones` | `/voyage` |
+|---|---|---|
+| 🐟 Fisherman | ✅ Primary | ✗ Hidden |
+| ⚓ Navigator | ✅ Primary | ✅ Primary |
+| 🔬 Researcher | ◐ Secondary | ✗ Hidden |
+| 🏛️ Authority | ✗ Hidden | ◐ Secondary |
+
+### Tour action
+→ Fisherman/Researcher: **highlight nearest PFZ card** with sail time.
+→ Navigator/Authority: **drop start pin at Thoothukudi, end pin in Gulf of Mannar** → show per-leg classification render.
+
+---
+
+## Tour Step 5 of 5 — "Watches & District Ops" (`/watches` + `/ops`)
+
+> Fisherman / Navigator / Researcher land on `/watches`.
+> Coastal Authority lands on `/ops`.
+
+### What they see — `/watches` (Fisherman · Navigator · Researcher)
+- "Watch my home port" in one tap.
+- Alert threshold controls (wave height, wind speed, boundary proximity).
+- Fisherman view: simplified — single port, plain language.
+- Navigator/Researcher view: multi-location, technical thresholds.
+
+### What they see — `/ops` (Coastal Authority only)
+- **Sector threat matrix**: SEC001–SEC014, ranked by risk score.
+- **CAP 1.2 alert builder**: compose and preview a broadcast alert.
+- **Four-channel output**: Push · VHF script · SMS · Display board.
+- **Audit trail**: every alert issued, timestamped, with evidence log.
+
+### Tour tooltip copy (persona-aware)
+
+| Persona | Page | Tooltip text |
+|---|---|---|
+| 🐟 Fisherman | `/watches` | *"Tap once to watch your home port. ORCA will notify you — voice or text — when conditions change before you reach the harbour."* |
+| ⚓ Navigator | `/watches` | *"Set threshold alerts across any waypoints on your route. When a leg's hazard level changes, you're notified before departure."* |
+| 🔬 Researcher | `/watches` | *"Subscribe to a location for timestamped condition alerts. Every alert carries the same dataset citations as the query response."* |
+| 🏛️ Authority | `/ops` | *"This is your command view. Every sector's risk score today, ranked. Tap any sector to draft a CAP 1.2 alert and broadcast it in four channels at once."* |
+
+### Nav visibility matrix for this step
+
+| Persona | `/watches` | `/ops` |
+|---|---|---|
+| 🐟 Fisherman | ✅ Primary | ✗ Hidden |
+| ⚓ Navigator | ✅ Primary | ✗ Hidden |
+| 🔬 Researcher | ◐ Secondary | ✗ Hidden |
+| 🏛️ Authority | ✅ Primary | ✅ Primary |
+
+### Tour action
+→ Fisherman: **pulse the "Watch Thoothukudi Harbour" button** → show confirmation.
+→ Authority: **highlight the SEC-ranked threat matrix** → pulse the CAP builder → show 4-channel preview.
+
+---
+
+## Summary: How Each Persona Experiences the Tour
+
+| Step | 🐟 Fisherman | ⚓ Navigator | 🔬 Researcher | 🏛️ Authority |
+|---|---|---|---|---|
+| 1 — Landing | Fisherman card highlighted | Navigator card | Researcher card | Authority card |
+| 2 — Ask | "Is it safe tomorrow?" Tamil | "Passage Thoothukudi→Chennai" | SST & chlorophyll trends | All-sector risk |
+| 3 — Safety | Verdict + audio player | Verdict + telemetry | Verdict + full reasoning trace | Verdict + citation export |
+| 4 — Zones/Voyage | `/zones` nearest PFZ | `/voyage` per-leg route | `/zones` export path | `/voyage` advisory modelling |
+| 5 — Watches/Ops | "Watch home port" 1-tap | Multi-waypoint alerts | Timestamped subscription | Sector matrix + CAP builder |
+
+---
+
+## Implementation Notes
+
+| Property | Recommendation |
+|---|---|
+| Library | `driver.js` (6 kB, zero deps) or custom Framer Motion overlay |
+| Tour trigger | `"Take a tour →"` link next to the `TRY:` chips on the landing page |
+| State | Store selected persona + current step in a `useTour()` context hook |
+| Skip | Always visible — drops to normal page state |
+| Tooltip style | Parchment `bg-shelf-1`, Fraunces heading, `STEP 02 / 05` in mono, `NEXT →` underline CTA — no pill buttons |
+| Backdrop | `rgba(27, 38, 51, 0.45)` (ink token at 45%) dimming everything except the spotlighted element |
+| Persona lock | Once set in step 1, persona persists into the real app via `usePersona()` context — no re-selection needed |
