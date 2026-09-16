@@ -200,7 +200,7 @@ export function ChatHistoryRail({
       aria-label="Chat history"
       className={`flex min-h-0 flex-col gap-3 ${
         variant === "rail"
-          ? "h-full w-64 shrink-0 rounded-2xl border border-hairline bg-shelf-1/60 p-3 shadow-lg"
+          ? "h-full w-56 shrink-0 rounded-2xl border border-hairline bg-shelf-1/60 p-3 shadow-lg xl:w-64"
           : "h-full w-full p-4"
       }`}
     >
@@ -548,29 +548,65 @@ const DISMISS_PREFIX = "orca-ask-import-dismissed:";
 function ImportPrompt({ auth, onImported }: { auth: AuthState; onImported: (count: number) => void }) {
   const userId = auth.status === "signed_in" ? auth.profile?.id : undefined;
   const [count, setCount] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
-    let dismissed = false;
+    let wasDismissed = false;
     try {
-      dismissed = localStorage.getItem(DISMISS_PREFIX + userId) === "1";
+      wasDismissed = localStorage.getItem(DISMISS_PREFIX + userId) === "1";
     } catch {
       /* storage disabled — nothing to import from it either */
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reads localStorage, which only exists after mount
-    setCount(dismissed ? 0 : browserChatCount());
+    setDismissed(wasDismissed);
+    setCount(browserChatCount());
   }, [userId]);
 
   if (!userId || count === 0) return null;
+
+  async function runImport() {
+    setBusy(true);
+    setFailed(false);
+    try {
+      const imported = await importBrowserChats();
+      setCount(browserChatCount());
+      onImported(imported);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const chats = count === 1 ? "1 chat" : `${count} chats`;
+
+  // "Not now" is not "never": the guest chats are still only in this browser
+  // and hidden while signed in, so a one-line way to save them stays put.
+  // Hiding it for good once left people unable to find chats they had asked.
+  if (dismissed) {
+    return (
+      <p className="flex items-start gap-1.5 rounded-lg border border-hairline/60 bg-shelf-2/60 px-2 py-1.5 text-[10px] leading-relaxed text-ink-dim">
+        <CloudUpload className="mt-px size-3 shrink-0" aria-hidden="true" />
+        <span>
+          {chats} from before you signed in {count === 1 ? "is" : "are"} only in this browser.{" "}
+          <button type="button" disabled={busy} onClick={runImport} className="font-semibold text-ocean-cyan hover:underline disabled:opacity-60">
+            {busy ? "Saving…" : "Save to account"}
+          </button>
+          {failed && <span className="text-no-go"> Couldn&apos;t save — try again.</span>}
+        </span>
+      </p>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-ocean-cyan/40 bg-shelf-3/80 p-2.5 text-[11px] text-ink-muted">
       <p className="flex items-start gap-1.5 text-ink">
         <CloudUpload className="mt-px size-3.5 shrink-0 text-ocean-cyan" aria-hidden="true" />
         <span>
-          Save {count === 1 ? "the chat" : `${count} chats`} from this browser to your account?
+          You have {chats} from before you signed in. Save {count === 1 ? "it" : "them"} to your account?
         </span>
       </p>
       {failed && <p className="mt-1 text-no-go">Couldn&apos;t save them — try again.</p>}
@@ -578,19 +614,7 @@ function ImportPrompt({ auth, onImported }: { auth: AuthState; onImported: (coun
         <button
           type="button"
           disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            setFailed(false);
-            try {
-              const imported = await importBrowserChats();
-              setCount(browserChatCount());
-              onImported(imported);
-            } catch {
-              setFailed(true);
-            } finally {
-              setBusy(false);
-            }
-          }}
+          onClick={runImport}
           className="rounded-md border border-ocean-cyan/50 bg-ocean-cyan px-2 py-1 font-bold text-on-accent hover:bg-ocean-cyan/90 disabled:opacity-60"
         >
           {busy ? "Saving…" : "Save to account"}
@@ -602,9 +626,9 @@ function ImportPrompt({ auth, onImported }: { auth: AuthState; onImported: (coun
             try {
               localStorage.setItem(DISMISS_PREFIX + userId, "1");
             } catch {
-              /* then it asks again next time */
+              /* then it asks again in full next time */
             }
-            setCount(0);
+            setDismissed(true);
           }}
           className="rounded-md border border-hairline px-2 py-1 font-semibold hover:text-ink"
         >

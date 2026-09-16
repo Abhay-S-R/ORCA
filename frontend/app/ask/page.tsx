@@ -8,7 +8,7 @@
 // once it starts, collapsible, and every answer's "view on map" chip can
 // re-point the one shared map instance back to that answer's context.
 //
-// Past chats sit in a rail to the left (a drawer below xl, where a third
+// Past chats sit in a rail to the left (a drawer below lg, where a third
 // column would squeeze the thread and the chart); they are kept in this
 // browser for guests and in the account once signed in (./chatStore).
 import { useEffect, useState } from "react";
@@ -131,7 +131,7 @@ export default function AskPage() {
   const historyButton = (
     <Button
       variant="ghost"
-      className="xl:hidden"
+      className="lg:hidden"
       icon={<History className="size-3.5" />}
       onClick={() => setDrawerOpen(true)}
       aria-haspopup="dialog"
@@ -142,12 +142,12 @@ export default function AskPage() {
 
   return (
     <div className="flex h-full min-h-0 gap-4 p-5 lg:p-7">
-      <div className="hidden min-h-0 xl:flex">
+      <div className="hidden min-h-0 lg:flex">
         {railCollapsed ? <CollapsedChatRail onExpand={() => collapseRail(false)} onNew={newChat} /> : history("rail")}
       </div>
 
       {drawerOpen && (
-        <div className="fixed inset-0 z-50 flex bg-abyss/50 xl:hidden" onClick={() => setDrawerOpen(false)}>
+        <div className="fixed inset-0 z-50 flex bg-abyss/50 lg:hidden" onClick={() => setDrawerOpen(false)}>
           <div
             role="dialog"
             aria-modal="true"
