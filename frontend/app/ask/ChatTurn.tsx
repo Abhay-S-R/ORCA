@@ -73,7 +73,7 @@ export function ChatTurn({
           while it thinks, collapsing to a compact strip once the answer
           lands — the trace stays inspectable without competing with it. */}
       {spans.length > 0 && (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex min-w-0 max-w-full flex-col gap-1.5">
           {streaming && (
             <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
               <Radio className="size-3" aria-hidden="true" />
