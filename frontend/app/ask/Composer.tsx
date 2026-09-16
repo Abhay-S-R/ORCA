@@ -42,11 +42,10 @@ export function Composer({
           e.preventDefault();
           onSubmit(value);
         }}
-        className={`flex flex-col gap-3 rounded-2xl border border-hairline/70 bg-shelf-1/90 p-3.5 backdrop-blur-sm transition-shadow ${
-          centered ? "shadow-2xl" : "shadow-md"
-        }`}
+        className={`flex flex-col gap-3 rounded-2xl border border-hairline/70 bg-shelf-1/90 p-3.5 backdrop-blur-sm transition-shadow ${centered ? "shadow-2xl" : "shadow-md"
+          }`}
       >
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <label htmlFor="query" className="sr-only">
             Your question about marine conditions
           </label>
@@ -57,7 +56,7 @@ export function Composer({
               onChange={(e) => onChange(e.target.value)}
               placeholder="Is it safe to go out tomorrow morning?"
               autoFocus={centered}
-              className="w-full rounded-xl border border-hairline bg-shelf-1/90 px-4 py-3 text-sm text-ink placeholder:text-ink-dim/60 transition-all hover:border-hairline-strong focus:border-ocean-cyan/70 focus:bg-shelf-2/90 shadow-inner"
+              className="w-full rounded-xl border border-hairline bg-shelf-1/90 px-4 py-2.5 text-sm text-ink placeholder:text-ink-dim/60 transition-all hover:border-hairline-strong focus:border-ocean-cyan/70 focus:bg-shelf-2/90 shadow-inner outline-none"
             />
           </div>
           {/* Voice ingress (plan §6 D1 Day 16-17): mic sits right next to Ask
@@ -68,10 +67,10 @@ export function Composer({
             type="submit"
             variant="primary"
             disabled={disabled || !value.trim()}
-            icon={<Send className="size-4" />}
-            className="px-5 font-bold"
+            icon={<Send className="size-3.5" />}
+            className="h-[38px] min-w-[72px] px-4 text-xs font-bold"
           >
-            {disabled ? "Asking" : "Ask"}
+            {disabled ? "Asking…" : "Ask"}
           </Button>
         </div>
 

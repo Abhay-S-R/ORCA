@@ -249,9 +249,8 @@ export default function AskPage() {
           <motion.div
             layout={!reduceMotion}
             transition={{ duration: 0.25, ease: "easeOut" }}
-            className={`relative shrink-0 overflow-hidden rounded-2xl border border-hairline bg-shelf-1/60 shadow-2xl ${
-              mapCollapsed ? "h-11 w-full lg:h-full lg:w-11" : "h-64 w-full lg:h-full lg:w-[42%]"
-            }`}
+            className={`relative shrink-0 overflow-hidden rounded-2xl border border-hairline bg-shelf-1/60 shadow-2xl ${mapCollapsed ? "h-11 w-full lg:h-full lg:w-11" : "h-64 w-full lg:h-full lg:w-[42%]"
+              }`}
           >
             <button
               type="button"
