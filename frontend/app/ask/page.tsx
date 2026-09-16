@@ -215,7 +215,7 @@ export default function AskPage() {
               </div>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
               {turns.map((turn, i) => (
                 <ChatTurn
                   key={turn.id}
