@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 from geoalchemy2 import Geometry
-from sqlalchemy import ForeignKey, Numeric, SmallInteger, Text, text
+from sqlalchemy import DateTime, ForeignKey, Numeric, SmallInteger, Text, text
 from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -28,6 +28,10 @@ vessel_class_enum = ENUM(
 confidence_tier_enum = ENUM("HIGH", "MEDIUM", "LOW_DATA", name="confidence_tier", create_type=False)
 execution_status_enum = ENUM(
     "ok", "degraded", "failed", "skipped", "cancelled", name="execution_status", create_type=False
+)
+persona_enum = ENUM(
+    "fisherman", "commercial_navigator", "researcher", "coastal_authority", "unresolved",
+    name="persona", create_type=False,
 )
 
 
@@ -74,11 +78,46 @@ class SessionRow(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
-    persona: Mapped[str] = mapped_column(Text, nullable=False, server_default="unresolved")
+    # The DB column is the `persona` enum; mapped as Text it bound as VARCHAR,
+    # which Postgres refuses for an enum column on INSERT — harmless only while
+    # nothing inserted a session from Python.
+    persona: Mapped[str] = mapped_column(persona_enum, nullable=False, server_default="unresolved")
     language: Mapped[str] = mapped_column(Text, nullable=False, server_default="en")
     channel: Mapped[str] = mapped_column(Text, nullable=False, server_default="web")
     started_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
     last_seen_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    # 003_chat_history.sql — a signed-in user's saved Ask chat is one session.
+    title: Mapped[str | None] = mapped_column(Text)
+    pinned: Mapped[bool] = mapped_column(nullable=False, server_default=text("false"))
+
+
+class ConversationTurn(Base):
+    __tablename__ = "conversation_turns"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    query_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False)  # "user" | "assistant"
+    text_original: Mapped[str | None] = mapped_column(Text)
+    text_english: Mapped[str | None] = mapped_column(Text)
+    payload: Mapped[dict | None] = mapped_column(JSONB)  # 003: the assistant answer the chat card renders
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+
+
+class RefreshToken(Base):
+    """004_refresh_tokens.sql — one row per issued refresh token, by jti."""
+
+    __tablename__ = "refresh_tokens"
+
+    jti: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AuditTraceLog(Base):

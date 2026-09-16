@@ -95,9 +95,15 @@ def get_turns(session_id: str | None) -> list[dict[str, Any]]:
 
 
 def append_turn(session_id: str | None, turn: dict[str, Any]) -> None:
+    replace_turns(session_id, get_turns(session_id) + [turn])
+
+
+def replace_turns(session_id: str | None, turns: list[dict[str, Any]]) -> None:
+    """Set the whole window at once — how a chat reopened from history gets
+    its context back after the TTL let it lapse (/api/session/{id}/context)."""
     if not session_id:
         return
-    turns = (get_turns(session_id) + [turn])[-MAX_TURNS:]
+    turns = turns[-MAX_TURNS:]
     _local_set(session_id, turns)
     try:
         client = redis_client()

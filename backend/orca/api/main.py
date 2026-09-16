@@ -26,6 +26,7 @@ from orca.agents.language import IndicTrans2Backend, register_translation_backen
 from orca.agents import reporting
 from orca.api.analytics_routes import router as analytics_router
 from orca.api.auth_routes import router as auth_router
+from orca.api.chats_routes import router as chats_router
 from orca.api.discovery_routes import router as discovery_router
 from orca.api.feedback_routes import router as feedback_router
 from orca.api.geospatial_routes import router as geospatial_router
@@ -100,6 +101,7 @@ app.add_middleware(
 app.include_router(discovery_router)
 app.include_router(geospatial_router)
 app.include_router(auth_router)  # D1 — /register, /login, /profile, /vessels (Phase 2 D1)
+app.include_router(chats_router)  # Ask chat history — /api/chats CRUD + /api/session/{id}/context
 app.include_router(analytics_router)  # Agent 5 — /zones, /trends, /tides, /data (Phase 2 D2)
 app.include_router(voyage_router)  # D3 — /voyage-plan, /wind-vectors already mounted via geospatial_router
 app.include_router(trace_router)  # D1 Phase 3 — /trace/{query_id} replay, /render persona re-render

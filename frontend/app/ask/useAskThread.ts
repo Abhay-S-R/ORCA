@@ -2,9 +2,9 @@
 
 // Thread state for the Ask chat: one EventSource pipeline (unchanged from the
 // original single-turn version) fanning its events into a growing list of
-// turns instead of replacing a single answer. Persisted to localStorage so
-// the thread survives a refresh (and a new tab); "New chat" is the explicit
-// way to clear it rather than relying on storage boundaries to do that.
+// turns. The thread is one saved chat out of many — kept by a ChatStore
+// (./chatStore: this browser for guests, the account when signed in) — and
+// "New chat" or opening a chat from history swaps which one is on screen.
 import { useEffect, useRef, useState } from "react";
 import type { AgentStatus } from "../components/AgentPill";
 import type { ConfidenceTier, Verdict } from "../components/Badge";
@@ -15,6 +15,7 @@ import type { QueryFocus } from "../components/MapView";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
 import { classifyQueryIntent, matchRegionInQuery } from "../lib/queryIntent";
+import { readActiveChat, restoreContext, writeActiveChat, type ChatStore } from "./chatStore";
 
 export type AgentSpan = { agent_name: string; status: AgentStatus };
 export type FinalResponse = {
@@ -37,6 +38,9 @@ export type FinalResponse = {
 export type Turn = {
   id: string;
   askedQuery: string;
+  // When it was asked — orders turns when a guest chat is imported into an
+  // account. Absent on turns saved before it existed.
+  askedAt?: string;
   spans: AgentSpan[];
   answer: FinalResponse | null;
   streaming: boolean;
@@ -45,111 +49,147 @@ export type Turn = {
   focus: QueryFocus | null;
 };
 
-const STORAGE_KEY = "orca-ask-thread";
-// The backend's context window is keyed on this id, so it has to live and die
-// with the thread it belongs to: same storage as the thread (a restored chat
-// keeps its context), cleared by "New chat" (a new chat never inherits the
-// last one's). It replaced a per-tab sessionStorage id, which did neither.
-const CHAT_ID_KEY = "orca-ask-chat-id";
-
-function loadTurns(): Turn[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    // A turn still marked "streaming" belongs to a tab that reloaded mid
-    // answer — its EventSource is gone, so it would hang forever if left as is.
-    const turns = JSON.parse(raw) as Turn[];
-    return turns.map((t) => (t.streaming ? { ...t, streaming: false, failed: true } : t));
-  } catch {
-    return [];
-  }
+// Chart focus reacts to the question itself, not the answer. A follow-up that
+// names no topic or region of its own ("what about tomorrow?") keeps the map
+// where the conversation already is — the same carry-over the backend applies
+// to its intent and place.
+function focusFor(q: string, previous: QueryFocus | null | undefined, nonce: number): QueryFocus {
+  const intent = classifyQueryIntent(q);
+  return {
+    intent: intent === "general" && previous ? previous.intent : intent,
+    regionId: matchRegionInQuery(q) ?? previous?.regionId,
+    nonce,
+  };
 }
 
-export function useAskThread(persona: Persona) {
+export function useAskThread(persona: Persona, store: ChatStore | null, onChatSaved?: () => void) {
   // null means "not yet hydrated" — distinct from a real empty thread ([]).
-  // Starting at null (rather than reading localStorage in useState's
-  // initializer) avoids mismatching the server-rendered HTML and crashing
-  // hydration, the exact pitfall persona/context.tsx documents for its own
-  // storage read. Checking `savedTurns === null` (state), not a one-shot
-  // ref flag, is what keeps the write effect from firing with a stale empty
-  // array — a ref flag gets consumed by React Strict Mode's dev-only double
-  // effect invocation before the restore's setSavedTurns ever lands.
+  // Starting at null (rather than reading storage in useState's initializer)
+  // avoids mismatching the server-rendered HTML, the exact pitfall
+  // persona/context.tsx documents for its own storage read. It also stays null
+  // until auth has resolved which store the chat lives in.
   const [savedTurns, setSavedTurns] = useState<Turn[] | null>(null);
   const turns = savedTurns ?? [];
+  const [chatId, setChatId] = useState<string | null>(null);
   const [activeFocus, setActiveFocus] = useState<QueryFocus | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
   const sourceRef = useRef<EventSource | null>(null);
   const focusNonce = useRef(0);
   const lastPersona = useRef(persona);
   const chatIdRef = useRef<string | null>(null);
+  const storeRef = useRef<ChatStore | null>(null);
+  // The object last handed to the store for each turn id — a turn is saved
+  // again only when it actually changed (an answer landed, a re-render).
+  const persisted = useRef(new Map<string, Turn>());
+  const restoring = useRef<Promise<void>>(Promise.resolve());
 
-  // Lazily minted on the first ask, not on mount — reading localStorage during
-  // render is the hydration pitfall the savedTurns comment below describes.
-  // The ref alone still carries the id when storage is unavailable.
-  function chatId(): string {
-    if (!chatIdRef.current) {
-      try {
-        chatIdRef.current = localStorage.getItem(CHAT_ID_KEY);
-      } catch {
-        /* storage disabled — mint an in-memory id below */
-      }
-    }
-    if (!chatIdRef.current) {
-      chatIdRef.current = crypto.randomUUID();
-      try {
-        localStorage.setItem(CHAT_ID_KEY, chatIdRef.current);
-      } catch {
-        /* context then lasts for this page only */
-      }
-    }
-    return chatIdRef.current;
+  function show(id: string | null, shown: Turn[]) {
+    let previous: QueryFocus | null = null;
+    const ready = shown.map((t) => {
+      // A turn still marked "streaming" belongs to a tab that closed mid
+      // answer — its EventSource is gone, so it would hang forever as is.
+      const settled = t.streaming ? { ...t, streaming: false, failed: true } : t;
+      focusNonce.current += 1;
+      const focus = settled.focus ?? focusFor(settled.askedQuery, previous, focusNonce.current);
+      previous = focus;
+      return { ...settled, focus };
+    });
+    persisted.current = new Map(ready.map((t) => [t.id, t]));
+    chatIdRef.current = id;
+    setChatId(id);
+    setSavedTurns(ready);
+    setActiveFocus(ready[ready.length - 1]?.focus ?? null);
+    setSaveFailed(false);
+    writeActiveChat(id);
+    // Put the reopened chat's earlier turns back into the backend's context
+    // window (it lapses after 30 minutes), so a follow-up continues it. ask()
+    // waits on this before opening its stream.
+    restoring.current = id ? restoreContext(id, ready).catch(() => {}) : Promise.resolve();
   }
 
+  // Load the active chat once the store is known. A later store change is a
+  // sign-out (or a session that expired): whatever chat was on screen belonged
+  // to the account, so it must not stay visible — start a new chat instead.
   useEffect(() => {
-    // Same client-only external-store sync as persona/context.tsx's own
-    // localStorage read — not a case the "avoid setState in effect" rule
-    // has an exception for, but the standard hydration-safe pattern for it.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSavedTurns(loadTurns());
-  }, []);
-
-  useEffect(() => {
-    if (savedTurns === null) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(savedTurns));
-    } catch {
-      /* private mode / storage disabled — thread just won't survive a refresh */
+    if (!store) return;
+    const firstLoad = storeRef.current === null;
+    storeRef.current = store;
+    sourceRef.current?.close();
+    const activeId = firstLoad ? readActiveChat() : null;
+    let cancelled = false;
+    if (!activeId) {
+      show(null, []);
+      return;
     }
-  }, [savedTurns]);
+    store
+      .load(activeId)
+      .then((chat) => {
+        if (!cancelled) show(chat ? activeId : null, chat?.turns ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) show(null, []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [store]);
+
+  // Save every turn that changed. Streaming span updates reach the browser
+  // store too (a reload mid-answer then shows the question with "Ask again",
+  // as before); the account store only keeps answered turns.
+  useEffect(() => {
+    const id = chatIdRef.current;
+    if (!store || !id || savedTurns === null) return;
+    for (const turn of savedTurns) {
+      if (persisted.current.get(turn.id) === turn) continue;
+      persisted.current.set(turn.id, turn);
+      store
+        .saveTurn(id, turn, persona)
+        .then(() => {
+          if (!turn.streaming) {
+            setSaveFailed(false);
+            onChatSaved?.();
+          }
+        })
+        .catch(() => {
+          // Forget it was handed over, so the next change retries this turn.
+          persisted.current.delete(turn.id);
+          setSaveFailed(true);
+        });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- persona/onChatSaved are read at save time, not triggers
+  }, [savedTurns, store]);
 
   // Switching persona (nav-wide setting) changes how an answer would render,
-  // so a stale thread from the old persona stays around — clear it rather
-  // than leave mismatched answers on screen. usePersona() itself always
-  // starts a mount at "unresolved" and syncs the real value from
-  // localStorage a moment later (hydration-safe pattern) — that first
-  // resolution is not a real switch, so it must not wipe a restored thread.
+  // so start a new chat rather than mix renderings in one — the previous chat
+  // is already saved and stays in history. usePersona() itself always starts
+  // a mount at "unresolved" and syncs the real value from localStorage a
+  // moment later (hydration-safe pattern) — that first resolution is not a
+  // real switch, so it must not replace a restored thread.
   useEffect(() => {
     if (lastPersona.current === persona) return;
     const previous = lastPersona.current;
     lastPersona.current = persona;
     // ponytail: treats every unresolved-origin transition as hydration, so a
     // user who explicitly sets persona to Unresolved then picks one won't
-    // clear the thread either — narrow the check to "first render only" if
-    // that mid-session case needs to clear too.
+    // start a new chat either — narrow the check to "first render only" if
+    // that mid-session case needs to as well.
     if (previous === "unresolved") return;
     newChat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- newChat only touches refs and setters
   }, [persona]);
 
   function newChat() {
     sourceRef.current?.close();
-    setSavedTurns([]);
-    setActiveFocus(null);
-    chatIdRef.current = null;
-    try {
-      localStorage.removeItem(CHAT_ID_KEY);
-    } catch {
-      /* nothing stored to clear */
-    }
+    show(null, []);
+  }
+
+  async function openChat(id: string) {
+    if (!store || id === chatIdRef.current) return;
+    sourceRef.current?.close();
+    const chat = await store.load(id);
+    if (chat) show(id, chat.turns);
+    return Boolean(chat);
   }
 
   function updateTurn(id: string, patch: Partial<Turn> | ((t: Turn) => Partial<Turn>)) {
@@ -162,46 +202,57 @@ export function useAskThread(persona: Persona) {
     if (!q.trim()) return;
     sourceRef.current?.close();
 
+    if (!chatIdRef.current) {
+      // Minted on the first question, not on "New chat" — an empty chat is
+      // never saved and never appears in history.
+      chatIdRef.current = crypto.randomUUID();
+      setChatId(chatIdRef.current);
+      writeActiveChat(chatIdRef.current);
+    }
+    const sessionId = chatIdRef.current;
+
     const id = crypto.randomUUID();
-    // Chart focus reacts to the question itself, not the answer — real
-    // layers (boundaries/PFZ) and a real fit-to-geometry, so the map moves
-    // the moment you ask rather than waiting on the round trip (plan §7/§8).
     focusNonce.current += 1;
-    // A follow-up that names no topic or region of its own ("what about
-    // tomorrow?") keeps the map where the conversation already is — the same
-    // carry-over the backend applies to its intent and place.
-    const previous = turns[turns.length - 1]?.focus;
-    const intent = classifyQueryIntent(q);
-    const focus: QueryFocus = {
-      intent: intent === "general" && previous ? previous.intent : intent,
-      regionId: matchRegionInQuery(q) ?? previous?.regionId,
-      nonce: focusNonce.current,
-    };
+    const focus = focusFor(q, turns[turns.length - 1]?.focus, focusNonce.current);
     setSavedTurns((prev) => [
       ...(prev ?? []),
-      { id, askedQuery: q, spans: [], answer: null, streaming: true, failed: false, renderedAs: null, focus },
+      {
+        id,
+        askedQuery: q,
+        askedAt: new Date().toISOString(),
+        spans: [],
+        answer: null,
+        streaming: true,
+        failed: false,
+        renderedAs: null,
+        focus,
+      },
     ]);
     setActiveFocus(focus);
 
     // Persona is an explicit rendering choice only — Agent 9 renders with it,
     // no classifier reads it (Ground Rule 1). "unresolved" = don't send one.
     const personaParam = persona !== "unresolved" ? `&persona=${persona}` : "";
-    const sessionParam = `&session_id=${encodeURIComponent(chatId())}`;
-    const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}`);
-    sourceRef.current = es;
-    es.onmessage = (ev) => {
-      const data = JSON.parse(ev.data);
-      if (data.type === "agent_span") {
-        updateTurn(id, (t) => ({ spans: [...t.spans, { agent_name: data.agent_name, status: data.status }] }));
-      } else if (data.type === "final_response") {
-        updateTurn(id, { answer: data, streaming: false });
+    const sessionParam = `&session_id=${encodeURIComponent(sessionId)}`;
+    void restoring.current.then(() => {
+      // The user may have switched chats while the context was restoring.
+      if (chatIdRef.current !== sessionId) return;
+      const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}`);
+      sourceRef.current = es;
+      es.onmessage = (ev) => {
+        const data = JSON.parse(ev.data);
+        if (data.type === "agent_span") {
+          updateTurn(id, (t) => ({ spans: [...t.spans, { agent_name: data.agent_name, status: data.status }] }));
+        } else if (data.type === "final_response") {
+          updateTurn(id, { answer: data, streaming: false });
+          es.close();
+        }
+      };
+      es.onerror = () => {
+        updateTurn(id, { streaming: false, failed: true });
         es.close();
-      }
-    };
-    es.onerror = () => {
-      updateTurn(id, { streaming: false, failed: true });
-      es.close();
-    };
+      };
+    });
   }
 
   function setRenderedAs(id: string, p: Persona | null) {
@@ -226,11 +277,15 @@ export function useAskThread(persona: Persona) {
 
   return {
     turns,
+    hydrated: savedTurns !== null,
+    chatId,
+    saveFailed,
     streaming: turns.some((t) => t.streaming),
     activeFocus,
     setActiveFocus,
     ask,
     newChat,
+    openChat,
     setRenderedAs,
     applyRender,
   };

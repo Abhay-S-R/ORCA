@@ -5,6 +5,7 @@
 // simplified, not crippled ("watch my home port" is one tap with sane
 // default thresholds; the full editor is behind "Advanced").
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Eye } from "lucide-react";
 import { PageBody, PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
@@ -227,7 +228,11 @@ function SignInGate() {
         </form>
       </Panel>
       <p className="mt-3 text-[11px] text-ink-dim">
-        Accounts are created through registration (D1). This surface reuses that identity.
+        No account yet?{" "}
+        <Link href="/login?next=/watches" className="font-semibold text-ocean-cyan hover:underline">
+          Create one
+        </Link>{" "}
+        — the same account keeps your Ask chats and alerts.
       </p>
     </PageBody>
   );

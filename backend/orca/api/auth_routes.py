@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from typing import cast
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from orca.auth import service
@@ -16,6 +16,7 @@ from orca.auth.rbac import get_current_user, require_role
 from orca.auth.schemas import (
     HomePortIn,
     LoginIn,
+    RefreshIn,
     RegisterIn,
     Role,
     SessionToken,
@@ -42,6 +43,7 @@ _REASON_STATUS = {
     "duplicate": status.HTTP_409_CONFLICT,
     "invalid_credentials": status.HTTP_401_UNAUTHORIZED,
     "inactive": status.HTTP_403_FORBIDDEN,
+    "invalid_token": status.HTTP_401_UNAUTHORIZED,
 }
 
 
@@ -51,7 +53,7 @@ def _user_out(user: User) -> UserOut:
     # literals — SQLAlchemy's ORM column type is just `str`, mypy can't see
     # the DB constraint that makes the value narrower.
     return UserOut(
-        id=user.id, display_name=user.display_name, role=cast(Role, user.role), language=user.language,
+        id=user.id, identifier=user.email or user.phone_e164, display_name=user.display_name, role=cast(Role, user.role), language=user.language,
         home_port=user_home_port(user), home_port_name=user.home_port_name,
     )
 
@@ -83,6 +85,26 @@ def login(body: LoginIn, db: Session = Depends(get_db)) -> SessionToken:
     except service.AuthError as exc:
         raise HTTPException(_REASON_STATUS[exc.reason], str(exc)) from exc
     return SessionToken(**tokens.__dict__)
+
+
+@router.post("/refresh", response_model=SessionToken)
+def refresh(body: RefreshIn, db: Session = Depends(get_db)) -> SessionToken:
+    """Trade a refresh token for a new pair (rotation — the presented one is
+    revoked). The 15-minute access token was issued with no way to renew it,
+    so every signed-in surface silently signed out after 15 minutes."""
+    try:
+        _, tokens = service.refresh(db, refresh_token=body.refresh_token)
+    except service.AuthError as exc:
+        raise HTTPException(_REASON_STATUS[exc.reason], str(exc)) from exc
+    return SessionToken(**tokens.__dict__)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(body: RefreshIn, db: Session = Depends(get_db)) -> Response:
+    """Revoke the refresh token server-side. Needs no access token: signing
+    out has to work after the access token has already expired."""
+    service.logout(db, refresh_token=body.refresh_token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/profile", response_model=UserOut)

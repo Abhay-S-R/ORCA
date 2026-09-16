@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { PersonaSelector } from "../persona/PersonaSelector";
 import { Radio, Satellite } from "lucide-react";
 import { SystemStatusStrip } from "./SystemStatusStrip";
+import { AccountMenu } from "./AccountMenu";
 
 export function StatusBar() {
   return (
@@ -40,6 +41,7 @@ export function StatusBar() {
         <div className="hidden h-3.5 w-px bg-hairline sm:block" />
         <Clock />
         <PersonaSelector />
+        <AccountMenu />
       </div>
     </header>
   );
