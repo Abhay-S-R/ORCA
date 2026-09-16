@@ -150,7 +150,7 @@ export default function SafetyPage() {
       </div>
 
       {spans.length > 0 && (
-        <div className="mb-5">
+        <div className="mb-5 min-w-0 max-w-full">
           <AgentStrip>
             {spans.map((s, i) => (
               <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} />

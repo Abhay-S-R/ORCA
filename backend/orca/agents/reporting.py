@@ -138,15 +138,26 @@ def describe_location(user_location: dict[str, Any] | None) -> str:
 
 
 def _describe_recent_turns(session_history: list[dict[str, Any]] | None) -> str | None:
-    """Last couple of turns, for the narrative prompt only — never for the
-    verdict itself (Ground Rule 2 is untouched: risk_assessment always
-    recomputes from scratch). Lets "what about tomorrow instead?" read as a
-    continuation ("earlier you asked X, which was GO") instead of forcing
-    the user to restate context the system already has."""
+    """The chat's context window (orca/session.py keeps the last MAX_TURNS),
+    for the narrative prompt only — never for the verdict itself (Ground Rule
+    2 is untouched: risk_assessment always recomputes from scratch). Lets
+    "what about tomorrow instead?" read as a continuation, and "why?" or "is
+    that zone far from the boundary?" resolve against what ORCA actually said,
+    instead of forcing the user to restate context the system already has.
+    Oldest first, so the model reads the conversation in the order it
+    happened."""
     if not session_history:
         return None
-    recent = session_history[-2:]
-    lines = [f'- "{t.get("query", "")}" -> {t.get("verdict") or "no verdict"}' for t in recent if t.get("query")]
+    lines = []
+    for i, t in enumerate(session_history, 1):
+        asked = t.get("english_query") or t.get("query")
+        if not asked:
+            continue
+        place = (t.get("user_location") or {}).get("place_name")
+        about = f" (about {place})" if place else ""
+        lines.append(f'{i}. User asked: "{asked}"{about} -> verdict then: {t.get("verdict") or "none"}')
+        if t.get("answer"):
+            lines.append(f'   ORCA answered: "{t["answer"]}"')
     return "\n".join(lines) if lines else None
 
 
@@ -238,9 +249,12 @@ CRITICAL RULES:
    stated above. Never name a place the location line does not name.
 5. Never mention agents, models, internal component names, or that you are an AI.
 6. Keep the tone calm, practical, direct, and authoritative for sea navigation. Do not use generic AI disclaimers.
-7. If EARLIER IN THIS CONVERSATION is present, you may refer back to it naturally
-   (e.g. "unlike this morning's caution...") — but never let it override today's
-   deterministic verdict above."""
+7. If EARLIER IN THIS CONVERSATION is present, treat USER QUERY as the next message in
+   that conversation: resolve follow-ups like "why?", "what about tomorrow?" or "is that
+   zone far?" against it, and don't repeat what was already said unless asked. You may
+   refer back to it naturally (e.g. "unlike this morning's caution...") — but never let
+   it override today's deterministic verdict or the location stated above, and never
+   re-use a number from it: every figure you give comes from MEASURED TELEMETRY above."""
 
     try:
         narrative = client.complete([{"role": "user", "content": prompt}]).strip()

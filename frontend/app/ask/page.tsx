@@ -93,7 +93,7 @@ export default function AskPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-5 lg:flex-row lg:p-7">
-      <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
         <div className="flex items-center justify-between border-b border-hairline/60 pb-3">
           <h1 className="text-xs font-bold uppercase tracking-wider text-ink-dim">Ask ORCA</h1>
           <Button variant="ghost" icon={<Plus className="size-3.5" />} onClick={newChat}>
@@ -101,13 +101,14 @@ export default function AskPage() {
           </Button>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
-          {turns.map((turn) => (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
+          {turns.map((turn, i) => (
             <ChatTurn
               key={turn.id}
               turn={turn}
               persona={persona}
               isMapFocus={activeFocus?.nonce === turn.focus?.nonce}
+              hadEarlierAnswers={turns.slice(0, i).some((t) => t.answer)}
               onViewOnMap={() => {
                 setActiveFocus(turn.focus);
                 setMapCollapsed(false);

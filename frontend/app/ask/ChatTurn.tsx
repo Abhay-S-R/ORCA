@@ -5,7 +5,7 @@
 // because that file renders one of these per turn now instead of exactly
 // one ever — keeping it here is what keeps the thread's map() call readable.
 import { motion } from "framer-motion";
-import { MapPin, Radio } from "lucide-react";
+import { History, MapPin, Radio } from "lucide-react";
 import { AgentPill, AgentStrip } from "../components/AgentPill";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
@@ -36,6 +36,7 @@ export function ChatTurn({
   turn,
   persona,
   isMapFocus,
+  hadEarlierAnswers,
   onViewOnMap,
   onRetry,
   onFollowUp,
@@ -45,6 +46,7 @@ export function ChatTurn({
   turn: Turn;
   persona: Persona;
   isMapFocus: boolean;
+  hadEarlierAnswers: boolean;
   onViewOnMap: () => void;
   onRetry: () => void;
   onFollowUp: (q: string) => void;
@@ -71,7 +73,7 @@ export function ChatTurn({
           while it thinks, collapsing to a compact strip once the answer
           lands — the trace stays inspectable without competing with it. */}
       {spans.length > 0 && (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex min-w-0 max-w-full flex-col gap-1.5">
           {streaming && (
             <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
               <Radio className="size-3" aria-hidden="true" />
@@ -129,6 +131,24 @@ export function ChatTurn({
                   ocean={answer.ocean_summary ?? { tide: null, nearest_pfz: null, sector_status: null, productivity_diagnosis: null }}
                   citations={answer.citations ?? []}
                 />
+              )}
+
+              {/* The chat's context window (orca/session.py). Stated both
+                  ways: which earlier messages this answer followed on from,
+                  or — when the thread has earlier answers the backend no
+                  longer holds — that it was answered as a new question,
+                  rather than letting a follow-up fail silently. */}
+              {answer.context_turns != null && (answer.context_turns > 0 || hadEarlierAnswers) && (
+                <p
+                  className={`flex items-center gap-1.5 text-[11px] ${
+                    answer.context_turns > 0 ? "text-ink-dim" : "text-caution"
+                  }`}
+                >
+                  <History className="size-3 shrink-0" aria-hidden="true" />
+                  {answer.context_turns > 0
+                    ? `Following on from ${answer.context_turns} earlier ${answer.context_turns === 1 ? "message" : "messages"} in this chat`
+                    : "Earlier messages in this chat have expired, so this was answered as a new question — name your location again if it matters."}
+                </p>
               )}
 
               {/* The shared map already moved for this question the moment it

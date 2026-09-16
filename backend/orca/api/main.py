@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import os
 import uuid
@@ -46,7 +47,7 @@ from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
 from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.data.loaders import resolve_place_from_text
 from orca.graph.graph import build_graph
-from orca.agents.planning import classify_intent
+from orca.agents.planning import carry_intent, classify_intent
 from orca.logging_utils import configure_logging
 from orca.query_cache import get as query_cache_get
 from orca.query_cache import resolved_key
@@ -145,13 +146,16 @@ PRIORITY_LANE = asyncio.Semaphore(int(os.environ.get("ORCA_PRIORITY_LANE_SIZE", 
 STANDARD_LANE = asyncio.Semaphore(int(os.environ.get("ORCA_STANDARD_LANE_SIZE", "4")))
 
 
-def _is_priority_shaped(query: str, depth: str | None) -> bool:
+def _is_priority_shaped(query: str, depth: str | None, session_history: list[dict] | None = None) -> bool:
     """Cheap pre-classification at the route layer — reuses Agent 2's own
     Tier-1 rules match (classify_intent) rather than a second classifier, so
-    "which lane" can never disagree with "which agents actually ran"."""
+    "which lane" can never disagree with "which agents actually ran". That
+    includes Agent 2's follow-up rule: "what about tomorrow evening?" after a
+    safety question runs SAFETY_CHECK, so it gets the safety lane too."""
     if depth not in (None, "SHALLOW"):
         return False
-    return any(name == "SAFETY_CHECK" for name, _score in classify_intent(query))
+    rows = classify_intent(query, session_history) or carry_intent(session_history)
+    return any(name == "SAFETY_CHECK" for name, _score in rows)
 
 
 _PERSONAS = ("fisherman", "commercial_navigator", "researcher", "coastal_authority")
@@ -165,15 +169,16 @@ def _initial_state(
     distress: bool = False, persona: str | None = None, depth: str | None = None,
     place: tuple[str | None, str] = (None, "explicit"),
     session_id: str | None = None,
+    session_history: list[dict] | None = None,
 ) -> ORCAState:
     return {  # type: ignore[typeddict-item]
         "session_id": session_id or "",
-        # Last few turns of this conversation (checklist P0 #1 — multi-turn
-        # memory) — Agent 9 can reference "compared to this morning" and a
-        # follow-up with no place of its own already resolved against the
-        # last one this session actually named (see session.last_place, used
-        # by query() before this state is built).
-        "session_history": session_memory.get_turns(session_id),
+        # Last few turns of this chat (checklist P0 #1 — multi-turn memory),
+        # read once by query() — Planning continues a follow-up's intent,
+        # Agent 9 reads the conversation, and a follow-up with no place of its
+        # own was already resolved against the last one this chat actually
+        # named (see session.last_place, used by query() before this).
+        "session_history": session_history or [],
         "query_id": str(uuid.uuid4()),
         "raw_user_query": query,
         # Overwritten by language_ingress_node once the graph runs — this is
@@ -241,12 +246,15 @@ async def _query_stream(
     place: tuple[str | None, str] = (None, "explicit"),
     on_final: Callable[[dict], None] | None = None,
     session_id: str | None = None,
+    session_history: list[dict] | None = None,
 ) -> AsyncIterator[str]:
     """`on_final`, when given, is called once with the same dict that gets
     JSON-serialized into the `final_response` SSE frame — the query-cache
     write hook (phase4 plan §2.3), kept as a callback rather than a return
     value so this stays a plain generator callers can iterate directly."""
-    state = _initial_state(query, lat, lon, vessel_class, distress, persona, depth, place, session_id)
+    state = _initial_state(
+        query, lat, lon, vessel_class, distress, persona, depth, place, session_id, session_history,
+    )
     emitted = 0  # every graph node appends exactly one completed_nodes entry
     # AND exactly one audit_trace_log entry in the same call (see graph.py) —
     # so the two lists grow in lockstep and index-pairing them is correct,
@@ -309,6 +317,16 @@ async def _query_stream(
             "final_vernacular_response": final_state.get("final_vernacular_response")
             or final_state.get("final_english_response", ""),
             "detected_language": final_state.get("detected_language", "en"),
+            # What the chat's context window remembers this turn as
+            # (session.turn_from_final) — English query and matched routing
+            # rows, so a Tamil follow-up still continues the right intent.
+            "normalized_english_query": final_state.get("normalized_english_query") or query,
+            "matched_intent_rows": final_state.get("matched_intent_rows") or [],
+            # How many earlier turns this answer was given with. The chat UI
+            # compares it to its own thread: 0 after earlier answers means the
+            # context expired, and it says so instead of the follow-up quietly
+            # being answered as turn one (docs/ORCA_DLC_Extension_Pack.md R-AUTH-3).
+            "context_turns": len(session_history or []),
             "confidence_tier": final_state.get("confidence_tier", "LOW_DATA"),
             "risk_assessment": final_state.get("risk_assessment"),
             # Same gate graph.py already applies to the narrative's verdict
@@ -385,15 +403,10 @@ async def _query_stream(
             "source_selections": discovery.get("source_selections", []),
         }
         _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []))
-        # Remember this turn (checklist P0 #1) so a follow-up in the same
-        # session — "what about tomorrow instead?" — can resolve against the
-        # place and verdict just established instead of re-asking or
-        # silently falling back to the regional default.
-        session_memory.append_turn(session_id, {
-            "query": query,
-            "user_location": final_state.get("user_location"),
-            "verdict": (final_state.get("risk_assessment") or {}).get("go_no_go"),
-        })
+        # The turn itself is remembered by _remember_turns in query(), not
+        # here: a query-cache hit or a coalesced follower never runs this
+        # generator, and remembering only here left those turns out of the
+        # chat's context window entirely.
         if on_final is not None:
             on_final(final)
         try:
@@ -408,6 +421,23 @@ async def _query_stream(
         except Exception:
             pass
         yield _sse(final)
+
+
+async def _remember_turns(session_id: str | None, query: str, stream: AsyncIterator[str]) -> AsyncIterator[str]:
+    """Adds each answered turn to the chat's context window (orca/session.py).
+    Wraps the stream query() actually returns because that is the one point a
+    fresh run, a query-cache hit and a coalesced follower all pass through —
+    each yields the same `final_response` frame. Remembered *before* that
+    frame is sent, so the follow-up the user types next can never beat it."""
+    async for line in stream:
+        if session_id and '"final_response"' in line:
+            try:
+                payload = json.loads(line.removeprefix("data: "))
+                if payload.get("type") == "final_response":
+                    session_memory.append_turn(session_id, session_memory.turn_from_final(query, payload))
+            except Exception:  # memory is best-effort; the answer itself must still ship
+                logging.getLogger("orca.session").warning("session: could not remember turn", exc_info=True)
+        yield line
 
 
 def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
@@ -453,13 +483,19 @@ async def query(
     # difference has to survive all the way to Agent 9. Otherwise "am I safe
     # off Palk Bay?" is answered with Thoothukudi's numbers under Palk Bay's
     # name — 53 nm from the IMBL instead of 0.4 nm, GO instead of DANGER.
+    # Read once per request: place carry-over, the priority lane, Planning's
+    # follow-up rule and Agent 9's prompt all see the same window. Only the
+    # Ask chat sends a session_id; /safety, /reasoning and the SOS control
+    # don't, so they stay exactly as stateless (and cacheable) as before.
+    history = session_memory.get_turns(session_id)
+
     place_name: str | None = None
     place_source = "explicit"
     if lat is None or lon is None:
         place = resolve_place_from_text(q)
         if place is not None:
             lat, lon, place_name, place_source = place.lat, place.lon, place.name, place.source
-        elif (carried := session_memory.last_place(session_id)) is not None:
+        elif (carried := session_memory.last_place(history)) is not None:
             lat, lon, place_name = carried
             place_source = "session_carried"
         else:
@@ -472,27 +508,38 @@ async def query(
     # be silently folded into a stale answer meant for a different call.
     if distress:
         return StreamingResponse(
-            _query_stream(
+            _remember_turns(session_id, q, _query_stream(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
-                session_id=session_id,
-            ),
+                session_id=session_id, session_history=history,
+            )),
             media_type="text/event-stream"
         )
 
     cache_key = resolved_key(q, lat, lon, vessel_class, persona, depth)
-    lane = PRIORITY_LANE if _is_priority_shaped(q, depth) else STANDARD_LANE
+    # A follow-up's answer depends on its conversation, not just its resolved
+    # parameters: "why?" means something different in every chat. So it is
+    # never served from or written to the shared query cache, and it only
+    # coalesces with its own chat — never folded into another chat's
+    # identical-looking in-flight request. A chat's first turn has no history
+    # and stays exactly as cacheable as before.
+    follow_up = bool(history)
+    if follow_up:
+        cache_key = f"{cache_key}:session:{session_id}"
+    lane = PRIORITY_LANE if _is_priority_shaped(q, depth, history) else STANDARD_LANE
 
     async def _produce() -> AsyncIterator[str]:
-        cached = query_cache_get(cache_key)
+        cached = None if follow_up else query_cache_get(cache_key)
         if cached is not None:
             yield _sse(cached)
             return
         async with lane:
             async for line in _query_stream(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
-                on_final=lambda final: query_cache_store(cache_key, final),
-                session_id=session_id,
+                on_final=None if follow_up else (lambda final: query_cache_store(cache_key, final)),
+                session_id=session_id, session_history=history,
             ):
                 yield line
 
-    return StreamingResponse(coalesce(cache_key, _produce), media_type="text/event-stream")
+    return StreamingResponse(
+        _remember_turns(session_id, q, coalesce(cache_key, _produce)), media_type="text/event-stream",
+    )

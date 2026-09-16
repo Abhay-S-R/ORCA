@@ -15,7 +15,6 @@ import type { QueryFocus } from "../components/MapView";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
 import { classifyQueryIntent, matchRegionInQuery } from "../lib/queryIntent";
-import { getSessionId } from "../lib/session";
 
 export type AgentSpan = { agent_name: string; status: AgentStatus };
 export type FinalResponse = {
@@ -30,6 +29,9 @@ export type FinalResponse = {
   weather_summary?: WeatherSummary;
   hazard_breakdown?: HazardBreakdown;
   ocean_summary?: OceanSummary;
+  // Earlier turns of this chat the backend answered with (its context window,
+  // orca/session.py). Absent on answers cached before the field existed.
+  context_turns?: number;
 };
 
 export type Turn = {
@@ -44,6 +46,11 @@ export type Turn = {
 };
 
 const STORAGE_KEY = "orca-ask-thread";
+// The backend's context window is keyed on this id, so it has to live and die
+// with the thread it belongs to: same storage as the thread (a restored chat
+// keeps its context), cleared by "New chat" (a new chat never inherits the
+// last one's). It replaced a per-tab sessionStorage id, which did neither.
+const CHAT_ID_KEY = "orca-ask-chat-id";
 
 function loadTurns(): Turn[] {
   if (typeof window === "undefined") return [];
@@ -74,6 +81,29 @@ export function useAskThread(persona: Persona) {
   const sourceRef = useRef<EventSource | null>(null);
   const focusNonce = useRef(0);
   const lastPersona = useRef(persona);
+  const chatIdRef = useRef<string | null>(null);
+
+  // Lazily minted on the first ask, not on mount — reading localStorage during
+  // render is the hydration pitfall the savedTurns comment below describes.
+  // The ref alone still carries the id when storage is unavailable.
+  function chatId(): string {
+    if (!chatIdRef.current) {
+      try {
+        chatIdRef.current = localStorage.getItem(CHAT_ID_KEY);
+      } catch {
+        /* storage disabled — mint an in-memory id below */
+      }
+    }
+    if (!chatIdRef.current) {
+      chatIdRef.current = crypto.randomUUID();
+      try {
+        localStorage.setItem(CHAT_ID_KEY, chatIdRef.current);
+      } catch {
+        /* context then lasts for this page only */
+      }
+    }
+    return chatIdRef.current;
+  }
 
   useEffect(() => {
     // Same client-only external-store sync as persona/context.tsx's own
@@ -114,6 +144,12 @@ export function useAskThread(persona: Persona) {
     sourceRef.current?.close();
     setSavedTurns([]);
     setActiveFocus(null);
+    chatIdRef.current = null;
+    try {
+      localStorage.removeItem(CHAT_ID_KEY);
+    } catch {
+      /* nothing stored to clear */
+    }
   }
 
   function updateTurn(id: string, patch: Partial<Turn> | ((t: Turn) => Partial<Turn>)) {
@@ -131,7 +167,16 @@ export function useAskThread(persona: Persona) {
     // layers (boundaries/PFZ) and a real fit-to-geometry, so the map moves
     // the moment you ask rather than waiting on the round trip (plan §7/§8).
     focusNonce.current += 1;
-    const focus: QueryFocus = { intent: classifyQueryIntent(q), regionId: matchRegionInQuery(q), nonce: focusNonce.current };
+    // A follow-up that names no topic or region of its own ("what about
+    // tomorrow?") keeps the map where the conversation already is — the same
+    // carry-over the backend applies to its intent and place.
+    const previous = turns[turns.length - 1]?.focus;
+    const intent = classifyQueryIntent(q);
+    const focus: QueryFocus = {
+      intent: intent === "general" && previous ? previous.intent : intent,
+      regionId: matchRegionInQuery(q) ?? previous?.regionId,
+      nonce: focusNonce.current,
+    };
     setSavedTurns((prev) => [
       ...(prev ?? []),
       { id, askedQuery: q, spans: [], answer: null, streaming: true, failed: false, renderedAs: null, focus },
@@ -141,7 +186,7 @@ export function useAskThread(persona: Persona) {
     // Persona is an explicit rendering choice only — Agent 9 renders with it,
     // no classifier reads it (Ground Rule 1). "unresolved" = don't send one.
     const personaParam = persona !== "unresolved" ? `&persona=${persona}` : "";
-    const sessionParam = `&session_id=${encodeURIComponent(getSessionId())}`;
+    const sessionParam = `&session_id=${encodeURIComponent(chatId())}`;
     const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}`);
     sourceRef.current = es;
     es.onmessage = (ev) => {
