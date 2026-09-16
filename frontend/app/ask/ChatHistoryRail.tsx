@@ -200,7 +200,7 @@ export function ChatHistoryRail({
       aria-label="Chat history"
       className={`flex min-h-0 flex-col gap-3 ${
         variant === "rail"
-          ? "h-full w-56 shrink-0 rounded-2xl border border-hairline bg-shelf-1/60 p-3 shadow-lg xl:w-64"
+          ? "h-full w-64 shrink-0 rounded-2xl border border-hairline bg-shelf-1/60 p-3.5 shadow-lg xl:w-72"
           : "h-full w-full p-4"
       }`}
     >
