@@ -128,6 +128,13 @@ def tides(lat: Lat = _DEFAULT_LAT, lon: Lon = _DEFAULT_LON) -> dict:
         "fell_back": t.fell_back,
         "source_provenance": asdict(t.source_provenance),
         "confidence": asdict(t.confidence),
+        # Predicted vs observed: the INCOIS gauge's own measured level and its
+        # published sea-level anomaly, carried next to the astronomical
+        # prediction rather than blended into it.
+        "observed_cross_check": {
+            k: (asdict(v) if k == "confidence" else v)
+            for k, v in oa.tide_gauge_observation(lat, lon).items()
+        },
         "source_selection": _source_selection("tide", None),
     }
 
@@ -249,6 +256,13 @@ def trends(district: str = "Thoothukudi", lat: Lat = _DEFAULT_LAT, lon: Lon = _D
         "catch_decline": {k: (asdict(v) if k == "confidence" else v) for k, v in diag.items()},
         "sst_chlorophyll_correlation": {
             k: (asdict(v) if k == "confidence" else v) for k, v in correlation.items()
+        },
+        # PS-Q7 says "anomaly", which needs a reference period. This is it:
+        # the cached ERA5 window, or an explicit statement that none is held
+        # for this coast — never a silent "nothing unusual".
+        "wind_anomaly": {
+            k: (asdict(v) if k == "confidence" else v)
+            for k, v in oa.wind_anomaly(lat, lon).items()
         },
         "source_selection": _source_selection("catch_statistics", None),
     }

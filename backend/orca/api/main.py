@@ -348,6 +348,14 @@ async def _query_stream(
                 "wind_speed_ms": hourly[0].get("wind_speed_10m"),
                 "lightning_active": weather.get("lightning_active", False),
                 "cyclone_alert": weather.get("cyclone_alert"),
+                # Two independent convective sources: Open-Meteo's CAPE proxy
+                # (the `lightning_active` flag above) and IMD's own district
+                # nowcast. When they disagree the user sees that, rather than
+                # ORCA silently picking one — "single_source" when the IMD
+                # snapshot is empty or out of its validity window, because two
+                # statements about different days are not a disagreement.
+                "lightning_source_agreement": weather.get("lightning_source_agreement", "single_source"),
+                "imd_nowcast": weather.get("imd_nowcast"),
             },
             # Exit criterion 7 is "audit_trace_log captures every agent
             # hand-off, verified by log inspection" — with no Postgres in

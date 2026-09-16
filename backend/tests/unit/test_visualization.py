@@ -139,3 +139,24 @@ def test_run_produces_a_clean_agent_result_end_to_end() -> None:
     assert not result.outputs["validation_dropped"]
     assert result.confidence.score == "HIGH"
     assert {layer.layer_type for layer in result.outputs["map_layers"]} >= {"Polygon", "PointMarker", "Heatmap"}
+
+
+# --- Bhuvan manifest stays OFF the map ----------------------------------
+
+def test_no_bhuvan_layer_is_emitted_onto_the_map():
+    """The manifest's layer names do not exist upstream (GetCapabilities,
+    2026-09-16 — "400 Unknown layer" for all four). A toggle for a layer that
+    can never draw is worse than no toggle."""
+    from orca.agents import visualization as viz
+
+    state = {"user_location": {"lat": 8.75, "lon": 78.3}}
+    ids = [l.layer_id for l in viz.generate_map_layers(state)]  # type: ignore[arg-type]
+    assert not any(i.startswith("bhuvan") for i in ids), ids
+
+
+def test_bhuvan_manifest_is_still_reachable_as_a_source_catalog():
+    """Off the map is not the same as unwired: it remains a catalog entry."""
+    from orca.agents.discovery import local_catalog
+
+    services = local_catalog("bhuvan_wms")
+    assert services and all(s["held_locally"] is False for s in services)

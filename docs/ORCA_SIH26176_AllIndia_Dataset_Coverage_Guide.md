@@ -12,10 +12,15 @@
 > ⚠️ **Read this before downloading anything.** A lot of data is already on disk.
 > The column **ON-DISK STATUS** in every table below tells you what to skip.
 >
-> **Audit method (2026-09-13 revision):** every row below was re-checked by grepping the working tree
+> **Audit method (2026-09-16 revision):** every row below was re-checked by grepping the working tree
 > for the file path and following the call chain to a caller that actually executes at query time.
 > "Wired" here means *a reader exists and runs*, not *a doc says it should*. Several rows in the
 > original version of this guide were wrong in both directions — see §0.1.
+>
+> **2026-09-16:** the "⚙️ on disk, zero readers" table is now **empty**. Every distinct dataset in
+> `data/` has a reader that executes, verified by call-chain grep and by 382 passing backend tests.
+> A loader existing is not wiring — §0.1b records the six loaders that were written in commit
+> `7ed9329` with **no caller at all**, and where each one is now called from.
 
 ### Legend used throughout this document
 | Icon | Meaning |
@@ -39,6 +44,75 @@ code. Five marks were wrong. Do not carry them forward.
 | A-4 | "All 11 PFZ Sectors" | INCOIS publishes **14** sectors (SEC001–SEC014), and the on-disk status file carries all 14. The 11-row table was wrong about both the count and the region mapping — the same defect §0 C-5 of `data_verification_audit.md` already fixed once | `data/incois_osf_pfz/pfz/pfz_sector_status.json` |
 | A-5 | INSAT-3D SST `.h5` / EOS-06 chlorophyll `.nc` — "⚙️ not wired, needs a loader" | Correct, but understated. The consuming function `correlate_sst_chlorophyll()` does not read these files *at all*; it reads `data/fixtures/mosdac_{sst,chl}__pilot__*.json`, **a directory that does not exist**, and therefore returns `available: False` on every call in the product's life | `agents/ocean_analytics.py:235-250`, `data/analytics_loaders.py:188-202` |
 
+### 0.1b Second-pass corrections (2026-09-16) — "a loader exists" is not "it is wired"
+
+Commit `7ed9329` ("half work done on dataset") added real, correct loaders for most of the ⚙️ rows
+below and wired three of them. Six were left with **zero callers**, which on the running system is
+indistinguishable from not having been written: the file was still never read at query time. This
+revision closes that gap. Each row names the caller that now executes.
+
+| Loader (written, previously uncalled) | Now called from | What it makes answerable |
+|---|---|---|
+| `analytics_loaders.load_era5_baseline` | `ocean_analytics.wind_anomaly` → agent `run()` outputs **and** `GET /api/trends` | PS-Q7's word "anomaly" finally has a reference period. `detect_anomaly` took a baseline mean/σ no caller could supply |
+| `analytics_loaders.load_imd_nowcast_alerts` | `weather_intelligence.get_imd_nowcast_alerts` → agent `run()` outputs | PS-Q4 gains a genuinely IMD-sourced second hazard source next to the Open-Meteo proxy, plus a `lightning_source_agreement` field (`agree` / `disagree` / `single_source`) |
+| `analytics_loaders.load_osf_point_forecasts` | `ocean_analytics.nearest_osf_point_forecast`, and `voyage._ww3_point_fallback` | PS-Q2/Q3/Q6 answer per-point wave + current without opening the 16 GB NetCDF pair, and a checkout without those files no longer crashes voyage planning |
+| `analytics_loaders.load_nasa_chl_granules` | `discovery.local_catalog("nasa_ocean_color")` → `GET /api/sources` | The `nasa_ocean_color` cascade rung can now be *shown*. Every entry carries `held_locally: false` — this file is an index of granules, not chlorophyll |
+| `analytics_loaders.load_bhuvan_wms_services` | `discovery.local_catalog("bhuvan_wms")` → `GET /api/sources` — **catalog only, deliberately not a map layer** | See the warning below: the manifest's layer names do not exist upstream, so all four services are surfaced as a source catalog and none is rendered |
+| `analytics_loaders.load_boundary_provenance` | `GET /api/boundary-provenance` *(endpoint only — no frontend consumer yet)* | PS-C10 citations. 15 audited WDPA records + 2 VLIZ EEZ gazetteer entries (MRGID + citation) are now reachable by the citation panel, not just their timestamp |
+
+Three further datasets the previous revision dismissed are also wired, because each was cheaper than
+the sentence explaining why it was skipped:
+
+| Dataset | Now called from | Note |
+|---|---|---|
+| `incois_osf_pfz/south_india_marine_grid.csv` (400 cells) | `ocean_analytics.nearest_osf_point_forecast` second rung | Covers south India at 0.5° where the 8 point extractions do not. Returns `LOW_DATA` and labels itself a grid cell, never a position-accurate reading |
+| `incois_osf_pfz/dataset_manifest.json` | `discovery.local_catalog("incois_osf_ww3" / "incois_osf_hycom" / "incois_pfz")` | Carries the **CC-BY 4.0 (INCOIS/MoES) licence**, recorded nowhere else in the repo |
+| `tier2/gfw/gfw_vessels_search_sample.json` | `discovery.local_catalog("gfw_ais")` | Identity records only, no positions. Surfaced as a catalog so the `gfw_ais` registry entry is not a name with nothing behind it. AIS presence stays out of scope |
+
+One row in the 09-13 ✅ ledger was itself wrong in the same way the ⚙️ rows were: the
+`incois_tide_gauge_telemetry.json` entry cited `analytics_loaders.py:65`, which is the loader's own
+`def` line, not a caller. Nothing read it. It is now called by `ocean_analytics.tide_gauge_observation`,
+which reports observed sea level against the gauge's own astronomical prediction and carries INCOIS's
+`tsunami_trigger_state` through verbatim — ORCA does not threshold or interpret that field, because a
+tsunami determination is INCOIS's to make. This is the lesson of this pass restated: **cite the caller,
+never the definition.** A line number inside the loader file proves nothing.
+
+> ⚠️ **The Bhuvan marine manifest is not a verified service description — do not build a map layer from it.**
+> Checked against the endpoint's own GetCapabilities on 2026-09-16. All four layer names it lists
+> (`india_coastal_boundary`, `india_states`, `major_ports`, `inshore_waterways`) return
+> **`400 Unknown layer`**. The server does host 5,136 real layers, but they are land-use, cadastral and
+> urban-mapping products (`sisdp`/`nuis`/`mmi`/`sdv`); searching them for *coast, shore, marine, ocean,
+> port, coral, mangrove, bathymetry, sea* returns **zero** hits, and `bhuvan-app1` / `bhuvan-ras2` 404
+> on GetCapabilities entirely. Two of the manifest's other entries are human-facing portal pages, not
+> OGC endpoints.
+>
+> A first attempt did ship this as a map layer. It failed in the browser on **CORS** — NRSC sends no
+> `Access-Control-Allow-Origin` — which looked like a plumbing problem and is not: a same-origin proxy
+> was written, and the upstream then answered `400 Unknown layer`. The CORS error was masking bad data.
+> The layer and the proxy were both removed. **Re-add a Bhuvan map layer only after a GetCapabilities
+> response names a real marine layer** — and keep the proxy in mind when you do, because the CORS
+> constraint is real and will still apply.
+
+`backend/scripts/build_all_india_pfz.py` has now been **run**: `all_india_pfz_advisories.geojson`
+exists with **407 features across 13 of the 14 sectors** (all but SEC013 Nicobar), and
+`load_pfz_live_geojson()` prefers it, so `/zones` renders national PFZ coverage instead of the pilot box.
+
+### 0.1c Frontend wiring — a field in a response nobody renders is still invisible
+
+Backend wiring does not put anything on screen. Each newly-wired field was checked against the
+frontend; these now have a consumer:
+
+| Field | Surface | What the user sees |
+|---|---|---|
+| `sst_chlorophyll_correlation` | `/trends` | Already wired; the panel flips from the "Awaiting the gridded ocean series" empty state to a real Pearson r (−0.245, weak inverse) over 95 co-located cells |
+| `wind_anomaly` | `/trends` — new panel | Observed peak vs ERA5 mean ±σ, z-score, and an anomalous/normal badge. Off a coast with no cached baseline it states that instead of implying "normal" |
+| `observed_cross_check` | `/voyage` berthing panel | Observed vs predicted tide height, the sea-level anomaly between them, and INCOIS's `tsunami_trigger_state` verbatim. No gauge in range renders as a one-line statement, not a blank |
+| `imd_nowcast`, `lightning_source_agreement` | `/safety` | An "IMD nowcast" readout (district count, or "snapshot window closed"), plus a *sources disagree* banner that appears only on genuine disagreement — the verdict is still computed from the Open-Meteo proxy alone, and the banner says so |
+| `all_india_pfz_advisories.geojson`, `sector_for_point` | `/zones`, map PFZ layer | 407 advisories across 13 sectors; asking from Goa returns SEC003 / GOA |
+
+Still endpoint-only, with no frontend consumer: `/api/boundary-provenance`, `local_catalog` on
+`/api/sources`, and `osf_point_forecast`. They are reachable and correct; nothing renders them yet.
+
 ### 0.2 Verified wiring ledger — every file on disk
 
 `data/` holds **25,679 files / 19 GB**, of which ~25,000 are pre-rendered map tiles. The table below
@@ -54,7 +128,7 @@ covers every *distinct dataset*, not every file.
 | `tier1/hazards/ndma_cap_alerts.json` | `weather_intelligence.py:290` | PS-Q4 cyclone/CAP fallback when SACHET is unreachable |
 | `tier1/tides/soi_tide_tables_2026.csv` | `analytics_loaders.py:38` | PS-Q3 tide predictions |
 | `tier1/tides/soi_tide_stations_metadata.json` | `analytics_loaders.py:32`, `loaders.py:114` | Tide datums **and** the tide-station tier of the place gazetteer |
-| `tier1/tides/incois_tide_gauge_telemetry.json` | `analytics_loaders.py:65` | PS-Q3 observed-vs-predicted cross-check |
+| `tier1/tides/incois_tide_gauge_telemetry.json` | `analytics_loaders.load_tide_gauge_telemetry` → `ocean_analytics.tide_gauge_observation` → agent `run()` + `GET /api/tides` | PS-Q3 observed-vs-predicted cross-check. **Was mis-marked wired in the 09-13 ledger** — the loader existed, nothing called it. Fixed 2026-09-16 |
 | `tier2/stormglass/stormglass_tides_*.json` (5) | `analytics_loaders.py:83`, `ocean_analytics.py:137` | PS-Q3 tide fallback (MSL datum — not interchangeable with chart datum) |
 | `tier1/fisheries/datagov_marine_fish_landings.csv` | `analytics_loaders.py:174`, `ocean_analytics.py:538` | PS-Q7 productivity diagnosis |
 | `incois_osf_pfz/pfz/incois_pfz_live_advisories_master.csv` | `analytics_loaders.py:153`, `ocean_analytics.py:309 nearest_pfz` | PS-Q1 nearest PFZ |
@@ -70,31 +144,38 @@ covers every *distinct dataset*, not every file.
 | `tier1/vectors/pan_india_currents_v2.json`, `pan_india_wind.json` | `geospatial_routes.py:63,90` | Pre-computed pan-India vector caches |
 | `tier1/tiles/bathymetry/**`, `tier1/tiles/wave_height_forecast/**` (224 MB, 25k tiles, 56 frames) | `main.py:128` static mount → `MapView.tsx:161` | Map raster layers |
 | `cyclone_gaja/ibtracs_gaja_2018_besttrack.json` + `era5_gaja_*.nc` | `replay/gaja.py:28-29` → `/api/replay/gaja` | Cyclone demo scenario |
+| `tier3/mosdac/Sea surface temp/3RIMG_*.h5` (17 files, 152 MB) | `satellite_loaders.load_insat_sst` → `ocean_analytics._sst_grid` → `correlate_sst_chlorophyll` | PS-Q5, PS-Q7 — **ISRO INSAT-3DR SST, the headline gap, now read** (3,514 bins over the India bbox) |
+| `tier3/mosdac/chlorophyll/E06OCML4AC_*.nc` (10 files, 60 MB) | `satellite_loaders.load_eos06_chl` → `correlate_sst_chlorophyll` | PS-Q5, PS-Q7 — ISRO EOS-06 OCM-3 chlorophyll (99 cells). Still **March 2026 and stale**, but read and labelled as such |
+| `tier2/copernicus/cmems_*.nc` | `satellite_loaders.load_cmems_sst` → `_sst_grid` rung 2 | The declared SST fallback is now a rung that actually exists (783 cells) |
+| `tier1/weather/era5_historical_thoothukudi_30d.json` | `analytics_loaders.load_era5_baseline` → `ocean_analytics.wind_anomaly` → agent `run()` + `/api/trends` | PS-Q7 anomaly — the reference period `detect_anomaly` always needed |
+| `tier1/hazards/imd_nowcast_alerts.json` | `analytics_loaders.load_imd_nowcast_alerts` → `weather_intelligence.get_imd_nowcast_alerts` | PS-Q4 second hazard source + cross-source disagreement signal |
+| `osf_hycom/hycom_latest_points.geojson`, `osf_ww3/ww3_latest_points.geojson` | `analytics_loaders.load_osf_point_forecasts` → `ocean_analytics.nearest_osf_point_forecast`, `voyage._ww3_point_fallback` | Per-point wave/current fast path, and the voyage fallback when the 16 GB grids are absent |
+| `incois_osf_pfz/south_india_marine_grid.csv` | `analytics_loaders.load_osf_marine_grid` → `nearest_osf_point_forecast` rung 2 | 0.5° regional coverage beyond the 8 extracted ports |
+| `incois_osf_pfz/dataset_manifest.json` | `analytics_loaders.load_osf_dataset_manifest` → `discovery.local_catalog` → `/api/sources` | INCOIS CC-BY 4.0 licence + upstream URL patterns, for citations |
+| `tier2/nasa/nasa_cmr_modis_chl_granules.json` | `analytics_loaders.load_nasa_chl_granules` → `discovery.local_catalog` | Names the granules the NASA cascade rung would fetch; `held_locally: false` on every row |
+| `tier2/gfw/gfw_vessels_search_sample.json` | `analytics_loaders.load_gfw_vessel_sample` → `discovery.local_catalog` | Backs the `gfw_ais` registry entry with visible evidence |
+| `tier3/bhuvan/bhuvan_15days_marine_manifest.json` | `analytics_loaders.load_bhuvan_wms_services` → `discovery.local_catalog` | All 4 services in the source catalog. **Not a map layer** — see the warning below |
+| `tier1/boundaries/mpa_geofence_provenance.json`, `vliz_*.json` | `analytics_loaders.load_boundary_provenance` → `GET /api/boundary-provenance` | PS-C10 citation evidence — WDPA site ids and VLIZ MRGIDs |
+| `incois_osf_pfz/pfz/all_india_pfz_advisories.geojson` (**generated 2026-09-16**) | `analytics_loaders.load_pfz_live_geojson` → `/zones` | 407 features, 13 of 14 sectors — national PFZ coverage |
 
-#### ⚙️ On disk, zero readers — a code change, not a download
+#### ⚙️ On disk, zero readers — **empty as of 2026-09-16**
 
-| Dataset / path | Size | Why it matters | Fix |
-|---|---|---|---|
-| `tier3/mosdac/Sea surface temp/3RIMG_*.h5` (17 files) | 152 MB | **The headline gap.** ISRO INSAT-3DR SST, never opened. PS-Q5 and PS-Q7 both need it | C4 / DLC `R-SCI-1` |
-| `tier3/mosdac/chlorophyll/E06OCML4AC_*.nc` (10 files) | 60 MB | ISRO EOS-06 OCM-3 chlorophyll, never opened, and **March 2026 — six months stale** | C7 / `R-SCI-1` |
-| `tier1/weather/era5_historical_thoothukudi_30d.json` | 1.7 KB | `detect_anomaly()` exists (`ocean_analytics.py:221`) and takes a baseline mean/σ — but **nothing loads this baseline file**, so anomaly detection has no climatology behind it. PS-Q7 says "anomaly"; today there is no reference period | Add a loader; extend to all regions |
-| `tier1/hazards/imd_nowcast_alerts.json` | 224 KB | Cached IMD convective nowcast, unread. The only IMD-sourced hazard content on disk | Wire as a second hazard source (also feeds cross-source disagreement, `R-PS-5`) |
-| `tier2/copernicus/cmems_*.nc` | 648 KB | The named SST fallback in `discovery.py`'s cascade — advertised in source selection, unreadable in practice | Wire, or stop advertising it |
-| `tier2/nasa/nasa_cmr_modis_chl_granules.json` | — | Same: named chlorophyll fallback, no reader | Wire or de-advertise |
-| `tier2/gfw/gfw_vessels_search_sample.json` | — | AIS sample; stretch scope | Leave, or drop from the registry |
-| `tier3/bhuvan/bhuvan_manifest.json`, `bhuvan_15days_marine_manifest.json` | 10 KB | NRSC WMS layer manifests — a second ISRO-lineage surface, and a cheap one (map layer, no parsing) | Wire into the visualization layer list |
-| `osf_hycom/hycom_latest_points.geojson` + 2 CSVs, `osf_ww3/ww3_latest_points.geojson` + 2 CSVs | — | Pre-extracted per-port forecasts (7 ports × 56/28 steps, zero missing values, from `scripts/extract_osf_pilot.py`). **Cheaper than opening the 16 GB NetCDFs** and currently unused by any agent | Use as the fast path; keep NetCDF for grids |
-| `incois_osf_pfz/south_india_marine_grid.{csv,geojson}`, `dataset_manifest.json` | — | Pilot grid + manifest, unread | Low priority |
-| `pfz/pfz_parsed_webgis.json`, `pfz_webgis_links.json`, `pfz_webgis_text.txt`, `*_master.json`, `pfz_fallback_pilot_region.json` | — | Scraper intermediates and JSON twins of files already read as CSV/GeoJSON | Keep as provenance; no wiring needed |
-| `tier1/boundaries/mpa_geofence_provenance.json`, `vliz_*.json` (3) | — | Provenance sidecars. Not needed at runtime, but they are the evidence behind PS-C10 citations and nothing surfaces them | Surface in the citation panel |
-| `tier1/bathymetry/etopo_all_india_real.nc` | 12 MB | Duplicate/alternate of the wired ETOPO file; ambiguous provenance | Identify and delete one of the two |
+Every distinct dataset in `data/` now has a reader that executes at query time. The previous contents
+of this table moved into the ✅ ledger above; §0.1b names the caller for each.
+
+Two residual items, neither of which is a wiring gap:
+
+| Item | Status | Why no wiring |
+|---|---|---|
+| `pfz/pfz_parsed_webgis.json`, `pfz_webgis_links.json`, `pfz_webgis_text.txt`, `*_master.json`, `pfz_fallback_pilot_region.json` | Kept as provenance | Scraper intermediates and JSON twins of files already read as CSV/GeoJSON. Reading them twice would be the defect |
+| `tier1/bathymetry/etopo_all_india_real.nc` (12 MB) | **Duplicate confirmed, not deleted** | Verified identical to the wired `etopo_all_india_bathymetry.nc`: same 1561×1981 grid, same 65–98 E / 0–26 N extent, same value range (−5341.51 to 3500.70 m). `_real.nc` is the raw NOAA download (`lat`/`lon` + `crs`); `_bathymetry.nc` is the derived copy with the `altitude` alias that `geospatial.py:35` opens. Safe to delete `_real.nc` — left in place because `data/` is gitignored working data and deletion is the owner's call, not the wiring pass's |
 
 #### ❌ Missing but required by code that already exists
 
 | What | Consequence today |
 |---|---|
-| `data/fixtures/mosdac_{sst,chl}__pilot__*.json` | `correlate_sst_chlorophyll()` returns `available: False` **always**. PS-Q5 ("high chlorophyll + favourable SST") has no working path |
-| `incois_osf_pfz/pfz/all_india_pfz_advisories.geojson` | `load_pfz_live_geojson()` prefers this file and falls back when absent. `backend/scripts/build_all_india_pfz.py` generates it and **has never been run** |
+| ~~`data/fixtures/mosdac_{sst,chl}__pilot__*.json`~~ | **No longer required.** `correlate_sst_chlorophyll()` now reads the ISRO archives directly (INSAT-3DR SST → CMEMS → fixture; EOS-06 chlorophyll → fixture) and returns a real correlation over 95 co-located 0.25° cells. The fixture is the last rung of a cascade, not the only path |
+| ~~`incois_osf_pfz/pfz/all_india_pfz_advisories.geojson`~~ | **Generated 2026-09-16.** `backend/scripts/build_all_india_pfz.py` has been run: 407 features, sectors SEC001–SEC012 + SEC014. Re-run it whenever the live advisory file is refreshed |
 | Marine/weather/lightning caches for any port outside the 5–6 pilot ports | Every non-pilot location has no offline fallback; a network failure during judging outside Tamil Nadu produces degraded answers |
 | SoI tide predictions outside 5 stations (TUT, PAM, CHE, KOC, BOM) | PS-Q3 cannot be answered for Gujarat, Odisha, West Bengal, Andhra, Goa, Karnataka, A&N or Lakshadweep |
 | CMFRI landings outside 4 districts | PS-Q7 answerable only for Thoothukudi, Ramanathapuram, Ernakulam and Mumbai Coastal |
@@ -123,12 +204,12 @@ answered for **all Indian coastal regions** — not just Tamil Nadu.
 | Dataset | ON-DISK STATUS | Source | URL | Format | Path in repo |
 |---------|---------------|--------|-----|--------|--------------|
 | Daily PFZ Live Advisories | ✅ ON DISK + WIRED | INCOIS OSF | https://osf.incois.gov.in/index.jsp | JSON | `data/incois_osf_pfz/pfz/incois_pfz_live_advisories.geojson` |
-| PFZ Historical Archive — 1 date only | ⚙️ ON DISK, NOT WIRED | INCOIS OSF | Same portal → Archive tab | JSON | `data/incois_osf_pfz/pfz/history/20260901/` ← only 1 date, need ≥7 |
+| PFZ Historical Archive — 1 date only | ✅ ON DISK + WIRED (`score_pfz_persistence`) — **data gap, not a wiring gap** | INCOIS OSF | Same portal → Archive tab | JSON | `data/incois_osf_pfz/pfz/history/20260901/` ← only 1 date, need ≥7, so persistence is structurally 1/1 |
 | PFZ History — 6 more dates needed | ❌ MISSING | INCOIS OSF | https://osf.incois.gov.in → Archive | JSON | `data/incois_osf_pfz/pfz/history/YYYYMMDD/` |
 | PFZ Sectors SEC001–SEC005, SEC007–SEC011 | ❌ MISSING | INCOIS OSF | Same portal | JSON | `data/incois_osf_pfz/pfz/` |
-| SST — INSAT-3D (17 files, Aug 13–29) | ⚙️ ON DISK, NOT WIRED | MOSDAC | https://mosdac.gov.in → INSAT-3D → SST | HDF5 `.h5` | `data/tier3/mosdac/Sea surface temp/3RIMG_*.h5` |
+| SST — INSAT-3D (17 files, Aug 13–29) | ✅ ON DISK + WIRED (`satellite_loaders.load_insat_sst`) | MOSDAC | https://mosdac.gov.in → INSAT-3D → SST | HDF5 `.h5` | `data/tier3/mosdac/Sea surface temp/3RIMG_*.h5` |
 | SST — Aug–Sep 2026 (fresh) | ❌ MISSING | MOSDAC | Same portal, pick Aug 30 – today | HDF5 `.h5` | `data/tier3/mosdac/Sea surface temp/` |
-| Chlorophyll — EOS-06 (10 files, March 2026) | ⚙️ ON DISK, NOT WIRED | MOSDAC | https://mosdac.gov.in → EOS-06 → Ocean Colour | NetCDF `.nc` | `data/tier3/mosdac/chlorophyll/E06OCML4AC_*.nc` |
+| Chlorophyll — EOS-06 (10 files, March 2026) | ✅ ON DISK + WIRED (`satellite_loaders.load_eos06_chl`) ⏳ stale | MOSDAC | https://mosdac.gov.in → EOS-06 → Ocean Colour | NetCDF `.nc` | `data/tier3/mosdac/chlorophyll/E06OCML4AC_*.nc` |
 | Chlorophyll — Jul–Sep 2026 (fresh) | ❌ MISSING | MOSDAC | Same portal, pick Jul–Sep 2026 | NetCDF `.nc` | `data/tier3/mosdac/chlorophyll/` |
 | Chlorophyll backup | ❌ MISSING | NASA OBPG MODIS | https://oceancolor.gsfc.nasa.gov/l3/ | NetCDF | `data/tier2/nasa/` |
 
@@ -180,13 +261,13 @@ lon 71.91–84.80 E):
 | Dataset | ON-DISK STATUS | Source | URL | Format | Path in repo |
 |---------|---------------|--------|-----|--------|--------------|
 | WaveWatch III (WW3) NetCDF | ✅ ON DISK + WIRED (⏳ forecast window expired) | INCOIS OSF | https://osf.incois.gov.in → Wave | NetCDF | `data/incois_osf_pfz/osf_ww3/rsmc_combined_ww3_20260829.nc` (6.5 GB) — read by `voyage.py:57` |
-| WW3 latest point forecasts | ⚙️ ON DISK, NOT WIRED | INCOIS OSF | Same | GeoJSON/CSV | `data/incois_osf_pfz/osf_ww3/ww3_latest_points.geojson` |
+| WW3 latest point forecasts | ✅ ON DISK + WIRED (`load_osf_point_forecasts`; also `voyage`'s grid-absent fallback) | INCOIS OSF | Same | GeoJSON/CSV | `data/incois_osf_pfz/osf_ww3/ww3_latest_points.geojson` |
 | Open-Meteo Marine — chennai, kochi, mumbai, pamban, thoothukudi | ✅ ON DISK + WIRED | Open-Meteo | https://marine-api.open-meteo.com/v1/marine | JSON | `data/tier1/ocean/openmeteo_marine_*.json` |
 | Open-Meteo Marine — 16 new ports | ❌ MISSING | Open-Meteo | Same (free, no key) | JSON | `data/tier1/ocean/openmeteo_marine_<port>.json` |
 | Open-Meteo Weather — 6 existing ports | ✅ ON DISK + WIRED | Open-Meteo | https://api.open-meteo.com/v1/forecast | JSON | `data/tier1/weather/openmeteo_weather_*.json` |
 | Open-Meteo Weather — 16 new ports | ❌ MISSING | Open-Meteo | Same (free, no key) | JSON | `data/tier1/weather/openmeteo_weather_<port>.json` |
 | EOS-06 ScatSat Wind (11 daily files) | ✅ ON DISK + WIRED | MOSDAC | https://mosdac.gov.in → EOS-06 → Wind | NetCDF | `data/tier3/mosdac/Wind/E06SCTL4AW_*.nc` (2.3 GB) — read by `geospatial.py:353`. **The only ISRO product read at runtime today** |
-| ERA5 historical wind (Thoothukudi only) | ⚙️ ON DISK, NOT WIRED | Open-Meteo archive | https://archive-api.open-meteo.com/v1/era5 | JSON | `data/tier1/weather/era5_historical_thoothukudi_30d.json` |
+| ERA5 historical wind (Thoothukudi only) | ✅ ON DISK + WIRED (`load_era5_baseline` → `wind_anomaly`) | Open-Meteo archive | https://archive-api.open-meteo.com/v1/era5 | JSON | `data/tier1/weather/era5_historical_thoothukudi_30d.json` |
 
 **Ports that need Open-Meteo files fetched** (existing: chennai, kochi, mumbai, pamban, thoothukudi, visakhapatnam):
 
@@ -239,7 +320,7 @@ curl "https://api.open-meteo.com/v1/forecast?latitude=LAT&longitude=LON&hourly=w
 | SoI Tide Tables — 13 new ports | ❌ MISSING | Survey of India | Same portal — 2026 PDF → convert to CSV rows | CSV | Append to `data/tier1/tides/soi_tide_tables_2026.csv` |
 | INCOIS Tide Gauge Telemetry | ✅ ON DISK + WIRED | INCOIS | https://incois.gov.in/INCOIS/tidegauge | JSON | `data/tier1/tides/incois_tide_gauge_telemetry.json` |
 | Stormglass Tides — 5 ports | ✅ ON DISK + WIRED | Stormglass | https://stormglass.io (API key needed) | JSON | `data/tier2/stormglass/stormglass_tides_*.json` |
-| HYCOM current point forecasts (8 ports) | ⚙️ ON DISK, NOT WIRED | INCOIS OSF | Already on disk | GeoJSON | `data/incois_osf_pfz/osf_hycom/hycom_latest_points.geojson` |
+| HYCOM current point forecasts (8 ports) | ✅ ON DISK + WIRED (`load_osf_point_forecasts`) | INCOIS OSF | Already on disk | GeoJSON | `data/incois_osf_pfz/osf_hycom/hycom_latest_points.geojson` |
 | CMEMS Sea Level | ❌ MISSING | Copernicus | https://data.marine.copernicus.eu → `SEALEVEL_IND_PHY_L4_MY_008_062` | NetCDF | `data/tier2/copernicus/` |
 
 **Missing tide table ports:**
@@ -330,8 +411,8 @@ Hazira, Kandla, Okha, Kakinada, Paradeep, Haldia, Port Blair, Kavaratti (Lakshad
 |---------|---------------|--------|-----|--------|--------------|
 | ICAR-CMFRI catch records (national) | ✅ ON DISK + WIRED | data.gov.in | https://data.gov.in → marine fish landing | CSV | `data/tier1/fisheries/datagov_marine_fish_landings.csv` (3.4 KB — national only) |
 | CMFRI catch — state/district breakdown | ❌ MISSING | ICAR-CMFRI | https://eprints.cmfri.org.in → Marine Fisheries Census | CSV | `data/tier1/fisheries/cmfri_catch_by_state.csv` |
-| SST INSAT-3D (Aug 13–29, 17 files) | ⚙️ ON DISK, NOT WIRED | MOSDAC | Already downloaded | HDF5 `.h5` | `data/tier3/mosdac/Sea surface temp/3RIMG_*.h5` |
-| Chlorophyll EOS-06 (March 2026, 10 files) | ⚙️ ON DISK, NOT WIRED | MOSDAC | Already downloaded | NetCDF `.nc` | `data/tier3/mosdac/chlorophyll/E06OCML4AC_*.nc` — **stale, 6 months old** |
+| SST INSAT-3D (Aug 13–29, 17 files) | ✅ ON DISK + WIRED (`satellite_loaders.load_insat_sst`) | MOSDAC | Already downloaded | HDF5 `.h5` | `data/tier3/mosdac/Sea surface temp/3RIMG_*.h5` |
+| Chlorophyll EOS-06 (March 2026, 10 files) | ✅ ON DISK + WIRED (`satellite_loaders.load_eos06_chl`) | MOSDAC | Already downloaded | NetCDF `.nc` | `data/tier3/mosdac/chlorophyll/E06OCML4AC_*.nc` — **stale, 6 months old** |
 | Chlorophyll fresh (Jul–Sep 2026) | ❌ MISSING | MOSDAC | https://mosdac.gov.in → EOS-06 → Ocean Colour → Aug–Sep 2026 | NetCDF | `data/tier3/mosdac/chlorophyll/` |
 | CMEMS BGC (nutrients) | ❌ MISSING | Copernicus | https://data.marine.copernicus.eu → `OCEANCOLOUR_IND_BGC_L4_MY_009_152` | NetCDF | `data/tier2/copernicus/` |
 | River discharge data | ❌ MISSING | CWC / WRIS | https://indiawris.gov.in | CSV | `data/tier1/` |
@@ -597,26 +678,30 @@ Coordinates are **offshore positions** (~10–20 nm from coast), not town centre
 ## Section 4 — Master Dataset Table (with On-Disk Status)
 
 > Legend: ✅ = on disk & wired · ⚙️ = on disk, code not wired · ❌ = must download · 🔴 = live API
+>
+> **As of 2026-09-16 no row in this table is ⚙️.** Rows still marked ❌ are genuine downloads, not
+> code gaps — that distinction is the whole point of this table, so do not confuse the two when
+> planning work.
 
 | # | Dataset | On-Disk Status | Source Portal | Direct URL | Free? | Reg? | Format | Repo Path |
 |---|---------|---------------|--------------|------------|-------|------|--------|-----------|
 | 1 | PFZ Daily Advisories | ✅ | INCOIS OSF | https://osf.incois.gov.in | ✅ | No | JSON | `data/incois_osf_pfz/pfz/incois_pfz_live_advisories.geojson` |
-| 2 | PFZ History — 1 date | ⚙️ | INCOIS OSF | Same → Archive | ✅ | No | JSON | `data/incois_osf_pfz/pfz/history/20260901/` |
+| 2 | PFZ History — 1 date | ✅ | INCOIS OSF | Same → Archive | ✅ | No | JSON | `data/incois_osf_pfz/pfz/history/20260901/` |
 | 3 | PFZ History — 6 more dates + all sectors | ❌ | INCOIS OSF | Same → Archive | ✅ | No | JSON | `data/incois_osf_pfz/pfz/history/` |
 | 4 | HYCOM current NetCDF (9.9 GB) | ✅ ⏳ | INCOIS OSF | https://osf.incois.gov.in → Ocean Current | ✅ | No | NetCDF | `data/incois_osf_pfz/osf_hycom/RSMC_hycom_20260830.nc` |
-| 5 | HYCOM current point GeoJSON (8 ports) | ⚙️ | INCOIS OSF | Already on disk | ✅ | No | GeoJSON | `data/incois_osf_pfz/osf_hycom/hycom_latest_points.geojson` |
+| 5 | HYCOM current point GeoJSON (8 ports) | ✅ | INCOIS OSF | Already on disk | ✅ | No | GeoJSON | `data/incois_osf_pfz/osf_hycom/hycom_latest_points.geojson` |
 | 6 | WW3 wave NetCDF (6.5 GB) | ✅ ⏳ | INCOIS OSF | https://osf.incois.gov.in → Wave | ✅ | No | NetCDF | `data/incois_osf_pfz/osf_ww3/rsmc_combined_ww3_20260829.nc` |
-| 7 | WW3 point GeoJSON | ⚙️ | INCOIS OSF | Already on disk | ✅ | No | GeoJSON | `data/incois_osf_pfz/osf_ww3/ww3_latest_points.geojson` |
-| 8 | INSAT-3D SST (17 files, Aug 13–29) | ⚙️ | MOSDAC | https://mosdac.gov.in → INSAT-3D → SST | ✅ | Yes | HDF5 `.h5` | `data/tier3/mosdac/Sea surface temp/3RIMG_*.h5` |
+| 7 | WW3 point GeoJSON | ✅ | INCOIS OSF | Already on disk | ✅ | No | GeoJSON | `data/incois_osf_pfz/osf_ww3/ww3_latest_points.geojson` |
+| 8 | INSAT-3D SST (17 files, Aug 13–29) | ✅ | MOSDAC | https://mosdac.gov.in → INSAT-3D → SST | ✅ | Yes | HDF5 `.h5` | `data/tier3/mosdac/Sea surface temp/3RIMG_*.h5` |
 | 9 | SST fresh files (Aug 30 – today) | ❌ | MOSDAC | Same portal | ✅ | Yes | HDF5 `.h5` | `data/tier3/mosdac/Sea surface temp/` |
-| 10 | EOS-06 Chlorophyll (10 files, March 2026) | ⚙️ | MOSDAC | https://mosdac.gov.in → EOS-06 → Ocean Colour | ✅ | Yes | NetCDF `.nc` | `data/tier3/mosdac/chlorophyll/E06OCML4AC_*.nc` |
+| 10 | EOS-06 Chlorophyll (10 files, March 2026) | ✅ ⏳ | MOSDAC | https://mosdac.gov.in → EOS-06 → Ocean Colour | ✅ | Yes | NetCDF `.nc` | `data/tier3/mosdac/chlorophyll/E06OCML4AC_*.nc` |
 | 11 | Chlorophyll fresh (Jul–Sep 2026) | ❌ | MOSDAC | Same portal | ✅ | Yes | NetCDF | `data/tier3/mosdac/chlorophyll/` |
 | 12 | EOS-06 ScatSat Wind (11 files) | ✅ | MOSDAC | https://mosdac.gov.in → EOS-06 → Wind | ✅ | Yes | NetCDF | `data/tier3/mosdac/Wind/E06SCTL4AW_*.nc` |
 | 13 | Open-Meteo Marine — 5 existing ports | ✅ | Open-Meteo | https://marine-api.open-meteo.com/v1/marine | ✅ | No | JSON | `data/tier1/ocean/openmeteo_marine_*.json` |
 | 14 | Open-Meteo Marine — 16 new ports | ❌ | Open-Meteo | Same (free) | ✅ | No | JSON | `data/tier1/ocean/openmeteo_marine_<port>.json` |
 | 15 | Open-Meteo Weather — 6 existing ports | ✅ | Open-Meteo | https://api.open-meteo.com/v1/forecast | ✅ | No | JSON | `data/tier1/weather/openmeteo_weather_*.json` |
 | 16 | Open-Meteo Weather — 16 new ports | ❌ | Open-Meteo | Same (free) | ✅ | No | JSON | `data/tier1/weather/openmeteo_weather_<port>.json` |
-| 17 | CMEMS SST / Physics | ❌ | Copernicus | https://data.marine.copernicus.eu → `GLOBAL_ANALYSISFORECAST_PHY_001_024` | ✅ | Yes (EU) | NetCDF | `data/tier2/copernicus/` |
+| 17 | CMEMS SST / Physics | ✅ | Copernicus | https://data.marine.copernicus.eu → `GLOBAL_ANALYSISFORECAST_PHY_001_024` | ✅ | Yes (EU) | NetCDF | `data/tier2/copernicus/` |
 | 18 | CMEMS Ocean Colour | ❌ | Copernicus | https://data.marine.copernicus.eu → `OCEANCOLOUR_IND_BGC_L4_MY_009_152` | ✅ | Yes | NetCDF | `data/tier2/copernicus/` |
 | 19 | CMEMS Wave | ❌ | Copernicus | https://data.marine.copernicus.eu → `GLOBAL_ANALYSISFORECAST_WAV_001_027` | ✅ | Yes | NetCDF | `data/tier2/copernicus/` |
 | 20 | CMEMS Sea Level | ❌ | Copernicus | https://data.marine.copernicus.eu → `SEALEVEL_IND_PHY_L4_MY_008_062` | ✅ | Yes | NetCDF | `data/tier2/copernicus/` |
@@ -654,19 +739,19 @@ Coordinates are **offshore positions** (~10–20 nm from coast), not town centre
 
 | # | File | Change | For PS Query | Priority |
 |---|------|--------|-------------|----------|
-| C1 | `backend/orca/data/loaders.py` | Add 120+ all-India place names to `_PILOT_GAZETTEER` | All | 🔴 Critical |
+| C1 | `backend/orca/data/loaders.py` | ~~Add 120+ all-India place names to `_PILOT_GAZETTEER`~~ | All | ✅ **Done** — `_GAZETTEER`, ~150 entries, whole-word matching |
 | C2 | `backend/orca/data/loaders.py` | Add 15 new ports to `CACHED_MARINE_PORTS` and `CACHED_WEATHER_PORTS` | #2, #3 | 🔴 Critical |
-| C3 | `backend/orca/agents/ocean_analytics.py` | Wire `hycom_latest_points.geojson` → `current_speed_at()` function | #1, #3 | 🔴 Critical |
-| C4 | `backend/orca/agents/ocean_analytics.py` | Wire MOSDAC INSAT-3D SST `.h5` files → HDF5 loader | #1, #7, DATA LIMITED fix | 🔴 Critical |
-| C5 | `backend/orca/agents/ocean_analytics.py` | Expand from `_PILOT_SECTOR = "SEC006"` to all 11 sectors by lat/lon | #1 | 🟡 High |
+| C3 | `backend/orca/agents/ocean_analytics.py` | ~~Wire `hycom_latest_points.geojson`~~ | #1, #3 | ✅ **Done** — `nearest_osf_point_forecast()` (points, then the 0.5° grid) |
+| C4 | `backend/orca/data/satellite_loaders.py` | ~~Wire MOSDAC INSAT-3D SST `.h5` files → HDF5 loader~~ | #1, #7, DATA LIMITED fix | ✅ **Done** — `load_insat_sst()` |
+| C5 | `backend/orca/agents/ocean_analytics.py` | ~~Expand from `_PILOT_SECTOR = "SEC006"` to all sectors by lat/lon~~ | #1 | ✅ **Done** — `sector_for_point()`, all **14** sectors (not 11) |
 | C6 | `backend/orca/agents/reporting.py` | Add informational query path — return value + citation, not just GO/NO-GO | #3 | 🟡 High |
-| C7 | `backend/orca/agents/ocean_analytics.py` | Fetch + wire chlorophyll EOS-06 `.nc` → correlate with SST | #7, DATA LIMITED fix | 🟡 High |
+| C7 | `backend/orca/data/satellite_loaders.py` | ~~Wire chlorophyll EOS-06 `.nc` → correlate with SST~~ | #7, DATA LIMITED fix | ✅ **Done** — `load_eos06_chl()`, co-located on a 0.25° grid. *Fetching fresh files is still open* |
 | C8 | `backend/orca/data/loaders.py` | Add India district boundary shapefile loader | #4 (CAP alerts) | 🟡 High |
 | C9 | `backend/orca/api/geospatial_routes.py` | Add missing boundary files (India-Pakistan, Bangladesh, Andaman) | #5 | 🟡 High |
 | C10 | `backend/orca/agents/` | Add `route_planner.py` agent — waypoint routing with bathymetry + geofence | #6 | 🟠 Medium |
 | C11 | `backend/orca/agents/reporting.py` | Add CAP 1.2 payload formatter for coastal authority persona | #8, authority persona | 🟠 Medium |
 | C12 | `backend/orca/agents/voice.py` | Integrate ISRO Bhashini API for regional language TTS | Fisherman persona | 🟠 Medium |
-| C13 | `backend/orca/agents/ocean_analytics.py` | Add CMFRI catch trend reader + anomaly correlator | #7 | 🟠 Medium |
+| C13 | `backend/orca/agents/ocean_analytics.py` | Add CMFRI catch trend reader + anomaly correlator | #7 | 🟨 Partly done — `wind_anomaly()` supplies the ERA5 reference period; a CMFRI-specific correlator is still open |
 | C14 | All agents | Ensure all confidence tiers include provenance + freshness for every output | Meta / trust | 🟡 High |
 
 ---
@@ -677,11 +762,13 @@ The DATA LIMITED badge appears when **any** agent returns `LOW_DATA` confidence.
 
 | Root Cause | Agent | Fix |
 |-----------|-------|-----|
-| MOSDAC SST files not read by code | `ocean_analytics` | Wire HDF5 loader (C4) |
-| Only 1 PFZ history folder | `ocean_analytics` | Download 7 days history for all 11 sectors |
+| ~~MOSDAC SST files not read by code~~ | `ocean_analytics` | ✅ Fixed 2026-09-16 — `satellite_loaders.load_insat_sst` |
+| Only 1 PFZ history folder | `ocean_analytics` | Download 7 days history for all **14** sectors. Still open — persistence is structurally 1/1 until then, and the code says so |
 | MOSDAC Chlorophyll files stale (March) | `ocean_analytics` | Fetch Jul–Sep 2026 files from MOSDAC |
 | Live Open-Meteo fails → stale Aug 30 cache | `weather_intelligence` | Refresh cached files for all ports |
-| CMEMS SST/currents for non-pilot regions | `ocean_analytics` | Download CMEMS files for full India bbox |
+| CMEMS SST/currents for non-pilot regions | `ocean_analytics` | The reader exists (`load_cmems_sst`); the **file** covers 77–80.5 E / 7.5–10.5 N only. Download the full-India bbox |
+| No ERA5 baseline outside Thoothukudi | `ocean_analytics` | `wind_anomaly()` returns `available: false` and names the missing port. Fetch `era5_historical_<port>_30d.json` per coast |
+| IMD nowcast snapshot window closed | `weather_intelligence` | The cache is one 3-hour window from 2026-08-30. Re-fetch; the code already reports `expired: true` rather than presenting it as current |
 
 Once all data files are present and wired, `LOW_DATA` should only appear when satellite
 coverage is genuinely obscured (cloud cover) or when a location has no cached fallback — and the system will say so explicitly, not silently.
@@ -734,22 +821,36 @@ about. Checked 2026-09-13:
 
 ---
 
-## Section 9 — The three code blockers that gate all-India coverage
+## Section 9 — The three code blockers that gate all-India coverage — **all three cleared**
 
-Data volume is not what is stopping all-India coverage. Three specific pieces of code are. Everything
-in §1–§5 is downstream of these.
+Data volume was not what stopped all-India coverage; three specific pieces of code were. **All three
+are fixed as of 2026-09-16.** The table is kept as the record of what they were, because the shape of
+each defect is worth remembering: in every case national coverage was sitting on disk already.
 
 | # | Blocker | File:line | Effect today | Fix |
 |---|---|---|---|---|
-| B-1 | The place gazetteer is pilot-only — 16 South Tamil Nadu entries plus 5 tide stations plus 6 port fixtures | `data/loaders.py:151-171` | A query naming **Veraval, Paradeep, Digha, Port Blair, Kavaratti, Gopalpur** or any of ~100 other coastal places resolves to nothing, falls to `DEFAULT_LAT/LON = 8.80, 78.30` (Gulf of Mannar), and is answered **confidently about the wrong coast**. This is the single highest-harm defect in the product | Apply §3 of this guide to `_PILOT_GAZETTEER`; pair with DLC `R-NEW-1` so a fallback position is always disclosed |
-| B-2 | User sector is hardcoded | `ocean_analytics.py:53,691` — `_PILOT_SECTOR = "SEC006"` | Every user in India is shown **South Tamil Nadu's** sector status. A Kerala fisherman is told his sector is cloud-suppressed while SEC004 has 24 live advisories on disk | Point-in-sector lookup from lat/lon; the sector geometry is derivable from the advisory node coordinates already on disk |
-| B-3 | SST/chlorophyll correlation reads a directory that does not exist | `analytics_loaders.py:27,196` — `data/fixtures/` | PS-Q5 has **no working path at all**, and the two ISRO satellite archives on disk (212 MB) are never opened. The README claim that PFZ derives from SST + chlorophyll is not true of the running code | DLC `R-SCI-1` — a parser that writes the fixtures the seam already expects |
+| B-1 ✅ | ~~The place gazetteer is pilot-only~~ — 16 South Tamil Nadu entries plus 5 tide stations plus 6 port fixtures | `data/loaders.py:151-171` | A query naming **Veraval, Paradeep, Digha, Port Blair, Kavaratti, Gopalpur** or any of ~100 other coastal places resolves to nothing, falls to `DEFAULT_LAT/LON = 8.80, 78.30` (Gulf of Mannar), and is answered **confidently about the wrong coast**. This is the single highest-harm defect in the product | Apply §3 of this guide to `_PILOT_GAZETTEER`; pair with DLC `R-NEW-1` so a fallback position is always disclosed |
+| B-2 ✅ | ~~User sector is hardcoded~~ | `ocean_analytics.py:53,691` — `_PILOT_SECTOR = "SEC006"` | Every user in India is shown **South Tamil Nadu's** sector status. A Kerala fisherman is told his sector is cloud-suppressed while SEC004 has 24 live advisories on disk | Point-in-sector lookup from lat/lon; the sector geometry is derivable from the advisory node coordinates already on disk |
+| B-3 ✅ | ~~SST/chlorophyll correlation reads a directory that does not exist~~ | `analytics_loaders.py:27,196` — `data/fixtures/` | PS-Q5 has **no working path at all**, and the two ISRO satellite archives on disk (212 MB) are never opened. The README claim that PFZ derives from SST + chlorophyll is not true of the running code | DLC `R-SCI-1` — a parser that writes the fixtures the seam already expects |
 
-Fixing B-1 and B-2 converts data that is **already on disk** into national coverage. No download is on
-the critical path for either. Do them before fetching anything new.
+**Resolutions.** B-1: `loaders._GAZETTEER` carries ~150 all-India entries and resolves on whole-word
+matches, so short names like "goa" no longer fire inside ordinary English. B-2:
+`ocean_analytics.sector_for_point()` resolves SEC001–SEC014 from a coast-side + latitude-band rule —
+sector geometry could not be recovered from the advisory nodes alone, because the six cloud-suppressed
+sectors have zero nodes and those are precisely the sectors a user most needs named. B-3:
+`correlate_sst_chlorophyll()` reads the ISRO archives directly through
+`satellite_loaders`, co-locating INSAT-3DR SST and EOS-06 chlorophyll on a 0.25° grid and reporting
+the acquisition gap between the two granules rather than implying simultaneity.
+
+**What remains is downloads, not code.** Fresh MOSDAC granules, ≥7 days of PFZ history, Open-Meteo
+caches for the 16 new ports, SoI tide tables beyond 5 stations, the missing IMBL geometries, and the
+full-India CMEMS bbox. None of these is blocked on a code change.
 
 ---
 
 *Document prepared 2026-09-12 · wiring ledger, sector table, validity windows and code blockers
-re-verified against the working tree 2026-09-13.*
+re-verified against the working tree 2026-09-13 · **second wiring pass completed and re-verified
+2026-09-16**: six uncalled loaders given callers, three further datasets wired, the all-India PFZ file
+generated, and every ⚙️ mark in this document retired. Verification: call-chain grep for every loader
+plus `pytest tests -q -p no:randomly` → 382 passed, 2 skipped.*
 *Grounded in `docs/ORCA_PS_SIH26176_Problem_Statement.md` — clause IDs in this file refer to it.*

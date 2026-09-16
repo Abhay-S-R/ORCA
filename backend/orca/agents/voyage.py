@@ -53,11 +53,22 @@ STEP_NM = 2.0  # densification spacing — coarse enough to keep segment count s
 _LIGHTNING_NOWCAST_HORIZON_HOURS = 3.0
 
 
+# The extracted point series covers the pilot ports only, so it is a fallback
+# for "the grid is not on this machine", not a general substitute for it.
+_OSF_POINT_MAX_KM = 60.0
+
+
 @lru_cache(maxsize=1)
-def _ww3() -> xr.Dataset:
+def _ww3() -> xr.Dataset | None:
+    """The WW3 grid, or None when it is not on this machine.
+
+    None rather than FileNotFoundError: the 6.5 GB NetCDF is gitignored data,
+    so a fresh checkout genuinely does not have it, and a voyage plan that
+    crashes outright there is worse than one that falls back to the extracted
+    point series and says it did."""
     files = sorted(WW3_DIR.glob("rsmc_combined_ww3_*.nc"))
     if not files:
-        raise FileNotFoundError(f"No WW3 files in {WW3_DIR}")
+        return None
     # decode_times=False sidesteps a real bug, not a shortcut: the file's
     # "hours since 0001-01-01" units overflow pandas' datetime64[ns], and
     # xarray's fallback needs the cftime package, which is otherwise
@@ -77,6 +88,8 @@ def wave_height_at(lat: float, lon: float, when: datetime) -> float | None:
     ~7-day/whole-basin coverage, never 0.0 as a stand-in for "unknown"
     (Ground Rule 3 / §5.7 — a missing measurement must not read as calm seas)."""
     ds = _ww3()
+    if ds is None:
+        return _ww3_point_fallback(lat, lon)
     hours = ds["TIME"].values
     target = _ww3_hours_since_epoch(when)
     if target < hours.min() - 1.5 or target > hours.max() + 1.5:
@@ -88,6 +101,27 @@ def wave_height_at(lat: float, lon: float, when: datetime) -> float | None:
     idx = int(abs(hours - target).argmin())
     hs = ds["HS"].isel(TIME=idx).sel(IOXAXIS=lon, IOYAXIS=lat, method="nearest").item()
     return float(hs) if math.isfinite(hs) else None
+
+
+def _ww3_point_fallback(lat: float, lon: float) -> float | None:
+    """Hs from `scripts/extract_osf_pilot.py`'s pre-extracted WW3 points when
+    the source grid is absent. A single snapshot, so it carries no time
+    dimension — the caller's `when` cannot be honoured and the value is the
+    extraction's own forecast step, not the vessel's ETA. Returns None outside
+    the extracted set rather than reaching for the nearest point at any range.
+    """
+    from orca.agents.geospatial import bearing_and_distance
+    from orca.data.analytics_loaders import load_osf_point_forecasts
+
+    points = [p for p in load_osf_point_forecasts("ww3") if p.get("significant_wave_height_m") is not None]
+    if not points:
+        return None
+    nearest = min(points, key=lambda p: bearing_and_distance(lat, lon, p["lat"], p["lon"])[1])
+    _, nm = bearing_and_distance(lat, lon, nearest["lat"], nearest["lon"])
+    if nm * 1.852 > _OSF_POINT_MAX_KM:
+        return None
+    hs = float(nearest["significant_wave_height_m"])
+    return hs if math.isfinite(hs) else None
 
 
 def _corridor_polygon(points_lonlat: list[tuple[float, float]], buffer_nm: float) -> dict:

@@ -50,6 +50,21 @@ type Tide = {
   station_name: string; tidal_state: string; range_m: number | null; spring_neap: string;
   next_high: { when: string; height_m: number } | null; next_low: { when: string; height_m: number } | null;
   datum: string;
+  // The heights above are PREDICTED (astronomical). This is what an INCOIS
+  // gauge actually measured, carried alongside rather than blended in — the
+  // residual between them is a surge or a set-up, not an error in the table.
+  observed_cross_check: {
+    available: boolean;
+    note?: string;
+    station_name?: string;
+    distance_km?: number;
+    observed_level_m?: number;
+    predicted_astronomical_m?: number;
+    sea_level_anomaly_m?: number;
+    status?: string;
+    tsunami_trigger_state?: string;
+    observed_at_ist?: string;
+  };
 };
 
 const STATUS_TONE = { CLEAR: "go", CAUTION: "caution", BLOCKED: "no-go" } as const;
@@ -261,6 +276,60 @@ export default function VoyagePage() {
                   unit="UTC"
                 />
               </ReadoutGrid>
+
+              {/* Predicted vs observed. Shown only when a gauge is actually
+                  in range — INCOIS runs 6 nationally, so most of the coast
+                  legitimately has none, and an absent gauge says so. */}
+              <div className="mt-4 border-t border-hairline pt-3">
+                {tide.observed_cross_check.available ? (
+                  <>
+                    <p className="mb-2 flex items-baseline justify-between gap-3 text-xs">
+                      <span className="text-ink-dim">
+                        Observed at {tide.observed_cross_check.station_name}
+                        {tide.observed_cross_check.distance_km != null
+                          ? ` · ${tide.observed_cross_check.distance_km} km`
+                          : ""}
+                      </span>
+                      {tide.observed_cross_check.tsunami_trigger_state && (
+                        <Badge
+                          tone={
+                            tide.observed_cross_check.tsunami_trigger_state === "NORMAL"
+                              ? "neutral"
+                              : "no-go"
+                          }
+                        >
+                          {/* INCOIS's own state, carried verbatim. ORCA does
+                              not threshold or interpret it. */}
+                          tsunami: {tide.observed_cross_check.tsunami_trigger_state.toLowerCase()}
+                        </Badge>
+                      )}
+                    </p>
+                    <ReadoutGrid cols={3}>
+                      <Readout
+                        label="Observed"
+                        value={tide.observed_cross_check.observed_level_m ?? "—"}
+                        unit="m"
+                      />
+                      <Readout
+                        label="Predicted"
+                        value={tide.observed_cross_check.predicted_astronomical_m ?? "—"}
+                        unit="m"
+                      />
+                      <Readout
+                        label="Anomaly"
+                        value={tide.observed_cross_check.sea_level_anomaly_m ?? "—"}
+                        unit="m"
+                        hint={tide.observed_cross_check.observed_at_ist}
+                      />
+                    </ReadoutGrid>
+                  </>
+                ) : (
+                  <p className="text-[11px] text-ink-dim">
+                    {tide.observed_cross_check.note ??
+                      "No INCOIS tide gauge in range — these heights are predicted only."}
+                  </p>
+                )}
+              </div>
             </Panel>
           )}
         </div>

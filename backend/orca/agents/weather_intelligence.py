@@ -48,6 +48,7 @@ from orca.data.loaders import (
     load_json,
     port_coordinates,
 )
+from orca.data.analytics_loaders import load_imd_nowcast_alerts
 from orca.data.normalize import SourceDescriptor, normalize_to_common_frame, to_utc_iso
 from orca.state import ORCAState
 
@@ -274,6 +275,101 @@ def get_lightning_nowcast(lat: float, lon: float, radius_km: float = 25.0) -> di
     }
 
 
+# --- get_imd_nowcast_alerts (cached IMD district convective nowcast) -------
+
+# IMD publishes district nowcasts, not marine ones: the nearest issuing
+# district centroid to an offshore position is inland, so the radius has to be
+# wide enough to reach the coast from a district seat. 150 km is roughly the
+# span of a coastal district plus the shelf a day-boat works.
+_IMD_NOWCAST_RADIUS_KM = 150.0
+# "Sun Aug 30 19:30:00 IST 2026" — IMD's own stamp format. %Z will not parse
+# "IST" on most platforms, so the literal is matched and the offset applied by
+# hand rather than trusted to the C library's timezone table.
+_IMD_TIME_FMT = "%a %b %d %H:%M:%S IST %Y"
+_IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _imd_time(raw: str) -> datetime | None:
+    try:
+        return datetime.strptime(raw, _IMD_TIME_FMT).replace(tzinfo=_IST)
+    except (ValueError, TypeError):
+        return None
+
+
+def get_imd_nowcast_alerts(
+    lat: float, lon: float, radius_km: float = _IMD_NOWCAST_RADIUS_KM
+) -> dict[str, Any]:
+    """Cached IMD district convective nowcast entries in force near a point.
+
+    This is a genuine IMD-sourced hazard surface — the only one on disk — and
+    it exists alongside the Open-Meteo lightning proxy rather than replacing
+    it, so the two can be compared. Two independent sources disagreeing is
+    information the user should see, not a conflict to silently resolve.
+
+    The cache is a snapshot with a fixed validity window, so `expired` is
+    reported rather than hidden: an out-of-window nowcast is evidence about
+    the past, never a claim about now.
+    """
+    entries = load_imd_nowcast_alerts()
+    now = datetime.now(timezone.utc)
+    nearby: list[dict[str, Any]] = []
+    window_end: datetime | None = None
+    for e in entries:
+        coords = (e.get("location") or {}).get("coordinates") or []
+        if len(coords) < 2:
+            continue
+        e_lon, e_lat = float(coords[0]), float(coords[1])
+        km = _haversine_km(lat, lon, e_lat, e_lon)
+        if km > radius_km:
+            continue
+        end = _imd_time(e.get("effective_end_time", ""))
+        if end is not None and (window_end is None or end > window_end):
+            window_end = end
+        nearby.append({
+            "district": e.get("area_description"),
+            "event_category": e.get("event_category"),
+            "severity": e.get("severity"),
+            "severity_color": e.get("severity_color"),
+            "events": e.get("events"),
+            "distance_km": round(km, 1),
+            "effective_start_time": e.get("effective_start_time"),
+            "effective_end_time": e.get("effective_end_time"),
+        })
+    nearby.sort(key=lambda a: a["distance_km"])
+
+    expired = bool(window_end is not None and window_end < now)
+    lightning_flagged = any(
+        "lightning" in (a.get("event_category") or "").lower() for a in nearby
+    )
+    if not nearby:
+        confidence = Confidence(
+            score="LOW_DATA",
+            rationale=f"no cached IMD nowcast district within {radius_km:.0f} km of this position",
+        )
+    elif expired:
+        confidence = Confidence(
+            score="LOW_DATA",
+            rationale=f"cached IMD nowcast window closed {window_end.astimezone(timezone.utc):%Y-%m-%d %H:%MZ} — historical, not current",
+        )
+    else:
+        confidence = Confidence(score="MEDIUM", rationale=f"{len(nearby)} cached IMD district nowcast(s) in force nearby")
+
+    return {
+        "alerts": nearby[:10],
+        "alert_count": len(nearby),
+        "lightning_flagged": lightning_flagged,
+        "expired": expired,
+        "window_end": window_end.isoformat() if window_end else None,
+        "radius_km": radius_km,
+        "source_provenance": SourceProvenance(
+            dataset="IMD district convective nowcast (cached snapshot, tier1/hazards)",
+            acquisition_timestamp=_fmt_utc(window_end) if window_end else "",
+            freshness_minutes=0,
+        ),
+        "confidence": confidence,
+    }
+
+
 # --- get_cyclone_status / get_incois_hazard_alerts (NDMA SACHET CAP) --------
 
 def _fetch_sachet_alerts() -> tuple[list[dict], str, Confidence]:
@@ -389,10 +485,26 @@ def run(state: ORCAState) -> AgentResult:
     lightning = get_lightning_nowcast(lat, lon)
     basin: Literal["BoB", "AS"] = "BoB" if lon >= 77.5 else "AS"
     cyclone = get_cyclone_status(basin)
+    imd = get_imd_nowcast_alerts(lat, lon)
+
+    # Cross-source agreement on convective risk (differentiator: ORCA shows
+    # when two independent sources disagree instead of picking one silently).
+    # Only meaningful while the IMD snapshot is still in its validity window —
+    # an expired nowcast "disagreeing" with a live proxy is not a
+    # disagreement, it is two statements about different days.
+    if imd["expired"] or imd["alert_count"] == 0:
+        agreement = "single_source"
+    elif imd["lightning_flagged"] == lightning["lightning_active"]:
+        agreement = "agree"
+    else:
+        agreement = "disagree"
 
     outputs = {
         "hourly": weather["hourly"],
         "lightning_active": lightning["lightning_active"],
+        "imd_nowcast": {k: v for k, v in imd.items() if k not in ("confidence", "source_provenance")},
+        "imd_nowcast_dataset": imd["source_provenance"].dataset,
+        "lightning_source_agreement": agreement,
         "cyclone_alert": _cyclone_alert_severity(cyclone["active_cyclones"]),
         # Agent 7 reads weather_data (this dict, once the graph stores it in
         # state) and needs its own SourceProvenance for its verdict — the
@@ -408,6 +520,10 @@ def run(state: ORCAState) -> AgentResult:
         "freshness_minutes": weather["source_provenance"].freshness_minutes,
     }
     # Conservative composite: if any input degraded, the whole result did.
+    # The IMD nowcast is deliberately NOT in this max(): it is a corroborating
+    # second source, and its cached snapshot is LOW_DATA by construction once
+    # its window closes. Letting that drag a live forecast down would mean a
+    # perfectly good safety answer degrades because a *bonus* source is stale.
     tiers = ["HIGH", "MEDIUM", "LOW_DATA"]
     worst = max(
         weather["confidence"].score, lightning["confidence"].score, cyclone["confidence"].score,
@@ -416,7 +532,7 @@ def run(state: ORCAState) -> AgentResult:
     confidence = Confidence(
         score=worst,
         rationale=f"weather={weather['confidence'].rationale}; lightning={lightning['confidence'].rationale}; "
-        f"cyclone={cyclone['confidence'].rationale}",
+        f"cyclone={cyclone['confidence'].rationale}; imd_nowcast={imd['confidence'].rationale}",
     )
 
     return AgentResult(

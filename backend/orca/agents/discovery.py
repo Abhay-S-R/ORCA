@@ -238,6 +238,48 @@ def select_source_with_fallback(
     )
 
 
+def local_catalog(source_id: str) -> list[dict[str, Any]]:
+    """What ORCA holds locally *about* a registry source, for the sources whose
+    on-disk file is an index rather than the data itself.
+
+    `nasa_ocean_color` is the case that matters: the file on disk is a NASA CMR
+    granule listing — it names granules, it does not contain chlorophyll. Every
+    entry it returns carries `held_locally: False` so the distinction survives
+    into whatever renders it. Without this the cascade advertised a rung whose
+    only evidence nobody could see.
+
+    An empty list means "no local index for this source", never "this source
+    has no data".
+    """
+    from orca.data.analytics_loaders import (
+        load_bhuvan_wms_services,
+        load_gfw_vessel_sample,
+        load_nasa_chl_granules,
+        load_osf_dataset_manifest,
+    )
+
+    if source_id == "nasa_ocean_color":
+        return load_nasa_chl_granules()
+    if source_id == "bhuvan_wms":
+        return [{**svc, "held_locally": False} for svc in load_bhuvan_wms_services()]
+    if source_id == "gfw_ais":
+        return load_gfw_vessel_sample()
+    # The INCOIS manifest is keyed by folder, not by registry id; this is the
+    # one mapping between the two, kept here rather than in the loader so the
+    # loader stays a plain read of the file as written.
+    manifest_key = {
+        "incois_osf_ww3": "osf_ww3",
+        "incois_osf_hycom": "osf_hycom",
+        "incois_pfz": "pfz",
+    }.get(source_id)
+    if manifest_key:
+        entry = (load_osf_dataset_manifest().get("sources") or {}).get(manifest_key)
+        # `held_locally: True` here, unlike every other branch: these ARE the
+        # grids on disk, and this is their licence and provenance record.
+        return [{**entry, "folder": manifest_key, "held_locally": True}] if entry else []
+    return []
+
+
 def load_pfz_advisories() -> dict[str, Any]:
     """Cached Potential Fishing Zone advisories for the pilot region (plan
     §4 S4 Day 6 — "`/zones` surface scaffold rendering PFZ from cached
@@ -280,6 +322,14 @@ if __name__ == "__main__":
 
     pfz = load_pfz_advisories()
     assert pfz["type"] == "FeatureCollection" and pfz["features"]
+
+    # Local catalogs: an index, explicitly not the data.
+    nasa = local_catalog("nasa_ocean_color")
+    assert nasa and all(g["held_locally"] is False for g in nasa), nasa[:1]
+    assert local_catalog("bhuvan_wms"), "Bhuvan manifest should list WMS services"
+    assert local_catalog("soi_tide_tables") == []
+    ww3_cat = local_catalog("incois_osf_ww3")
+    assert ww3_cat and "license" in ww3_cat[0], ww3_cat
     print("discovery self-check ok:", d.narrative)
 
     # D2 fixture — Agent 3's cascade decision when the primary SST source is

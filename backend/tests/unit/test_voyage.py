@@ -139,3 +139,21 @@ def test_segment_classification_uses_the_same_full_precision_containment_agent6_
     assert direct_imbl.distance_nm >= 0  # sanity: the boundary check itself is reachable
     assert isinstance(direct_hits, list)
     assert mid_segment.hazard_class in ("SHALLOW", "BOUNDARY", "MPA", "ROUGH_SEA", "LIGHTNING", "CLEAR")
+
+
+# --- WW3 grid absent: the extracted points carry it ----------------------
+
+def test_wave_height_falls_back_to_extracted_points_when_grid_missing(monkeypatch):
+    """The 6.5 GB WW3 NetCDF is gitignored data, so a fresh checkout has none.
+    That must degrade to the extracted point series, not crash a voyage plan."""
+    from datetime import datetime, timezone
+
+    from orca.agents import voyage
+
+    monkeypatch.setattr(voyage, "_ww3", lambda: None)
+    hs = voyage.wave_height_at(8.75, 78.3, datetime(2026, 8, 30, tzinfo=timezone.utc))
+    assert hs is not None and 0.0 <= hs < 20.0
+
+    # Outside the extraction footprint it must still return None rather than
+    # reach for the nearest point at any distance.
+    assert voyage.wave_height_at(21.6, 88.0, datetime(2026, 8, 30, tzinfo=timezone.utc)) is None

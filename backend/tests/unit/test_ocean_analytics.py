@@ -62,14 +62,61 @@ def test_detect_anomaly_flags_two_sigma():
     assert not normal["anomalous"]
 
 
-# --- SST/chl correlation degrades honestly (D3 seam) --------------------
+# --- SST/chl correlation reads the ISRO archives (D3 seam, now wired) ----
 
-def test_correlation_low_data_without_d3_fixtures():
+def test_correlation_reads_isro_archives_or_says_why_not():
+    """The archives are gitignored data, so both branches are legitimate —
+    what must never happen is a correlation with no provenance behind it, or
+    an unavailable result with no reason."""
     result = oa.correlate_sst_chlorophyll(None)
-    # D3's mosdac_*__pilot__*.json fixtures are not shipped yet
-    assert result["available"] is False
-    assert result["confidence"].score == "LOW_DATA"
-    assert "4.2" in result["note"] or "fixture" in result["note"].lower()
+    if result["available"]:
+        assert -1.0 <= result["pearson_r"] <= 1.0
+        assert result["n_samples"] >= 3
+        assert result["sst_provenance"]["dataset"]
+        assert result["chl_provenance"]["dataset"]
+    else:
+        assert result["confidence"].score == "LOW_DATA"
+        assert result["note"]
+
+
+def test_correlation_never_claims_causation():
+    result = oa.correlate_sst_chlorophyll(None)
+    if result.get("available"):
+        assert "caused by" not in result["relationship"].lower()
+
+
+# --- ERA5 baseline gives detect_anomaly a reference period ---------------
+
+def test_wind_anomaly_carries_its_baseline_or_names_the_gap():
+    at_pilot = oa.wind_anomaly(*THOOTHUKUDI)
+    assert at_pilot["available"] is True
+    assert at_pilot["baseline_days"] > 1
+    assert at_pilot["units"] == "km/h"  # baseline and observation, same units
+    assert "ERA5" in at_pilot["baseline_label"]
+    assert isinstance(at_pilot["anomalous"], bool)
+
+    # No ERA5 window cached off Mumbai — that must read as "no baseline",
+    # never as "not anomalous".
+    elsewhere = oa.wind_anomaly(19.0, 72.8)
+    assert elsewhere["available"] is False
+    assert "anomalous" not in elsewhere
+    assert "baseline" in elsewhere["note"].lower()
+
+
+# --- OSF point/grid fast path -------------------------------------------
+
+def test_osf_fast_path_prefers_points_then_grid_then_declines():
+    at_port = oa.nearest_osf_point_forecast(*THOOTHUKUDI)
+    assert at_port["available"] and at_port["wave"]["significant_wave_height_m"] is not None
+
+    # Goa is outside the 8 extracted points but inside the 0.5 deg grid.
+    goa = oa.nearest_osf_point_forecast(15.4, 73.5)
+    assert goa["available"] and "grid_cell" in goa
+    assert goa["confidence"].score == "LOW_DATA"  # a regional cell, not this position
+
+    # The Bay of Bengal north of the extraction footprint has neither.
+    far = oa.nearest_osf_point_forecast(21.6, 88.0)
+    assert far["available"] is False and far["note"]
 
 
 # --- PFZ proximity + persistence + sector status (part 2) ---------------
@@ -176,3 +223,25 @@ def test_run_returns_agent_result_with_all_parts():
     assert "wind_rose" in res.outputs
     assert "confidence" not in res.outputs["wind_rose"]  # stripped, same as the other sub-results
     assert all(s["narrative"] for s in res.outputs["source_selections"])
+
+
+# --- observed tide-gauge cross-check ------------------------------------
+
+def test_tide_gauge_cross_check_reports_observed_against_predicted():
+    obs = oa.tide_gauge_observation(*THOOTHUKUDI)
+    assert obs["available"] is True
+    assert obs["observed_level_m"] is not None
+    assert obs["predicted_astronomical_m"] is not None
+    # The anomaly is the published residual, not something ORCA recomputes —
+    # but it must at least agree with the two numbers it sits between.
+    residual = obs["observed_level_m"] - obs["predicted_astronomical_m"]
+    assert abs(residual - obs["sea_level_anomaly_m"]) < 0.02
+    # INCOIS's tsunami state is carried verbatim, never interpreted.
+    assert obs["tsunami_trigger_state"]
+
+
+def test_tide_gauge_declines_when_no_gauge_is_in_range():
+    # INCOIS runs 6 gauges nationally; the Gujarat coast has none nearby.
+    far = oa.tide_gauge_observation(22.4, 69.0)
+    assert far["available"] is False
+    assert "km" in far["note"]

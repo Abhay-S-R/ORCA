@@ -36,3 +36,15 @@ def test_layer_metrics_route_accepts_a_valid_payload():
 def test_layer_metrics_route_rejects_a_malformed_payload():
     r = client.post("/api/layer-metrics", json={"layer_id": "bathymetry"})
     assert r.status_code == 422
+
+
+# --- boundary provenance is reachable, not just timestamped --------------
+
+def test_boundary_provenance_endpoint_surfaces_the_citation_evidence():
+    from orca.api.geospatial_routes import boundary_provenance
+
+    prov = boundary_provenance()
+    assert prov["marine_protected_areas"], "audited WDPA records must be reachable"
+    assert prov["eez_gazetteer"], "VLIZ EEZ gazetteer records must be reachable"
+    assert prov["boundary_data_vintage"]
+    assert all(e["mrgid"] for e in prov["eez_gazetteer"])

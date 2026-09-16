@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from orca.agents.discovery import (
     FALLBACK_CASCADES,
     SOURCE_REGISTRY,
+    local_catalog,
     select_source_with_fallback,
 )
 
@@ -26,7 +27,14 @@ def list_sources(data_type: str | None = None, down: str | None = None) -> dict:
     if data_type is None:
         return {
             "sources": [
-                {**s.__dict__, "fallback_chain": list(FALLBACK_CASCADES.get(s.id, ()))}
+                {
+                    **s.__dict__,
+                    "fallback_chain": list(FALLBACK_CASCADES.get(s.id, ())),
+                    # Index-only sources (NASA CMR granules, Bhuvan WMS
+                    # services) ship what ORCA can name locally; an empty list
+                    # means no local index, not an empty source.
+                    "local_catalog": local_catalog(s.id),
+                }
                 for s in SOURCE_REGISTRY
             ]
         }
@@ -36,6 +44,7 @@ def list_sources(data_type: str | None = None, down: str | None = None) -> dict:
         raise HTTPException(404, f"No source covers data_type={data_type!r}")
     return {
         "source": decision.chosen.__dict__,
+        "local_catalog": local_catalog(decision.chosen.id),
         "reason": decision.narrative,
         "considered": [s.id for s in decision.considered],
         "fallback_chain": list(decision.fallback_chain),

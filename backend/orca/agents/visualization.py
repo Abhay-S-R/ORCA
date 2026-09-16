@@ -115,6 +115,24 @@ def _raster_layers() -> list[MapLayer]:
     return layers
 
 
+# NO BHUVAN MAP LAYER. The `bhuvan_15days_marine_manifest.json` service
+# manifest was checked against the endpoint's own GetCapabilities on
+# 2026-09-16: the four layer names it lists — india_coastal_boundary,
+# india_states, major_ports, inshore_waterways — do not exist. The server
+# answers "400 Unknown layer" for each. Its 5,136 real layers are land-use,
+# cadastral and urban-mapping products (sisdp/nuis/mmi/sdv); a search for
+# coast, shore, marine, ocean, port, coral, mangrove, bathymetry and sea
+# returned ZERO hits, and the other Bhuvan hosts 404 on GetCapabilities.
+#
+# So the manifest records what a scraper believed NRSC publishes, not what it
+# serves. A map layer built from it would put a toggle on the chart for
+# something that can never draw — the exact failure this module refuses
+# everywhere else. The manifest stays wired where it is truthful:
+# `discovery.local_catalog("bhuvan_wms")`, a catalog of claimed services, with
+# held_locally false. Re-add a layer here only after a GetCapabilities check
+# names a real marine layer.
+
+
 def generate_map_layers(state: ORCAState) -> list[MapLayer]:
     """PointMarker (user position), Polygon (boundaries), Heatmap
     (bathymetry), Raster (pre-built tile pyramids) — each wrapping data a

@@ -48,6 +48,17 @@ type SafetyResponse = {
     wind_speed_ms: number | null;
     lightning_active: boolean;
     cyclone_alert: string | null;
+    // Cross-source agreement between Open-Meteo's CAPE proxy and IMD's own
+    // district nowcast. "single_source" means the IMD snapshot is empty here
+    // or past its validity window — not that the two agree.
+    lightning_source_agreement?: "agree" | "disagree" | "single_source";
+    imd_nowcast?: {
+      alert_count: number;
+      lightning_flagged: boolean;
+      expired: boolean;
+      radius_km: number;
+      alerts: { district: string; event_category: string; severity: string; distance_km: number; events: string }[];
+    } | null;
   };
   hazard_breakdown: {
     imbl_distance_nm: number | null;
@@ -198,6 +209,21 @@ export default function SafetyPage() {
                 }
               />
               <Readout
+                label="IMD nowcast"
+                value={
+                  answer.weather_summary.imd_nowcast?.alert_count
+                    ? `${answer.weather_summary.imd_nowcast.alert_count} district${answer.weather_summary.imd_nowcast.alert_count === 1 ? "" : "s"}`
+                    : "None in range"
+                }
+                hint={
+                  answer.weather_summary.imd_nowcast?.expired
+                    ? "snapshot window closed"
+                    : answer.weather_summary.imd_nowcast?.alert_count
+                      ? `within ${answer.weather_summary.imd_nowcast.radius_km} km`
+                      : undefined
+                }
+              />
+              <Readout
                 label="Cyclone alert"
                 value={
                   <Badge tone={answer.weather_summary.cyclone_alert ? "no-go" : "go"}>
@@ -206,6 +232,21 @@ export default function SafetyPage() {
                 }
               />
             </ReadoutGrid>
+
+            {/* Two sources disagreeing is information, not a conflict to
+                resolve silently. Only shown when they genuinely disagree —
+                an expired IMD snapshot is "single_source", and a banner for
+                that would be noise on every offline demo. */}
+            {answer.weather_summary.lightning_source_agreement === "disagree" && (
+              <p className="mt-3 flex items-baseline gap-2 border-t border-hairline pt-3 text-xs">
+                <Badge tone="caution">sources disagree</Badge>
+                <span className="text-ink-dim">
+                  IMD&apos;s district nowcast and the Open-Meteo CAPE proxy do not agree on
+                  convective risk here. The verdict above is computed from the Open-Meteo
+                  proxy alone; IMD is shown beside it, not folded into it.
+                </span>
+              </p>
+            )}
           </Panel>
 
           <Panel title="Boundaries and protected areas" action={geoCite && <SourceChip dataset={geoCite.dataset} acquisitionTimestamp={geoCite.acquisition_timestamp} />}>

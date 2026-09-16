@@ -606,6 +606,226 @@ def wind_rose(lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON) -> dict[str,
     }
 
 
+# A gauge further than this is a different stretch of coast; its observed
+# level says nothing about the user's. INCOIS runs 6 gauges nationally, so
+# most of the coastline legitimately has none in range.
+_TIDE_GAUGE_MAX_KM = 150.0
+
+
+def tide_gauge_observation(lat: float, lon: float) -> dict[str, Any]:
+    """Observed sea level at the nearest INCOIS tide gauge, against that
+    gauge's own astronomical prediction.
+
+    `predict_tides` returns *predicted* heights and says so; this is the
+    observed cross-check that docstring promises, and it was the one dataset
+    in the ledger still marked wired with no caller behind it. The residual
+    (observed minus predicted) is the gauge's published `sea_level_anomaly_m`
+    — a storm surge or a set-up, not an error in the tide table.
+
+    `tsunami_trigger_state` is carried through verbatim from INCOIS. ORCA
+    does not interpret it, threshold it, or derive a verdict from it: a
+    tsunami determination is INCOIS's to make, and reporting their state is
+    the honest thing a client can do with it.
+    """
+    telemetry = al.load_tide_gauge_telemetry()
+    stations = telemetry.get("stations", [])
+    if not stations:
+        return {
+            "available": False,
+            "note": "INCOIS tide-gauge telemetry file holds no stations",
+            "confidence": Confidence(score="LOW_DATA", rationale="tide-gauge telemetry unavailable"),
+        }
+
+    gauge = min(stations, key=lambda g: _km_between(lat, lon, g["latitude"], g["longitude"]))
+    km = _km_between(lat, lon, gauge["latitude"], gauge["longitude"])
+    if km > _TIDE_GAUGE_MAX_KM:
+        return {
+            "available": False,
+            "note": f"nearest INCOIS gauge ({gauge['station_name']}) is {km:.0f} km away — "
+                    f"beyond {_TIDE_GAUGE_MAX_KM:.0f} km an observed level is a different stretch of coast",
+            "confidence": Confidence(score="LOW_DATA", rationale="no INCOIS tide gauge within range"),
+        }
+
+    operational = gauge.get("status") == "OPERATIONAL"
+    return {
+        "available": True,
+        "station_id": gauge.get("station_id"),
+        "station_name": gauge.get("station_name"),
+        "distance_km": round(km, 1),
+        "observed_level_m": gauge.get("current_water_level_m"),
+        "predicted_astronomical_m": gauge.get("predicted_astronomical_tide_m"),
+        "sea_level_anomaly_m": gauge.get("sea_level_anomaly_m"),
+        "water_temp_c": gauge.get("water_temp_c"),
+        "sensor_type": gauge.get("sensor_type"),
+        "status": gauge.get("status"),
+        "tsunami_trigger_state": gauge.get("tsunami_trigger_state"),
+        "observed_at_ist": telemetry.get("last_updated_ist"),
+        "dataset": telemetry.get("network_name"),
+        "confidence": Confidence(
+            score="MEDIUM" if operational else "LOW_DATA",
+            rationale=(f"observed against the gauge's own prediction at {gauge['station_name']}, {km:.0f} km away"
+                       if operational else f"gauge {gauge.get('station_id')} reports status {gauge.get('status')!r}"),
+        ),
+    }
+
+
+def wind_anomaly(lat: float, lon: float) -> dict[str, Any]:
+    """Is the coming forecast window unusual against the ERA5 reference period?
+
+    `detect_anomaly` has existed since Phase 2 and took a baseline mean and
+    sigma no caller could supply — so PS-Q7's word "anomaly" had no reference
+    period behind it. This supplies one: the cached ERA5 reanalysis window
+    (`tier1/weather/era5_historical_<port>_30d.json`), compared against the
+    peak wind in the same port's cached forecast.
+
+    Both sides are km/h, straight from Open-Meteo's own units, so no unit
+    conversion happens here at all — the comparison is like-for-like or it
+    does not happen. A 30-day window is a short baseline and the returned
+    `baseline_label` says exactly what it is: this supports "unusual for the
+    last month", never "unusual for this time of year".
+    """
+    from orca.data.loaders import CACHED_WEATHER_PORTS, cached_weather_path, load_json
+
+    coords = {p: c for p in CACHED_WEATHER_PORTS if (c := _port_latlon(p)) is not None}
+    if not coords:
+        return {
+            "available": False,
+            "note": "no cached weather fixtures on disk",
+            "confidence": Confidence(score="LOW_DATA", rationale="wind fixture missing"),
+        }
+    port = min(coords, key=lambda p: _km_between(lat, lon, *coords[p]))
+
+    baseline = al.load_era5_baseline(port)
+    if baseline is None:
+        # ERA5 is cached for the pilot port only. Saying which port has one is
+        # more useful than a bare "no": it names the download that would fix it.
+        held = sorted(p for p in CACHED_WEATHER_PORTS if al.load_era5_baseline(p) is not None)
+        return {
+            "available": False,
+            "nearest_port": port,
+            "note": f"no ERA5 reference period cached for {port} "
+                    f"(held for: {', '.join(held) or 'none'}) — anomaly needs a baseline, "
+                    "and ORCA will not compare a forecast against a climatology it does not have",
+            "confidence": Confidence(score="LOW_DATA", rationale=f"no ERA5 baseline for {port}"),
+        }
+
+    stats = baseline["variables"].get("wind_speed_10m_max")
+    speeds = [v for v in (load_json(cached_weather_path(port)).get("hourly", {}).get("wind_speed_10m") or []) if v is not None]
+    if stats is None or not speeds or stats["std"] <= 0:
+        return {
+            "available": False,
+            "nearest_port": port,
+            "note": "ERA5 baseline or forecast wind series unusable (missing variable, empty series, or zero variance)",
+            "confidence": Confidence(score="LOW_DATA", rationale="baseline/forecast pair incomplete"),
+        }
+
+    observed = max(float(v) for v in speeds)
+    result = detect_anomaly(observed, stats["mean"], stats["std"])
+    return {
+        "available": True,
+        "nearest_port": port,
+        "variable": "wind_speed_10m_max",
+        "units": stats["units"] or "km/h",
+        "observed_peak": round(observed, 1),
+        "baseline_mean": stats["mean"],
+        "baseline_std": stats["std"],
+        "baseline_label": baseline["label"],
+        "baseline_days": stats["n_days"],
+        "z": result["z"],
+        "anomalous": result["anomalous"],
+        "direction": result["direction"],
+        "dataset": baseline["dataset"],
+        "confidence": Confidence(
+            score="MEDIUM",
+            rationale=f"{stats['n_days']}-day ERA5 reference period at {port} — a monthly baseline, not a seasonal climatology",
+        ),
+    }
+
+
+# Beyond this the extracted point is a different sea state, not this one. The
+# OSF grids are ~1/12 deg, so 60 km is many cells away — far enough that the
+# honest answer is "no nearby extraction", not a stretched one.
+_OSF_POINT_MAX_KM = 60.0
+# The grid is 0.5 deg (~55 km) spaced, so half a diagonal is ~39 km — past
+# that the query point is nearer some other cell that is not on the grid at
+# all, i.e. outside the extraction's footprint.
+_OSF_GRID_MAX_KM = 40.0
+
+
+def nearest_osf_point_forecast(lat: float, lon: float) -> dict[str, Any]:
+    """INCOIS OSF wave + current conditions at the nearest pre-extracted point.
+
+    `scripts/extract_osf_pilot.py` already pulled per-port series out of the
+    16 GB HYCOM/WW3 NetCDF pair, and nothing read them: every per-point
+    question re-opened a 9.9 GB file instead. This is the fast path — a JSON
+    read for a single-point answer, with the grids left for actual grids.
+
+    Returns available=False rather than the nearest-of-anything when the
+    position is outside `_OSF_POINT_MAX_KM` of every extraction.
+    """
+    out: dict[str, Any] = {"available": False}
+    best: dict[str, Any] = {}
+    for product in ("ww3", "hycom"):
+        points = al.load_osf_point_forecasts(product)
+        if not points:
+            continue
+        nearest = min(points, key=lambda p: _km_between(lat, lon, p["lat"], p["lon"]))
+        km = _km_between(lat, lon, nearest["lat"], nearest["lon"])
+        if km > _OSF_POINT_MAX_KM:
+            continue
+        best[product] = {
+            "location": nearest.get("location"),
+            "base_port": nearest.get("base_port"),
+            "distance_km": round(km, 1),
+            "forecast_time": nearest.get("forecast_time"),
+            **{k: v for k, v in nearest.items()
+               if k not in ("lat", "lon", "location", "base_port", "forecast_time",
+                            "target_lat", "target_lon", "grid_lat", "grid_lon")},
+        }
+
+    if not best:
+        # Second rung: the 400-cell south-India grid extracted from the same
+        # NetCDF pair. Coarser (0.5 deg) and regional rather than per-port,
+        # which is why it is tried second and labelled as a grid cell.
+        cells = al.load_osf_marine_grid()
+        if cells:
+            cell = min(cells, key=lambda c: _km_between(lat, lon, c["latitude"], c["longitude"]))
+            km = _km_between(lat, lon, cell["latitude"], cell["longitude"])
+            if km <= _OSF_GRID_MAX_KM:
+                return {
+                    "available": True,
+                    "grid_cell": {
+                        "distance_km": round(km, 1),
+                        "latitude": cell["latitude"],
+                        "longitude": cell["longitude"],
+                        **{k: v for k, v in cell.items() if k not in ("latitude", "longitude")},
+                    },
+                    "dataset": "INCOIS Ocean State Forecast — south-India 0.5 deg marine grid (pre-extracted)",
+                    "confidence": Confidence(
+                        score="LOW_DATA",
+                        rationale=f"nearest 0.5 deg OSF grid cell is {km:.0f} km away — a regional value, not this position",
+                    ),
+                }
+        return {
+            **out,
+            "note": f"no INCOIS OSF extraction within {_OSF_POINT_MAX_KM:.0f} km of this position, "
+                    f"and no grid cell within {_OSF_GRID_MAX_KM:.0f} km "
+                    "(both extractions cover south India only)",
+            "confidence": Confidence(score="LOW_DATA", rationale="position outside the extracted OSF point set and grid"),
+        }
+
+    return {
+        "available": True,
+        "wave": best.get("ww3"),
+        "ocean": best.get("hycom"),
+        "dataset": "INCOIS Ocean State Forecast — WW3 waves + HYCOM currents (pre-extracted point series)",
+        "confidence": Confidence(
+            score="MEDIUM",
+            rationale="single-cell extraction from the OSF grids, at the nearest cached point rather than this exact position",
+        ),
+    }
+
+
 def _port_latlon(port: str) -> tuple[float, float] | None:
     from orca.data.loaders import cached_weather_path, load_json
 
@@ -793,6 +1013,9 @@ def run(state: ORCAState) -> AgentResult:
     )
     correlation = correlate_sst_chlorophyll(state.get("target_bbox"))
     rose = wind_rose(lat, lon)
+    anomaly_wind = wind_anomaly(lat, lon)
+    gauge = tide_gauge_observation(lat, lon)
+    osf_point = nearest_osf_point_forecast(lat, lon)
 
     outputs: dict[str, Any] = {
         "tide": {
@@ -806,6 +1029,9 @@ def run(state: ORCAState) -> AgentResult:
             "datum": tide.datum,
             "fell_back": tide.fell_back,
             "dataset": tide.source_provenance.dataset,
+            # Predicted heights, cross-checked against what a gauge actually
+            # measured — the observed side predict_tides deliberately omits.
+            "observed_cross_check": {k: v for k, v in gauge.items() if k != "confidence"},
         },
         "nearest_pfz": {
             "found": near.found,
@@ -821,6 +1047,8 @@ def run(state: ORCAState) -> AgentResult:
         "sector_status": sec_status,
         "sst_chlorophyll_correlation": {k: v for k, v in correlation.items() if k != "confidence"},
         "wind_rose": {k: v for k, v in rose.items() if k != "confidence"},
+        "wind_anomaly": {k: v for k, v in anomaly_wind.items() if k != "confidence"},
+        "osf_point_forecast": {k: v for k, v in osf_point.items() if k != "confidence"},
         "source_selections": source_selections,
     }
 

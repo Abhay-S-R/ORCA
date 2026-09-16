@@ -59,3 +59,23 @@ def test_source_decision_falls_down_the_declared_cascade_when_primary_down() -> 
 
 def test_source_decision_none_when_nothing_covers_type() -> None:
     assert select_source_with_fallback("teleportation") is None
+
+
+# --- local_catalog: an index is not the data -----------------------------
+
+def test_local_catalog_marks_index_only_sources_as_not_held():
+    from orca.agents.discovery import local_catalog
+
+    granules = local_catalog("nasa_ocean_color")
+    assert granules and all(g["held_locally"] is False for g in granules)
+    assert all(g["granule"] for g in granules)
+
+    # The INCOIS grids ARE on disk — same call, opposite flag, plus the
+    # licence line that is recorded nowhere else.
+    ww3 = local_catalog("incois_osf_ww3")
+    assert ww3 and ww3[0]["held_locally"] is True
+    assert "CC-BY" in ww3[0]["license"]
+
+    # A source with no local index returns [], not a guess.
+    assert local_catalog("soi_tide_tables") == []
+    assert local_catalog("no_such_source") == []

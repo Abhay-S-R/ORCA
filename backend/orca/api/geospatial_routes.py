@@ -14,6 +14,7 @@ from orca.agents.geospatial import (
     PAN_INDIA_BBOX_WSEN,
     PILOT_BBOX_WSEN,
     bearing_and_distance,
+    boundary_data_vintage,
     check_boundary_proximity,
     current_vectors,
     depth_at_point,
@@ -23,11 +24,11 @@ from orca.agents.geospatial import (
     wind_vectors,
 )
 from orca.agents.visualization import generate_map_layers as agent8_generate_map_layers
+from orca.data.analytics_loaders import load_boundary_provenance
 from orca.trace import record_layer_metric
 from orca.api.params import Lat, Lon, OptLat, OptLon
 
 router = APIRouter(prefix="/api", tags=["geospatial"])
-
 
 def _feature_summary(f) -> dict:
     return {"name": f.name, "designation": f.designation, "geofence_usable": f.geofence_usable}
@@ -133,6 +134,25 @@ def boundary_proximity(lat: Lat, lon: Lon, boundary_name: str) -> dict:
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     return asdict(result)
+
+
+@router.get("/boundary-provenance")
+def boundary_provenance() -> dict:
+    """The evidence behind every boundary answer: the audited per-MPA record
+    (WDPA site ids, why each polygon is or is not geofence-usable) and the
+    VLIZ EEZ gazetteer entries (MRGID, citation) the EEZ polygons came from.
+
+    PS-C10 requires citations. These sidecars were on disk and only their
+    timestamps were read (`geospatial.boundary_data_vintage`), so the citation
+    a boundary distance rests on could not actually be shown to anyone — this
+    is the endpoint the citation panel reads.
+    """
+    prov = load_boundary_provenance()
+    return {
+        **prov,
+        "boundary_data_vintage": boundary_data_vintage(),
+        "note": "Static reference geometry. The vintage is the OLDEST of the contributing sources.",
+    }
 
 
 @router.get("/point-in-polygon")

@@ -7,7 +7,7 @@
 // and the factors it can and cannot corroborate ("correlated with", never
 // "caused by", "insufficient data" where ORCA has no independent measurement).
 import { useEffect, useState } from "react";
-import { LineChart } from "lucide-react";
+import { LineChart, Wind } from "lucide-react";
 import { Badge } from "../components/Badge";
 import { Chart } from "../components/charts";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
@@ -46,6 +46,24 @@ type TrendsResponse = {
     note?: string;
     pearson_r?: number;
     relationship?: string;
+    confidence: Confidence;
+  };
+  // PS #7's word "anomaly" needs a reference period. `available: false`
+  // means ORCA holds no ERA5 baseline for this coast — a stated gap, never
+  // a silent "nothing unusual".
+  wind_anomaly: {
+    available: boolean;
+    note?: string;
+    nearest_port?: string;
+    variable?: string;
+    units?: string;
+    observed_peak?: number;
+    baseline_mean?: number;
+    baseline_std?: number;
+    baseline_label?: string;
+    z?: number;
+    anomalous?: boolean;
+    direction?: string;
     confidence: Confidence;
   };
   source_selection: SourceSelection | null;
@@ -162,6 +180,57 @@ export default function TrendsPage() {
               <ConfidenceMeter tier={data.sst_chlorophyll_correlation.confidence.score} />
             </div>
           </Panel>
+          {/* Wind anomaly — observed peak against the ERA5 reference period */}
+          <Panel title="Wind anomaly vs reference period">
+            {data.wind_anomaly.available ? (
+              <>
+                <ReadoutGrid cols={3}>
+                  <Readout
+                    label="Observed peak"
+                    value={data.wind_anomaly.observed_peak ?? "—"}
+                    unit={data.wind_anomaly.units}
+                  />
+                  <Readout
+                    label="Baseline mean"
+                    value={data.wind_anomaly.baseline_mean ?? "—"}
+                    unit={data.wind_anomaly.units}
+                    hint={`σ ${data.wind_anomaly.baseline_std ?? "—"}`}
+                  />
+                  <Readout label="z-score" value={data.wind_anomaly.z ?? "—"} />
+                </ReadoutGrid>
+                <p className="mt-3 flex items-baseline justify-between gap-3 text-sm">
+                  <span className="text-ink">
+                    {data.wind_anomaly.anomalous
+                      ? `Unusual — ${data.wind_anomaly.direction} the reference period`
+                      : "Within the reference period"}
+                  </span>
+                  <Badge tone={data.wind_anomaly.anomalous ? "caution" : "neutral"}>
+                    {data.wind_anomaly.anomalous ? "anomalous" : "normal"}
+                  </Badge>
+                </p>
+                {/* The baseline is a month, not a climatology. Saying which
+                    is the difference between "unusual for the last month"
+                    and "unusual for this time of year". */}
+                <p className="mt-1 text-[11px] text-ink-dim">
+                  {data.wind_anomaly.baseline_label}
+                  {data.wind_anomaly.nearest_port ? ` · ${data.wind_anomaly.nearest_port}` : ""}
+                </p>
+              </>
+            ) : (
+              <EmptyState
+                icon={<Wind className="size-5" />}
+                title="No reference period for this coast"
+                body={
+                  data.wind_anomaly.note ??
+                  "ORCA holds no ERA5 baseline here, so it will not call anything anomalous."
+                }
+              />
+            )}
+            <div className="mt-3">
+              <ConfidenceMeter tier={data.wind_anomaly.confidence.score} />
+            </div>
+          </Panel>
+
           {/* uncomment this for the footnote lol 
           {data.source_selection && <SourceNarration selection={data.source_selection} />} */}
 

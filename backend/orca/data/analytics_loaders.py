@@ -30,6 +30,7 @@ HAZARDS_DIR = DATA_DIR / "tier1" / "hazards"
 BOUNDARIES_DIR = DATA_DIR / "tier1" / "boundaries"
 OSF_DIR = DATA_DIR / "incois_osf_pfz"
 NASA_DIR = DATA_DIR / "tier2" / "nasa"
+GFW_DIR = DATA_DIR / "tier2" / "gfw"
 BHUVAN_DIR = DATA_DIR / "tier3" / "bhuvan"
 
 
@@ -376,5 +377,68 @@ def load_boundary_provenance() -> dict[str, Any]:
             "polygon_file": rec.get("orca_polygon_file"),
             "bbox": [rec.get("minLongitude"), rec.get("minLatitude"),
                      rec.get("maxLongitude"), rec.get("maxLatitude")],
+        })
+    return out
+
+
+def load_osf_marine_grid() -> list[dict[str, float]]:
+    """The 400-cell south-India marine grid extracted from the OSF NetCDF pair.
+
+    Wider coverage than the 8 per-port point extractions and the same price (a
+    CSV read), so it is what the point fast-path falls back to before it gives
+    up. 0.5 deg spacing over roughly 6-13 N / 72-82 E — a regional picture, not
+    a position-accurate reading, and the caller is expected to say so.
+    """
+    path = OSF_DIR / "south_india_marine_grid.csv"
+    if not path.exists():
+        return []
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = []
+        for r in csv.DictReader(f):
+            try:
+                rows.append({k: float(v) for k, v in r.items() if v not in ("", None)})
+            except ValueError:
+                continue
+    return rows
+
+
+def load_osf_dataset_manifest() -> dict[str, Any]:
+    """Per-source description, resolution, update cadence, upstream URL pattern
+    and LICENSE for the INCOIS OSF/PFZ collection.
+
+    The license line is the part that matters: ORCA cites INCOIS data, and the
+    only place the CC-BY 4.0 (INCOIS/MoES) terms are recorded is this file.
+    """
+    path = OSF_DIR / "dataset_manifest.json"
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def load_gfw_vessel_sample() -> list[dict[str, Any]]:
+    """Global Fishing Watch vessel-identity sample response.
+
+    Identity records only — no positions, no fishing effort. Surfaced as a
+    catalog so the `gfw_ais` registry entry is backed by something visible
+    rather than being a name with nothing behind it. AIS presence remains
+    out of scope; this does not change that.
+    """
+    path = GFW_DIR / "gfw_vessels_search_sample.json"
+    if not path.exists():
+        return []
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    out: list[dict[str, Any]] = []
+    for entry in raw.get("entries", []):
+        info = (entry.get("combinedSourcesInfo") or [{}])[0]
+        self_reported = (entry.get("selfReportedInfo") or [{}])[0]
+        out.append({
+            "vessel_id": info.get("vesselId") or self_reported.get("id"),
+            "ship_name": self_reported.get("shipname"),
+            "flag": self_reported.get("flag"),
+            "dataset": entry.get("dataset"),
+            "geartypes": [g.get("name") for g in info.get("geartypes", [])],
+            "held_locally": False,
         })
     return out

@@ -212,3 +212,34 @@ def test_run_returns_agent_result_with_no_persona_field(monkeypatch):
     # so it has to actually be in outputs, not just in the envelope.
     assert result.outputs["acquisition_timestamp"] != ""
     assert result.outputs["acquisition_timestamp"] == result.source_provenance.acquisition_timestamp
+
+
+# --- IMD district nowcast: the second, genuinely-IMD hazard source --------
+
+def test_imd_nowcast_filters_by_radius_and_reports_expiry():
+    from orca.agents import weather_intelligence as wi
+
+    # Thoothukudi is inside the cached snapshot's footprint.
+    near = wi.get_imd_nowcast_alerts(8.75, 78.3)
+    assert near["alert_count"] >= 1
+    assert all(a["distance_km"] <= near["radius_km"] for a in near["alerts"])
+    # The snapshot is a closed 3-hour window: it must say so rather than
+    # presenting a 2026-08-30 nowcast as current weather.
+    assert near["expired"] is True
+    assert near["confidence"].score == "LOW_DATA"
+
+    # Mid-Arabian-Sea: no issuing district within range. That is "no second
+    # source", never "no hazard".
+    far = wi.get_imd_nowcast_alerts(15.0, 68.0)
+    assert far["alert_count"] == 0
+    assert far["lightning_flagged"] is False
+    assert far["confidence"].score == "LOW_DATA"
+
+
+def test_imd_time_parses_ist_stamp():
+    from orca.agents import weather_intelligence as wi
+
+    parsed = wi._imd_time("Sun Aug 30 19:30:00 IST 2026")
+    assert parsed is not None
+    assert parsed.utcoffset().total_seconds() == 5.5 * 3600
+    assert wi._imd_time("not a timestamp") is None
