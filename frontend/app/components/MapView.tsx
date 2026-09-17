@@ -15,7 +15,17 @@ import { setWorkerUrl } from "maplibre-gl";
 import { FlowFieldCanvas } from "./FlowFieldCanvas";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Calendar, ChevronDown, ChevronUp, Compass, Crosshair, Layers, MapPin, Navigation, ShieldCheck, Waves, X } from "lucide-react";
-import { BASEMAP_STYLE, CHART, INDIA_CENTER, INDIA_VIEW, RASTER_OVERLAYS, webglAvailable } from "../map/basemap";
+import {
+  BASEMAP_LABELS,
+  BASEMAP_RASTERS,
+  BASEMAP_STYLE,
+  CHART,
+  INDIA_CENTER,
+  INDIA_VIEW,
+  RASTER_OVERLAYS,
+  webglAvailable,
+  type BasemapId,
+} from "../map/basemap";
 import { Badge, type BadgeTone } from "./Badge";
 import { LayerToggle } from "./LayerToggle";
 import { Panel } from "./Panel";
@@ -272,6 +282,10 @@ export function MapView({
   // glance, so it starts as a one-line header the way SourceChip's
   // provenance popover does, not open by default.
   const [layersOpen, setLayersOpen] = useState(false);
+  // Which basemap is showing under the chart layers. "chart" is the vector
+  // style itself; the others are raster layers already in the style, so this
+  // only ever flips `visibility` — no restyle, no source/layer teardown.
+  const [basemap, setBasemap] = useState<BasemapId>("chart");
   const [depth, setDepth] = useState<DepthResult | null>(null);
   // Nearest DELIMITED boundary line at the tapped point: which treaty line,
   // how far, on what agreement. The EEZ-edge distance answers a different
@@ -503,6 +517,29 @@ export function MapView({
       // admiralty-chart pale teal keeps the sea reading as the subject (the
       // thing the product is about) rather than as generic basemap water.
       recolourSea(m);
+
+      /* Alternate basemaps (streets / satellite / terrain), hidden until
+         picked. A `labelled` raster is inserted at the top of the basemap
+         stack (its own place names replace the style's, rather than being
+         written over them); bare imagery goes under the style's first symbol
+         layer so it keeps the chart's labels. Either way the ORCA layers
+         added below draw on top, and MapLibre fetches no tiles for a source
+         whose only layer is hidden — the unpicked ones cost nothing. */
+      const firstSymbol = m.getStyle().layers?.find((l) => l.type === "symbol")?.id;
+      for (const [id, { source, labelled }] of Object.entries(BASEMAP_RASTERS)) {
+        if (m.getSource(`basemap-${id}`)) continue;
+        m.addSource(`basemap-${id}`, source);
+        m.addLayer(
+          {
+            id: `basemap-${id}-raster`,
+            type: "raster",
+            source: `basemap-${id}`,
+            layout: { visibility: "none" },
+            paint: { "raster-opacity": 1 },
+          },
+          labelled ? undefined : firstSymbol,
+        );
+      }
 
       /* Raster overlays first, so vector boundaries always draw above them. */
       for (const [id, { source, opacity }] of Object.entries(RASTER_OVERLAYS)) {
@@ -1148,6 +1185,7 @@ export function MapView({
     const vis = (id: string, on: boolean) => {
       if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", on ? "visible" : "none");
     };
+    for (const id of Object.keys(BASEMAP_RASTERS)) vis(`basemap-${id}-raster`, basemap === id);
     vis("boundaries-fill", layers.boundaries);
     vis("boundaries-line", layers.boundaries);
     vis("boundary-lines-line", layers.boundaryLines);
@@ -1163,7 +1201,7 @@ export function MapView({
       const on = layer.forecast_frames?.length ? layers.waveForecast : layers.srvBathymetry;
       vis(`srv-${layer.layer_id}-raster`, on);
     }
-  }, [ready, layers, rasterLayers]);
+  }, [ready, layers, rasterLayers, basemap]);
 
   /* ---- forecast frame swap: setTiles() + isSourceLoaded() crossfade, so a
      slider drag never flashes a half-loaded tile at full opacity (§ D3
@@ -1272,6 +1310,30 @@ export function MapView({
                 </button>
                 {layersOpen && (
                   <div className="-mx-2 mt-3">
+                    <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-dim">
+                      Base map
+                    </p>
+                    <div
+                      role="group"
+                      aria-label="Base map"
+                      className="mx-2 mb-2 grid grid-cols-2 gap-1"
+                    >
+                      {(Object.keys(BASEMAP_LABELS) as BasemapId[]).map((id) => (
+                        <button
+                          key={id}
+                          type="button"
+                          aria-pressed={basemap === id}
+                          onClick={() => setBasemap(id)}
+                          className={`rounded-sm border px-2 py-1 text-[11px] transition-colors ${
+                            basemap === id
+                              ? "border-accent bg-accent/10 font-semibold text-ink"
+                              : "border-hairline text-ink-muted hover:bg-shelf-2/70"
+                          }`}
+                        >
+                          {BASEMAP_LABELS[id]}
+                        </button>
+                      ))}
+                    </div>
                     <LayerToggle
                       label="Boundaries"
                       swatch={CHART.eez}
