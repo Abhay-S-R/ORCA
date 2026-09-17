@@ -48,12 +48,23 @@ def cached_ndma_cap_alerts_path() -> Path:
     return DATA_DIR / "tier1" / "hazards" / "ndma_cap_alerts.json"
 
 
-# Ports with a cached fallback on disk, keyed by the filename suffix used
-# throughout data/tier1/ (checked against the actual files, not assumed).
-CACHED_WEATHER_PORTS = ("chennai", "kochi", "mumbai", "pamban", "thoothukudi", "visakhapatnam")
-CACHED_MARINE_PORTS = ("chennai", "kochi", "mumbai", "pamban", "thoothukudi")  # visakhapatnam has
-# no marine cache on disk — a real gap, not an oversight; get_marine_weather's
-# fallback degrades to wind-only with a named-missing wave height if hit.
+# Ports with a cached fallback on disk. Globbed from the files themselves rather
+# than hand-listed, so `scripts/refresh_openmeteo_caches.py` widening coverage
+# (it fetches every _GAZETTEER coordinate) is picked up without a second edit
+# here — and a port whose marine fetch failed simply stays out of
+# CACHED_MARINE_PORTS instead of being offered and then missing.
+_PILOT_PORTS = ("chennai", "kochi", "mumbai", "pamban", "thoothukudi", "visakhapatnam")
+
+
+def _cached_ports(template: Path) -> tuple[str, ...]:
+    """Port names behind a `cached_*_path("*")` pattern, pilot six if data/ is absent."""
+    prefix, suffix = template.name.split("*")
+    found = tuple(sorted(f.name[len(prefix):-len(suffix)] for f in template.parent.glob(template.name)))
+    return found or _PILOT_PORTS
+
+
+CACHED_WEATHER_PORTS = _cached_ports(cached_weather_path("*"))
+CACHED_MARINE_PORTS = _cached_ports(cached_marine_path("*"))
 
 # Port name -> (lat, lon), lazily built from each port's own cached weather
 # fixture rather than a second hand-maintained coordinate table — the file

@@ -20,6 +20,7 @@ from orca.agents.geospatial import (
     depth_at_point,
     generate_map_layers,
     point_in_polygon,
+    fishing_ban_status,
     spatial_query_zones,
     wind_vectors,
 )
@@ -169,6 +170,16 @@ def depth(lat: Lat, lon: Lon) -> dict:
 def bearing(from_lat: Lat, from_lon: Lon, to_lat: Lat, to_lon: Lon) -> dict:
     bearing_deg, distance_nm = bearing_and_distance(from_lat, from_lon, to_lat, to_lon)
     return {"bearing_deg": bearing_deg, "distance_nm": distance_nm}
+
+
+@router.get("/fishing-ban")
+def fishing_ban(lat: Lat, lon: Lon) -> dict:
+    """Seasonal fishing-ban status at a position today (runbook C4, PS-C8).
+
+    Regulatory, never a sail/no-sail verdict — the risk cascade does not read
+    it, and a closed season is not a weather hazard.
+    """
+    return fishing_ban_status(lat, lon)
 
 
 @router.get("/zones-nearby")

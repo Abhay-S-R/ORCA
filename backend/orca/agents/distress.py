@@ -19,9 +19,11 @@ quietly ship it as done.
 """
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from typing import Any
 
+from orca.data import analytics_loaders as al
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.state import ORCAState
 
@@ -64,10 +66,49 @@ _DISTRESS_PATTERNS: dict[str, list[str]] = {
 # VHF Channel 16 is the international maritime distress/calling channel
 # (ITU/IMO standard, not India-specific). PHONE NUMBERS CAN CHANGE — verify
 # again before a real demo or deployment; this is sourced, not guaranteed current.
+#
+# These two are the ONLY numbers in this file. The station roster added
+# alongside (`data/tier1/sar/icg_sar_stations.json`, runbook §C4) names all
+# 39 MRCCs/MRSCs and where they are, but the ICG publishes no per-station
+# telephone number and none is invented here: the roster tells a caller WHO
+# covers them and how far away, 1554 and VHF 16 are what they dial.
 MRCC_CONTACTS: dict[str, dict[str, str]] = {
     "default": {"name": "Indian Coast Guard MRCC (nationwide)", "phone": "1554", "vhf_channel": "16"},
     "chennai": {"name": "MRCC Chennai", "phone": "+91-44-2539-5018", "vhf_channel": "16"},
 }
+
+_EARTH_RADIUS_KM = 6371.0
+
+
+def _km_between(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * _EARTH_RADIUS_KM * math.asin(min(1.0, math.sqrt(a)))
+
+
+def nearest_sar_station(lat: float, lon: float) -> dict[str, Any] | None:
+    """Closest ICG rescue centre to a position, with its parent MRCC.
+
+    Straight-line distance, stated as such in the payload: an MRSC's actual
+    response depends on its boats and the sea state, and a great-circle
+    kilometre is the honest thing a client can compute. The parent MRCC is
+    carried because the MRSC is the local unit but the MRCC coordinates the
+    case.
+    """
+    stations = al.load_sar_stations().get("stations") or []
+    if not stations:
+        return None
+    best = min(stations, key=lambda st: _km_between(lat, lon, st["latitude"], st["longitude"]))
+    return {
+        "station": best["station"],
+        "kind": best["kind"],
+        "coordinating_mrcc": best["mrcc"],
+        "latitude": best["latitude"],
+        "longitude": best["longitude"],
+        "straight_line_distance_km": round(_km_between(lat, lon, best["latitude"], best["longitude"]), 1),
+        "phone": best.get("phone"),  # null — see MRCC_CONTACTS above
+    }
 
 
 def detect_distress_signal(text: str, ui_control_triggered: bool = False) -> dict[str, Any]:
@@ -87,17 +128,51 @@ def detect_distress_signal(text: str, ui_control_triggered: bool = False) -> dic
 
 
 def surface_mrcc_contact(user_location: dict[str, Any] | None, language: str = "en") -> dict[str, Any]:
-    """Tool per Architecture §3.2 Agent 12. Region resolution is coarse
-    (pilot region only has one MRCC in scope) — a real multi-region lookup
-    is out of scope while the pilot is a single coastal strip. Always
-    returns the nationwide 1554 number regardless, so a lookup miss is
-    never a total miss."""
-    contact = MRCC_CONTACTS.get("chennai", MRCC_CONTACTS["default"])
+    """Tool per Architecture §3.2 Agent 12. Resolves the caller's position
+    against the full ICG rescue roster (runbook §C4) — before that table
+    existed this returned MRCC Chennai for a boat off Gujarat.
+
+    `nationwide_fallback` is always present and always dialable, so a
+    position we cannot resolve, or a roster file that is missing, degrades to
+    1554 rather than to nothing.
+    """
+    lat, lon = _position_of(user_location)
+    nearest = nearest_sar_station(lat, lon) if lat is not None else None
+    if nearest is None:
+        return {
+            "primary": MRCC_CONTACTS["default"],
+            "nearest_station": None,
+            "nationwide_fallback": MRCC_CONTACTS["default"],
+            "vhf_channel": "16",
+            "note": "no position on the query" if lat is None else "ICG station roster unavailable",
+            "language": language,
+        }
     return {
-        "primary": contact,
+        # The dialable contact is still the nationwide line — the roster
+        # carries no station phone number, and a distress reply must never
+        # surface a "primary" a caller cannot actually ring.
+        "primary": MRCC_CONTACTS["default"],
+        "nearest_station": nearest,
         "nationwide_fallback": MRCC_CONTACTS["default"],
+        "vhf_channel": "16",
+        "note": f"{nearest['station']} is the nearest rescue centre "
+                f"({nearest['straight_line_distance_km']} km, straight line); "
+                f"{nearest['coordinating_mrcc']} coordinates. No station-level number is "
+                f"published — dial 1554 or call on VHF 16.",
         "language": language,
     }
+
+
+def _position_of(user_location: dict[str, Any] | None) -> tuple[float | None, float | None]:
+    """(lat, lon) out of whichever key shape the state carried, or (None, None)."""
+    if not isinstance(user_location, dict):
+        return None, None
+    for la, lo in (("lat", "lon"), ("latitude", "longitude")):
+        try:
+            return float(user_location[la]), float(user_location[lo])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return None, None
 
 
 def emit_datsg_handoff(

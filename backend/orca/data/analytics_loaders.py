@@ -32,6 +32,7 @@ OSF_DIR = DATA_DIR / "incois_osf_pfz"
 NASA_DIR = DATA_DIR / "tier2" / "nasa"
 GFW_DIR = DATA_DIR / "tier2" / "gfw"
 BHUVAN_DIR = DATA_DIR / "tier3" / "bhuvan"
+SAR_DIR = DATA_DIR / "tier1" / "sar"
 
 
 # --- tides -----------------------------------------------------------------
@@ -72,6 +73,21 @@ def _parse_soi_utc(raw: str) -> datetime:
 def load_tide_gauge_telemetry() -> dict[str, Any]:
     with open(TIDES_DIR / "incois_tide_gauge_telemetry.json", encoding="utf-8") as f:
         return json.load(f)
+
+
+def load_sar_stations() -> dict[str, Any]:
+    """ICG MRCC/MRSC roster — `scripts/scrape_icg_sar_stations.py` writes it.
+
+    Returns an empty roster rather than raising when the file is absent: a
+    distress reply must still go out with the nationwide 1554 number, and a
+    missing station table is not a reason to fail the one query that cannot
+    fail.
+    """
+    try:
+        with open(SAR_DIR / "icg_sar_stations.json", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {"stations": [], "station_count": 0}
 
 
 STORMGLASS_DIR = DATA_DIR / "tier2" / "stormglass"
@@ -188,6 +204,35 @@ def load_fish_landings() -> list[dict[str, Any]]:
         for col in ("Total_Landings_Tonnes", "Pelagic_Tonnes", "Demersal_Tonnes"):
             r[col] = float(r[col])
     return rows
+
+
+def load_cmfri_state_landings() -> list[dict[str, Any]]:
+    """CMFRI's state-wise annual landings estimate, extracted from its own
+    booklet by `scripts/extract_cmfri_state_landings.py`.
+
+    One reporting year per edition — this is a coverage widening (every
+    maritime state instead of four Tamil Nadu districts), not a time series.
+    Empty when the extraction has not been run.
+    """
+    path = FISHERIES_DIR / "cmfri_state_landings.csv"
+    if not path.exists():
+        return []
+    with open(path, encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    for r in rows:
+        r["Year"] = int(r["Year"])
+        r["Total_Landings_Tonnes"] = float(r["Total_Landings_Tonnes"])
+        r["Landings_Lakh_Tonnes"] = float(r["Landings_Lakh_Tonnes"])
+    return rows
+
+
+def load_cmfri_provenance() -> dict[str, Any]:
+    path = FISHERIES_DIR / "cmfri_state_landings_provenance.json"
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 # --- gridded ocean fixtures (D3 seam, §4.2) --------------------------------

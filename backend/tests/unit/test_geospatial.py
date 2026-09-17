@@ -198,3 +198,37 @@ def test_depth_at_point_outside_pilot_bounds_does_not_falsely_report_land() -> N
     assert res.depth_m is not None and 40.0 <= res.depth_m <= 70.0
     assert not res.shallow_hazard
 
+
+
+# --- seasonal fishing ban (runbook C4) ------------------------------------
+
+def test_fishing_ban_is_per_coast_not_national() -> None:
+    """The two coasts' windows are six weeks apart; a single national window
+    would tell a Gujarat crew the sea was closed while it was open."""
+    from datetime import date
+
+    from orca.agents.geospatial import fishing_ban_status
+
+    may_east = fishing_ban_status(8.70, 78.50, date(2026, 5, 1))
+    if not may_east.get("available"):
+        return  # roster/order are gitignored data — absence is legitimate
+    may_west = fishing_ban_status(20.90, 70.30, date(2026, 5, 1))
+    assert may_east["in_ban_period"] is True
+    assert may_west["in_ban_period"] is False
+    assert may_east["coast"] == "east" and may_west["coast"] == "west"
+
+
+def test_fishing_ban_never_asserts_the_central_order_inside_territorial_waters() -> None:
+    from datetime import date
+
+    from orca.agents.geospatial import fishing_ban_status
+
+    inshore = fishing_ban_status(20.90, 70.30, date(2026, 7, 1))  # ~2 NM off Veraval
+    if not inshore.get("available"):
+        return
+    assert inshore["in_ban_period"] is True
+    assert inshore["applies_here"] is False, "central EEZ order does not reach inside 12 NM"
+    assert "state" in inshore["note"].lower()
+    # Every answer carries the order it came from — a date with no file number
+    # behind it is the kind of claim the deterministic core exists to prevent.
+    assert inshore["order"]["file_number"]

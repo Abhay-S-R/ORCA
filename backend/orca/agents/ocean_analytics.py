@@ -290,12 +290,35 @@ def detect_anomaly(value: float, baseline_mean: float, baseline_std: float) -> d
     }
 
 
+def _freshest(*grids: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The freshest readable grid, ties going to the earlier argument.
+
+    discovery.py ranks sources on freshness first (its own docstring: "MOSDAC
+    NRT SST chosen over Copernicus CMEMS: 6 h old vs ..."), so a plain
+    `a or b` cascade only matches that ranking while the national archive is
+    actually the fresher file. It is not always: the EOS-06 chlorophyll
+    archive stops at March 2026 while the CMEMS NRT file is days old, and
+    correlating across that gap compares two different seasons.
+    """
+    readable = [g for g in grids if g and g.get("provenance", {}).get("freshness_minutes") is not None]
+    if not readable:
+        return next((g for g in grids if g), None)
+    return min(readable, key=lambda g: g["provenance"]["freshness_minutes"])
+
+
 def _sst_grid(bbox: dict[str, float] | None) -> dict[str, Any] | None:
-    """SST source cascade, in the order discovery.py advertises: ISRO INSAT-3D
-    first (national mission data, the answer this product should give), CMEMS
-    second, and D3's normalized fixture last."""
-    return (sl.load_insat_sst(bbox) or sl.load_cmems_sst(bbox)
+    """SST source cascade: ISRO INSAT-3D (national mission data, the answer
+    this product should give) against CMEMS, freshest wins, and D3's
+    normalized fixture only when neither archive reads."""
+    return (_freshest(sl.load_insat_sst(bbox), sl.load_cmems_sst(bbox))
             or al.load_ocean_grid_fixture("sst"))
+
+
+def _chl_grid(bbox: dict[str, float] | None) -> dict[str, Any] | None:
+    """Chlorophyll cascade, same rule: EOS-06 OCM-3 first by authority, CMEMS
+    gap-free NRT when it is the fresher of the two."""
+    return (_freshest(sl.load_eos06_chl(bbox), sl.load_cmems_chl(bbox))
+            or al.load_ocean_grid_fixture("chl"))
 
 
 def correlate_sst_chlorophyll(bbox: dict[str, float] | None = None) -> dict[str, Any]:
@@ -304,21 +327,22 @@ def correlate_sst_chlorophyll(bbox: dict[str, float] | None = None) -> dict[str,
     Reads the ISRO archives directly (INSAT-3D L3B SST, EOS-06 OCM L4
     chlorophyll), co-locating them on a 0.25° grid because the two products
     are on different native grids and a pairwise correlation between
-    unaligned series is a number about nothing. Falls back through CMEMS and
-    then D3's fixture; if none of the three rungs yields a grid this still
+    unaligned series is a number about nothing. Either side falls back to
+    CMEMS when CMEMS holds the fresher granule, and to D3's fixture when
+    neither archive reads; if none of the three rungs yields a grid this still
     returns available=False with the reason rather than a synthesised number.
 
     "Correlated with", never "caused by": upwelling raises chlorophyll and
     lowers SST together, but this function measures association only.
     """
     sst = _sst_grid(bbox)
-    chl = sl.load_eos06_chl(bbox) or al.load_ocean_grid_fixture("chl")
+    chl = _chl_grid(bbox)
     if sst is None or chl is None:
         missing = [n for n, v in (("SST", sst), ("chlorophyll", chl)) if v is None]
         return {
             "available": False,
             "note": f"no readable gridded source for {', '.join(missing)} "
-                    "(tried INSAT-3D/CMEMS for SST, EOS-06 for chlorophyll)",
+                    "(tried INSAT-3D/CMEMS for SST, EOS-06/CMEMS for chlorophyll)",
             "confidence": Confidence(score="LOW_DATA", rationale="gridded ocean-colour / SST inputs not available"),
         }
 
@@ -337,9 +361,10 @@ def correlate_sst_chlorophyll(bbox: dict[str, float] | None = None) -> dict[str,
 
     r = _pearson([sst_cells[c] for c in shared], [chl_cells[c] for c in shared])
     n = len(shared)
-    # The two granules are days or months apart (the chlorophyll archive on
-    # disk is March 2026, the SST archive August 2026). Saying so is the
-    # difference between an honest association and an implied simultaneity.
+    # The two granules can still be days or months apart even after the
+    # freshness pick — nothing guarantees both archives ran the same week.
+    # Saying so is the difference between an honest association and an
+    # implied simultaneity.
     lag_note = _acquisition_gap(sst.get("provenance"), chl.get("provenance"))
     return {
         "available": True,
@@ -626,6 +651,11 @@ def tide_gauge_observation(lat: float, lon: float) -> dict[str, Any]:
     does not interpret it, threshold it, or derive a verdict from it: a
     tsunami determination is INCOIS's to make, and reporting their state is
     the honest thing a client can do with it.
+
+    Six gauges cannot cover 7,500 km of coast, so a point with none in range
+    falls through to CMEMS altimetry (`source_kind: satellite_altimetry`)
+    rather than returning nothing. The two are not interchangeable and the
+    reply says which one it is.
     """
     telemetry = al.load_tide_gauge_telemetry()
     stations = telemetry.get("stations", [])
@@ -639,16 +669,16 @@ def tide_gauge_observation(lat: float, lon: float) -> dict[str, Any]:
     gauge = min(stations, key=lambda g: _km_between(lat, lon, g["latitude"], g["longitude"]))
     km = _km_between(lat, lon, gauge["latitude"], gauge["longitude"])
     if km > _TIDE_GAUGE_MAX_KM:
-        return {
-            "available": False,
-            "note": f"nearest INCOIS gauge ({gauge['station_name']}) is {km:.0f} km away — "
-                    f"beyond {_TIDE_GAUGE_MAX_KM:.0f} km an observed level is a different stretch of coast",
-            "confidence": Confidence(score="LOW_DATA", rationale="no INCOIS tide gauge within range"),
-        }
+        return _altimetric_sea_level(
+            lat, lon,
+            f"nearest INCOIS gauge ({gauge['station_name']}) is {km:.0f} km away — "
+            f"beyond {_TIDE_GAUGE_MAX_KM:.0f} km an observed level is a different stretch of coast",
+        )
 
     operational = gauge.get("status") == "OPERATIONAL"
     return {
         "available": True,
+        "source_kind": "in_situ_gauge",
         "station_id": gauge.get("station_id"),
         "station_name": gauge.get("station_name"),
         "distance_km": round(km, 1),
@@ -665,6 +695,49 @@ def tide_gauge_observation(lat: float, lon: float) -> dict[str, Any]:
             score="MEDIUM" if operational else "LOW_DATA",
             rationale=(f"observed against the gauge's own prediction at {gauge['station_name']}, {km:.0f} km away"
                        if operational else f"gauge {gauge.get('station_id')} reports status {gauge.get('status')!r}"),
+        ),
+    }
+
+
+def _altimetric_sea_level(lat: float, lon: float, why: str) -> dict[str, Any]:
+    """Satellite altimetry standing in for an out-of-range tide gauge.
+
+    INCOIS runs six gauges nationally, so most of the coastline has none
+    within 150 km and PS-Q "is the water standing higher than usual here?"
+    had no answer at all outside those six. CMEMS DUACS covers the whole
+    bbox at 0.125 deg. It is a different measurement and is labelled as one:
+    an anomaly against a 20-year mean sea surface, not a residual against
+    tonight's astronomical prediction, and it carries no tsunami state —
+    that determination stays INCOIS's alone.
+    """
+    alt = sl.load_cmems_ssh(lat, lon)
+    if alt is None:
+        return {
+            "available": False,
+            "note": f"{why}; no CMEMS sea-level file on disk either",
+            "confidence": Confidence(score="LOW_DATA", rationale="no tide gauge in range and no altimetry fallback"),
+        }
+    return {
+        "available": True,
+        "source_kind": "satellite_altimetry",
+        "station_id": None,
+        "station_name": None,
+        "sea_level_anomaly_m": alt["sea_level_anomaly_m"],
+        "absolute_dynamic_topography_m": alt["absolute_dynamic_topography_m"],
+        "observed_level_m": None,
+        "predicted_astronomical_m": None,
+        "tsunami_trigger_state": None,
+        "observed_at_ist": None,
+        "acquisition_timestamp": alt["provenance"]["acquisition_timestamp"],
+        "dataset": alt["provenance"]["dataset"],
+        "provenance": alt["provenance"],
+        "note": f"{why}; substituted satellite altimetry, which is an anomaly "
+                "against a multi-year mean sea surface, not a residual against a tide prediction",
+        "confidence": Confidence(
+            score="MEDIUM",
+            rationale=f"CMEMS DUACS sla averaged over {alt['cells_averaged']} cells "
+                      f"within {alt['sample_radius_deg']} deg; no in-situ gauge within "
+                      f"{_TIDE_GAUGE_MAX_KM:.0f} km",
         ),
     }
 
@@ -844,6 +917,59 @@ _SST_STRESS_MARKERS = ("sst anomaly", "marine heatwave", "thermal stress", "blea
 _UPWELLING_MARKERS = ("upwelling", "chakara", "mudbank", "convective mixing", "nutrient enrichment")
 
 
+def _state_landings_record(place: str, district_years: int) -> dict[str, Any]:
+    """What CMFRI recorded for a state, when the district series is too short.
+
+    The district file covers four Tamil Nadu districts; before the CMFRI
+    booklet was extracted (runbook §C2) every other coastline got
+    "insufficient data" and nothing else. A single-year state estimate is not
+    a trend and is not dressed as one — `verdict` says so, the confidence
+    stays LOW_DATA, and CMFRI's own paragraph is quoted rather than
+    paraphrased into a cause.
+    """
+    needle = place.lower().strip()
+    match = next(
+        (r for r in al.load_cmfri_state_landings()
+         if needle in r["State"].lower() or r["State"].lower() in needle),
+        None,
+    )
+    if match is None:
+        return {
+            "district": place,
+            "verdict": "insufficient data",
+            "detail": f"only {district_years} year(s) of landings on record for '{place}', "
+                      "and no CMFRI state estimate covers it either",
+            "factors": [],
+            "confidence": Confidence(score="LOW_DATA", rationale="fewer than 3 years of catch data"),
+        }
+
+    prov = al.load_cmfri_provenance()
+    return {
+        "district": place,
+        "state": match["State"],
+        "verdict": "single-year state record — not a trend",
+        "detail": f"{match['State']} landed {match['Landings_Lakh_Tonnes']} lakh tonnes "
+                  f"({int(match['Total_Landings_Tonnes']):,} t) in {match['Year']}, on the "
+                  f"{match['Coast']} coast. Only {district_years} year(s) of district-level "
+                  f"landings exist for '{place}', so no direction can be read from this.",
+        "landings_tonnes": match["Total_Landings_Tonnes"],
+        "year": match["Year"],
+        "cmfri_note": match["CMFRI_Note"],
+        "citation": prov.get("citation"),
+        "factors": [{
+            "factor": "year-on-year direction",
+            "year": match["Year"],
+            "relationship": "insufficient data",
+            "evidence": "one reporting year on record for this state; "
+                        "a second edition of the CMFRI booklet is what closes this",
+        }],
+        "confidence": Confidence(
+            score="LOW_DATA",
+            rationale=f"single-year CMFRI state estimate for {match['State']}; no multi-year series",
+        ),
+    }
+
+
 def diagnose_productivity_decline(district_sector: str) -> dict[str, Any]:
     """PS #7 — 'why has fish catch declined'. Correlates the recorded catch
     trend against the recorded productivity drivers for a district.
@@ -857,13 +983,7 @@ def diagnose_productivity_decline(district_sector: str) -> dict[str, Any]:
             or district_sector.lower() in r["District_Sector"].lower()]
     rows.sort(key=lambda r: r["Year"])
     if len(rows) < 3:
-        return {
-            "district": district_sector,
-            "verdict": "insufficient data",
-            "detail": f"only {len(rows)} year(s) of landings on record for '{district_sector}'",
-            "factors": [],
-            "confidence": Confidence(score="LOW_DATA", rationale="fewer than 3 years of catch data"),
-        }
+        return _state_landings_record(district_sector, len(rows))
 
     latest, prior = rows[-1], rows[-2]
     delta_t = latest["Total_Landings_Tonnes"] - prior["Total_Landings_Tonnes"]

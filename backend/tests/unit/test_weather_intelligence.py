@@ -93,11 +93,13 @@ def test_get_marine_weather_falls_back_to_cache_on_live_failure(monkeypatch):
     assert all(h["wind_speed_10m"] < 60 for h in result["hourly"])  # sane m/s, not raw km/h
 
 
-def test_nearest_port_picks_pamban_for_a_rameswaram_coordinate():
+def test_nearest_port_picks_a_rameswaram_island_cache_not_thoothukudi():
     # Pamban is the island at Rameswaram itself — genuinely closer than
-    # Thoothukudi to a Palk Bay coordinate this far north.
+    # Thoothukudi to a Palk Bay coordinate this far north. Which of the two
+    # island caches wins depends on how many places the Open-Meteo refresh has
+    # covered, so the test pins the island, not the filename.
     port = wia._nearest_port(9.28, 79.30, wia.CACHED_MARINE_PORTS)
-    assert port == "pamban"
+    assert port in ("pamban", "rameswaram")
 
 
 # --- get_lightning_nowcast ---------------------------------------------------

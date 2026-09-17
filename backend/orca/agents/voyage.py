@@ -77,8 +77,15 @@ def _ww3() -> xr.Dataset | None:
 
 
 def _ww3_hours_since_epoch(when: datetime) -> float:
+    """`when` on WW3's own time axis ("hours since 0001-01-01", calendar
+    "standard").
+
+    The +48 h is not a fudge: that epoch is a Julian date, and Python's
+    proleptic-Gregorian datetime(1, 1, 1) is two days later than it. Without the
+    shift every lookup lands two days from the requested time — inside the file's
+    range, so it returns a real wave height for the wrong day."""
     epoch = datetime(1, 1, 1, tzinfo=timezone.utc)
-    return (when - epoch).total_seconds() / 3600.0
+    return (when - epoch).total_seconds() / 3600.0 + 48.0
 
 
 def wave_height_at(lat: float, lon: float, when: datetime) -> float | None:

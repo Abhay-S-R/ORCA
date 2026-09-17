@@ -16,6 +16,7 @@ against.
 from __future__ import annotations
 
 import json
+from datetime import date
 import math
 from dataclasses import dataclass
 from functools import lru_cache
@@ -31,7 +32,11 @@ from shapely.strtree import STRtree
 
 DATA_ROOT = Path(__file__).resolve().parents[3] / "data"
 BOUNDARIES_DIR = DATA_ROOT / "tier1" / "boundaries"
-BATHYMETRY_FILE = DATA_ROOT / "tier1" / "bathymetry" / "gebco_2026_n10.5_s7.5_w77.5_e80.5.nc"
+GEBCO_ALL_FILE = DATA_ROOT / "tier1" / "bathymetry" / "gebco_2026_n26.0_s4.0_w60.0_e100.0.nc"
+GEBCO_PILOT_FILE = DATA_ROOT / "tier1" / "bathymetry" / "gebco_2026_n10.5_s7.5_w77.5_e80.5.nc"
+# scripts/download_gebco_bathymetry.py fetches the national subset; the pilot
+# box stays the fallback so a fresh clone without it still answers.
+BATHYMETRY_FILE = GEBCO_ALL_FILE if GEBCO_ALL_FILE.exists() else GEBCO_PILOT_FILE
 ETOPO_ALL_FILE = DATA_ROOT / "tier1" / "bathymetry" / "etopo_all_india_bathymetry.nc"
 ETOPO_FILE = ETOPO_ALL_FILE if ETOPO_ALL_FILE.exists() else DATA_ROOT / "tier1" / "bathymetry" / "etopo_south_india_bathymetry.nc"
 
@@ -240,8 +245,8 @@ def _etopo_bathymetry() -> xr.Dataset | None:
 def depth_at_point(lat: float, lon: float) -> DepthResult:
     """Bathymetry depth reading with GEBCO 2026 pilot priority and Pan-India ETOPO fallback.
 
-    1. GEBCO 2026 extract (15" grid, 7.5-10.5 N, 77.5-80.5 E) for high-precision
-       pilot sounding in Gulf of Mannar and Palk Bay.
+    1. GEBCO 2026 extract (15" grid, 4-26 N / 60-100 E nationally, or the
+       7.5-10.5 N / 77.5-80.5 E pilot box if the national file is absent).
     2. NOAA ETOPO grid (5.0-22.0 N, 70.0-92.0 E) covering all of South and Peninsular
        India (Kerala, Karnataka, Goa, Maharashtra, Tamil Nadu, Andhra Pradesh, Bay of Bengal).
     """
@@ -273,20 +278,25 @@ def depth_at_point(lat: float, lon: float) -> DepthResult:
     return DepthResult(depth_m=None, on_land=False, shallow_hazard=False)
 
 
-def bathymetry_heatmap_points(stride: int = 16) -> list[dict[str, float]]:
+def bathymetry_heatmap_points(stride: int | None = None) -> list[dict[str, float]]:
     """Downsampled GEBCO depth points for Agent 8's Heatmap map layer
     (Architecture §11.1: "SST grid, chlorophyll concentration, wave
     height" — bathymetry is the one gridded field already loaded here).
     Every `stride`-th grid cell, land cells (elevation >= 0) skipped since
     a heatmap over depth has nothing to say about dry land.
 
-    ponytail: stride=16 on the 720x720 pilot grid is ~1-2k real GEBCO
-    points, comfortably under the §4.7 feature-count budget without
-    resampling to a raster — the tile pyramid (orca/tiles.py, Rasterio +
-    cmocean + Pillow) is the real fix for a denser view; this is
-    deliberately the coarse one, kept as a light fallback/complement.
+    ponytail: the default stride is derived from the grid so the point
+    count stays ~1-2k whatever is loaded — the same stride=16 that gives
+    45x45 on the 720x720 pilot grid would give 200k features on the
+    9600x5280 national one. Comfortably under the §4.7 feature-count
+    budget without resampling to a raster — the tile pyramid
+    (orca/tiles.py, Rasterio + cmocean + Pillow) is the real fix for a
+    denser view; this is deliberately the coarse one, kept as a light
+    fallback/complement.
     """
     ds = _bathymetry()
+    if stride is None:
+        stride = max(1, round(max(ds.sizes["lat"], ds.sizes["lon"]) / 45))
     lats = ds["lat"].values[::stride]
     lons = ds["lon"].values[::stride]
     elevation = ds["elevation"].values[::stride, ::stride]
@@ -302,12 +312,18 @@ def bathymetry_heatmap_points(stride: int = 16) -> list[dict[str, float]]:
 
 # ---- Surface currents (D3 particle layer) -----------------------------------
 
-HYCOM_FILE = DATA_ROOT / "incois_osf_pfz" / "osf_hycom" / "RSMC_hycom_20260830.nc"
+HYCOM_DIR = DATA_ROOT / "incois_osf_pfz" / "osf_hycom"
 
 
 @lru_cache(maxsize=1)
 def _hycom() -> xr.Dataset:
-    return xr.open_dataset(HYCOM_FILE)
+    """Newest HYCOM current forecast on disk. Globbed, not pinned to a date:
+    `scripts/refresh_osf_forecasts.py` writes a new RSMC_hycom_<date>.nc every
+    run, and a hardcoded filename means the map keeps drawing the old one."""
+    files = sorted(HYCOM_DIR.glob("RSMC_hycom_*.nc"))
+    if not files:
+        raise FileNotFoundError(f"no RSMC_hycom_*.nc in {HYCOM_DIR} — run scripts/refresh_osf_forecasts.py")
+    return xr.open_dataset(files[-1], decode_times=False)
 
 
 def current_vectors(
@@ -487,6 +503,96 @@ def spatial_query_zones(lat: float, lon: float, radius_nm: float) -> list[Bounda
         if distance_m * NM_PER_METER <= radius_nm:
             results.append(feature)
     return results
+
+
+# ---- Seasonal fishing ban (runbook C4, PS-C8) -------------------------------
+
+# The ban windows and the 12 NM carve-out live with the order they were
+# transcribed from, so the dates and the rule that reads them cannot drift.
+_BAN_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "refresh_fishing_ban_order.py"
+
+# MRCC region -> the coast the DoF ban order puts it on. Andaman & Nicobar is
+# an east-coast entry in the order despite being its own MRCC, and the
+# Lakshadweep stations sit under MRCC Mumbai, which is the west coast — so
+# the roster's own hierarchy answers this without a second geography table.
+_MRCC_COAST = {
+    "MRCC Mumbai": "west",
+    "MRCC Chennai": "east",
+    "MRCC Sri Vijaya Puram": "east",
+}
+
+
+def coast_of(lat: float, lon: float) -> str | None:
+    """"east" or "west" for a position, via the nearest ICG rescue station.
+
+    A longitude threshold cannot do this — the peninsula's dividing meridian
+    moves with latitude, and Kanyakumari round to the Gulf of Mannar is
+    west-coast water under the ban order while sitting east of Kochi. The
+    39-station roster is already on disk with each station's parent MRCC, and
+    that hierarchy is exactly the east/west split the order uses.
+    """
+    from orca.agents.distress import nearest_sar_station
+
+    nearest = nearest_sar_station(lat, lon)
+    return _MRCC_COAST.get(nearest["coordinating_mrcc"]) if nearest else None
+
+
+def fishing_ban_status(lat: float, lon: float, when: date | None = None) -> dict[str, Any]:
+    """Is the uniform seasonal fishing ban in force at this position today?
+
+    A regulatory answer, not a safety one: it never becomes a NO_GO by
+    itself, and it never becomes a GO either. PS-C8 lists fishing-ban waters
+    beside MPAs and ORCA had nothing to say about them.
+
+    Distance from shore is taken as the distance to the nearest EEZ-polygon
+    edge, which for an inshore position IS the coastline — the same geometry
+    `check_boundary_proximity` uses. Far offshore that edge becomes the
+    200 NM line instead, which is harmless here: the only thing the number
+    decides is whether the position is inside the 12 NM territorial-waters
+    carve-out, and a point near the 200 NM line is not.
+    """
+    coast = coast_of(lat, lon)
+    if coast is None:
+        return {"available": False,
+                "note": "no ICG station roster on disk — cannot tell which coast this is "
+                        "(run scripts/scrape_icg_sar_stations.py)"}
+
+    ban = _load_ban_rules()
+    if ban is None:
+        return {"available": False,
+                "note": "no fishing-ban order on disk (run scripts/refresh_fishing_ban_order.py)"}
+
+    try:
+        shore_nm = check_boundary_proximity(lat, lon, "Indian Exclusive Economic Zone").distance_nm
+    except ValueError:
+        shore_nm = None
+
+    status = ban["ban_status"](coast, when or date.today(), shore_nm, ban["windows"])
+    return {"available": True, "distance_to_nearest_eez_edge_nm": shore_nm,
+            "order": ban["order"], **status}
+
+
+@lru_cache(maxsize=1)
+def _load_ban_rules() -> dict[str, Any] | None:
+    """The ban dates and the date rule, loaded from the procurement script.
+
+    Importing the script rather than re-implementing its window arithmetic:
+    the edges are inclusive and the two coasts are offset by six weeks, and
+    that logic already has a self-check behind it.
+    """
+    import importlib.util
+
+    payload_path = DATA_ROOT / "tier1" / "fisheries" / "seasonal_fishing_ban.json"
+    if not payload_path.exists() or not _BAN_SCRIPT.exists():
+        return None
+    spec = importlib.util.spec_from_file_location("orca_fishing_ban", _BAN_SCRIPT)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with open(payload_path, encoding="utf-8") as f:
+        payload = json.load(f)
+    return {"ban_status": module.ban_status, "windows": payload["windows"], "order": payload["order"]}
 
 
 if __name__ == "__main__":

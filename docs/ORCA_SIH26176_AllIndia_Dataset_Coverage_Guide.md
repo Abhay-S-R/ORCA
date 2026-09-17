@@ -682,6 +682,12 @@ Coordinates are **offshore positions** (~10–20 nm from coast), not town centre
 > **As of 2026-09-16 no row in this table is ⚙️.** Rows still marked ❌ are genuine downloads, not
 > code gaps — that distinction is the whole point of this table, so do not confuse the two when
 > planning work.
+>
+> **How to actually get the ❌ and ⏳ rows: `docs/ORCA_Dataset_Procurement_Runbook.md`** (2026-09-16,
+> every endpoint probed live). Its §0 corrects four rows below that are wrong as written — the two
+> `*_IND_*` Copernicus product ids (18, 20) do not exist, `osf.incois.gov.in` (3, 4, 6) does not
+> resolve, the bilateral boundary lines (29, 30) are a WFS query rather than a portal download, and
+> the Lakshadweep EEZ (32) is not a separate feature at all.
 
 | # | Dataset | On-Disk Status | Source Portal | Direct URL | Free? | Reg? | Format | Repo Path |
 |---|---------|---------------|--------------|------------|-------|------|--------|-----------|

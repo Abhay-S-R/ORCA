@@ -6,11 +6,13 @@ there is a plain json/csv read with no scientific-stack import, and this needs
 h5py + xarray. Same contract otherwise — a loader gets numbers into memory, it
 does not reason about them.
 
-Three real products, all already on disk, none of which had a reader before:
+Five real products, all already on disk, none of which had a reader before:
 
   INSAT-3DR L3B daily SST  `tier3/mosdac/Sea surface temp/3RIMG_*.h5`
   EOS-06 OCM-3 chlorophyll `tier3/mosdac/chlorophyll/E06OCML4AC_*.nc`
-  CMEMS GLO12 thetao       `tier2/copernicus/cmems_*.nc`  (the declared SST fallback)
+  CMEMS GLO12 thetao       `tier2/copernicus/cmems_*thetao*.nc`  (declared SST fallback)
+  CMEMS NRT chlorophyll    `tier2/copernicus/cmems_chl_*.nc`     (chl fallback)
+  CMEMS NRT sea level      `tier2/copernicus/cmems_ssh_*.nc`     (sla/adt, altimetry)
 
 Everything exits as a list of `{"lon", "lat", "value"}` records plus a
 provenance dict, which is the same normalized (lon, lat) axis order
@@ -210,6 +212,55 @@ def load_eos06_chl(bbox: dict[str, float] | None = None) -> dict[str, Any] | Non
 
 # --- CMEMS thetao — the declared SST fallback rung --------------------------
 
+def _cmems_newest(name_contains: str) -> Path | None:
+    """Newest CMEMS file whose NAME carries `name_contains`.
+
+    Matching on the variable name in the filename, not just `cmems_*.nc`:
+    three different products now live in this directory, and a bare glob
+    picks whichever sorts last — which would hand the chlorophyll file to the
+    SST reader the first time a filename changes.
+    """
+    files = sorted(
+        (p for p in CMEMS_DIR.glob("cmems_*.nc") if name_contains in p.name),
+        key=lambda p: p.stat().st_mtime,
+    )
+    return files[-1] if files else None
+
+
+def _cmems_surface_frame(
+    path: Path, var: str, bbox: dict[str, float], valid: tuple[float, float], nd: int
+) -> tuple[list[dict[str, float]], datetime] | None:
+    """Newest time step of `var`, cropped to `bbox`, as {lon, lat, value}.
+
+    All three CMEMS products share a (time, [depth,] latitude, longitude)
+    shape on a -180..180 axis, so one reader serves them; `thetao` is the
+    only one with a depth axis and the shallowest level is the surface.
+    """
+    import xarray as xr
+
+    with xr.open_dataset(path) as ds:
+        if var not in ds:
+            return None
+        field = ds[var].isel(time=-1)
+        if "depth" in field.dims:
+            field = field.isel(depth=0)
+        field = field.sel(
+            latitude=slice(bbox["min_lat"], bbox["max_lat"]),
+            longitude=slice(bbox["min_lon"], bbox["max_lon"]),
+        )
+        acquired = _as_utc(ds["time"].values[-1])
+        lats, lons, values = field["latitude"].values, field["longitude"].values, field.values
+
+    lo, hi = valid
+    records = [
+        {"lon": round(float(lon), 3), "lat": round(float(la), 3), "value": round(v, nd)}
+        for i, la in enumerate(lats)
+        for j, lon in enumerate(lons)
+        if math.isfinite(v := float(values[i, j])) and lo <= v <= hi
+    ]
+    return records, acquired
+
+
 def load_cmems_sst(bbox: dict[str, float] | None = None) -> dict[str, Any] | None:
     """Surface temperature from the CMEMS GLO12 physics file on disk.
 
@@ -219,34 +270,13 @@ def load_cmems_sst(bbox: dict[str, float] | None = None) -> dict[str, Any] | Non
     shallowest depth level is the sea-surface value, and the newest time step
     is the one taken.
     """
-    import xarray as xr
-
-    bbox = bbox or INDIA_BBOX
-    files = sorted(CMEMS_DIR.glob("cmems_*.nc"))
-    if not files:
+    path = _cmems_newest("thetao")
+    if path is None:
         return None
-    path = files[-1]
-
-    with xr.open_dataset(path) as ds:
-        if "thetao" not in ds:
-            return None
-        field = ds["thetao"].isel(time=-1, depth=0)
-        field = field.sel(
-            latitude=slice(bbox["min_lat"], bbox["max_lat"]),
-            longitude=slice(bbox["min_lon"], bbox["max_lon"]),
-        )
-        acquired = _as_utc(ds["time"].values[-1])
-        lats = field["latitude"].values
-        lons = field["longitude"].values
-        values = field.values
-
-    lo, hi = _SST_VALID_C
-    records = [
-        {"lon": round(float(lon), 3), "lat": round(float(la), 3), "value": round(float(values[i, j]), 2)}
-        for i, la in enumerate(lats)
-        for j, lon in enumerate(lons)
-        if math.isfinite(float(values[i, j])) and lo <= float(values[i, j]) <= hi
-    ]
+    got = _cmems_surface_frame(path, "thetao", bbox or INDIA_BBOX, _SST_VALID_C, 2)
+    if got is None:
+        return None
+    records, acquired = got
     return {
         "param": "sst",
         "units": "degC",
@@ -259,6 +289,87 @@ def load_cmems_sst(bbox: dict[str, float] | None = None) -> dict[str, Any] | Non
             "freshness_minutes": _freshness_minutes(acquired),
             "native_units": "degC",
             "operations": ["surface_level_select", "physical_range_mask", "bbox_crop"],
+        },
+    }
+
+
+def load_cmems_chl(bbox: dict[str, float] | None = None) -> dict[str, Any] | None:
+    """Chlorophyll-a from the CMEMS gap-free ocean-colour NRT file on disk.
+
+    The EOS-06 archive is the Indian primary, but it stops at March 2026;
+    correlating a March chlorophyll field against an August SST field is an
+    association across two seasons. This is the rung that lets the caller
+    pick a chlorophyll grid from the same week as its SST.
+    """
+    path = _cmems_newest("chl")
+    if path is None:
+        return None
+    got = _cmems_surface_frame(path, "CHL", bbox or INDIA_BBOX, _CHL_VALID, 4)
+    if got is None:
+        return None
+    records, acquired = got
+    return {
+        "param": "chl",
+        "units": "mg m-3",
+        "frame": records,
+        "provenance": {
+            "dataset": "Copernicus Marine (CMEMS) OCEANCOLOUR_GLO_BGC_L4_NRT_009_102 — gap-free CHL (4 km)",
+            "authority_tier": "T2",
+            "source_file": path.name,
+            "acquisition_timestamp": acquired.isoformat().replace("+00:00", "Z"),
+            "freshness_minutes": _freshness_minutes(acquired),
+            "native_units": "mg m-3",
+            "operations": ["physical_range_mask", "bbox_crop"],
+        },
+    }
+
+
+# Sea-level anomaly beyond this is an altimetry artefact, not an ocean state:
+# DUACS sla over the Indian seas lives within a few tens of centimetres.
+_SLA_VALID_M = (-2.0, 2.0)
+# Half a degree of DUACS grid either side of the point — the product is
+# 0.125 deg, so this averages a handful of cells rather than trusting one.
+_SSH_SAMPLE_DEG = 0.5
+
+
+def load_cmems_ssh(lat: float, lon: float) -> dict[str, Any] | None:
+    """Altimetric sea-level anomaly (`sla`) around one point, in metres.
+
+    A point sample, not a frame, because the caller is a coastal question
+    ("is the water standing higher than predicted here?") and the answer is
+    one number with a provenance, the same shape `tide_gauge_observation`
+    returns. `adt` is carried alongside since the same file has it and the
+    two answer different questions — anomaly vs absolute dynamic topography.
+    """
+    path = _cmems_newest("ssh")
+    if path is None:
+        return None
+    box = {
+        "min_lat": lat - _SSH_SAMPLE_DEG, "max_lat": lat + _SSH_SAMPLE_DEG,
+        "min_lon": lon - _SSH_SAMPLE_DEG, "max_lon": lon + _SSH_SAMPLE_DEG,
+    }
+    sla = _cmems_surface_frame(path, "sla", box, _SLA_VALID_M, 3)
+    if sla is None or not sla[0]:
+        return None
+    records, acquired = sla
+    adt = _cmems_surface_frame(path, "adt", box, _SLA_VALID_M, 3)
+    return {
+        "param": "sla",
+        "units": "m",
+        "sea_level_anomaly_m": round(sum(r["value"] for r in records) / len(records), 3),
+        "absolute_dynamic_topography_m": (
+            round(sum(r["value"] for r in adt[0]) / len(adt[0]), 3) if adt and adt[0] else None
+        ),
+        "cells_averaged": len(records),
+        "sample_radius_deg": _SSH_SAMPLE_DEG,
+        "provenance": {
+            "dataset": "Copernicus Marine (CMEMS) SEALEVEL_GLO_PHY_L4_NRT_008_046 — DUACS sla/adt (0.125 deg)",
+            "authority_tier": "T2",
+            "source_file": path.name,
+            "acquisition_timestamp": acquired.isoformat().replace("+00:00", "Z"),
+            "freshness_minutes": _freshness_minutes(acquired),
+            "native_units": "m",
+            "operations": ["physical_range_mask", "radius_crop", "cell_mean"],
         },
     }
 
@@ -304,7 +415,21 @@ if __name__ == "__main__":
 
     cmems = load_cmems_sst(box)
     assert cmems is not None and cmems["frame"], "CMEMS fallback rung still unreadable"
+    assert "thetao" in cmems["provenance"]["source_file"], "SST reader picked a non-thetao file"
     print("CMEMS sst :", len(cmems["frame"]), "cells,", cmems["provenance"]["source_file"])
+
+    cchl = load_cmems_chl(box)
+    assert cchl is not None and cchl["frame"], "CMEMS chlorophyll unreadable"
+    assert all(_CHL_VALID[0] <= r["value"] <= _CHL_VALID[1] for r in cchl["frame"])
+    # The whole reason this rung exists: it is fresher than the EOS-06 archive.
+    assert cchl["provenance"]["freshness_minutes"] < chl["provenance"]["freshness_minutes"]
+    print("CMEMS chl :", len(cchl["frame"]), "cells,", cchl["provenance"]["source_file"])
+
+    ssh = load_cmems_ssh(9.0, 78.5)
+    assert ssh is not None, "CMEMS sea-level file unreadable"
+    assert _SLA_VALID_M[0] <= ssh["sea_level_anomaly_m"] <= _SLA_VALID_M[1]
+    assert ssh["cells_averaged"] > 0
+    print("CMEMS sla :", ssh["sea_level_anomaly_m"], "m over", ssh["cells_averaged"], "cells")
 
     # Co-location actually overlaps — otherwise the correlation has no samples.
     shared = set(bin_to_grid(sst["frame"])) & set(bin_to_grid(chl["frame"]))

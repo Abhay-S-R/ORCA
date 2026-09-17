@@ -38,9 +38,13 @@ def test_wave_height_at_samples_the_forecast_step_nearest_eta_not_a_fixed_step()
     evaluated at its own ETA, not always at the file's first or latest step."""
     ds = voyage._ww3()
     hours = ds["TIME"].values
-    epoch = datetime(1, 1, 1, tzinfo=timezone.utc)
-    first_step = epoch + timedelta(hours=float(hours.min()))
-    last_step = epoch + timedelta(hours=float(hours.max()))
+    # -2 days: WW3's "hours since 0001-01-01" is on the CF standard (Julian)
+    # calendar, which datetime(1, 1, 1) — proleptic Gregorian — leads by two
+    # days. `voyage._ww3_hours_since_epoch` applies the same shift; without it
+    # here the test would ask for a time two days off its own expectation.
+    epoch = datetime(1, 1, 1, tzinfo=timezone.utc)  # datetime cannot go earlier
+    first_step = epoch + timedelta(hours=float(hours.min())) - timedelta(days=2)
+    last_step = epoch + timedelta(hours=float(hours.max())) - timedelta(days=2)
 
     hs_first_expected = ds["HS"].isel(TIME=0).sel(IOXAXIS=OPEN_LON, IOYAXIS=OPEN_LAT, method="nearest").item()
     hs_last_expected = ds["HS"].isel(TIME=-1).sel(IOXAXIS=OPEN_LON, IOYAXIS=OPEN_LAT, method="nearest").item()

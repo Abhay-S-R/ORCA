@@ -8,6 +8,7 @@ from orca.agents.distress import (
     surface_mrcc_contact,
 )
 from orca.state import ORCAState
+from orca.agents import distress
 
 # --- detect_distress_signal ------------------------------------------------
 
@@ -168,3 +169,36 @@ def test_run_no_distress_still_returns_mrcc_and_handoff_structure():
     assert result.outputs["detection"]["is_distress"] is False
     assert "mrcc_contact" in result.outputs
     assert not hasattr(result, "persona")
+
+
+# --- MRCC routing now reads the ICG station roster (runbook C4) ----------
+
+def test_mrcc_contact_routes_to_the_nearest_station_not_always_chennai():
+    """The roster is gitignored data, so an empty one is legitimate — what
+    must never happen is a Gujarat position handed the Tamil Nadu centre."""
+    gujarat = distress.surface_mrcc_contact({"lat": 23.1, "lon": 68.5})
+    andaman = distress.surface_mrcc_contact({"latitude": 11.6, "longitude": 92.7})
+    if gujarat["nearest_station"] is None:
+        assert andaman["nearest_station"] is None  # roster absent, not a routing bug
+        return
+    assert gujarat["nearest_station"]["coordinating_mrcc"] == "MRCC Mumbai"
+    assert andaman["nearest_station"]["coordinating_mrcc"] == "MRCC Sri Vijaya Puram"
+    assert gujarat["nearest_station"]["straight_line_distance_km"] < 200
+
+
+def test_every_surfaced_number_is_one_of_the_two_verified_ones():
+    """No station-level phone number is published, so none may be invented —
+    a distress reply that offers an unreachable number is worse than one that
+    offers only 1554."""
+    reply = distress.surface_mrcc_contact({"lat": 23.1, "lon": 68.5})
+    assert reply["primary"]["phone"] == "1554"
+    assert reply["nationwide_fallback"]["phone"] == "1554"
+    assert reply["vhf_channel"] == "16"
+    if reply["nearest_station"] is not None:
+        assert reply["nearest_station"]["phone"] is None
+
+
+def test_missing_position_still_yields_a_dialable_number():
+    reply = distress.surface_mrcc_contact(None)
+    assert reply["primary"]["phone"] == "1554"
+    assert reply["nearest_station"] is None

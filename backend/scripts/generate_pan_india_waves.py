@@ -27,7 +27,9 @@ import xarray as xr
 
 DATA_ROOT = Path(__file__).resolve().parents[2] / "data"
 TILES_ROOT = DATA_ROOT / "tier1" / "tiles"
-WW3_FILE = DATA_ROOT / "incois_osf_pfz" / "osf_ww3" / "rsmc_combined_ww3_20260829.nc"
+# Newest run on disk, not a pinned date: scripts/refresh_osf_forecasts.py adds a
+# file per day, and a hardcoded name renders frames from the expired forecast.
+WW3_FILE = sorted((DATA_ROOT / "incois_osf_pfz" / "osf_ww3").glob("rsmc_combined_ww3_*.nc"))[-1]
 OUT_DIR = TILES_ROOT / "wave_height_forecast"
 
 _TMS = morecantile.tms.get("WebMercatorQuad")
