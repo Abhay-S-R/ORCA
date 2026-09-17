@@ -180,18 +180,22 @@ export type VoiceInputState = ReturnType<typeof useVoiceInput>;
 // control at the design system's normal button size.
 export function VoiceMicButton({ voice, isFisherman = false }: { voice: VoiceInputState; isFisherman?: boolean }) {
   const { state, startRecording, stopRecording } = voice;
+  const isRecording = state === "recording";
   return (
-    <Button
+    <button
       type="button"
-      variant={state === "recording" ? "primary" : "ghost"}
-      aria-label={state === "recording" ? "Stop recording" : "Ask by voice — space bar also works"}
-      icon={state === "recording" ? <Square className="size-4" /> : <Mic className={isFisherman ? "size-6" : "size-4"} />}
-      className={isFisherman ? "px-5 py-4" : "px-3"}
-      onClick={state === "recording" ? stopRecording : startRecording}
+      aria-label={isRecording ? "Stop recording" : "Ask by voice — space bar also works"}
+      onClick={isRecording ? stopRecording : startRecording}
       disabled={state === "transcribing"}
+      className={`inline-flex h-[38px] w-[38px] shrink-0 cursor-pointer items-center justify-center rounded-lg border text-xs font-semibold transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
+        isRecording
+          ? "border-ocean-cyan/50 bg-ocean-cyan text-on-accent shadow-sm hover:bg-ocean-cyan/90"
+          : "border-hairline bg-shelf-2/70 text-ink-muted hover:border-ocean-cyan/50 hover:bg-shelf-3/80 hover:text-ink"
+      } ${isFisherman ? "ring-2 ring-ocean-cyan/30 ring-offset-1" : ""}`}
     >
-      <span className="sr-only">{state === "recording" ? "Stop recording" : "Ask by voice"}</span>
-    </Button>
+      {isRecording ? <Square className="size-3.5" /> : <Mic className="size-3.5" />}
+      <span className="sr-only">{isRecording ? "Stop recording" : "Ask by voice"}</span>
+    </button>
   );
 }
 

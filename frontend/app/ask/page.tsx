@@ -41,13 +41,12 @@ const INTENT_ICON: Record<QueryIntent, typeof Waves> = {
   general: MapPin,
 };
 
-// Real questions in the users' own words, not feature names — and, since
-// ORCA's scope is the Indian coastline as a whole rather than one pilot
-// region, spanning a few different coasts rather than repeating one place.
+// Iconic PS SIH26176 queries in the fishermen & maritime users' own words
 const EXAMPLES = [
-  "Is it safe to go out tomorrow morning?",
-  "Where are the fishing zones closest to my port?",
-  "What is the current speed off the Kerala coast?",
+  "Is it safe to venture into the sea tomorrow morning?",
+  "Where is the nearest Potential Fishing Zone (PFZ) today?",
+  "Which regions show high chlorophyll & favourable SST?",
+  "What is the safest route considering sea-state conditions?",
 ];
 const PRESETS = EXAMPLES.map((label) => ({ label, icon: INTENT_ICON[classifyQueryIntent(label)] }));
 
@@ -163,7 +162,7 @@ export default function AskPage() {
       {!hasStarted ? (
         <div className="relative flex min-w-0 flex-1 flex-col items-center justify-center gap-8">
           <div className="absolute top-0 left-0">{historyButton}</div>
-          <div className="max-w-2xl text-center">
+          <div className="max-w-3xl text-center">
             <div className="mb-3 flex items-center justify-center gap-2">
               <span className="size-2 rounded-full bg-ocean-cyan beacon-pulse" aria-hidden="true" />
               <span className="font-mono text-[10px] font-bold tracking-widest text-ocean-cyan uppercase">
@@ -171,9 +170,8 @@ export default function AskPage() {
               </span>
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">Ask about conditions at sea</h1>
-            <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">
-              Ask in plain English or Tamil. ORCA evaluates live ocean weather, maritime boundary standoff, depth
-              contours, and fishing advisories with full citation provenance.
+            <p className="mt-1.5 text-sm sm:text-base leading-relaxed text-ink-muted">
+              Ask in plain English, Tamil, Hindi, or any Indian regional language (multilingual). ORCA evaluates live ocean weather, maritime boundary standoff, depth contours, and fishing advisories with full citation provenance.
             </p>
           </div>
 
@@ -249,9 +247,8 @@ export default function AskPage() {
           <motion.div
             layout={!reduceMotion}
             transition={{ duration: 0.25, ease: "easeOut" }}
-            className={`relative shrink-0 overflow-hidden rounded-2xl border border-hairline bg-shelf-1/60 shadow-2xl ${
-              mapCollapsed ? "h-11 w-full lg:h-full lg:w-11" : "h-64 w-full lg:h-full lg:w-[42%]"
-            }`}
+            className={`relative shrink-0 overflow-hidden rounded-2xl border border-hairline bg-shelf-1/60 shadow-2xl ${mapCollapsed ? "h-11 w-full lg:h-full lg:w-11" : "h-64 w-full lg:h-full lg:w-[42%]"
+              }`}
           >
             <button
               type="button"

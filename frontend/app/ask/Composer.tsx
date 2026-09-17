@@ -35,18 +35,17 @@ export function Composer({
       layout={!reduceMotion}
       layoutId="ask-composer"
       transition={{ type: "spring", stiffness: 380, damping: 38 }}
-      className={centered ? "mx-auto w-full max-w-2xl" : "w-full"}
+      className={centered ? "mx-auto w-full max-w-3xl" : "w-full"}
     >
       <form
         onSubmit={(e) => {
           e.preventDefault();
           onSubmit(value);
         }}
-        className={`flex flex-col gap-3 rounded-2xl border border-hairline/70 bg-shelf-1/90 p-3.5 backdrop-blur-sm transition-shadow ${
-          centered ? "shadow-2xl" : "shadow-md"
-        }`}
+        className={`flex flex-col gap-4 rounded-2xl border border-hairline/70 bg-shelf-1/90 p-4 sm:p-5 backdrop-blur-sm transition-shadow ${centered ? "shadow-2xl" : "shadow-md"
+          }`}
       >
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2.5">
           <label htmlFor="query" className="sr-only">
             Your question about marine conditions
           </label>
@@ -57,7 +56,7 @@ export function Composer({
               onChange={(e) => onChange(e.target.value)}
               placeholder="Is it safe to go out tomorrow morning?"
               autoFocus={centered}
-              className="w-full rounded-xl border border-hairline bg-shelf-1/90 px-4 py-3 text-sm text-ink placeholder:text-ink-dim/60 transition-all hover:border-hairline-strong focus:border-ocean-cyan/70 focus:bg-shelf-2/90 shadow-inner"
+              className="w-full rounded-xl border border-hairline bg-shelf-1/90 px-4 py-3 text-sm sm:text-base text-ink placeholder:text-ink-dim/60 transition-all hover:border-hairline-strong focus:border-ocean-cyan/70 focus:bg-shelf-2/90 shadow-inner outline-none"
             />
           </div>
           {/* Voice ingress (plan §6 D1 Day 16-17): mic sits right next to Ask
@@ -68,30 +67,29 @@ export function Composer({
             type="submit"
             variant="primary"
             disabled={disabled || !value.trim()}
-            icon={<Send className="size-4" />}
-            className="px-5 font-bold"
+            icon={<Send className="size-3.5" />}
+            className="h-[44px] min-w-[80px] px-5 text-sm font-bold"
           >
-            {disabled ? "Asking" : "Ask"}
+            {disabled ? "Asking…" : "Ask"}
           </Button>
         </div>
 
         {presets && presets.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 border-t border-hairline/50 pt-2.5">
-            <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
-              Try asking
-            </span>
-            {presets.map(({ label, icon: Icon }) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => onSubmit(label)}
-                disabled={disabled}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-hairline/60 bg-shelf-2/50 px-2.5 py-1.5 text-[11px] text-ink-muted transition-colors hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink disabled:opacity-50"
-              >
-                <Icon className="size-3 shrink-0 text-ink-dim" aria-hidden="true" />
-                {label}
-              </button>
-            ))}
+          <div className="border-t border-hairline/50 pt-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {presets.map(({ label, icon: Icon }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => onSubmit(label)}
+                  disabled={disabled}
+                  className="flex items-center gap-2 rounded-xl border border-hairline/60 bg-shelf-2/50 px-3 py-2 text-xs text-ink-muted text-left transition-all hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink disabled:opacity-50"
+                >
+                  <Icon className="size-3.5 shrink-0 text-ocean-cyan/80" aria-hidden="true" />
+                  <span className="truncate">{label}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </form>
