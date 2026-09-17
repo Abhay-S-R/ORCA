@@ -238,6 +238,7 @@ export function MapView({
   // heavy-layer budget), so this only overrides what the caller passes.
   initialLayers?: Partial<{
     boundaries: boolean;
+    boundaryLines: boolean;
     pfz: boolean;
     seamarks: boolean;
     srvBathymetry: boolean;
@@ -272,9 +273,18 @@ export function MapView({
   // provenance popover does, not open by default.
   const [layersOpen, setLayersOpen] = useState(false);
   const [depth, setDepth] = useState<DepthResult | null>(null);
+  // Nearest DELIMITED boundary line at the tapped point: which treaty line,
+  // how far, on what agreement. The EEZ-edge distance answers a different
+  // question and must not be mistaken for this one.
+  const [boundaryLine, setBoundaryLine] = useState<{
+    line_name: string; line_type: string; between: (string | null)[];
+    distance_nm: number; bearing_deg: number; alert_level: string;
+    treaty: string | null; treaty_date: string | null;
+  } | null>(null);
   const [bearing, setBearing] = useState<Bearing | null>(null);
   const [layers, setLayers] = useState({
     boundaries: false,
+    boundaryLines: false,
     pfz: true,
     seamarks: true,
     srvBathymetry: false,
@@ -440,15 +450,20 @@ export function MapView({
     setClicked({ lat, lon });
     setDepth(null);
     setBearing(null);
+    setBoundaryLine(null);
     try {
-      const [d, b] = await Promise.all([
+      const [d, b, line] = await Promise.all([
         fetch(`${API_BASE}/api/depth?lat=${lat}&lon=${lon}`).then((r) => r.json()),
         fetch(
           `${API_BASE}/api/bearing?from_lat=${focusPoint[1]}&from_lon=${focusPoint[0]}&to_lat=${lat}&to_lon=${lon}`,
         ).then((r) => r.json()),
+        fetch(`${API_BASE}/api/boundary-line?lat=${lat}&lon=${lon}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
       ]);
       setDepth(d);
       setBearing(b);
+      setBoundaryLine(line);
     } catch (err) {
       console.warn("MapView: depth/bearing fetch failed (backend may be starting up)", err);
     }
@@ -504,6 +519,7 @@ export function MapView({
       }
 
       m.addSource("boundaries", { type: "geojson", data: EMPTY as never });
+      m.addSource("boundary-lines", { type: "geojson", data: EMPTY as never });
       // Clustered so 3+ nearby advisories read as one tasteful cluster
       // instead of a pile of overlapping markers — real zoom-aware
       // decluttering via MapLibre's own supercluster, not a custom index.
@@ -560,6 +576,22 @@ export function MapView({
           "line-width": ["case", ["get", "near"], 1.6, 1],
           "line-opacity": ["case", ["get", "near"], 0.75, 0.32],
           "line-dasharray": [2.5, 1.75],
+        },
+      });
+
+      // Delimited maritime boundary lines (VLIZ IMBL): treaty-drawn lines,
+      // not the edge of a polygon. Drawn long-dashed and darker than the EEZ
+      // fence so the two are never read as the same thing on the chart.
+      m.addLayer({
+        id: "boundary-lines-line",
+        type: "line",
+        source: "boundary-lines",
+        layout: { "line-join": "round", "line-cap": "round", visibility: "none" },
+        paint: {
+          "line-color": CHART.accent,
+          "line-width": 1.4,
+          "line-opacity": 0.85,
+          "line-dasharray": [6, 2.5],
         },
       });
 
@@ -907,6 +939,7 @@ export function MapView({
       for (const id of [
         "boundaries-fill",
         "boundaries-line",
+        "boundary-lines-line",
         "coastal-boundary-casing",
         "coastal-boundary-highlight",
         "watch-badges-circles",
@@ -937,6 +970,11 @@ export function MapView({
       };
 
       (map.current.getSource("boundaries") as maplibregl.GeoJSONSource)?.setData(tagged as never);
+      if (layerRes.maritime_boundary_lines) {
+        (map.current.getSource("boundary-lines") as maplibregl.GeoJSONSource)?.setData(
+          layerRes.maritime_boundary_lines as never,
+        );
+      }
       setBoundaryFeatures(tagged as BoundaryGeoJson);
       const pfzRaw = (pfzRes.features ?? pfzRes.thermal_front_proxy?.features ?? []) as PfzFeature[];
       setPfzFeatures(pfzRaw);
@@ -1112,6 +1150,7 @@ export function MapView({
     };
     vis("boundaries-fill", layers.boundaries);
     vis("boundaries-line", layers.boundaries);
+    vis("boundary-lines-line", layers.boundaryLines);
     const showCoast = layers.boundaries || layers.srvBathymetry || layers.waveForecast;
     vis("coastal-boundary-casing", showCoast);
     vis("coastal-boundary-highlight", showCoast);
@@ -1238,6 +1277,12 @@ export function MapView({
                       swatch={CHART.eez}
                       checked={layers.boundaries}
                       onChange={(v) => setLayers((s) => ({ ...s, boundaries: v }))}
+                    />
+                    <LayerToggle
+                      label="Treaty boundary lines (IMBL)"
+                      swatch={CHART.accent}
+                      checked={layers.boundaryLines}
+                      onChange={(v) => setLayers((s) => ({ ...s, boundaryLines: v }))}
                     />
                     <LayerToggle
                       label="Fishing zones (PFZ)"
@@ -1798,6 +1843,26 @@ export function MapView({
                               </p>
                             </div>
                           </div>
+
+                          {/* Nearest delimited boundary line — the treaty one,
+                              not the EEZ polygon edge. */}
+                          {boundaryLine && (
+                            <div className="mt-2 rounded-lg border border-hairline/50 bg-shelf-2/50 p-2">
+                              <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
+                                <Navigation className="size-2.5 text-accent" /> Nearest boundary line
+                              </span>
+                              <p className="mt-1 font-mono text-[11px] font-bold text-ink">
+                                {boundaryLine.line_name}{" "}
+                                <span className="font-normal text-ink-dim">
+                                  · {boundaryLine.distance_nm} nm · {boundaryLine.bearing_deg}°
+                                </span>
+                              </p>
+                              <p className="mt-0.5 text-[9px] text-ink-dim">
+                                {boundaryLine.line_type}
+                                {boundaryLine.treaty_date ? ` · ${boundaryLine.treaty_date.slice(0, 10)}` : ""}
+                              </p>
+                            </div>
+                          )}
 
                           {/* Provenance citation */}
                           <div className="mt-2.5 flex items-center justify-between border-t border-hairline pt-2 text-[9px] text-ink-dim">

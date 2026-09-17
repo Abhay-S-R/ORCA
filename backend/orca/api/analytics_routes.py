@@ -205,7 +205,7 @@ def zones(
 
 
 @router.get("/trends")
-def trends(district: str = "Thoothukudi", lat: Lat = _DEFAULT_LAT, lon: Lon = _DEFAULT_LON) -> dict:
+def trends(district: str | None = None, lat: Lat = _DEFAULT_LAT, lon: Lon = _DEFAULT_LON) -> dict:
     """The `/trends` surface — PS #3 (tide axis) and PS #7 (catch decline).
 
     Emits frozen-contract `ChartSpec` objects (plan §5.9) alongside the
@@ -214,6 +214,22 @@ def trends(district: str = "Thoothukudi", lat: Lat = _DEFAULT_LAT, lon: Lon = _D
     surface concern.
     """
     from orca.data import analytics_loaders as al
+    from orca.agents.geospatial import district_at_point
+
+    # Catch statistics are published per district, so the position has to
+    # become a district name before the archive can be asked anything. The
+    # Census 2011 polygons do that; an offshore pin legitimately falls in no
+    # district, and the pilot district stands in rather than a guess.
+    hit = district_at_point(lat, lon)
+    if district is None:
+        district = (hit or {}).get("district") or "Thoothukudi"
+    district_context = hit or {
+        "district": None,
+        "dataset": "Census of India 2011 district boundaries",
+        "source_file": "2011_Dist.shp",
+        "note": f"the position ({lat}, {lon}) is at sea, outside every district "
+                f"polygon — landings are read for the pilot district instead",
+    }
 
     station = oa.nearest_station(lat, lon)
     tide_events = sorted(
@@ -254,6 +270,8 @@ def trends(district: str = "Thoothukudi", lat: Lat = _DEFAULT_LAT, lon: Lon = _D
         "chart_specs": [tide_spec, *catch_specs] + ([wind_spec] if wind_spec else []),
         "catch_baseline": catch_baseline,  # {from,to} band for the catch TimeSeries
         "catch_decline": {k: (asdict(v) if k == "confidence" else v) for k, v in diag.items()},
+        # Which district this position is in, and from what — null offshore.
+        "district_context": district_context,
         "sst_chlorophyll_correlation": {
             k: (asdict(v) if k == "confidence" else v) for k, v in correlation.items()
         },

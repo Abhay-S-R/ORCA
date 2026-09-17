@@ -49,9 +49,12 @@ _PROXIMITY_BANDS: tuple[tuple[float, str], ...] = ((1.0, "DANGER"), (5.0, "CAUTI
 # Static per pilot region for Phase 1; a per-vessel-draft threshold is Phase 2 scope.
 SHALLOW_HAZARD_THRESHOLD_M = 10.0
 
-# Pan-India maritime bounds covering Arabian Sea, Indian Ocean, and Bay of Bengal (65-95 E, 4-26 N).
+# Pan-India maritime bounds covering Arabian Sea, Indian Ocean, and Bay of Bengal.
 # No longer artificially clips the Indian EEZ into a small rectangle around Thoothukudi.
-_MAP_CLIP_BOX = box(65.0, 4.0, 95.0, 26.0)
+# East edge is 96 E and the south edge 3.5 N so the Andaman & Nicobar EEZ
+# (88.8-95.7 E, 3.8-15.7 N) and the treaty boundary lines that meet it are
+# inside the frame rather than sliced in half by the old 95 E / 4 N corner.
+_MAP_CLIP_BOX = box(65.0, 3.5, 96.0, 26.0)
 PAN_INDIA_BBOX_WSEN: tuple[float, float, float, float] = (65.0, 4.0, 95.0, 26.0)
 PILOT_BBOX_WSEN: tuple[float, float, float, float] = (76.0, 6.0, 82.0, 12.0)
 
@@ -156,7 +159,114 @@ def load_boundaries() -> tuple[BoundaryFeature, ...]:
     features += _load_geojson_features(BOUNDARIES_DIR / "india_eez_polygon.geojson", "India EEZ")
     features += _load_geojson_features(BOUNDARIES_DIR / "srilanka_eez_polygon.geojson", "Sri Lanka EEZ")
     features += _load_geojson_features(BOUNDARIES_DIR / "india_marine_mpas.geojson", "Marine Protected Area")
+    # The A&N EEZ is a separate VLIZ record, not part of the mainland polygon:
+    # without it every Andaman position sits outside every geofence ORCA
+    # holds, and point_in_polygon answers "high seas" for Port Blair.
+    andaman = BOUNDARIES_DIR / "andaman_eez.geojson"
+    if andaman.exists():
+        features += _load_geojson_features(andaman, "India EEZ (Andaman & Nicobar)")
     return tuple(features)
+
+
+@lru_cache(maxsize=1)
+def load_boundary_lines() -> tuple[tuple[Any, dict[str, Any]], ...]:
+    """The 32 delimitation LINES from the VLIZ IMBL dataset, with their treaty
+    metadata, as (geometry, properties) pairs.
+
+    Deliberately NOT part of load_boundaries(): these are MultiLineStrings,
+    a line can never contain a point, and feeding them to the polygon
+    geofence index would put a zero-area geometry in the STRtree that
+    point_in_polygon queries. They carry what the EEZ polygon's edge cannot
+    — which treaty drew this line, between whom, and when. Three lines share
+    the name "Indonesia - Andaman and Nicobar (India)" under two different
+    agreements, so properties travel with the geometry rather than being
+    looked up by name afterwards.
+    """
+    path = BOUNDARIES_DIR / "india_maritime_boundary_lines.geojson"
+    if not path.exists():
+        return ()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return tuple((shape(f["geometry"]), f.get("properties", {})) for f in data["features"])
+
+
+DISTRICTS_FILE = BOUNDARIES_DIR / "2011_Dist.shp"
+
+
+@lru_cache(maxsize=1)
+def _district_index() -> tuple[STRtree, list[dict[str, Any]]] | None:
+    """Census 2011 district polygons, indexed. None if the shapefile is absent."""
+    if not DISTRICTS_FILE.exists():
+        return None
+    import shapefile  # pyshp: pure-python .shp/.dbf reader, no GDAL
+
+    reader = shapefile.Reader(str(DISTRICTS_FILE))
+    rows: list[dict[str, Any]] = []
+    for sr in reader.shapeRecords():
+        rows.append({
+            "district": sr.record["DISTRICT"],
+            "state": sr.record["ST_NM"],
+            "censuscode": sr.record["censuscode"],
+            "geometry": shape(sr.shape.__geo_interface__),
+        })
+    return STRtree([r["geometry"] for r in rows]), rows
+
+
+def district_at_point(lat: float, lon: float) -> dict[str, Any] | None:
+    """The Census-2011 district a position falls in, or None at sea.
+
+    Catch statistics are published per district, so a lat/lon only reaches
+    the landings archive through this. Offshore positions are genuinely
+    outside every district polygon — that is a real None, not a lookup
+    failure, and callers say so rather than guessing the nearest coast.
+    """
+    index = _district_index()
+    if index is None:
+        return None
+    tree, rows = index
+    pt = Point(lon, lat)
+    for i in tree.query(pt, predicate="within"):
+        row = rows[i]
+        return {"district": row["district"], "state": row["state"],
+                "censuscode": row["censuscode"],
+                "dataset": "Census of India 2011 district boundaries",
+                "source_file": DISTRICTS_FILE.name}
+    return None
+
+
+def nearest_boundary_line(lat: float, lon: float) -> dict[str, Any] | None:
+    """Closest delimited maritime boundary line, geodesically.
+
+    check_boundary_proximity answers "how far to the EEZ edge", which along
+    the Palk Bay IS the IMBL but elsewhere is the 200 NM limit — a different
+    thing legally. This names the actual treaty line and the agreement that
+    drew it, which is what an arrest across it turns on.
+    """
+    lines = load_boundary_lines()
+    if not lines:
+        return None
+    pt = Point(lon, lat)
+    best: tuple[float, dict[str, Any], Point] | None = None
+    for geometry, props in lines:
+        nearest = geometry.interpolate(geometry.project(pt))
+        azimuth, _, metres = _GEOD.inv(lon, lat, nearest.x, nearest.y)
+        if best is None or abs(metres) < best[0]:
+            best = (abs(metres), {**props, "bearing_deg": round(azimuth % 360.0, 1)}, nearest)
+    metres, props, nearest = best  # type: ignore[misc]
+    distance_nm = round(metres * NM_PER_METER, 3)
+    return {
+        "line_name": props.get("line_name"),
+        "line_type": props.get("line_type"),
+        "between": [props.get("territory1"), props.get("territory2")],
+        "distance_nm": distance_nm,
+        "bearing_deg": props["bearing_deg"],
+        "alert_level": _alert_level(distance_nm, inside=False),
+        "nearest_point": (round(nearest.x, 6), round(nearest.y, 6)),
+        "treaty": props.get("source1"),
+        "treaty_url": props.get("url1"),
+        "treaty_date": props.get("doc_date"),
+        "length_km": props.get("length_km"),
+        "source_file": "india_maritime_boundary_lines.geojson",
+    }
 
 
 @lru_cache(maxsize=1)
@@ -461,8 +571,31 @@ def generate_map_layers(
             "geometry": json.loads(to_geojson(simplified)),
             "properties": {"name": f.name, "designation": f.designation, "source_file": f.source_file},
         })
+    # Delimitation lines ride as their own layer, not mixed into "boundaries":
+    # they are drawn as lines, they carry a treaty rather than a designation,
+    # and nothing may geofence against them.
+    line_features = []
+    for geometry, props in load_boundary_lines():
+        clipped = geometry.intersection(_MAP_CLIP_BOX)
+        if clipped.is_empty:
+            continue
+        simplified = clipped.simplify(tolerance, preserve_topology=True) if tolerance else clipped
+        line_features.append({
+            "type": "Feature",
+            "geometry": json.loads(to_geojson(simplified)),
+            "properties": {
+                "name": props.get("line_name"),
+                "line_type": props.get("line_type"),
+                "between": [props.get("territory1"), props.get("territory2")],
+                "treaty": props.get("source1"),
+                "treaty_date": props.get("doc_date"),
+                "source_file": "india_maritime_boundary_lines.geojson",
+            },
+        })
+
     layers: dict[str, Any] = {
-        "boundaries": {"type": "FeatureCollection", "features": boundary_features}
+        "boundaries": {"type": "FeatureCollection", "features": boundary_features},
+        "maritime_boundary_lines": {"type": "FeatureCollection", "features": line_features},
     }
     if user_lat is not None and user_lon is not None:
         layers["user_position"] = {
@@ -632,4 +765,24 @@ if __name__ == "__main__":
     assert wind["acquisition_date"] < "2026-09-03"  # archived, never "now"
     assert all(0 <= p["direction_deg"] < 360 for p in wind["points"])
 
-    print("geospatial self-check ok:", imbl, depth, "wind@" + wind["acquisition_date"])
+    # Andaman EEZ: an A&N position must land inside a geofence, and inside
+    # the A&N record specifically, not the mainland polygon.
+    andaman_hits = [f.name for f in point_in_polygon(10.5, 93.5)]
+    assert andaman_hits == ["Indian Exclusive Economic Zone (Andaman & Nicobar)"] or         "Andaman" in " ".join(andaman_hits), andaman_hits
+
+    # Treaty lines: 32 of them, drawn as their own layer, and never in the
+    # polygon geofence index (a line contains nothing).
+    assert len(load_boundary_lines()) == 32, len(load_boundary_lines())
+    assert len(layers["maritime_boundary_lines"]["features"]) == 32
+    assert all(f.geofence_usable is False or "LineString" not in f.geometry.geom_type
+               for f in load_boundaries())
+    line = nearest_boundary_line(lat, lon)
+    assert line and line["distance_nm"] > 0 and line["treaty"], line
+
+    # District lookup: onshore resolves, offshore is honestly None.
+    onshore = district_at_point(8.80, 78.14)
+    assert onshore and onshore["state"] == "Tamil Nadu", onshore
+    assert district_at_point(5.0, 72.0) is None  # mid Arabian Sea
+
+    print("geospatial self-check ok:", imbl, depth, "wind@" + wind["acquisition_date"],
+          "| A&N geofence, %d treaty lines, district=%s" % (len(load_boundary_lines()), onshore["district"]))

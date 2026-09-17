@@ -55,7 +55,13 @@ type Tide = {
   // residual between them is a surge or a set-up, not an error in the table.
   observed_cross_check: {
     available: boolean;
+    // in_situ_gauge = an INCOIS gauge measured this. satellite_altimetry =
+    // no gauge within 150 km, so CMEMS DUACS anomaly stands in. The two are
+    // not interchangeable and must not render as the same card.
+    source_kind?: "in_situ_gauge" | "satellite_altimetry";
     note?: string;
+    dataset?: string;
+    absolute_dynamic_topography_m?: number;
     station_name?: string;
     distance_km?: number;
     observed_level_m?: number;
@@ -281,7 +287,33 @@ export default function VoyagePage() {
                   in range — INCOIS runs 6 nationally, so most of the coast
                   legitimately has none, and an absent gauge says so. */}
               <div className="mt-4 border-t border-hairline pt-3">
-                {tide.observed_cross_check.available ? (
+                {tide.observed_cross_check.available &&
+                tide.observed_cross_check.source_kind === "satellite_altimetry" ? (
+                  <>
+                    <p className="mb-2 flex items-baseline justify-between gap-3 text-xs">
+                      <span className="text-ink-dim">
+                        Satellite altimetry — no gauge in range
+                      </span>
+                      <Badge tone="caution">not an in-situ reading</Badge>
+                    </p>
+                    <ReadoutGrid cols={2}>
+                      <Readout
+                        label="Sea-level anomaly"
+                        value={tide.observed_cross_check.sea_level_anomaly_m ?? "—"}
+                        unit="m"
+                        hint={tide.observed_cross_check.dataset}
+                      />
+                      <Readout
+                        label="Dynamic topography"
+                        value={tide.observed_cross_check.absolute_dynamic_topography_m ?? "—"}
+                        unit="m"
+                      />
+                    </ReadoutGrid>
+                    {tide.observed_cross_check.note && (
+                      <p className="mt-2 text-[11px] text-ink-dim">{tide.observed_cross_check.note}</p>
+                    )}
+                  </>
+                ) : tide.observed_cross_check.available ? (
                   <>
                     <p className="mb-2 flex items-baseline justify-between gap-3 text-xs">
                       <span className="text-ink-dim">

@@ -18,7 +18,9 @@ from orca.agents.geospatial import (
     check_boundary_proximity,
     current_vectors,
     depth_at_point,
+    district_at_point,
     generate_map_layers,
+    nearest_boundary_line,
     point_in_polygon,
     fishing_ban_status,
     spatial_query_zones,
@@ -135,6 +137,31 @@ def boundary_proximity(lat: Lat, lon: Lon, boundary_name: str) -> dict:
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     return asdict(result)
+
+
+@router.get("/boundary-line")
+def boundary_line(lat: Lat, lon: Lon) -> dict:
+    """Nearest DELIMITED maritime boundary line and the treaty that drew it.
+
+    Distinct from /boundary-proximity, which measures to an EEZ polygon's
+    edge — along the Palk Bay that edge is the IMBL, but off Gujarat it is
+    the 200 NM limit, a different thing to cross.
+    """
+    line = nearest_boundary_line(lat, lon)
+    if line is None:
+        raise HTTPException(404, "no maritime boundary line dataset on disk")
+    return line
+
+
+@router.get("/district")
+def district(lat: Lat, lon: Lon) -> dict:
+    """Census-2011 district containing a position; `found: false` at sea."""
+    hit = district_at_point(lat, lon)
+    if hit is None:
+        return {"found": False,
+                "note": "position is outside every Census 2011 district polygon "
+                        "(at sea, or outside India)"}
+    return {"found": True, **hit}
 
 
 @router.get("/boundary-provenance")

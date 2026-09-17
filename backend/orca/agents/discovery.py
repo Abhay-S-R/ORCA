@@ -74,9 +74,14 @@ SOURCE_REGISTRY: tuple[DataSource, ...] = (
     DataSource("gebco_bathymetry", "GEBCO 2026 15\" Bathymetry Grid", "TIER1", 0, ("bathymetry",)),
     DataSource("unep_wcmc_wdpa", "UNEP-WCMC WDPA / OSM (marine boundaries)", "TIER1", 0, ("boundary", "mpa")),
     DataSource("marineregions_eez", "Marine Regions VLIZ EEZ / IMBL dataset", "TIER1", 0, ("eez", "imbl", "boundary")),
+    DataSource("icg_sar", "Indian Coast Guard SAR station roster (MRCC/MRSC/CGDHQ)", "TIER1", 0,
+               ("sar_station", "emergency_contact")),
+    DataSource("dof_fishing_ban", "Department of Fisheries uniform annual fishing-ban order", "TIER1", 0,
+               ("fishing_ban",)),
     # --- Tier 2: free registration ---
     DataSource("copernicus_cmems", "Copernicus Marine Service (CMEMS) reanalysis", "TIER2", 7200,
-               ("sst", "current_speed", "current_direction", "sea_surface_height", "wave_spectrum")),
+               ("sst", "current_speed", "current_direction", "sea_surface_height", "wave_spectrum",
+                "chlorophyll", "sea_level_anomaly")),
     DataSource("nasa_ocean_color", "NASA Ocean Color — MODIS-Aqua / VIIRS NRT", "TIER2", 720, ("chlorophyll", "par", "kd490")),
     DataSource("stormglass_tides", "Stormglass.io Marine API — tide extremes", "TIER2", 360, ("tide",)),
     DataSource("gfw_ais", "Global Fishing Watch — AIS fishing effort density", "TIER2", 1440, ("fishing_effort", "ais_presence")),
@@ -97,13 +102,14 @@ _TIER_ORDER: dict[AuthorityTier, int] = {"TIER1": 0, "TIER2": 1, "TIER3": 2}
 # go down the same way a live API does).
 FALLBACK_CASCADES: dict[str, tuple[str, ...]] = {
     "mosdac_nrt_sst": ("mosdac_open_sst", "copernicus_cmems", "incois_erddap"),
-    "mosdac_nrt_chl": ("mosdac_open_chl", "nasa_ocean_color"),
+    "mosdac_nrt_chl": ("mosdac_open_chl", "nasa_ocean_color", "copernicus_cmems"),
     "mosdac_open_sst": ("copernicus_cmems", "incois_erddap"),
-    "mosdac_open_chl": ("nasa_ocean_color",),
+    "mosdac_open_chl": ("nasa_ocean_color", "copernicus_cmems"),
     "incois_pfz": ("bhuvan_wms",),  # then the local sector CSV — see load_pfz_advisories
     "open_meteo_marine": ("incois_osf_ww3", "stormglass_tides"),
     "soi_tide_tables": ("stormglass_tides", "incois_tide_gauge"),
     "incois_erddap": ("copernicus_cmems",),
+    "incois_tide_gauge": ("copernicus_cmems",),  # altimetry sea-level anomaly when no gauge is near
     "datagov_catch": ("icar_cmfri",),
     "incois_hazard_osf": ("ndma_sachet",),
 }

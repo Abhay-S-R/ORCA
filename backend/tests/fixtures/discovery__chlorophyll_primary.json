@@ -13,12 +13,14 @@
     "considered": [
       "mosdac_open_chl",
       "nasa_ocean_color",
+      "copernicus_cmems",
       "mosdac_nrt_chl"
     ],
     "dataset": "MOSDAC Open Data \u2014 EOS-06 OCM-3 Chlorophyll-a",
     "fallback_chain": [
       "mosdac_open_chl",
-      "nasa_ocean_color"
+      "nasa_ocean_color",
+      "copernicus_cmems"
     ],
     "reason": "MOSDAC Open Data \u2014 EOS-06 OCM-3 Chlorophyll-a chosen over NASA Ocean Color \u2014 MODIS-Aqua / VIIRS NRT for 'chlorophyll': ~24 h old vs ~12 h old, Tier gap \u2014 higher authority tier.",
     "source_id": "mosdac_open_chl"

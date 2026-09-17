@@ -40,12 +40,29 @@ type TrendsResponse = {
     factors?: Factor[];
     confidence: Confidence;
     detail?: string;
+    // Present only on the CMFRI state-estimate fallback, when the district
+    // itself has fewer than 3 years on record.
+    state?: string;
+    landings_tonnes?: number;
+    year?: string | number;
+    cmfri_note?: string;
+    citation?: string;
   };
+  // Which Census-2011 district the position falls in — null offshore, which
+  // is a real answer, not a lookup failure.
+  district_context: {
+    district: string | null; state?: string; censuscode?: number;
+    dataset: string; source_file: string; note?: string;
+  } | null;
   sst_chlorophyll_correlation: {
     available: boolean;
     note?: string;
     pearson_r?: number;
     relationship?: string;
+    n_samples?: number;
+    acquisition_gap?: string | null;
+    chl_provenance?: { dataset?: string; acquisition_timestamp?: string };
+    sst_provenance?: { dataset?: string; acquisition_timestamp?: string };
     confidence: Confidence;
   };
   // PS #7's word "anomaly" needs a reference period. `available: false`
@@ -134,6 +151,15 @@ export default function TrendsPage() {
               ) : null
             }
           >
+            {/* How a lat/lon became this district — Census 2011 polygons. */}
+            {data.district_context && (
+              <p className="mb-2 text-[11px] text-ink-dim">
+                {data.district_context.district
+                  ? `Position falls in ${data.district_context.district}, ${data.district_context.state} ` +
+                    `(census code ${data.district_context.censuscode}) — ${data.district_context.dataset}`
+                  : `${data.district_context.note} — ${data.district_context.dataset}`}
+              </p>
+            )}
             <p className="text-sm text-ink-muted">{data.catch_decline.verdict}</p>
             {data.catch_decline.detail && (
               <p className="mt-1 text-xs text-ink-dim">{data.catch_decline.detail}</p>
@@ -157,15 +183,45 @@ export default function TrendsPage() {
                 ))}
               </ul>
             )}
+
+            {/* CMFRI's own caveat on the state estimate, plus the booklet it
+                came from — a single-year state number must never read as a
+                district trend. */}
+            {(data.catch_decline.cmfri_note || data.catch_decline.citation) && (
+              <div className="mt-3 border-t border-hairline pt-2 text-[11px] text-ink-dim">
+                {data.catch_decline.cmfri_note && <p>{data.catch_decline.cmfri_note}</p>}
+                {data.catch_decline.citation && (
+                  <p className="mt-1">Source: {data.catch_decline.citation}</p>
+                )}
+              </div>
+            )}
           </Panel>
 
           {/* SST / chlorophyll correlation — the D3 seam */}
           <Panel title="SST × chlorophyll correlation">
             {data.sst_chlorophyll_correlation.available ? (
-              <ReadoutGrid cols={2}>
-                <Readout label="Pearson r" value={data.sst_chlorophyll_correlation.pearson_r ?? "—"} />
-                <Readout label="Relationship" value={data.sst_chlorophyll_correlation.relationship ?? "—"} />
-              </ReadoutGrid>
+              <>
+                <ReadoutGrid cols={3}>
+                  <Readout label="Pearson r" value={data.sst_chlorophyll_correlation.pearson_r ?? "—"} />
+                  <Readout label="Relationship" value={data.sst_chlorophyll_correlation.relationship ?? "—"} />
+                  <Readout
+                    label="Co-located cells"
+                    value={data.sst_chlorophyll_correlation.n_samples ?? "—"}
+                    hint="0.25° grid"
+                  />
+                </ReadoutGrid>
+                {/* The two granules need not be simultaneous; saying so is the
+                    difference between an association and an implied cause. */}
+                {data.sst_chlorophyll_correlation.acquisition_gap && (
+                  <p className="mt-2 text-[11px] text-ink-dim">
+                    {data.sst_chlorophyll_correlation.acquisition_gap}
+                  </p>
+                )}
+                <p className="mt-2 border-t border-hairline pt-2 text-[11px] text-ink-dim">
+                  SST: {data.sst_chlorophyll_correlation.sst_provenance?.dataset ?? "—"} · Chlorophyll:{" "}
+                  {data.sst_chlorophyll_correlation.chl_provenance?.dataset ?? "—"}
+                </p>
+              </>
             ) : (
               <EmptyState
                 icon={<LineChart className="size-5" />}

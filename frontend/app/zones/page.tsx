@@ -63,8 +63,24 @@ type ZonesResponse = {
   source_selection: SourceSelection | null;
 };
 
+// The seasonal ban is regulatory, never a sail/no-sail verdict — the risk
+// cascade does not read it and neither does this page's tone logic.
+type FishingBan = {
+  available: boolean;
+  note?: string;
+  coast?: string;
+  in_ban_period?: boolean;
+  applies_here?: boolean;
+  window?: string;
+  next_window?: string;
+  days?: number;
+  distance_to_nearest_eez_edge_nm?: number | null;
+  order?: { file_number: string; order_date: string; issuing_authority: string; pdf_url: string; applies_to: string; exemption: string };
+};
+
 export default function ZonesPage() {
   const [data, setData] = useState<ZonesResponse | null>(null);
+  const [ban, setBan] = useState<FishingBan | null>(null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
@@ -72,6 +88,10 @@ export default function ZonesPage() {
       .then((r) => r.json())
       .then(setData)
       .catch(() => setError(true));
+    fetch(`${API_BASE}/api/fishing-ban?lat=${POS.lat}&lon=${POS.lon}`)
+      .then((r) => r.json())
+      .then(setBan)
+      .catch(() => setBan(null));
   }, []);
 
   return (
@@ -119,6 +139,44 @@ export default function ZonesPage() {
               </p>
             )}
           </Panel>
+
+          {/* 1b — seasonal closure. Regulatory, so it sits beside the
+              advisory rather than inside it: a closed season is not a
+              weather hazard and never colours the sail/no-sail verdict. */}
+          {ban?.available && (
+            <Panel
+              title="Seasonal fishing ban"
+              action={
+                <Badge tone={ban.applies_here ? "no-go" : ban.in_ban_period ? "caution" : "neutral"}>
+                  {ban.applies_here ? "in force here" : ban.in_ban_period ? "in force offshore" : "open season"}
+                </Badge>
+              }
+            >
+              <p className="text-sm text-ink-muted">{ban.note}</p>
+              <ReadoutGrid cols={3}>
+                <Readout label="Coast" value={ban.coast ?? "—"} />
+                <Readout
+                  label={ban.in_ban_period ? "Window" : "Next window"}
+                  value={ban.window ?? ban.next_window ?? "—"}
+                  hint={ban.days ? `${ban.days} days` : undefined}
+                />
+                <Readout
+                  label="From EEZ edge"
+                  value={ban.distance_to_nearest_eez_edge_nm != null ? ban.distance_to_nearest_eez_edge_nm.toFixed(1) : "—"}
+                  unit="NM"
+                />
+              </ReadoutGrid>
+              {ban.order && (
+                <p className="mt-3 border-t border-hairline pt-2 text-[11px] text-ink-dim">
+                  {ban.order.issuing_authority} · {ban.order.file_number}, {ban.order.order_date} ·{" "}
+                  {ban.order.applies_to}; {ban.order.exemption}.{" "}
+                  <a className="underline" href={ban.order.pdf_url} target="_blank" rel="noreferrer">
+                    order PDF
+                  </a>
+                </p>
+              )}
+            </Panel>
+          )}
 
           {/* 2 — nearest advised zone */}
           {data.nearest_pfz.found ? (

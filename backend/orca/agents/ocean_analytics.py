@@ -970,6 +970,13 @@ def _state_landings_record(place: str, district_years: int) -> dict[str, Any]:
     }
 
 
+def _district_key(name: str) -> str:
+    """Letters only, doubled letters collapsed — a spelling-tolerant key for
+    matching district names across sources that romanise them differently."""
+    letters = [c for c in name.lower() if c.isalpha()]
+    return "".join(c for i, c in enumerate(letters) if i == 0 or c != letters[i - 1])
+
+
 def diagnose_productivity_decline(district_sector: str) -> dict[str, Any]:
     """PS #7 — 'why has fish catch declined'. Correlates the recorded catch
     trend against the recorded productivity drivers for a district.
@@ -981,6 +988,12 @@ def diagnose_productivity_decline(district_sector: str) -> dict[str, Any]:
     """
     rows = [r for r in al.load_fish_landings() if r["District_Sector"].lower().startswith(district_sector.lower())
             or district_sector.lower() in r["District_Sector"].lower()]
+    if not rows:
+        # Census 2011 and data.gov transliterate the same district differently
+        # ("Thoothukkudi" vs "Thoothukudi"), so a position resolved off the
+        # district shapefile would otherwise miss its own landings series.
+        key = _district_key(district_sector)
+        rows = [r for r in al.load_fish_landings() if _district_key(r["District_Sector"]).startswith(key)]
     rows.sort(key=lambda r: r["Year"])
     if len(rows) < 3:
         return _state_landings_record(district_sector, len(rows))
