@@ -178,6 +178,10 @@ const resolveTileUrl = (template: string, frame?: string) =>
 // §4.7 layer lifecycle budget: 2 concurrent heavy layers on mobile, 4 on
 // desktop, LRU-evicted with a visible notice rather than a silent frame-rate
 // collapse. These four toggles are the chart's only "heavy" layers today.
+// Width of the scale bar in screen pixels; the label reports the real
+// distance across exactly this span.
+const SCALE_BAR_PX = 100;
+
 const HEAVY_KEYS = ["srvBathymetry", "waveForecast", "currents", "wind"] as const;
 type HeavyKey = (typeof HEAVY_KEYS)[number];
 const HEAVY_LABEL: Record<HeavyKey, string> = {
@@ -285,7 +289,11 @@ export function MapView({
   // Which basemap is showing under the chart layers. "chart" is the vector
   // style itself; the others are raster layers already in the style, so this
   // only ever flips `visibility` — no restyle, no source/layer teardown.
-  const [basemap, setBasemap] = useState<BasemapId>("chart");
+  const [basemap, setBasemap] = useState<BasemapId>("satellite");
+  // Read inside the map-load handler, which runs once and must not re-run
+  // when the basemap changes — the glyph re-tint effect below handles that.
+  const basemapRef = useRef(basemap);
+  basemapRef.current = basemap;
   const [depth, setDepth] = useState<DepthResult | null>(null);
   // Nearest DELIMITED boundary line at the tapped point: which treaty line,
   // how far, on what agreement. The EEZ-edge distance answers a different
@@ -304,7 +312,7 @@ export function MapView({
     srvBathymetry: false,
     waveForecast: false,
     currents: false,
-    wind: false,
+    wind: true,
     watchBadges: true,
     ...initialLayers,
   });
@@ -490,10 +498,11 @@ export function MapView({
     const m = new maplibregl.Map({
       container: container.current,
       style: BASEMAP_STYLE,
-      // National overview by default (product scope is all of India, not
-      // one pilot region) — a query or the region switcher moves it from
-      // here, and the Gulf of Mannar pilot bounds are still available as a
-      // preset via COASTAL_REGIONS.
+      // Fixed opening camera (INDIA_VIEW): all of India plus the current
+      // field's water, scale bar at 98.3 nm. Not derived from any dataset's
+      // bounds, so it is the same view every load — a query or the region
+      // switcher moves it from here, and the Gulf of Mannar pilot bounds are
+      // still available as a preset via COASTAL_REGIONS.
       center: INDIA_VIEW.center,
       zoom: INDIA_VIEW.zoom,
       // Attribution and scale live bottom-LEFT: the bottom-right corner is
@@ -509,7 +518,23 @@ export function MapView({
     map.current = m;
 
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
-    m.addControl(new maplibregl.ScaleControl({ unit: "nautical" }), "bottom-left");
+    // Stock ScaleControl rounds its label to the nearest 1/2/3/5/10/50 nm,
+    // which is unreadable as an actual distance. Same control, same styling
+    // and placement — only the label is ours: the true distance across a
+    // fixed 100 px bar, to a precision that follows the magnitude.
+    const scale = new maplibregl.ScaleControl({ unit: "nautical", maxWidth: SCALE_BAR_PX });
+    scale._onMove = () => {
+      const el = scale._container;
+      if (!el) return;
+      const box = m.getContainer();
+      const y = box.clientHeight / 2;
+      const x = box.clientWidth / 2;
+      const nm =
+        m.unproject([x - SCALE_BAR_PX / 2, y]).distanceTo(m.unproject([x + SCALE_BAR_PX / 2, y])) / 1852;
+      el.style.width = `${SCALE_BAR_PX}px`;
+      el.textContent = `${nm < 1 ? nm.toFixed(3) : nm < 10 ? nm.toFixed(2) : nm < 100 ? nm.toFixed(1) : Math.round(nm)} nm`;
+    };
+    m.addControl(scale, "bottom-left");
     m.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
     m.on("load", () => {
@@ -678,32 +703,33 @@ export function MapView({
         });
       }
 
-      // Fishing-zone marker: a small diamond target rather than a plain
-      // circle — reads as an intentional chart symbol at a glance, distinct
-      // from both the ship's-bow position marker and a generic map pin.
-      // Rendered once as a bitmap and GPU-instanced by the symbol layer
-      // below, so hundreds of zones cost one draw call, not hundreds of
-      // DOM nodes.
+      // Fishing-zone marker: a fish glyph. It says what the layer IS at a
+      // glance, which a circle never did, and is distinct in silhouette from
+      // the ship's-bow position marker and the watch badge. Rendered once as
+      // a bitmap and GPU-instanced by the symbol layers below, so hundreds of
+      // zones cost one draw call, not hundreds of DOM nodes.
       if (m.hasImage("pfz-marker")) {
         m.removeImage("pfz-marker");
       }
-      m.addImage("pfz-marker", buildPfzMarkerIcon(), { pixelRatio: 2 });
+      m.addImage("pfz-marker", buildPfzFishIcon(pfzIconTheme(basemapRef.current, false)), {
+        pixelRatio: 2,
+      });
 
       // 3+ nearby advisories collapse into one cluster circle (supercluster,
       // built into the GeoJSON source below) rather than a pile of
       // overlapping markers — expands automatically as the chart zooms in.
       m.addLayer({
         id: "pfz-clusters",
-        type: "circle",
+        type: "symbol",
         source: "pfz",
         filter: ["has", "point_count"],
-        paint: {
-          "circle-radius": ["step", ["get", "point_count"], 13, 5, 16, 15, 20],
-          "circle-color": CHART.pfz,
-          "circle-opacity": 0.85,
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-opacity": 0.95,
+        layout: {
+          "icon-image": "pfz-marker",
+          // Same fish, sized by how many zones it stands for — one symbol
+          // vocabulary for the layer instead of a marker and an unrelated
+          // counter bubble.
+          "icon-size": ["step", ["get", "point_count"], 0.66, 5, 0.78, 15, 0.92],
+          "icon-allow-overlap": true,
         },
       });
       m.addLayer({
@@ -715,10 +741,14 @@ export function MapView({
           "text-field": ["get", "point_count_abbreviated"],
           "text-font": ["Open Sans Regular"],
           "text-size": 11,
+          // Under the fish rather than inside it, so the glyph stays legible.
+          "text-offset": [0, 1.35],
+          "text-allow-overlap": true,
         },
         paint: {
-          "text-color": "#2629cfff",
-
+          "text-color": "#ffffff",
+          "text-halo-color": "rgba(4, 16, 26, 0.85)",
+          "text-halo-width": 1.2,
         },
       });
 
@@ -729,7 +759,7 @@ export function MapView({
         filter: ["!", ["has", "point_count"]],
         layout: {
           "icon-image": "pfz-marker",
-          "icon-size": ["interpolate", ["linear"], ["zoom"], 4, 0.55, 7, 0.8, 11, 1.05],
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 4, 0.46, 7, 0.62, 11, 0.8],
           "icon-allow-overlap": true,
         },
       });
@@ -1202,6 +1232,28 @@ export function MapView({
       vis(`srv-${layer.layer_id}-raster`, on);
     }
   }, [ready, layers, rasterLayers, basemap]);
+
+  /* ---- PFZ glyph re-tint: the fish follows what is under it — deep-water
+     imagery wants a bright body on a near-black halo, pale chart paper wants
+     the inverse. updateImage re-uploads one 80x80 sprite; no layer teardown,
+     no source churn, so a basemap switch stays a visibility flip. */
+  useEffect(() => {
+    const m = map.current;
+    if (!ready || !m || !m.hasImage("pfz-marker")) return;
+    m.updateImage("pfz-marker", buildPfzFishIcon(pfzIconTheme(basemap, layers.waveForecast)));
+    // The count under a cluster is part of the same symbol; it flips with it
+    // rather than staying white on a white basemap.
+    if (m.getLayer("pfz-cluster-count")) {
+      const dark = basemap === "satellite";
+      m.setPaintProperty("pfz-cluster-count", "text-color", dark ? "#ffffff" : "#03301d");
+      m.setPaintProperty(
+        "pfz-cluster-count",
+        "text-halo-color",
+        dark ? "rgba(4, 16, 26, 0.85)" : "rgba(255, 255, 255, 0.95)",
+      );
+    }
+    m.triggerRepaint();
+  }, [ready, basemap, layers.waveForecast]);
 
   /* ---- forecast frame swap: setTiles() + isSourceLoaded() crossfade, so a
      slider drag never flashes a half-loaded tile at full opacity (§ D3
@@ -1961,52 +2013,97 @@ export function MapView({
 // Repaint the basemap's water in ORCA's depth ramp. Done against the loaded
 // style rather than a forked style.json so the basemap stays swappable via
 // NEXT_PUBLIC_BASEMAP_STYLE — any style with a `water` source-layer works.
-// A small diamond target — a chart symbol, not a pin. Drawn once on an
-// offscreen canvas at module load and reused as a GPU sprite by every
-// unclustered PFZ point (see the "pfz-circles" symbol layer).
-function buildPfzMarkerIcon(): ImageData {
-  const size = 32;
+// The PFZ chart symbol is the SAME fish the nav rail uses for "Fishing
+// zones" (lucide's `fish`, ISC) — one icon for one concept, wherever it
+// appears. The path data is vendored from lucide-react's own icon node so
+// the two cannot drift; body path first, then eye, gill, tail and fins.
+const LUCIDE_FISH_24 = [
+  "M6.5 12c.94-3.46 4.94-6 8.5-6 3.56 0 6.06 2.54 7 6-.94 3.47-3.44 6-7 6s-7.56-2.53-8.5-6Z",
+  "M18 12v.5",
+  "M16 17.93a9.77 9.77 0 0 1 0-11.86",
+  "M7 10.67C7 8 5.58 5.97 2.73 5.5c-1 1.5-1 5 .23 6.5-1.24 1.5-1.24 5-.23 6.5C5.58 18.03 7 16 7 13.33",
+  "M10.46 7.26C10.2 5.88 9.17 4.24 8 3h5.8a2 2 0 0 1 1.98 1.67l.23 1.4",
+  "m16.01 17.93-.23 1.4A2 2 0 0 1 13.8 21H9.5a5.96 5.96 0 0 0 1.49-3.98",
+];
+
+type PfzIconTheme = {
+  halo: string;
+  haloWidth: number;
+  bodyTop: string;
+  bodyBottom: string;
+  line: string;
+  lineWidth: number;
+};
+
+/** The glyph re-tints itself for whatever is under it. Two things decide it:
+ *  how dark the basemap is (satellite imagery is deep teal water; chart,
+ *  streets and terrain are all pale paper), and whether a raster overlay is
+ *  currently painting colour across that water. The hue stays in the PFZ
+ *  green family either way — only value and halo change, so the symbol never
+ *  starts meaning something else. */
+function pfzIconTheme(basemap: BasemapId, busyWater: boolean): PfzIconTheme {
+  const dark = basemap === "satellite";
+  return dark
+    ? {
+        // Deep water: the line work goes PALE and the halo near-black. Dark
+        // strokes on dark imagery lose the fins and tail entirely — the body
+        // survives as a green blob and the fish stops being a fish.
+        halo: "rgba(3, 17, 26, 0.92)",
+        haloWidth: busyWater ? 3.1 : 2.6,
+        bodyTop: "#37dd97",
+        bodyBottom: "#059a56",
+        line: "#eafff5",
+        lineWidth: 1.5,
+      }
+    : {
+        // Pale chart paper: the exact inverse. A deep saturated body and dark
+        // ink lines, carried on a white halo — the cartographic way to keep a
+        // dark symbol legible over light fill.
+        halo: "rgba(255, 255, 255, 0.98)",
+        haloWidth: busyWater ? 2.6 : 2.0,
+        bodyTop: "#19c47c",
+        bodyBottom: "#035c33",
+        line: "#032a1a",
+        lineWidth: 1.6,
+      };
+}
+
+function buildPfzFishIcon(theme: PfzIconTheme): ImageData {
+  const px = 2; // device pixels per icon pixel — matches addImage's pixelRatio
+  const size = 40 * px;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d")!;
-  const cx = size / 2;
-  const cy = size / 2;
+  // lucide draws on a 24 box; inset it so the halo below sits inside the
+  // sprite instead of being clipped by its edge.
+  const inset = 0.88;
+  ctx.translate((size * (1 - inset)) / 2, (size * (1 - inset)) / 2);
+  ctx.scale((size / 24) * inset, (size / 24) * inset);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
 
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(Math.PI / 4);
-  const half = 7;
+  const paths = LUCIDE_FISH_24.map((d) => new Path2D(d));
 
-  // 1. High-contrast outer boundary (sharp definition on light basemap / bright wave colors)
-  ctx.beginPath();
-  ctx.roundRect(-half - 1.5, -half - 1.5, (half + 1.5) * 2, (half + 1.5) * 2, 3);
-  ctx.fillStyle = "rgba(4, 16, 26, 0.9)";
-  ctx.fill();
+  // Halo first, under everything — the nav icon is pure line work, which
+  // disappears against a photographic basemap without one.
+  ctx.strokeStyle = theme.halo;
+  ctx.lineWidth = theme.haloWidth;
+  for (const path of paths) ctx.stroke(path);
 
-  // 2. Vibrant emerald diamond fill
-  ctx.beginPath();
-  ctx.roundRect(-half, -half, half * 2, half * 2, 2);
-  ctx.fillStyle = CHART.pfz;
-  ctx.fill();
+  // Then a filled body, so the marker still reads as a solid dot of colour
+  // at chart zoom where 2 px strokes would break up. Lit from above, like
+  // every other raised element in the chrome.
+  const body = ctx.createLinearGradient(0, 5, 0, 19);
+  body.addColorStop(0, theme.bodyTop);
+  body.addColorStop(1, theme.bodyBottom);
+  ctx.fillStyle = body;
+  ctx.fill(paths[0]);
 
-  // 3. Crisp white inner stroke (ensures beacon-like visibility on dark depth shading)
-  ctx.lineWidth = 1.25;
-  ctx.strokeStyle = "#ffffff";
-  ctx.stroke();
-
-  ctx.restore();
-
-  // 4. Center nautical target bullseye
-  ctx.beginPath();
-  ctx.arc(cx, cy, 2, 0, Math.PI * 2);
-  ctx.fillStyle = "#ffffff";
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, 0.8, 0, Math.PI * 2);
-  ctx.fillStyle = "#041017";
-  ctx.fill();
+  // lucide's own strokes on top: eye, gill, tail and fins.
+  ctx.strokeStyle = theme.line;
+  ctx.lineWidth = theme.lineWidth;
+  for (const path of paths) ctx.stroke(path);
 
   return ctx.getImageData(0, 0, size, size);
 }

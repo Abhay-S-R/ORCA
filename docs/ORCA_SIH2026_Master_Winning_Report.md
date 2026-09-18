@@ -13,7 +13,7 @@ Your five existing files already contain an unusually rigorous body of work:
 | `ORCA_Master_Analysis_and_Requirements.md` | The cleanest statement of what PS 26176 literally and implicitly asks for, the 9-agent architecture, and the pilot-region decision |
 | `ORCA_SIH2026_Judge_Verdict.md` | A brutal, evidence-traced, code-level self-audit — score 7.6/10, 20 judge questions, a full scoring matrix |
 | `ORCA_DLC_Extension_Pack.md` | The deepest requirement-by-requirement build spec, with file:line grounding and edge-case/adversarial-query analysis |
-| `ORCA_Implementation_Plan.md` | The actual engineering plan — architecture, security model, phase-by-phase schedule |
+| `archive/ORCA_Implementation_Plan.md` | The actual engineering plan — architecture, security model, phase-by-phase schedule |
 | `ORCA_Winning_Strategy_Report.md` | The first attempt at exactly what you asked for here: existing-solution analysis + a prioritized battle plan |
 
 This report does **not** re-derive that work. It does four things none of your five files fully do:
