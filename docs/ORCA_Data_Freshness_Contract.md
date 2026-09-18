@@ -95,7 +95,7 @@ One row per id in `SOURCE_CLASS`. **Observed** columns are the measured state on
 | `incois_pfz` | INCOIS Potential Fishing Zone advisories | INCOIS issues these **once per day** and stamps each with an explicit `valid_for`. An expired advisory is not conservative — it points a boat at yesterday's fish. Not LIVE because the upstream does not change intra-day; a daily fetch captures everything there is. | OK — 777 features, `valid_for` **2026-09-19** (advisories are forward-looking) |
 | `incois_osf_ww3` | WAVEWATCH III significant wave height | A **forecast** product: each run projects 56 × 3-hourly steps forward. The run itself is daily, and a run whose horizon has already elapsed is not a forecast at all. | `rsmc_combined_ww3_20260917.nc` — the newest run INCOIS has published. Reads 1.6 d, see §6.2 |
 | `incois_osf_hycom` | HYCOM surface currents | Same daily-run forecast structure as WW3; currents drive drift, transit time and fuel. | `RSMC_hycom_20260917.nc`, same as above |
-| `soi_tide_tables` | Survey of India tide tables | The published table is annual, but ORCA materialises a **rolling window** (132 rows, 09-18→09-24, 5 stations). The window must always contain today, so the materialisation is a daily job even though the source is not. | OK — window 2026-09-18 → 09-24. **Expires before the 30 Sep submission; must be re-run** |
+| `soi_tide_tables` | Survey of India tide tables | The published table is annual, but ORCA materialises a **rolling window** (132 rows, 09-18→09-24, 5 chart-datum stations; the other 9 of the 14-station roster are MSL-only and live in the Stormglass caches). The window must always contain today, so the materialisation is a daily job even though the source is not. | OK — window 2026-09-18 → 09-24. **Expires before the 30 Sep submission; must be re-run** |
 | `mosdac_open_sst`, `mosdac_nrt_sst` | MOSDAC INSAT-3D SST | SST is a daily L3B product and a real day-to-day signal — a thermal front moves. DAILY rather than LIVE because a satellite pass is itself a daily event; there is no "now" to fetch. | Refreshed 2026-09-18 by `scripts/refresh_mosdac.py`; content **2026-09-17**, 1.7 d. Reads outside the DAILY window only because MOSDAC's newest granule is always dated yesterday — §6.2 |
 | ~~`incois_erddap`~~ | INCOIS ERDDAP Data Server | **Reclassified STATIC on 2026-09-18** — see §3.4 and §6.4. It is a historical archive, not a daily server | — |
 
@@ -251,9 +251,10 @@ Everything with an existing refresh script under `scripts/` was run, in dependen
 scripts/refresh_osf_forecasts.py       # WW3 / HYCOM / OSF SST -> 2026-09-17 runs
 scripts/extract_osf_pilot.py           # pilot subset, 0 missing values
 backend/scripts/generate_tiles.py      # wave pyramid rebuilt off the new run
-scripts/refresh_tide_tables.py         # 132 rows, 2026-09-18 -> 09-24
+scripts/refresh_tide_tables.py         # 132 rows, 2026-09-18 -> 09-24; 14-station roster,
+                                       #   10 cached (VIZ/PRD/HDA/PBL await tomorrow's quota)
 scripts/scrape_pfz_advisories.py       # 11 sectors, 723 nodes, 3 cloud-blocked
-backend/scripts/build_all_india_pfz.py # 777 national advisories, valid_for 09-19
+backend/scripts/build_all_india_pfz.py # 723 national advisories, all valid_for 09-19
 scripts/refresh_openmeteo_caches.py
 scripts/refresh_fishing_ban_order.py
 scripts/refresh_nasa_ocean_color.py    # NEW — CMR granule listing, newest 2026-09-17

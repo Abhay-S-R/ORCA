@@ -278,7 +278,11 @@ _GAZETTEER: dict[str, tuple[float, float]] = {
     "gopalpur": (19.27, 84.90),
     "puri": (19.80, 85.85),
     "chilika": (19.72, 85.32),
+    # Both spellings: the port authority writes "Paradip", the older charts and
+    # most of the coast write "Paradeep". Only the second was here, so "tide at
+    # Paradip" resolved to nothing.
     "paradeep": (20.32, 86.62),
+    "paradip": (20.32, 86.62),
     "dhamra": (20.75, 86.97),
     "balasore": (21.50, 87.00),
     "chandipur": (21.50, 87.07),

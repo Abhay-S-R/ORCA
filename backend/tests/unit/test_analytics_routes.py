@@ -84,3 +84,31 @@ def test_source_decision_walks_the_declared_cascade():
     body = r.json()
     assert body["chosen"] == "nasa_ocean_color"
     assert "fallback" in body["narrative"].lower()
+
+
+def test_pfz_layer_never_mixes_advisory_days(tmp_path, monkeypatch):
+    """A PFZ advisory is a location for *one* day, and the map draws every
+    feature identically, so a collection holding two days reads as one.
+
+    `build_all_india_pfz.py` used to append 54 invented points stamped
+    `valid_for: 2026-09-02` under INCOIS's name; the freshness check passed on
+    the strength of the fresh half and the whole file was served. The builder no
+    longer writes them, but `data/` is gitignored so other clones still hold the
+    mixed file — hence the guard sits in the loader, where every consumer passes.
+    """
+    import json
+
+    from orca.data import analytics_loaders as al
+
+    mixed = {"type": "FeatureCollection", "features": [
+        {"properties": {"valid_for": "2026-09-19", "sector_id": "SEC005"}},
+        {"properties": {"valid_for": "2026-09-02", "sector_id": "SEC001"}},
+    ]}
+    national = tmp_path / "all_india_pfz_advisories.geojson"
+    national.write_text(json.dumps(mixed), encoding="utf-8")
+    (tmp_path / "incois_pfz_live_advisories.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
+    monkeypatch.setattr(al, "PFZ_DIR", tmp_path)
+
+    served = al.load_pfz_live_geojson()["features"]
+    assert [f["properties"]["sector_id"] for f in served] == ["SEC005"]

@@ -176,7 +176,17 @@ def zones(
         near.found and near.sector_id and near.sector_id != user_sector
     )
 
-    proxy = load_pfz_advisories() if status.get("is_data_gap") else {"type": "FeatureCollection", "features": []}
+    # The proxy is computed for one sector only (its own `applies_to_sector`), so
+    # it is attached when *that* sector is the user's and has no advisory — not
+    # whenever any sector is a gap. Without the sector test a Veraval query came
+    # back with five Gulf of Mannar cells 1,500 km away: correctly labelled "not
+    # an advisory", but still pilot-region data drawn on a Gujarat map.
+    proxy: dict[str, Any] = {"type": "FeatureCollection", "features": []}
+    if status.get("is_data_gap"):
+        candidate = load_pfz_advisories()
+        applies_to = (candidate.get("orca_metadata") or {}).get("applies_to_sector") or ""
+        if applies_to.startswith(user_sector):
+            proxy = candidate
     live_pfz = al.load_pfz_live_geojson()
     seen_coords: set[tuple[float, float]] = set()
     combined_features = []

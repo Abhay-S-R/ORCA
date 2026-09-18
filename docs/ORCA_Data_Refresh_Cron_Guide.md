@@ -34,6 +34,13 @@ That is **two scheduled jobs**, plus one optional monthly one. Everything else i
 | `incois_osf_hycom` | DAILY | `refresh_osf_forecasts.py` | same run, the currents half |
 | `incois_pfz` | DAILY | `scrape_pfz_advisories.py` | INCOIS issues potential-fishing-zone advisories for the day; yesterday's sends a boat to the wrong water |
 | `soi_tide_tables` | DAILY | `refresh_tide_tables.py` | the table holds a rolling **7-day** horizon. Once its last row falls into the past, `predict_tides()` returns `UNKNOWN` for *every* port — the query becomes unanswerable, not degraded |
+
+The tide job is the one with a **provider quota**: Stormglass's free tier allows 10 requests a
+day and the roster is 14 ports. The script therefore refetches a station only when its cache
+stops reaching 3 days ahead, so a normal morning spends 0–3 requests and a cold start fills
+itself over two days. If it prints `HTTP 402 … daily quota reached`, that is the design
+working, not a failure — the ports it did not reach keep yesterday's rows, because the script
+merges into the CSV rather than overwriting it.
 | `mosdac_open_sst` | DAILY | `refresh_mosdac.py` | INSAT-3DR publishes a daily SST composite |
 | `mosdac_nrt_sst` | DAILY | `refresh_mosdac.py` | same granules, registered separately |
 
@@ -55,6 +62,12 @@ separate weekly MOSDAC job.
 | `bhuvan_wms` | WEEKLY | `refresh_bhuvan_manifest.py` | a reachability record for basemap layers, not imagery |
 | `stormglass_tides` | WEEKLY | `refresh_tide_tables.py` | written by the daily tide job; listed here only so the mapping is complete |
 | `mosdac_open_chl`, `mosdac_nrt_chl`, `mosdac_nrt_wind` | WEEKLY | `refresh_mosdac.py` | covered by the daily job above |
+
+Add `refresh_era5_baselines.py` to this job too. It is not a declared source — a 30-day ERA5
+reference period is a *reference*, and an old one is still a valid one, which is why the
+baseline label carries its own dates instead of a freshness class. But the window should keep
+rolling forward, and the script skips every port whose window is already current, so on most
+weeks it makes no requests at all.
 
 Add `refresh_openmeteo_caches.py` to this job. Open-Meteo is LIVE and needs no download, but
 these caches are its **offline fallback** — the reason a network failure mid-demo degrades an

@@ -87,7 +87,7 @@ def test_correlation_never_claims_causation():
 
 # --- ERA5 baseline gives detect_anomaly a reference period ---------------
 
-def test_wind_anomaly_carries_its_baseline_or_names_the_gap():
+def test_wind_anomaly_carries_its_baseline_or_names_the_gap(monkeypatch):
     at_pilot = oa.wind_anomaly(*THOOTHUKUDI)
     assert at_pilot["available"] is True
     assert at_pilot["baseline_days"] > 1
@@ -95,12 +95,22 @@ def test_wind_anomaly_carries_its_baseline_or_names_the_gap():
     assert "ERA5" in at_pilot["baseline_label"]
     assert isinstance(at_pilot["anomalous"], bool)
 
-    # No ERA5 window cached off Mumbai — that must read as "no baseline",
-    # never as "not anomalous".
-    elsewhere = oa.wind_anomaly(19.0, 72.8)
-    assert elsewhere["available"] is False
-    assert "anomalous" not in elsewhere
-    assert "baseline" in elsewhere["note"].lower()
+    # Since 2026-09-19 the baseline is national, not pilot-only: every port
+    # with a cached forecast has a matching ERA5 window, so PS-Q7's anomaly leg
+    # answers off Gujarat and Odisha too, not just in the Gulf of Mannar.
+    for lat, lon in ((22.98, 70.22), (20.26, 86.68), (11.68, 92.75)):
+        national = oa.wind_anomaly(lat, lon)
+        assert national["available"] is True, (lat, lon)
+        assert national["units"] == "km/h"
+
+    # A port that has no window must still read as "no baseline", never as
+    # "not anomalous" — silence and normality are not the same answer.
+    with monkeypatch.context() as m:
+        m.setattr(oa.al, "load_era5_baseline", lambda port: None)
+        gap = oa.wind_anomaly(*THOOTHUKUDI)
+    assert gap["available"] is False
+    assert "anomalous" not in gap
+    assert "baseline" in gap["note"].lower()
 
 
 # --- OSF point/grid fast path -------------------------------------------
@@ -170,9 +180,12 @@ def test_wind_rose_bins_all_sixteen_compass_points():
 def test_persistence_confidence_tracks_days_on_record():
     p = oa.score_pfz_persistence(*THOOTHUKUDI, sector_id="SEC007")
     # The archive grows by one directory every time the scraper runs, so the
-    # assertion is the rule, not a snapshot count: a single day cannot be a
-    # trend and must degrade to LOW_DATA / INDICATIVE.
-    if p["days_on_record"] < 2:
+    # assertion is the rule, not a snapshot count: a short run cannot be a
+    # trend and must degrade to LOW_DATA / INDICATIVE. `days_on_record` counts
+    # only the last `window_days`, because a fortnight-old advisory is not
+    # evidence about this week.
+    assert p["days_on_record"] <= p["days_archived_total"]
+    if p["days_on_record"] < 5:
         assert p["confidence"].score == "LOW_DATA"
         assert p["label"] == "INDICATIVE"
     else:
@@ -296,3 +309,30 @@ def test_tide_gauge_out_of_range_falls_through_to_altimetry_and_says_so():
     else:
         # No CMEMS file on disk either — then it still declines, with both reasons.
         assert far["confidence"].score == "LOW_DATA"
+
+
+def test_tide_roster_is_national_and_never_mislabels_the_datum():
+    """The roster went from the 5 pilot ports to 14 on 2026-09-19, and only the
+    original 5 have a published chart-datum offset. A height on mean sea level
+    presented as chart datum is a metre of error under a keel, so the one thing
+    that must hold at every station is that `datum` follows the station's own
+    offset rather than the code path."""
+    from orca.data import analytics_loaders as al
+
+    stations = {s["station_code"]: s for s in al.load_tide_stations()}
+    assert len(stations) >= 14, sorted(stations)
+    # Coverage is the point: both coasts and the islands, not one sector.
+    assert {"KAN", "VIZ", "PRD", "HDA", "PBL"} <= set(stations)
+
+    for code, st in stations.items():
+        # Now, not WHEN: the tables carry a rolling 7-day horizon, so a fixed
+        # past date would make every station look empty and the test vacuous.
+        t = oa.predict_tides(st["latitude"], st["longitude"])
+        assert t.station_code == code, f"{code} is not its own nearest station"
+        if t.next_high is None and t.next_low is None:
+            continue  # no cache for that port yet — declines, does not guess
+        if st.get("msl_above_chart_datum_m") is None:
+            assert t.datum == "mean sea level", code
+            assert t.fell_back is True and t.confidence.score == "MEDIUM", code
+        else:
+            assert t.datum == "chart datum (LAT)", code

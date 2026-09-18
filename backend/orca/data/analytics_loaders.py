@@ -93,15 +93,19 @@ def load_sar_stations() -> dict[str, Any]:
 
 STORMGLASS_DIR = DATA_DIR / "tier2" / "stormglass"
 
-# SOI station code -> the Stormglass point fixture covering the same port.
-# Checked against the actual filenames on disk, not assumed.
-STORMGLASS_BY_STATION = {
-    "TUT": "thoothukudi",
-    "PAM": "pamban",
-    "CHE": "chennai",
-    "KOC": "kochi",
-    "BOM": "mumbai",
-}
+def _stormglass_stem(station_code: str) -> str | None:
+    """SOI station code -> the Stormglass point fixture covering the same port.
+
+    Read from the station metadata rather than hardcoded here: the roster in
+    `scripts/refresh_tide_tables.py` writes both the metadata and the cache
+    files, so a second copy of the mapping in this file would go stale the
+    first time somebody adds a port (it did — the nine ports added on
+    2026-09-19 would all have returned no events).
+    """
+    for st in load_tide_stations():
+        if st.get("station_code") == station_code:
+            return st.get("stormglass_stem")
+    return None
 
 
 def load_stormglass_tide_events(station_code: str) -> list[dict[str, Any]]:
@@ -116,7 +120,7 @@ def load_stormglass_tide_events(station_code: str) -> list[dict[str, Any]]:
     high/low ordering are directly comparable. Any answer built on this
     fallback must say which datum it is quoting.
     """
-    port = STORMGLASS_BY_STATION.get(station_code)
+    port = _stormglass_stem(station_code)
     if port is None:
         return []
     path = STORMGLASS_DIR / f"stormglass_tides_{port}.json"
@@ -136,7 +140,9 @@ def load_stormglass_tide_events(station_code: str) -> list[dict[str, Any]]:
             "station_name": port.title(),
             "when": when.astimezone(timezone.utc),
             "tide_event": "HIGH TIDE" if row.get("type") == "high" else "LOW TIDE",
-            "height_m": float(row["height"]),
+            # 2 dp, like the chart-datum table: Stormglass returns a float with
+            # 17 significant digits and a tide height is not known to a micron.
+            "height_m": round(float(row["height"]), 2),
             "datum": "mean sea level",  # NOT chart datum — see docstring
             "source": "Stormglass.io tide extremes API (cached)",
         })
@@ -216,10 +222,33 @@ def load_pfz_live_geojson() -> dict[str, Any]:
 
     national, live_doc = _read(all_india), _read(live)
     if national is None:
-        return live_doc or {"type": "FeatureCollection", "features": []}
+        return _newest_day_only(live_doc or {"type": "FeatureCollection", "features": []})
     if live_doc is None:
-        return national
-    return national if _pfz_valid_for(national) >= _pfz_valid_for(live_doc) else live_doc
+        return _newest_day_only(national)
+    chosen = national if _pfz_valid_for(national) >= _pfz_valid_for(live_doc) else live_doc
+    return _newest_day_only(chosen)
+
+
+def _newest_day_only(doc: dict[str, Any]) -> dict[str, Any]:
+    """Drop features older than the collection's own newest `valid_for`.
+
+    `_pfz_valid_for` takes the *newest* date in a file, so a collection holding
+    both today's advisories and a previous day's passes the freshness check on
+    the strength of the fresh half and is then served whole — the map draws
+    every point the same way, and a sector whose only features are old reads as
+    advised today. `build_all_india_pfz.py` used to produce exactly that. The
+    builder no longer does, but `data/` is gitignored, so every clone has its own
+    files and some still hold the mixed version: the guard belongs here, where
+    all consumers pass, rather than only in the script that writes the file.
+    """
+    features = doc.get("features") or []
+    newest = _pfz_valid_for(doc)
+    if not newest:
+        return doc
+    kept = [f for f in features if (f.get("properties", {}).get("valid_for") or "") == newest]
+    if len(kept) == len(features):
+        return doc
+    return {**doc, "features": kept}
 
 
 # --- catch statistics --------------------------------------------------------

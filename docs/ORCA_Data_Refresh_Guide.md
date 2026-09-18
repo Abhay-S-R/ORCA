@@ -74,10 +74,11 @@ python scripts/extract_osf_pilot.py            # <- consumes the WW3 run above
 python backend/scripts/generate_tiles.py       # <- rebuilds the wave tile pyramid
 
 # --- tides, fishing zones, weather ---
-python scripts/refresh_tide_tables.py          # Survey of India tide tables
+python scripts/refresh_tide_tables.py          # tide tables + the 14-station roster
 python scripts/scrape_pfz_advisories.py        # INCOIS PFZ sector advisories
 python backend/scripts/build_all_india_pfz.py  # <- consumes the advisories above
 python scripts/refresh_openmeteo_caches.py
+python scripts/refresh_era5_baselines.py       # ERA5 reference period, 104 ports
 python scripts/refresh_fishing_ban_order.py
 
 # --- satellite and vessel products ---
@@ -99,6 +100,11 @@ provider's 5,000-files-per-day cap — resume tomorrow, nothing is lost.
 **A "no new data" result is not a failure.** INCOIS and MOSDAC publish in arrears: on any given
 day the newest run available is usually yesterday's or the day before's. The contract accounts
 for this (see §4), so a source sitting at a two-day-old content date is still `ok`.
+
+**The tide job is rate-limited and knows it.** Stormglass's free tier is 10 requests a day and
+there are 14 ports, so the script only refetches a station whose cache no longer reaches 3 days
+ahead. On a cold clone that means two runs on two days to fill every port; `HTTP 402 … daily
+quota reached` is the expected way the first run ends, and nothing already written is lost.
 
 **Nothing here refreshes the LIVE sources.** Five of them — Open-Meteo, Damini lightning, NDMA
 SACHET, the INCOIS hazard bulletins and the IOC tide gauges — are fetched over HTTP on every

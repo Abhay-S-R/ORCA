@@ -94,8 +94,17 @@ never the definition.** A line number inside the loader file proves nothing.
 > constraint is real and will still apply.
 
 `backend/scripts/build_all_india_pfz.py` has now been **run**: `all_india_pfz_advisories.geojson`
-exists with **407 features across 13 of the 14 sectors** (all but SEC013 Nicobar), and
-`load_pfz_live_geojson()` prefers it, so `/zones` renders national PFZ coverage instead of the pilot box.
+exists and `load_pfz_live_geojson()` prefers it, so `/zones` renders national PFZ coverage instead of
+the pilot box.
+
+> **Corrected 2026-09-19 — the "13 of 14 sectors" in this paragraph was never true.** The builder
+> appended 54 *invented* advisory points (Gujarat, Odisha, West Bengal, Andaman, and nine extra South
+> Tamil Nadu nodes) with hardcoded coordinates, bearings, depths and `mean_sst_c` values, each stamped
+> `"source": "INCOIS Marine Fisheries Advisory"` and `"valid_for": "2026-09-02"`. Two of the sectors it
+> appeared to add — SEC001 Gujarat and SEC012 Andaman — had *only* fabricated points. The node lists are
+> deleted. The file now carries **723 real advisories across 11 sectors, all valid for the same day**,
+> and the three sectors INCOIS did not publish are reported by `sector_status()` as data gaps carrying
+> INCOIS's own cloud-cover message. National coverage is what INCOIS publishes, not what we fill in.
 
 ### 0.1c Frontend wiring — a field in a response nobody renders is still invisible
 
@@ -127,13 +136,13 @@ covers every *distinct dataset*, not every file.
 | `tier1/hazards/lightning_nowcast_*.json` (5 ports) | `weather_intelligence.py:255` | PS-Q4 lightning fallback |
 | `tier1/hazards/ndma_cap_alerts.json` | `weather_intelligence.py:290` | PS-Q4 cyclone/CAP fallback when SACHET is unreachable |
 | `tier1/tides/soi_tide_tables_2026.csv` | `analytics_loaders.py:38` | PS-Q3 tide predictions |
-| `tier1/tides/soi_tide_stations_metadata.json` | `analytics_loaders.py:32`, `loaders.py:114` | Tide datums **and** the tide-station tier of the place gazetteer |
+| `tier1/tides/soi_tide_stations_metadata.json` | `analytics_loaders.py:32`, `loaders.py:114` | Tide datums **and** the tide-station tier of the place gazetteer. Written by `scripts/refresh_tide_tables.py` from 2026-09-19 (14 stations); before that it was hand-maintained inside gitignored `data/`, so no clone but the original author's had it |
 | `tier1/tides/incois_tide_gauge_telemetry.json` | `analytics_loaders.load_tide_gauge_telemetry` → `ocean_analytics.tide_gauge_observation` → agent `run()` + `GET /api/tides` | PS-Q3 observed-vs-predicted cross-check. **Was mis-marked wired in the 09-13 ledger** — the loader existed, nothing called it. Fixed 2026-09-16 |
-| `tier2/stormglass/stormglass_tides_*.json` (5) | `analytics_loaders.py:83`, `ocean_analytics.py:137` | PS-Q3 tide fallback (MSL datum — not interchangeable with chart datum) |
+| `tier2/stormglass/stormglass_tides_*.json` (10 of 14 ports; VIZ, PRD, HDA, PBL pending quota) | `analytics_loaders._stormglass_stem`, `ocean_analytics.py:137` | PS-Q3 tide fallback (MSL datum — not interchangeable with chart datum), and the **only** source at the 9 ports with no published chart-datum offset. The station→file mapping is read from the metadata now; it used to be a second hardcoded dict that would have silently excluded every added port |
 | `tier1/fisheries/datagov_marine_fish_landings.csv` | `analytics_loaders.py:174`, `ocean_analytics.py:538` | PS-Q7 productivity diagnosis |
 | `incois_osf_pfz/pfz/incois_pfz_live_advisories_master.csv` | `analytics_loaders.py:153`, `ocean_analytics.py:309 nearest_pfz` | PS-Q1 nearest PFZ |
 | `incois_osf_pfz/pfz/pfz_sector_status.json` | `analytics_loaders.py:140`, `ocean_analytics.py:389` | PS-Q1 cloud-cover honesty, `/zones` |
-| `incois_osf_pfz/pfz/history/<date>/advisories.csv` | `analytics_loaders.py:131`, `ocean_analytics.py:342 score_pfz_persistence` | PS-Q1 persistence — **only one date on disk, so persistence is structurally always 1/1** |
+| `incois_osf_pfz/pfz/history/<date>/advisories.csv` | `analytics_loaders.py:131`, `ocean_analytics.py:342 score_pfz_persistence` | PS-Q1 persistence. 3 dates on disk (0901, 0916, 0918); the daily cron adds one per morning. Since 2026-09-19 the score counts only snapshots from the **last 7 days** and refuses to label anything below 5 of them — a fortnight-old advisory is not evidence about this week |
 | `incois_osf_pfz/pfz/incois_pfz_live_advisories.geojson` | `analytics_loaders.py:162` → `analytics_routes.py:173` | `/zones` map layer |
 | `incois_osf_pfz/pfz/pfz_fallback_pilot_region.geojson` | `discovery.py:30` (existence check + cascade) | PS-Q1 cloud-suppressed fallback |
 | `tier1/boundaries/india_eez_polygon.geojson`, `srilanka_eez_polygon.geojson`, `india_marine_mpas.geojson` | `geospatial.py:32-34 BOUNDARIES_DIR` | PS-Q8, PS-C8 geofencing |
@@ -147,7 +156,7 @@ covers every *distinct dataset*, not every file.
 | `tier3/mosdac/Sea surface temp/3RIMG_*.h5` (17 files, 152 MB) | `satellite_loaders.load_insat_sst` → `ocean_analytics._sst_grid` → `correlate_sst_chlorophyll` | PS-Q5, PS-Q7 — **ISRO INSAT-3DR SST, the headline gap, now read** (3,514 bins over the India bbox) |
 | `tier3/mosdac/chlorophyll/E06OCML4AC_*.nc` (10 files, 60 MB) | `satellite_loaders.load_eos06_chl` → `correlate_sst_chlorophyll` | PS-Q5, PS-Q7 — ISRO EOS-06 OCM-3 chlorophyll (99 cells). Still **March 2026 and stale**, but read and labelled as such |
 | `tier2/copernicus/cmems_*.nc` | `satellite_loaders.load_cmems_sst` → `_sst_grid` rung 2 | The declared SST fallback is now a rung that actually exists (783 cells) |
-| `tier1/weather/era5_historical_thoothukudi_30d.json` | `analytics_loaders.load_era5_baseline` → `ocean_analytics.wind_anomaly` → agent `run()` + `/api/trends` | PS-Q7 anomaly — the reference period `detect_anomaly` always needed |
+| `tier1/weather/era5_historical_<port>_30d.json` (104 ports since 2026-09-19) | `analytics_loaders.load_era5_baseline` → `ocean_analytics.wind_anomaly` → agent `run()` + `/api/trends` | PS-Q7 anomaly — the reference period `detect_anomaly` always needed |
 | `tier1/hazards/imd_nowcast_alerts.json` | `analytics_loaders.load_imd_nowcast_alerts` → `weather_intelligence.get_imd_nowcast_alerts` | PS-Q4 second hazard source + cross-source disagreement signal |
 | `osf_hycom/hycom_latest_points.geojson`, `osf_ww3/ww3_latest_points.geojson` | `analytics_loaders.load_osf_point_forecasts` → `ocean_analytics.nearest_osf_point_forecast`, `voyage._ww3_point_fallback` | Per-point wave/current fast path, and the voyage fallback when the 16 GB grids are absent |
 | `incois_osf_pfz/south_india_marine_grid.csv` | `analytics_loaders.load_osf_marine_grid` → `nearest_osf_point_forecast` rung 2 | 0.5° regional coverage beyond the 8 extracted ports |
@@ -177,7 +186,7 @@ Two residual items, neither of which is a wiring gap:
 | ~~`data/fixtures/mosdac_{sst,chl}__pilot__*.json`~~ | **No longer required.** `correlate_sst_chlorophyll()` now reads the ISRO archives directly (INSAT-3DR SST → CMEMS → fixture; EOS-06 chlorophyll → fixture) and returns a real correlation over 95 co-located 0.25° cells. The fixture is the last rung of a cascade, not the only path |
 | ~~`incois_osf_pfz/pfz/all_india_pfz_advisories.geojson`~~ | **Generated 2026-09-16.** `backend/scripts/build_all_india_pfz.py` has been run: 407 features, sectors SEC001–SEC012 + SEC014. Re-run it whenever the live advisory file is refreshed |
 | Marine/weather/lightning caches for any port outside the 5–6 pilot ports | Every non-pilot location has no offline fallback; a network failure during judging outside Tamil Nadu produces degraded answers |
-| SoI tide predictions outside 5 stations (TUT, PAM, CHE, KOC, BOM) | PS-Q3 cannot be answered for Gujarat, Odisha, West Bengal, Andhra, Goa, Karnataka, A&N or Lakshadweep |
+| ~~SoI tide predictions outside 5 stations (TUT, PAM, CHE, KOC, BOM)~~ | **Closed 2026-09-19.** The roster in `scripts/refresh_tide_tables.py` is now 14 stations — the 5 pilot ports plus Kandla, Okha, Veraval, Mormugao, New Mangalore, Visakhapatnam, Paradip, Haldia and Port Blair — and the script writes `soi_tide_stations_metadata.json` itself, so a fresh clone gets the roster instead of finding an empty gazetteer tier. **The 9 new ports are answered on mean sea level, not chart datum:** nobody publishes a chart-datum offset for them that we can cite, so none was invented and `predict_tides()` serves them through its declared Stormglass rung, which labels the datum and drops confidence to MEDIUM. Times and high/low ordering are right everywhere; the height at the 9 is on a different datum and says so out to the API response |
 | CMFRI landings outside 4 districts | PS-Q7 answerable only for Thoothukudi, Ramanathapuram, Ernakulam and Mumbai Coastal |
 | India–Pakistan and India–Bangladesh maritime boundaries | PS-C8 names "international maritime boundaries" plural. Gujarat (Sir Creek) and West Bengal have **no IMBL geometry at all** — the two coasts where boundary incidents are most frequent |
 | Ecologically sensitive / fishing-ban / restricted-water layers | PS-C8 names these separately from MPAs. Only WDPA MPAs exist, and of 15 features only 11 are geofence-usable — several of which are **Sri Lankan** (Vankalai, Wedithalathive, Bar Reef) |
@@ -267,7 +276,7 @@ lon 71.91–84.80 E):
 | Open-Meteo Weather — 6 existing ports | ✅ ON DISK + WIRED | Open-Meteo | https://api.open-meteo.com/v1/forecast | JSON | `data/tier1/weather/openmeteo_weather_*.json` |
 | Open-Meteo Weather — 16 new ports | ❌ MISSING | Open-Meteo | Same (free, no key) | JSON | `data/tier1/weather/openmeteo_weather_<port>.json` |
 | EOS-06 ScatSat Wind (11 daily files) | ✅ ON DISK + WIRED | MOSDAC | https://mosdac.gov.in → EOS-06 → Wind | NetCDF | `data/tier3/mosdac/Wind/E06SCTL4AW_*.nc` (2.3 GB) — read by `geospatial.py:353`. **The only ISRO product read at runtime today** |
-| ERA5 historical wind (Thoothukudi only) | ✅ ON DISK + WIRED (`load_era5_baseline` → `wind_anomaly`) | Open-Meteo archive | https://archive-api.open-meteo.com/v1/era5 | JSON | `data/tier1/weather/era5_historical_thoothukudi_30d.json` |
+| ERA5 historical wind (all 104 cached ports since 2026-09-19, `scripts/refresh_era5_baselines.py`) | ✅ ON DISK + WIRED (`load_era5_baseline` → `wind_anomaly`) | Open-Meteo archive | https://archive-api.open-meteo.com/v1/era5 | JSON | `data/tier1/weather/era5_historical_*_30d.json` |
 
 **Ports that need Open-Meteo files fetched** (existing: chennai, kochi, mumbai, pamban, thoothukudi, visakhapatnam):
 
@@ -769,11 +778,11 @@ The DATA LIMITED badge appears when **any** agent returns `LOW_DATA` confidence.
 | Root Cause | Agent | Fix |
 |-----------|-------|-----|
 | ~~MOSDAC SST files not read by code~~ | `ocean_analytics` | ✅ Fixed 2026-09-16 — `satellite_loaders.load_insat_sst` |
-| Only 1 PFZ history folder | `ocean_analytics` | Download 7 days history for all **14** sectors. Still open — persistence is structurally 1/1 until then, and the code says so |
+| PFZ history is 3 folders, needs 5 in a 7-day window | `ocean_analytics` | **Self-healing 2026-09-19.** `scripts/cron/refresh_daily` runs `scrape_pfz_advisories.py`, which archives one folder per morning, so the window fills by ~23 Sep. Until it does, `score_pfz_persistence` returns `INDICATIVE` / `LOW_DATA` naming the shortfall instead of scoring 0/3 and calling it TRANSIENT |
 | MOSDAC Chlorophyll files stale (March) | `ocean_analytics` | Fetch Jul–Sep 2026 files from MOSDAC |
 | Live Open-Meteo fails → stale Aug 30 cache | `weather_intelligence` | Refresh cached files for all ports |
 | CMEMS SST/currents for non-pilot regions | `ocean_analytics` | The reader exists (`load_cmems_sst`); the **file** covers 77–80.5 E / 7.5–10.5 N only. Download the full-India bbox |
-| No ERA5 baseline outside Thoothukudi | `ocean_analytics` | `wind_anomaly()` returns `available: false` and names the missing port. Fetch `era5_historical_<port>_30d.json` per coast |
+| ~~No ERA5 baseline outside Thoothukudi~~ | `ocean_analytics` | **Closed 2026-09-19.** `scripts/refresh_era5_baselines.py` fetches a 30-day ERA5 window from the Open-Meteo archive for every port with a cached forecast — 104 of them, both coasts and the islands — so PS-Q7's anomaly leg answers nationally. Same provider and same km/h units as the forecast it is compared against, deliberately: `wind_anomaly()` does no unit conversion, so a different provider would put a systematic offset into the z-score |
 | IMD nowcast snapshot window closed | `weather_intelligence` | The cache is one 3-hour window from 2026-08-30. Re-fetch; the code already reports `expired: true` rather than presenting it as current |
 
 Once all data files are present and wired, `LOW_DATA` should only appear when satellite

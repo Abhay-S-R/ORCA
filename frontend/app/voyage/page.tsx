@@ -262,7 +262,11 @@ export default function VoyagePage() {
           </Panel>
 
           {tide && (
-            <Panel title="Berthing window at destination">
+            <Panel title={`Berthing window — ${tide.station_name}`}>
+              {/* Which station answered matters now that the roster is
+                  national: the nearest one can be the destination port itself
+                  or a hundred miles up the coast, and only five of the fourteen
+                  quote chart datum — `tide.datum` is the hint on Range. */}
               <ReadoutGrid cols={2}>
                 <Readout label="Tide" value={tide.tidal_state} hint={tide.spring_neap} />
                 <Readout

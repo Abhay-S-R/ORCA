@@ -30,7 +30,7 @@ LOW_DATA and names the gap.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
@@ -232,6 +232,9 @@ def predict_tides(
                 spring_neap = "MID→NEAP"
 
     if not events:
+        # No heights at all, so claiming they are on chart datum is a claim
+        # about numbers that do not exist.
+        datum = "n/a — no tide source for this station"
         confidence = Confidence(
             score="LOW_DATA",
             rationale=f"No tide source available for station {code}: SOI table has no rows for it "
@@ -244,10 +247,21 @@ def predict_tides(
             "no predicted extreme in the published window",
         )
     elif fell_back:
+        # Two different reasons land on the same rung and a user deciding
+        # whether to trust a height needs to know which: the pilot ports have a
+        # chart-datum table that can run out, the nine ports added for national
+        # coverage never had one, because no chart-datum offset is published for
+        # them that we could cite.
+        published = station.get("msl_above_chart_datum_m") is not None
+        why = (
+            f"SOI 2026 table exhausted for {code}"
+            if published
+            else f"no SOI chart-datum table is published for {code}"
+        )
         confidence = Confidence(
             score="MEDIUM",
-            rationale=f"SOI 2026 table exhausted for {code}; fell to the declared Stormglass "
-            "fallback — heights are on mean sea level, not chart datum",
+            rationale=f"{why}; fell to the declared Stormglass fallback — heights are on "
+            "mean sea level, not chart datum",
         )
     elif not (next_high and next_low):
         confidence = Confidence(score="MEDIUM", rationale="Only one of the next high/low falls in the published window")
@@ -462,12 +476,31 @@ def nearest_pfz(lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON, *, sector_
     )
 
 
-def score_pfz_persistence(lat: float, lon: float, *, sector_id: str, radius_km: float = 25.0) -> dict[str, Any]:
+def score_pfz_persistence(
+    lat: float,
+    lon: float,
+    *,
+    sector_id: str,
+    radius_km: float = 25.0,
+    window_days: int = 7,
+    min_days: int = 5,
+) -> dict[str, Any]:
     """How consistently a PFZ has been advised near a point across the
     archived daily runs. score = (days with an advisory node within
-    `radius_km`) / (days on record). Fewer than 2 snapshots → the score is
-    'indicative' and confidence is LOW_DATA — one day is not a trend."""
-    dates = al.available_pfz_history_dates()
+    `radius_km`) / (days on record). Fewer than `min_days` snapshots → the
+    score is 'indicative' and confidence is LOW_DATA — one day is not a trend,
+    and neither are three.
+
+    Only snapshots from the last `window_days` count. The archive also holds
+    older runs, and a fortnight-old advisory is not evidence about this week:
+    counting it silently changes the denominator of a number the user reads as
+    "how reliable is this spot right now". The daily PFZ job accumulates one
+    snapshot per morning, so the window fills itself; until it does, this says
+    so rather than scoring 0/3 and labelling the result TRANSIENT.
+    """
+    cutoff = (_now() - timedelta(days=window_days)).strftime("%Y%m%d")
+    archived = al.available_pfz_history_dates()
+    dates = [d for d in archived if d >= cutoff]
     hits = 0
     for date in dates:
         nodes = al.load_pfz_history_advisories(date)
@@ -486,10 +519,12 @@ def score_pfz_persistence(lat: float, lon: float, *, sector_id: str, radius_km: 
 
     n = len(dates)
     score = round(hits / n, 2) if n else None
-    if n < 2:
+    if n < min_days:
         confidence = Confidence(
             score="LOW_DATA",
-            rationale=f"only {n} archived PFZ snapshot(s) — persistence needs a run of days, not one",
+            rationale=f"only {n} PFZ snapshot(s) in the last {window_days} days "
+            f"({len(archived)} on record in total) — persistence needs a run of days, "
+            f"and {min_days} is the shortest run this will score",
         )
         label = "INDICATIVE"
     elif score is not None and score >= 0.6:
@@ -504,6 +539,8 @@ def score_pfz_persistence(lat: float, lon: float, *, sector_id: str, radius_km: 
         "label": label,
         "days_present": hits,
         "days_on_record": n,
+        "window_days": window_days,
+        "days_archived_total": len(archived),
         "radius_km": radius_km,
         "confidence": confidence,
     }
