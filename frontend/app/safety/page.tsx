@@ -5,7 +5,7 @@
 // evidence, rendered plainly. Every number carries its source (criterion 4).
 import { useRef, useState } from "react";
 import { AlertTriangle, ShieldCheck } from "lucide-react";
-import { AgentPill, AgentStrip, type AgentStatus } from "../components/AgentPill";
+import { AgentPill, AgentStrip, nextRunningAgent, type AgentStatus } from "../components/AgentPill";
 import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
@@ -155,7 +155,11 @@ export default function SafetyPage() {
             {spans.map((s, i) => (
               <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} />
             ))}
-            {streaming && <AgentPill name="working" status="running" />}
+            {streaming &&
+              (() => {
+                const next = nextRunningAgent(spans);
+                return next && <AgentPill name={next} status="running" />;
+              })()}
           </AgentStrip>
         </div>
       )}

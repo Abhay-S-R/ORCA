@@ -6,7 +6,7 @@
 // one ever — keeping it here is what keeps the thread's map() call readable.
 import { motion } from "framer-motion";
 import { History, MapPin, Radio } from "lucide-react";
-import { AgentPill, AgentStrip } from "../components/AgentPill";
+import { AgentPill, AgentStrip, nextRunningAgent } from "../components/AgentPill";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
@@ -55,6 +55,7 @@ export function ChatTurn({
 }) {
   const { askedQuery, spans, answer, streaming, failed, renderedAs, focus } = turn;
   const weatherCitation = answer?.citations?.find((c) => c.agent_name === "weather_intelligence");
+  const runningAgent = streaming ? nextRunningAgent(spans) : null;
 
   return (
     <motion.div
@@ -84,7 +85,7 @@ export function ChatTurn({
             {spans.map((s, i) => (
               <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} />
             ))}
-            {streaming && <AgentPill name="working" status="running" />}
+            {runningAgent && <AgentPill name={runningAgent} status="running" />}
           </AgentStrip>
         </div>
       )}

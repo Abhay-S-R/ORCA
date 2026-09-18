@@ -64,7 +64,7 @@ const LANGUAGE_TAG: Record<string, string> = {
 };
 
 const labelClass = "text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim";
-const iconButtonClass =
+export const iconButtonClass =
   "grid size-7 shrink-0 place-items-center rounded-lg border border-hairline/80 bg-shelf-1/90 text-ink-dim shadow-sm transition-colors hover:border-ocean-cyan/60 hover:text-ocean-cyan";
 
 export function ChatHistoryRail({
@@ -306,10 +306,12 @@ export function ChatHistoryRail({
   );
 }
 
-// Collapsed rail: just enough to get the history back or start over.
+// Collapsed rail: a floating pill over the thread, not a reserved column —
+// just enough to get the history back or start over, while the thread and
+// map fill the width the rail would otherwise have held.
 export function CollapsedChatRail({ onExpand, onNew }: { onExpand: () => void; onNew: () => void }) {
   return (
-    <div className="flex h-full w-11 shrink-0 flex-col items-center gap-2 rounded-2xl border border-hairline bg-shelf-1/60 py-3 shadow-lg">
+    <div className="flex items-center gap-1 rounded-xl border border-hairline bg-shelf-1/90 p-1 shadow-lg backdrop-blur-md">
       <button type="button" onClick={onExpand} aria-label="Show chat history" title="Chats" className={iconButtonClass}>
         <PanelLeftOpen className="size-3.5" aria-hidden="true" />
       </button>
