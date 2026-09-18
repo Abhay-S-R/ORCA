@@ -27,6 +27,7 @@ double-check which convention you're matching.
 """
 from __future__ import annotations
 
+import json
 import math
 import re
 from datetime import datetime, timedelta, timezone
@@ -55,6 +56,9 @@ from orca.state import ORCAState
 OPEN_METEO_MARINE_URL = "https://marine-api.open-meteo.com/v1/marine"
 OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 NDMA_SACHET_URL = "https://sachet.ndma.gov.in/cap_public_website/FetchAllAlertDetails"
+# INCOIS's public multi-hazard endpoints (high wave + swell surge, ocean currents).
+INCOIS_HWASSA_URL = "https://sarat.incois.gov.in/incoismobileappdata/rest/incois/hwassalatestdata"
+INCOIS_CURRENTS_URL = "https://samudra.incois.gov.in/incoismobileappdata/rest/incois/currentslatestdata"
 
 # §5.7 — 3s on the safety path, where late is the same as absent.
 SAFETY_PATH_TIMEOUT_S = 3.0
@@ -447,21 +451,70 @@ def _cyclone_alert_severity(active_cyclones: list[dict]) -> str | None:
     return "Orange"  # any other active cyclone-type alert — conservative default
 
 
+def _fetch_incois_hazard_bulletins() -> tuple[list[dict], str] | None:
+    """INCOIS's own district-level HWA / SSA / ocean-current bulletins, or None.
+
+    These are the JSON endpoints behind incois.gov.in's public multi-hazard map
+    (`site/services/Alerts.html`) — the same ones the INCOIS mobile app reads. No
+    key, no whitelisting, unlike IMD's nowcast API which answers 401 "Your IP needs
+    to be whitelisted". Each payload wraps its rows as a JSON *string* under a
+    sibling key, with the literal "None" standing in for "nothing issued today".
+    """
+    out: list[dict] = []
+    for url, pairs in (
+        (INCOIS_HWASSA_URL, (("LatestHWADate", "HWAJson", "high_wave"),
+                             ("LatestSSADate", "SSAJson", "swell_surge"))),
+        (INCOIS_CURRENTS_URL, (("LatestCurrentsDate", "CurrentsJson", "ocean_current"),)),
+    ):
+        try:
+            resp = httpx.get(url, timeout=SAFETY_PATH_TIMEOUT_S,
+                             headers={"User-Agent": "ORCA/1.0 (SIH26176)"})
+            resp.raise_for_status()
+            payload = resp.json()
+            for date_key, json_key, kind in pairs:
+                issued = payload.get(date_key)
+                if not issued or issued == "None":
+                    continue  # INCOIS issued no bulletin of this kind today
+                for row in json.loads(payload[json_key]):
+                    out.append({
+                        "hazard_type": kind,
+                        "district": row.get("District"),
+                        "state": row.get("STATE"),
+                        "message": row.get("Message"),
+                        "issued_date": issued,
+                    })
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            return None  # partial hazard data is worse than none — fall back whole
+    return (out, "INCOIS multi-hazard bulletins — HWA/SSA/currents (live)")
+
+
 def get_incois_hazard_alerts(region: str) -> dict[str, Any]:
-    """Tool per Architecture §3.1 Agent 4. HONEST GAP: no verified
-    INCOIS-specific tsunami/storm-surge/high-wave endpoint exists in this
-    codebase. Reuses the same NDMA SACHET CAP feed get_cyclone_status
-    fetches, filtered by area_description containing `region` — the closest
-    verified substitute, not a real INCOIS integration. Replace this when a
-    real INCOIS hazard endpoint is confirmed live."""
-    alerts, dataset, confidence = _fetch_sachet_alerts()
+    """Tool per Architecture §3.1 Agent 4. Live INCOIS high-wave, swell-surge and
+    ocean-current bulletins for `region`, matched against district or state.
+
+    Falls back to the NDMA SACHET CAP feed — `discovery.py`'s declared fallback for
+    this source — when INCOIS is unreachable, and says which one it used. An empty
+    list from INCOIS means "no hazard issued", which is a real answer; only a
+    transport or parse failure triggers the fallback.
+    """
     region_lower = region.lower()
-    matching = [a for a in alerts if region_lower in a.get("area_description", "").lower()]
+    live = _fetch_incois_hazard_bulletins()
+    if live is not None:
+        bulletins, dataset = live
+        matching = [b for b in bulletins
+                    if region_lower in (b["district"] or "").lower()
+                    or region_lower in (b["state"] or "").lower()]
+        confidence = Confidence(score="HIGH", rationale="Live INCOIS hazard bulletin feed")
+    else:
+        alerts, dataset, confidence = _fetch_sachet_alerts()
+        dataset = f"{dataset} (INCOIS hazard feed unreachable — SACHET fallback)"
+        matching = [a for a in alerts if region_lower in a.get("area_description", "").lower()]
+
     return {
         "region": region,
         "active_warnings": matching,
         "source_provenance": SourceProvenance(
-            dataset=f"{dataset} (substitute for unverified INCOIS hazard endpoint, §1.2)",
+            dataset=dataset,
             acquisition_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             freshness_minutes=0,
         ),

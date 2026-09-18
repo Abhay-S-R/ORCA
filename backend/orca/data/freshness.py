@@ -60,7 +60,17 @@ SOURCE_CLASS: dict[str, FreshnessClass] = {
     "soi_tide_tables": "DAILY",
     "mosdac_open_sst": "DAILY",
     "mosdac_nrt_sst": "DAILY",
-    "incois_erddap": "DAILY",
+    # Classed STATIC, not DAILY, after probing the server on 2026-09-18: all 17
+    # datasets on erddap.incois.gov.in are historical archives. SST stops in
+    # 2011, chlorophyll in 2006, scatterometer in 2023; the newest thing there
+    # is Argo floats to 2025-04. There is no near-real-time product to refresh,
+    # so a DAILY obligation was one we could never meet.
+    #
+    # DANGER, and not fixable from here: `SOURCE_REGISTRY` still advertises it as
+    # TIER1 / 180 min, and `select_best_source` ranks on exactly that pair — so
+    # ORCA currently chooses this 2011 archive as its *primary* source for
+    # "sst", ahead of MOSDAC. See the freshness contract §6.4.
+    "incois_erddap": "STATIC",
     # --- WEEKLY: the physical signal moves slower than the publication cycle ---
     "mosdac_open_chl": "WEEKLY",
     "mosdac_nrt_chl": "WEEKLY",
@@ -117,9 +127,28 @@ SOURCE_FILES: dict[str, tuple[str, ...]] = {
 # Anything classed LIVE but absent here is a contract violation, not a config
 # choice — see `live_contract_violations()`.
 FETCHED_LIVE: frozenset[str] = frozenset(
-    {"open_meteo_marine", "damini_lightning", "ndma_sachet"}
+    {"open_meteo_marine", "damini_lightning", "ndma_sachet",
+     # `get_incois_hazard_alerts` reads INCOIS's public HWA/SSA/currents
+     # bulletins; `_live_gauge_observation` reads the IOC/UNESCO gauge feed.
+     "incois_hazard_osf", "incois_tide_gauge"}
 )
 
+
+# How far behind "now" the *provider's own newest cycle* runs, in minutes.
+#
+# A class window is an obligation on us — "hold the newest published data". It is not
+# an obligation on the publisher, and three of these publish a day or more in arrears:
+# INCOIS's RSMC combined runs and MOSDAC's INSAT-3DR daily SST were both still at
+# 2026-09-17 when refreshed on 2026-09-19. Without this, a source would be reported in
+# breach for being exactly as fresh as it is possible for it to be, which trains
+# everyone to ignore the breach list. Measured, not guessed: raise an entry only after
+# a refresh run proves the provider has nothing newer, and lower it when they catch up.
+PUBLICATION_LAG_MINUTES: dict[str, int] = {
+    "incois_osf_ww3": 24 * 60,
+    "incois_osf_hycom": 24 * 60,
+    "mosdac_open_sst": 24 * 60,
+    "mosdac_nrt_sst": 24 * 60,
+}
 
 def max_age_minutes(freshness_class: FreshnessClass) -> int:
     """The window for a class that has one. STATIC has no refresh obligation, so
@@ -162,6 +191,7 @@ class Observed:
 #   E06OCML4AC_20260320_25km.nc          -> 20260320
 #   3RIMG_13AUG2026_0015_L3B_SST.h5      -> 13AUG2026
 #   cmems_..._2026-08-28-2026-08-29.nc   -> 2026-08-28
+#   E06SCTL4AW_2026259_25km_v1.0.5.nc    -> 2026259 (year + day-of-year)
 # Anything else falls back to mtime, which is the conservative direction only for
 # freshly downloaded files — hence `content_date` and `last_refresh` stay separate
 # fields rather than being collapsed into one number.
@@ -169,6 +199,10 @@ _DATE_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"(\d{4}-\d{2}-\d{2})", "%Y-%m-%d"),
     (r"(?<!\d)(20\d{6})(?!\d)", "%Y%m%d"),
     (r"(\d{2}[A-Z]{3}20\d{2})", "%d%b%Y"),
+    # Year + day-of-year, the scatterometer shape. Seven digits, so the
+    # lookaround keeps it from chewing into an eight-digit %Y%m%d; a group that
+    # is not a real day-of-year (>366) fails strptime and is dropped.
+    (r"(?<!\d)(20\d{5})(?!\d)", "%Y%j"),
 )
 
 
@@ -239,7 +273,7 @@ def observe(source_id: str, *, now: datetime | None = None) -> Observed:
     elif cls == "STATIC" or limit is None:
         within = True
     else:
-        within = age <= limit
+        within = age <= limit + PUBLICATION_LAG_MINUTES.get(source_id, 0)
 
     return Observed(source_id, cls, newest.strftime("%Y-%m-%dT%H:%M:%SZ"), content, age,
                     count, fetched_live, within)
@@ -319,16 +353,45 @@ if __name__ == "__main__":  # smallest check that fails if the logic breaks
         assert acquisition_date(json.loads(p.read_text()), p) == "2026-08-27"
         assert is_stale(Path(tmp) / "missing.json", 10, now=now), "absent means stale"
 
-    # The three filename date shapes actually present under data/.
+    # The four filename date shapes actually present under data/.
     assert content_date_from_name("E06OCML4AC_20260320_25km_v1.0.1.nc") == "2026-03-20"
     assert content_date_from_name("3RIMG_13AUG2026_0015_L3B_SST_DLY.h5") == "2026-08-13"
     assert content_date_from_name("cmems_thetao_2026-08-28-2026-08-29.nc") == "2026-08-29"
+    assert content_date_from_name("E06SCTL4AW_2026259_25km_v1.0.5.nc") == "2026-09-16"
     assert content_date_from_name("india_eez_polygon.geojson") is None
 
-    # A LIVE source we do not actually fetch is a contract violation, and today
-    # there are exactly two of them — this assert is the tripwire for fixing them.
-    assert live_contract_violations() == ["incois_hazard_osf", "incois_tide_gauge"], (
-        live_contract_violations()
-    )
+    # A LIVE source we do not actually fetch is a contract violation. The list is
+    # empty as of 2026-09-19 and this assert is what keeps it that way: class a
+    # source LIVE without wiring a real fetch and the module stops importing.
+    assert live_contract_violations() == [], live_contract_violations()
     assert MAX_AGE_MINUTES["STATIC"] is None
     print("freshness self-check OK")
+    print()
+
+    # --- the report `docs/ORCA_Data_Refresh_Guide.md` tells people to run ---
+    #
+    # Printed rather than hidden behind the API so it can be checked from a terminal
+    # after a refresh, and so CI can fail on the exit code. Sorted worst-first: a
+    # breach is the only line anyone needs to read.
+    import sys
+
+    observations = observe_all()
+    rank = {False: 0, None: 1, True: 2}
+    breached = 0
+    for sid, obs in sorted(observations.items(),
+                           key=lambda kv: (rank[kv[1].within_contract], kv[0])):
+        if obs.within_contract is False:
+            status, breached = "BREACH", breached + 1
+        elif obs.within_contract is None:
+            status = "UNOBSERVED"
+        else:
+            status = "ok"
+        age = "live" if obs.fetched_live else (
+            f"{obs.age_minutes / 1440:.1f}d" if obs.age_minutes is not None else "-")
+        print(f"{status:<11}{obs.freshness_class or '-':<7}{sid:<22}"
+              f"{age:>7}  {obs.content_date or '-':<12}{obs.file_count:>6} file(s)")
+
+    print()
+    print(f"{len(observations)} sources | {breached} breach(es) | "
+          f"live violations: {live_contract_violations() or 'none'}")
+    sys.exit(1 if breached else 0)

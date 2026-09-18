@@ -246,17 +246,38 @@ def test_run_returns_agent_result_with_all_parts():
 
 # --- observed tide-gauge cross-check ------------------------------------
 
-def test_tide_gauge_cross_check_reports_observed_against_predicted():
+def test_tide_gauge_reading_is_measured_or_absent_never_invented():
+    """A gauge reading is either a real observation or nothing at all.
+
+    `incois_tide_gauge_telemetry.json` holds representative values, not readings —
+    INCOIS's TEWS endpoint 404s. Thoothukudi has no IOC gauge within range, so the
+    honest answer there is altimetry, and the fields only a gauge can supply must
+    come back None rather than be filled from the fixture.
+    """
     obs = oa.tide_gauge_observation(*THOOTHUKUDI)
-    assert obs["available"] is True
-    assert obs["observed_level_m"] is not None
-    assert obs["predicted_astronomical_m"] is not None
-    # The anomaly is the published residual, not something ORCA recomputes —
-    # but it must at least agree with the two numbers it sits between.
-    residual = obs["observed_level_m"] - obs["predicted_astronomical_m"]
-    assert abs(residual - obs["sea_level_anomaly_m"]) < 0.02
-    # INCOIS's tsunami state is carried verbatim, never interpreted.
-    assert obs["tsunami_trigger_state"]
+    assert obs["source_kind"] != "in_situ_gauge"
+    assert obs["observed_level_m"] is None
+    assert obs["station_id"] is None
+    # A tsunami determination is INCOIS's to make; ORCA never implies one.
+    assert obs["tsunami_trigger_state"] is None
+
+
+def test_tide_gauge_live_reading_carries_only_what_the_feed_publishes():
+    """Chennai has a live IOC gauge, so the reading is real — and bounded.
+
+    IOC publishes a sea level and a timestamp. The prediction, the residual and the
+    water temperature are not in the feed, so they stay None and are named in
+    `fields_unavailable` instead of being fabricated beside a real number.
+    """
+    near = oa.tide_gauge_observation(13.08, 80.27)
+    if near["source_kind"] != "in_situ_gauge":
+        pytest.skip("IOC feed unreachable in this environment")
+    assert near["observed_level_m"] is not None
+    assert near["observation_age_minutes"] < 24 * 60
+    for field in ("predicted_astronomical_m", "sea_level_anomaly_m",
+                  "water_temp_c", "tsunami_trigger_state"):
+        assert near[field] is None
+        assert field in near["fields_unavailable"]
 
 
 def test_tide_gauge_out_of_range_falls_through_to_altimetry_and_says_so():
@@ -275,9 +296,3 @@ def test_tide_gauge_out_of_range_falls_through_to_altimetry_and_says_so():
     else:
         # No CMEMS file on disk either — then it still declines, with both reasons.
         assert far["confidence"].score == "LOW_DATA"
-
-
-def test_tide_gauge_in_range_is_labelled_as_in_situ():
-    near = oa.tide_gauge_observation(*THOOTHUKUDI)
-    if near["available"]:
-        assert near["source_kind"] == "in_situ_gauge"

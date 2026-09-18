@@ -55,8 +55,13 @@ SOURCE_REGISTRY: tuple[DataSource, ...] = (
     DataSource("open_meteo_marine", "Open-Meteo Marine API / ECMWF WAM Blend", "TIER1", 60,
                ("wave_height", "wave_period", "swell_height", "wind_speed", "wind_direction",
                 "current_speed", "current_direction")),
-    DataSource("incois_erddap", "INCOIS ERDDAP Data Server", "TIER1", 180,
-               ("sst", "salinity", "buoy_telemetry", "wave_spectrum")),
+    # No "sst": probing the server on 2026-09-18 showed every one of its 17 datasets
+    # is a closed historical archive — SST stops in 2011. It was covering "sst" at a
+    # 180 min cadence, which is what `select_best_source` ranks on, so ORCA was
+    # choosing a 2011 archive as its *primary* sea-surface temperature source ahead
+    # of MOSDAC. The cadence below is the archive's real one: it does not update.
+    DataSource("incois_erddap", "INCOIS ERDDAP Data Server (historical archive)", "TIER1",
+               365 * 24 * 60, ("salinity", "buoy_telemetry", "wave_spectrum")),
     DataSource("incois_osf_ww3", "INCOIS Ocean State Forecast (WaveWatch III)", "TIER1", 360,
                ("wave_height", "wave_period")),
     DataSource("incois_osf_hycom", "INCOIS Ocean State Forecast (HYCOM currents)", "TIER1", 360,
@@ -101,9 +106,9 @@ _TIER_ORDER: dict[AuthorityTier, int] = {"TIER1": 0, "TIER2": 1, "TIER3": 2}
 # this map has no declared fallback (a static reference dataset that does not
 # go down the same way a live API does).
 FALLBACK_CASCADES: dict[str, tuple[str, ...]] = {
-    "mosdac_nrt_sst": ("mosdac_open_sst", "copernicus_cmems", "incois_erddap"),
+    "mosdac_nrt_sst": ("mosdac_open_sst", "copernicus_cmems"),
     "mosdac_nrt_chl": ("mosdac_open_chl", "nasa_ocean_color", "copernicus_cmems"),
-    "mosdac_open_sst": ("copernicus_cmems", "incois_erddap"),
+    "mosdac_open_sst": ("copernicus_cmems",),
     "mosdac_open_chl": ("nasa_ocean_color", "copernicus_cmems"),
     "incois_pfz": ("bhuvan_wms",),  # then the local sector CSV — see load_pfz_advisories
     "open_meteo_marine": ("incois_osf_ww3", "stormglass_tides"),
@@ -319,8 +324,10 @@ if __name__ == "__main__":
     # and falls to the open MOSDAC product when NRT is down.
     d = select_source_with_fallback("sst")
     assert d is not None
-    assert d.chosen.id == "incois_erddap", d.chosen.id
-    d_down = select_source_with_fallback("sst", down=("incois_erddap", "mosdac_open_sst"))
+    # TIER1 MOSDAC Open beats the TIER3 registered NRT stream on authority,
+    # which is the intended order: same instrument, open licence.
+    assert d.chosen.id == "mosdac_open_sst", d.chosen.id
+    d_down = select_source_with_fallback("sst", down=("mosdac_nrt_sst", "mosdac_open_sst"))
     assert d_down is not None
     assert d_down.chosen.id == "copernicus_cmems", d_down.chosen.id
     assert "fallback" in d_down.narrative.lower()
@@ -347,7 +354,7 @@ if __name__ == "__main__":
         agent_name="discovery",
         query_id="fixture-sst-fallback",
         reasoning_depth="STANDARD",
-        inputs_consumed={"data_type": "sst", "down": ["incois_erddap", "mosdac_open_sst"]},
+        inputs_consumed={"data_type": "sst", "down": ["mosdac_nrt_sst", "mosdac_open_sst"]},
         outputs={
             "source_id": d_down.chosen.id,
             "dataset": d_down.chosen.dataset,
