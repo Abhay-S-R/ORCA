@@ -633,7 +633,6 @@ record.
      running the full suite against a stashed tree (green) and again after cleanup (green). The
      test's own comment already warns that rows it commits survive its rollback.
 
-<!-- Append new entries below this line. Newest at the bottom. -->
 
 ### 2026-09-19 — a refresh guide, and a one-command freshness check anyone can run
 
@@ -664,3 +663,42 @@ record.
   5. **No CI `schedule:` trigger, and the guide says why rather than leaving it as a TODO.**
      `data/` is gitignored, so a scheduled CI run has nowhere to persist what it downloads. The
      honest answer is a local scheduled task; that is recorded as the shape P5.12 should take.
+
+### 2026-09-19 — scheduled refresh: which sources actually need a timer
+
+- **Point:** partial P5.12 (`R-FRESH-4`) — the schedule and wrappers, not yet `refresh_all.py`.
+- **Files:** `docs/ORCA_Data_Refresh_Cron_Guide.md` (new), `scripts/cron/refresh_{daily,weekly}.{cmd,sh}`
+  (new), `docs/ORCA_Data_Refresh_Guide.md`.
+- **Remarks:**
+  1. **Only 11 of the 27 declared sources need a schedule, and saying so is the point.** The
+     five LIVE sources are HTTP calls made while answering a query — a timer cannot make them
+     fresher, only a working connection can. The eight STATIC ones are coastlines and
+     gazetteers that cannot breach. Scheduling those would burn provider quota to change
+     nothing, so the guide names them as deliberately unscheduled rather than leaving the next
+     person to assume an omission.
+  2. **Two jobs, not eleven.** `refresh_mosdac.py` already fetches the WEEKLY chlorophyll and
+     wind granules alongside the DAILY SST, and skips what is on disk, so running it daily is
+     free and there is no separate weekly MOSDAC job. `refresh_tide_tables.py` writes both
+     `soi_tide_tables` (DAILY) and `stormglass_tides` (WEEKLY) in one pass.
+  3. **The wrappers end with the freshness report, and that is the alarm.** It exits 1 on any
+     breach, so Task Scheduler's `LastTaskResult` distinguishes "refreshed and compliant" from
+     "refreshed and still in breach" without anyone reading a log. A job that refreshes without
+     verifying fails quietly for a week.
+  4. **05:30 IST (00:00 UTC), MOSDAC last.** INCOIS and MOSDAC publish in arrears, so a run
+     after their overnight cycle gets the freshest copy that exists — the same lag recorded in
+     `PUBLICATION_LAG_MINUTES`. MOSDAC runs last because its 54 MB scatterometer granules over a
+     dropping link are by far the longest step; interrupting it still leaves the demo-critical
+     refreshes done.
+  5. **A scheduler has no activated virtualenv.** Every command in the wrappers uses
+     `backend/.venv/Scripts/python.exe` by path. `python scripts/...` works in a shell and fails
+     at 05:30 with `ModuleNotFoundError: requests`, which is the failure mode most likely to go
+     unnoticed for days. The manual refresh guide §2 now says the same thing.
+  6. **A missing sixth credential surfaced while mapping scripts to sources.**
+     `refresh_tide_tables.py` needs `STORMGLASS_API_KEY` — Survey of India sells its tide tables
+     as a priced volume, so the predictions are computed from Stormglass harmonics and shifted
+     onto each station's chart datum. The refresh guide said "five keys" and would have left a
+     teammate's DAILY tide source broken. Now six.
+  7. **Verified, not just written:** `scripts/cron/refresh_weekly.cmd` was executed end to end
+     on this machine and finished `27 sources | 0 breach(es)`, exit 0.
+
+<!-- Append new entries below this line. Newest at the bottom. -->

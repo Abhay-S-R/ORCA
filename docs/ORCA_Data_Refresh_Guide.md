@@ -30,9 +30,9 @@ also works as a CI or pre-demo gate. Skip to §4 for what its output means.
 
 ## 1. Before you start: credentials
 
-Three providers need an account. **None of them requires you to click through a portal** —
+Four providers need an account. **None of them requires you to click through a portal** —
 each script reads the project `.env` and runs unattended. Copy `.env.example` to `.env` and
-fill in these five keys:
+fill in these six keys:
 
 ```
 COPERNICUS_USERNAME=...      # https://data.marine.copernicus.eu/register  — instant
@@ -41,6 +41,11 @@ GFW_API_KEY=...              # https://globalfishingwatch.org/our-apis/tokens �
                              #   tick the Vessels API + 4Wings scopes
 MOSDAC_USERNAME=...          # https://www.mosdac.gov.in/ — APPROVAL IS MANUAL, allow days
 MOSDAC_PASSWORD=...
+STORMGLASS_API_KEY=...        # https://stormglass.io/ — instant, free tier is enough.
+                              #   Needed by refresh_tide_tables.py: Survey of India sells
+                              #   its tide tables as a priced volume, so the predictions are
+                              #   computed from Stormglass harmonics and shifted onto each
+                              #   station's chart datum.
 ```
 
 **Register for MOSDAC first, today, before you need it.** SAC approves accounts by hand and it
@@ -58,7 +63,9 @@ Repeated MOSDAC auth failures lock the account, which is why `refresh_mosdac.py`
 ## 2. The refresh, in dependency order
 
 Run from the repo root. The order matters where a later script consumes an earlier one's
-output — those are marked. Everything else is independent and can be run alone.
+output — those are marked. Everything else is independent and can be run alone. `python` below
+means the backend venv's interpreter (`backend/.venv/Scripts/python.exe` on Windows) — the
+system one does not have `requests`, `copernicusmarine` or `python-dotenv`.
 
 ```bash
 # --- forecasts, and the two things derived from them ---
@@ -171,7 +178,9 @@ That distinction is the entire reason this system exists — see the contract §
 
 There is no `schedule:` trigger in CI, and there cannot usefully be one: `data/` is gitignored,
 so a CI run has nowhere to persist what it downloads. The realistic answer is a local scheduled
-task — Task Scheduler on Windows, `cron` elsewhere — running the §2 block daily. That is point
+task — Task Scheduler on Windows, `cron` elsewhere. **`docs/ORCA_Data_Refresh_Cron_Guide.md`
+sets that up**: which of the 27 sources actually need a timer (11 do), the two jobs that cover
+them, and the wrapper scripts. Beyond it lies point
 P5.12 (`R-FRESH-4`, `refresh_all.py`) in the DLC implementation plan; the command list above is
 deliberately written in the order that script should use, so whoever picks that point is
 transcribing a known-good sequence rather than rediscovering it.

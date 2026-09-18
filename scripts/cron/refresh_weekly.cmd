@@ -1,0 +1,16 @@
+@echo off
+REM ORCA weekly refresh — the WEEKLY-class sources not already covered by the
+REM daily MOSDAC run, plus the Open-Meteo offline caches (7-day validity).
+REM Scheduled by docs/ORCA_Data_Refresh_Cron_Guide.md.
+cd /d "%~dp0..\.."
+set PY=backend\.venv\Scripts\python.exe
+
+%PY% scripts\refresh_cmems.py
+%PY% scripts\refresh_gfw_ais.py
+%PY% scripts\refresh_nasa_ocean_color.py
+%PY% scripts\refresh_bhuvan_manifest.py
+%PY% scripts\refresh_openmeteo_caches.py
+
+cd backend
+..\%PY% -m orca.data.freshness
+exit /b %ERRORLEVEL%
