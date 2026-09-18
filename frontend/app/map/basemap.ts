@@ -20,9 +20,14 @@ export const BASEMAP_STYLE =
 // arrives. Never rendered as a location marker; that's userLocation only.
 export const INDIA_CENTER: [number, number] = [78.9, 20.5];
 
-// The chart's default camera on load — all of India, matching the product's
-// national scope. A query or region pick moves it from here.
-export const INDIA_VIEW = { center: INDIA_CENTER, zoom: 4.4 };
+// The chart's default camera on load, and what the recenter button returns
+// to: all of India plus the western Arabian Sea water the surface-current
+// field covers. Fixed center/zoom rather than a fitBounds, because the
+// requirement is an exact camera — at this zoom the scale bar reads 110 nm
+// per 100 px (mpp = 78271.517 * cos(12.76) / 2^5.2278), and on a full-width
+// desktop chart the left edge sits on the 64.99E / 12.76N sounding point.
+// A query or region pick moves it from here.
+export const INDIA_VIEW = { center: [78.46, 12.76] as [number, number], zoom: 5.2278 };
 
 import type { RasterSourceSpecification } from "maplibre-gl";
 
