@@ -182,6 +182,11 @@ const resolveTileUrl = (template: string, frame?: string) =>
 // distance across exactly this span.
 const SCALE_BAR_PX = 100;
 
+// The fence sits exactly on the data's own edge — no slack. Any padding here
+// shows up as a strip of bare basemap along the viewport edges at full
+// zoom-out, which is the thing the fence exists to prevent.
+const FENCE_PAD_DEG = 0;
+
 const HEAVY_KEYS = ["srvBathymetry", "waveForecast", "currents", "wind"] as const;
 type HeavyKey = (typeof HEAVY_KEYS)[number];
 const HEAVY_LABEL: Record<HeavyKey, string> = {
@@ -317,6 +322,9 @@ export function MapView({
     ...initialLayers,
   });
   const [rasterLayers, setRasterLayers] = useState<RasterLayerMeta[]>([]);
+  // The opening view's own bounds, captured the first time the fence below is
+  // built, so the fence always contains the camera the chart starts at.
+  const homeBounds = useRef<[number, number, number, number] | null>(null);
   const [currentVectors, setCurrentVectors] = useState<CurrentVector[] | null>(null);
   const [currentBounds, setCurrentBounds] = useState<[number, number, number, number] | null>(null);
   // Archived ScatSat wind — a second, honestly-distinct vector field from
@@ -1232,6 +1240,42 @@ export function MapView({
       vis(`srv-${layer.layer_id}-raster`, on);
     }
   }, [ready, layers, rasterLayers, basemap]);
+
+  /* ---- camera fence: the chart can only be panned and zoomed inside the
+     water we actually hold values for. The box is measured from the plotted
+     data itself — every current vector, wind vector and fishing zone — not
+     from a layer's declared envelope: the bathymetry raster advertises
+     [65,0 .. 98,26] but its own depth lookup answers "Outside coverage" over
+     much of that, which is exactly the empty ocean this fence is meant to
+     keep the chart out of. Unioned with the opening view, because MapLibre
+     clamps a camera that would show outside maxBounds and would otherwise
+     shove the home view in. Recomputed as feeds land. */
+  useEffect(() => {
+    const m = map.current;
+    if (!ready || !m) return;
+    const lons: number[] = [];
+    const lats: number[] = [];
+    for (const v of currentVectors ?? []) (lons.push(v.lon), lats.push(v.lat));
+    for (const v of windVectors ?? []) (lons.push(v.lon), lats.push(v.lat));
+    for (const f of pfzFeatures) {
+      lons.push(f.geometry.coordinates[0]);
+      lats.push(f.geometry.coordinates[1]);
+    }
+    if (!lons.length) return;
+    // The opening view, measured once — not recomputed later, or panning to
+    // the fence edge would drag the fence along with it.
+    if (!homeBounds.current) {
+      const b = m.getBounds();
+      homeBounds.current = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+    }
+    const [hw, hs, he, hn] = homeBounds.current;
+    lons.push(hw, he);
+    lats.push(hs, hn);
+    m.setMaxBounds([
+      [Math.min(...lons) - FENCE_PAD_DEG, Math.min(...lats) - FENCE_PAD_DEG],
+      [Math.max(...lons) + FENCE_PAD_DEG, Math.max(...lats) + FENCE_PAD_DEG],
+    ]);
+  }, [ready, currentVectors, windVectors, pfzFeatures]);
 
   /* ---- PFZ glyph re-tint: the fish follows what is under it — deep-water
      imagery wants a bright body on a near-black halo, pale chart paper wants
