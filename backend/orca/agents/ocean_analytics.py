@@ -636,6 +636,54 @@ def wind_rose(lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON) -> dict[str,
 # most of the coastline legitimately has none in range.
 _TIDE_GAUGE_MAX_KM = 150.0
 
+# --- the live gauge feed (freshness contract: `incois_tide_gauge` is LIVE) ---
+#
+# INCOIS's own TEWS endpoint (tsunami.incois.gov.in/TEWS/tg_data.jsp) returns 404,
+# which is why `incois_tide_gauge_telemetry.json` beside it was only ever a schema
+# fixture with representative values — not readings. A gauge is an instrument: a
+# made-up water level is not a degraded measurement, it is a false one.
+#
+# The IOC/UNESCO Sea Level Monitoring facility carries the same Indian gauges,
+# unauthenticated, at one-minute resolution, so LIVE can actually be honoured.
+IOC_SEA_LEVEL_URL = "https://www.ioc-sealevelmonitoring.org/service.php"
+IOC_TIMEOUT_S = 12.0
+# Only the five Indian coastal gauges that actually return a series. IOC also lists
+# Minicoy, Veraval and Visakhapatnam, all of which answer with an empty array — a
+# station that publishes nothing is worse than no station, because it would win the
+# nearest-gauge search and then have no reading to give. DART platforms are excluded
+# on purpose: deep-ocean tsunami pressure recorders, not coastal tide gauges.
+IOC_GAUGES: tuple[tuple[str, str, float, float], ...] = (
+    ("chenn", "Chennai", 13.10, 80.30),
+    ("coch", "Cochin", 9.96, 76.26),
+    ("marm", "Marmagao", 15.41, 73.80),
+    ("ptbl", "Port Blair", 11.68, 92.76),
+    ("nanc", "Nancowry", 8.05, 93.55),
+)
+
+
+def _fetch_ioc_gauge(code: str) -> tuple[float, datetime] | None:
+    """Newest sea level (m) and its UTC timestamp from one IOC gauge, or None.
+
+    `period=0.05` is roughly the last 72 minutes — enough that a gauge which has
+    briefly stopped reporting comes back empty rather than handing us an hours-old
+    value dressed as current.
+    """
+    import httpx
+
+    try:
+        resp = httpx.get(IOC_SEA_LEVEL_URL, timeout=IOC_TIMEOUT_S,
+                         params={"query": "data", "code": code,
+                                 "period": 0.05, "format": "json"})
+        resp.raise_for_status()
+        rows = resp.json()
+        if not isinstance(rows, list) or not rows:
+            return None
+        last = rows[-1]
+        when = datetime.strptime(last["stime"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        return float(last["slevel"]), when
+    except (httpx.HTTPError, KeyError, ValueError, TypeError):
+        return None
+
 
 def tide_gauge_observation(lat: float, lon: float) -> dict[str, Any]:
     """Observed sea level at the nearest INCOIS tide gauge, against that
@@ -657,44 +705,68 @@ def tide_gauge_observation(lat: float, lon: float) -> dict[str, Any]:
     rather than returning nothing. The two are not interchangeable and the
     reply says which one it is.
     """
-    telemetry = al.load_tide_gauge_telemetry()
-    stations = telemetry.get("stations", [])
-    if not stations:
-        return {
-            "available": False,
-            "note": "INCOIS tide-gauge telemetry file holds no stations",
-            "confidence": Confidence(score="LOW_DATA", rationale="tide-gauge telemetry unavailable"),
-        }
+    live = _live_gauge_observation(lat, lon)
+    if live is not None:
+        return live
 
-    gauge = min(stations, key=lambda g: _km_between(lat, lon, g["latitude"], g["longitude"]))
-    km = _km_between(lat, lon, gauge["latitude"], gauge["longitude"])
+    # No live gauge in range, or the feed is down. The fall-through is altimetry,
+    # NOT `incois_tide_gauge_telemetry.json`: that file was written as a schema
+    # fixture with representative values because INCOIS's TEWS endpoint 404s
+    # (docs/archive/data_verification_audit.md), so its water levels were never
+    # readings. Serving one would be a fabricated instrument observation on a
+    # safety path — strictly worse than admitting there is no gauge here.
+    return _altimetric_sea_level(
+        lat, lon,
+        f"no live IOC gauge within {_TIDE_GAUGE_MAX_KM:.0f} km reporting right now",
+    )
+
+
+def _live_gauge_observation(lat: float, lon: float) -> dict[str, Any] | None:
+    """The nearest live IOC gauge in range, or None to let the caller fall back.
+
+    Returns only what the feed actually carries. IOC publishes sea level and a
+    timestamp — not an astronomical prediction, not a water temperature, and not a
+    tsunami determination. Those come back `None` with `fields_unavailable` naming
+    them, because the alternative is to fill them from the fixture and present
+    invented numbers beside a real one, which is the failure this whole change
+    exists to undo. A tsunami call stays INCOIS's to make and ORCA will not imply
+    one from a pressure reading.
+    """
+    in_range = [
+        (code, name, _km_between(lat, lon, glat, glon))
+        for code, name, glat, glon in IOC_GAUGES
+    ]
+    code, name, km = min(in_range, key=lambda g: g[2])
     if km > _TIDE_GAUGE_MAX_KM:
-        return _altimetric_sea_level(
-            lat, lon,
-            f"nearest INCOIS gauge ({gauge['station_name']}) is {km:.0f} km away — "
-            f"beyond {_TIDE_GAUGE_MAX_KM:.0f} km an observed level is a different stretch of coast",
-        )
+        return None  # caller decides between the cached roster and altimetry
 
-    operational = gauge.get("status") == "OPERATIONAL"
+    reading = _fetch_ioc_gauge(code)
+    if reading is None:
+        return None
+    level_m, observed_at = reading
+    age_min = (datetime.now(timezone.utc) - observed_at).total_seconds() / 60.0
     return {
         "available": True,
         "source_kind": "in_situ_gauge",
-        "station_id": gauge.get("station_id"),
-        "station_name": gauge.get("station_name"),
+        "station_id": f"IOC_{code.upper()}",
+        "station_name": name,
         "distance_km": round(km, 1),
-        "observed_level_m": gauge.get("current_water_level_m"),
-        "predicted_astronomical_m": gauge.get("predicted_astronomical_tide_m"),
-        "sea_level_anomaly_m": gauge.get("sea_level_anomaly_m"),
-        "water_temp_c": gauge.get("water_temp_c"),
-        "sensor_type": gauge.get("sensor_type"),
-        "status": gauge.get("status"),
-        "tsunami_trigger_state": gauge.get("tsunami_trigger_state"),
-        "observed_at_ist": telemetry.get("last_updated_ist"),
-        "dataset": telemetry.get("network_name"),
+        "observed_level_m": round(level_m, 4),
+        "predicted_astronomical_m": None,
+        "sea_level_anomaly_m": None,
+        "water_temp_c": None,
+        "sensor_type": "pressure (prs)",
+        "status": "OPERATIONAL",
+        "tsunami_trigger_state": None,
+        "fields_unavailable": ["predicted_astronomical_m", "sea_level_anomaly_m",
+                               "water_temp_c", "tsunami_trigger_state"],
+        "observed_at_utc": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "observation_age_minutes": round(age_min, 1),
+        "dataset": "IOC/UNESCO Sea Level Monitoring — Indian gauge network (live)",
         "confidence": Confidence(
-            score="MEDIUM" if operational else "LOW_DATA",
-            rationale=(f"observed against the gauge's own prediction at {gauge['station_name']}, {km:.0f} km away"
-                       if operational else f"gauge {gauge.get('station_id')} reports status {gauge.get('status')!r}"),
+            score="HIGH",
+            rationale=(f"live gauge reading at {name}, {km:.0f} km away, "
+                       f"{age_min:.0f} min old"),
         ),
     }
 

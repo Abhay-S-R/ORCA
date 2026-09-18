@@ -29,7 +29,7 @@ DATA_ROOT = Path(__file__).resolve().parents[2] / "data"
 TILES_ROOT = DATA_ROOT / "tier1" / "tiles"
 # Newest run on disk, not a pinned date: scripts/refresh_osf_forecasts.py adds a
 # file per day, and a hardcoded name renders frames from the expired forecast.
-WW3_FILE = sorted((DATA_ROOT / "incois_osf_pfz" / "osf_ww3").glob("rsmc_combined_ww3_*.nc"))[-1]
+WW3_FILE = max((DATA_ROOT / "incois_osf_pfz" / "osf_ww3").glob("rsmc_combined_ww3_*.nc"))
 OUT_DIR = TILES_ROOT / "wave_height_forecast"
 
 _TMS = morecantile.tms.get("WebMercatorQuad")
@@ -81,9 +81,13 @@ def main():
 
     ds = xr.open_dataset(WW3_FILE, decode_times=False)
 
+    # -48 h because WW3's "hours since 0001-01-01" epoch is Julian under
+    # calendar "standard", two days before proleptic-Gregorian datetime(1,1,1).
+    # Without it every frame is stamped two days into the future. Same
+    # correction as `voyage._ww3_hours_since_epoch` and `generate_tiles`.
     ref = datetime.datetime(1, 1, 1, tzinfo=datetime.timezone.utc)
     timestamps = [
-        (ref + datetime.timedelta(hours=float(h))).strftime("%Y-%m-%dT%H:%M:%SZ")
+        (ref + datetime.timedelta(hours=float(h) - 48.0)).strftime("%Y-%m-%dT%H:%M:%SZ")
         for h in ds["TIME"].values
     ]
 

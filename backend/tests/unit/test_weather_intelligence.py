@@ -169,15 +169,33 @@ def test_cyclone_status_filters_by_basin_from_centroid_longitude(monkeypatch):
     assert result["active_cyclones"][0]["centroid"] == "88.0,20.0"
 
 
-def test_incois_hazard_alerts_filters_by_region_substring(monkeypatch):
+def test_incois_hazard_alerts_filters_live_bulletins_by_district_or_state(monkeypatch):
+    bulletins = [
+        {"hazard_type": "high_wave", "district": "THOOTHUKUDI", "state": "TAMIL NADU",
+         "message": "High Wave Alert", "issued_date": "20260918"},
+        {"hazard_type": "swell_surge", "district": "MUMBAI", "state": "MAHARASHTRA",
+         "message": "Swell Surge Alert", "issued_date": "20260918"},
+    ]
+    monkeypatch.setattr(wia, "_fetch_incois_hazard_bulletins", lambda: (bulletins, "fake live"))
+    assert len(wia.get_incois_hazard_alerts("thoothukudi")["active_warnings"]) == 1
+    # a state name matches every district in it
+    assert len(wia.get_incois_hazard_alerts("tamil nadu")["active_warnings"]) == 1
+    assert wia.get_incois_hazard_alerts("thoothukudi")["confidence"].score == "HIGH"
+
+
+def test_incois_hazard_alerts_falls_back_to_sachet_and_says_so(monkeypatch):
+    """A transport failure at INCOIS must not silently produce "no hazards" on a
+    safety path — it falls to SACHET, and the dataset string admits which was used."""
+    monkeypatch.setattr(wia, "_fetch_incois_hazard_bulletins", lambda: None)
     fake_alerts = [
         {"disaster_type": "Flood", "area_description": "Thoothukudi coastal taluk"},
         {"disaster_type": "Flood", "area_description": "Mumbai suburban"},
     ]
-    monkeypatch.setattr(wia, "_fetch_sachet_alerts", lambda: (fake_alerts, "fake", wia.Confidence(score="HIGH", rationale="x")))
+    monkeypatch.setattr(wia, "_fetch_sachet_alerts",
+                        lambda: (fake_alerts, "fake", wia.Confidence(score="HIGH", rationale="x")))
     result = wia.get_incois_hazard_alerts("thoothukudi")
     assert len(result["active_warnings"]) == 1
-
+    assert "SACHET fallback" in result["source_provenance"].dataset
 
 def test_sachet_falls_back_to_real_cached_file_on_live_failure(monkeypatch):
     def raise_error(*a, **kw):

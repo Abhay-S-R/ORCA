@@ -1010,6 +1010,11 @@ export function MapView({
           tileSize: 256,
           minzoom: layer.style_hints.min_zoom,
           maxzoom: layer.style_hints.max_zoom,
+          // The pyramid only covers the source grid's own extent, so without
+          // this MapLibre requests the whole viewport and every tile outside
+          // the grid 404s — hundreds of them per frame in the server log.
+          // `meta.json` has carried these bounds all along.
+          bounds: layer.bounds,
         });
         const beforeLayer = m0.getLayer("coastal-boundary-casing")
           ? "coastal-boundary-casing"

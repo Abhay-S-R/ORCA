@@ -62,15 +62,36 @@ def generate_wave_height_forecast_tiles():
         ds = xr.open_dataset(ww3_files[-1], decode_times=False)
         print(f"        source run: {ww3_files[-1].name} (newest of {len(ww3_files)} on disk)")
 
-        # TIME units are "hours since 0001-01-01" (proleptic Gregorian) —
+        # TIME units are "hours since 0001-01-01" with calendar "standard" —
         # cftime isn't a project dependency and pandas' datetime64 overflows
         # trying to represent year-1 references, so decode by hand. The
         # actual offsets land in 2026, well inside plain datetime's range.
+        #
+        # The -48 h is not a fudge: "standard" that far back is Julian, and
+        # Python's proleptic-Gregorian datetime(1, 1, 1) sits two days after it.
+        # Without the shift every frame is labelled two days into the future —
+        # the 2026-09-17 run rendered as a 09-20 -> 09-26 forecast. Same
+        # correction as `voyage._ww3_hours_since_epoch` and
+        # `extract_osf_pilot`, which have always had it right.
         ref = datetime.datetime(1, 1, 1, tzinfo=datetime.timezone.utc)
-        timestamps = [
-            (ref + datetime.timedelta(hours=float(h))).strftime("%Y-%m-%dT%H:%M:%SZ")
+        JULIAN_OFFSET_H = 48.0
+        times = [
+            ref + datetime.timedelta(hours=float(h) - JULIAN_OFFSET_H)
             for h in ds["TIME"].values
         ]
+        timestamps = [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t in times]
+
+        # A run cannot forecast its own past, and it starts within a day of
+        # being issued. This is the check that fails if the epoch drifts again.
+        run_date = datetime.datetime.strptime(
+            ww3_files[-1].stem.split("_")[-1], "%Y%m%d"
+        ).replace(tzinfo=datetime.timezone.utc)
+        if not run_date <= times[0] <= run_date + datetime.timedelta(days=2):
+            print(
+                f"[ERROR] First frame {timestamps[0]} is implausible for a run dated "
+                f"{run_date:%Y-%m-%d} — the TIME epoch decode is wrong. Not writing tiles."
+            )
+            return
 
         # A forecast pyramid whose last frame is already in the past is not a
         # forecast. Warn loudly rather than failing — the tiles are still the

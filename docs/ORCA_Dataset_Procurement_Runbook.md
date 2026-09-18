@@ -192,8 +192,14 @@ Deleting it is the user's call, not the script's.
 
 ### B1 · MOSDAC fresh SST and chlorophyll — guide rows 9, 11
 
-ISRO's archive, and the reason SST on disk stops at 2026-08-29 and chlorophyll at March 2026. There
-is **no plain REST API**: MOSDAC ships a Python client.
+ISRO's archive, and the reason SST on disk stopped at 2026-08-29 and chlorophyll at March 2026.
+
+**Done on 2026-09-18 — use `python scripts/refresh_mosdac.py`**, which needs only `MOSDAC_USERNAME`
+and `MOSDAC_PASSWORD` in `.env`. There *is* a plain REST API after all (`download_api/gettoken`,
+`apios/datasets.json`, `download_api/download`); the script calls it directly, and the dataset ids
+— which are not guessable from the filenames — are recorded in
+`docs/ORCA_Data_Freshness_Contract.md` §6.3. The manual route below is kept only as background on
+where the ids and limits come from.
 
 ```bash
 curl -LO https://www.mosdac.gov.in/software/mdapi.zip     # verified live

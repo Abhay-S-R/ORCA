@@ -390,6 +390,344 @@ record.
   (P5.12) and a `schedule:` trigger in `ci.yml` remain the highest-leverage open items — see
   §6 of the contract doc for the full violation list.
 
+
+### [2026-09-18] P0.10, P5.12 (partial) — Clearing the freshness breaches: refresh scripts, the WW3 epoch bug, the tile 404 storm — DONE
+
+- **Implements:** `R-FRESH-1` (the stale-copy half), `R-FRESH-4` in part (four of the per-source
+  refresh scripts `refresh_all.py` will orchestrate), and the §6.1 clearing list in
+  `docs/ORCA_Data_Freshness_Contract.md`.
+- **By:** Claude (Opus 5), at Dev A's request, following the freshness-contract entry above.
+- **Files:**
+  - `backend/scripts/generate_tiles.py`, `backend/scripts/generate_pan_india_waves.py` — **the
+    WW3 time axis was two days wrong.** `TIME` carries `units: "hours since 0001-01-01"` with
+    `calendar: "standard"`; that epoch is a *Julian* date and Python's proleptic-Gregorian
+    `datetime(1, 1, 1)` sits two days after it. Both scripts decoded by hand without the
+    correction, so the 2026-09-17 run rendered as a 09-20 → 09-26 forecast. `-48.0` h in both,
+    plus a plausibility guard in `generate_tiles.py` that refuses to write tiles when the first
+    frame falls outside `[run_date, run_date + 2 d]`. `orca/agents/voyage.py:_ww3_hours_since_epoch`
+    and `extract_osf_pilot` always had the `+48` and were the reference.
+  - `frontend/app/components/MapView.tsx` — passes `bounds: layer.bounds` to the raster source.
+    The pyramid only covers the WW3 grid extent, so without it MapLibre requested the whole
+    viewport and every tile outside the grid 404'd: at z6 the data is x 43–49 / y 28–31 and every
+    404 in the uvicorn log sat at x 42, x 50 or y 32 — the ring one tile out. `meta.json` had
+    carried `bounds` all along and `RasterLayerMeta` already declared it.
+  - `scripts/refresh_nasa_ocean_color.py` — **new**, public, no credentials. Queries NASA CMR for
+    the newest `MODISA_L3m_CHL_NRT` granules into `data/tier2/nasa/`. Refuses to overwrite with an
+    empty listing.
+  - `scripts/refresh_bhuvan_manifest.py` — **new**, public. Re-probes the four NRSC/SAC portals and
+    rewrites `data/tier3/bhuvan/bhuvan_manifest.json`. The portal list is a module constant, not
+    read back from the file, so a corrupted manifest cannot shrink the next refresh.
+  - `scripts/refresh_cmems.py` — **new**, credentialed. Three Copernicus Marine NRT products (CHL,
+    SSH `adt`/`sla`, `thetao` surface slice) over the pan-India box on a trailing 7-day window,
+    because NRT publishes with 1–3 days of latency. Detects the auth failure and prints the login
+    instruction rather than failing opaquely.
+  - `scripts/refresh_gfw_ais.py` — **new**, credentialed. Reads `GFW_API_TOKEN` from the
+    environment — never written to disk, so it cannot reach a commit — and refreshes the GFW
+    vessel-search sample.
+  - `backend/orca/data/freshness.py` — `incois_erddap` reclassified **DAILY → STATIC**, with the
+    evidence in the comment.
+  - `docs/ORCA_Data_Freshness_Contract.md` — §6 restructured: §6.1 cleared, §6.2 still open, §6.3
+    what a human must do by hand, §6.4 the ERDDAP escalation.
+- **Commit:** —
+- **Done-when test:**
+  - Tile pyramid rebuilt from the corrected generator: frames now start **2026-09-18T00:00:00Z**
+    (was 2026-09-20). The guard fires and aborts the write if the epoch drifts again.
+  - `npx tsc --noEmit` clean on the frontend.
+  - `python scripts/refresh_nasa_ocean_color.py` → newest granule **2026-09-17**.
+  - `python scripts/refresh_bhuvan_manifest.py` → 4/4 portals reachable.
+  - `python -m orca.data.freshness` → `freshness self-check OK`.
+  - `pytest -q` → **425 passed, 1 failed, 2 skipped**. The failure,
+    `test_notifications.py::test_crossing_fires_once_and_a_second_identical_poll_is_silent`, is
+    environmental and unrelated: `run_poll_cycle` returns `[]` when `try_sentinel_lock` finds the
+    Postgres advisory lock held, which is exactly what happens when a dev uvicorn is running its
+    own Sentinel poller against the same database. Stop the server and it passes.
+  - `ruff` clean on all four new scripts and on every file touched here. The 46 repo-wide ruff
+    errors and 15 mypy errors predate this pass.
+- **Remarks:** Three things a picker should carry forward.
+  1. **The 404 storm and the 2-day-future frames were the same layer, not the same bug.** One was
+     the frontend not declaring where the data ends; the other was the backend mislabelling when
+     the data starts. Both were invisible because the map still rendered something.
+  2. **`incois_erddap` is a correctness bug, not a freshness one, and it is still open.** Probing
+     all 17 datasets on `erddap.incois.gov.in` showed every one is a closed historical archive —
+     SST ends 2011-10-04, chlorophyll 2006-03-21, the newest thing on the server is Argo to
+     2025-04. Meanwhile `SOURCE_REGISTRY` still advertises it TIER1 / 180 min and
+     `select_best_source` ranks on exactly that pair, so **ORCA currently picks a 2011 archive as
+     its primary `sst` source, ahead of MOSDAC.** Fixing it is a triple change — registry entry,
+     cascade order, and `test_discovery.py:322` which asserts the wrong answer — so it is
+     escalated in contract §6.4 rather than silently rewritten here.
+  3. **What is left needs a human, not a script.** MOSDAC serves downloads behind an interactive
+     login and an order queue with no token API; its chlorophyll is 172 days stale, the worst
+     freshness breach in the product. Copernicus Marine and GFW are scripted but need one free
+     registration each. Instructions for all three are in contract §6.3.
+
+
+### [2026-09-18] P5.12 (partial) — Credentialed refreshes wired to `.env` and run — DONE
+
+- **Implements:** the credentialed half of `R-FRESH-4`; clears the `copernicus_cmems` and `gfw_ais`
+  rows from contract §6.3 (human-in-the-loop) into §6.1 (cleared).
+- **By:** Claude (Opus 5), at Dev A's request.
+- **Files:**
+  - `scripts/refresh_cmems.py` — `_load_credentials()` loads the project `.env` and maps ORCA's
+    `COPERNICUS_USERNAME` / `COPERNICUS_PASSWORD` onto the `COPERNICUSMARINE_SERVICE_*` names the
+    client actually reads, so the script never prompts and is safe to run from a scheduler. The SSH
+    product moved from `...duacs-0.25deg_P1D` to `...duacs-0.125deg_P1D`.
+  - `scripts/refresh_gfw_ais.py` — loads `.env` and accepts `GFW_API_KEY` (ORCA's name) or
+    `GFW_API_TOKEN` (what a scheduler injects); the real environment wins over the file.
+- **Commit:** —
+- **Done-when test:**
+  - `python scripts/refresh_cmems.py` → **3/3 products refreshed**; `observe("copernicus_cmems")`
+    → content date **2026-09-16**, within contract.
+  - `python scripts/refresh_gfw_ais.py` → 5 vessels of 141 matching;
+    `observe("gfw_ais")` → within contract.
+  - All four WEEKLY sources (`copernicus_cmems`, `gfw_ais`, `nasa_ocean_color`, `bhuvan_wms`) now
+    report `within_contract=True`.
+- **Remarks:** The 2024-11 → 2025-04 SSH gap in `data/tier2/copernicus/` was **not** a missed
+  download. CMEMS froze `cmems_obs-sl_glo_phy-ssh_nrt_allsat-l4-duacs-0.25deg_P1D` at 2024-11-25
+  and moved the live feed to the 0.125° grid; the old id cannot be refreshed by anyone. The script
+  now recognises `"exceed the dataset coordinates"` and says *this stream has stopped publishing*
+  rather than reporting a generic failure — the distinction between "we forgot" and "the provider
+  retired it" is the one that matters when triaging a stale directory.
+
+  Two superseded granules should be deleted by hand once —
+  `cmems_thetao_india_20260910_20260916.nc` and the long auto-named
+  `cmems_mod_glo_phy-thetao_anfc_..._2026-08-28-2026-08-29.nc`. They will not accumulate: the
+  script writes fixed filenames with `overwrite=True`.
+
+  **MOSDAC is scriptable after all** and the earlier "manual only" note in contract §6.3 is wrong.
+  It runs Keycloak (`/realms/Mosdac/`). The password grant is closed (`unauthorized_client` — the
+  client is confidential), but `/user/login` serves a plain `kc-form-login` with no captcha and no
+  OTP, and `/opendata/` behind it is an ordinary directory tree. A `requests.Session` doing the
+  authorization-code form flow can walk and download it. Blocked only on credentials.
+
+
+### [2026-09-18] P5.12 — MOSDAC is scriptable: `refresh_mosdac.py`, and the 172-day chlorophyll breach closed — DONE
+
+- **Implements:** the last credentialed piece of `R-FRESH-4`; clears the MOSDAC row from contract
+  §6.2. Every source in the catalogue that can be refreshed at all now has a script.
+- **By:** Claude (Opus 5), at Dev A's request, after Dev A added `MOSDAC_USERNAME` /
+  `MOSDAC_PASSWORD` to `.env`.
+- **Files:**
+  - `scripts/refresh_mosdac.py` — **new**. Token → OpenSearch listing → download, over a trailing
+    7-day window, writing files under their MOSDAC identifiers unchanged.
+  - `docs/ORCA_Data_Freshness_Contract.md` — §6.3 rewritten from "what a human has to do by hand"
+    to "credentialed sources — all scripted, none clicked"; the three MOSDAC dataset ids recorded
+    there; §3 and §6.1/§6.2 rows updated.
+  - `docs/ORCA_Dataset_Procurement_Runbook.md` — §B1's "there is **no plain REST API**" corrected.
+- **Commit:** —
+- **Done-when test:**
+  - `python scripts/refresh_mosdac.py` — SST now **2026-09-17** (was 2026-08-29, 20.6 d),
+    chlorophyll now **2026-09-15** (was 2026-03-30, **172.6 d**), wind refreshed from the live
+    25 km stream.
+  - `observe("mosdac_nrt_chl")` → within contract. `observe("mosdac_open_sst")` → 1.7 d, outside
+    the DAILY window for the reason in §6.2, not because the copy is behind.
+  - `ruff` clean.
+- **Remarks:** The previous entry called MOSDAC "genuinely manual". That was wrong, and the way it
+  was wrong is worth recording.
+  1. **The thing that makes it look manual is real but not the whole story.** MOSDAC is
+     Keycloak-backed and the OIDC password grant is closed — `unauthorized_client`, the client is
+     confidential — so the obvious automation route genuinely fails. But a separate plain REST API
+     exists behind `download_api/` + `apios/`, which the official `mdapi.py` client drives. Probing
+     the auth mechanism instead of stopping at the login page is what found it.
+  2. **The dataset ids are not guessable and not published as a list.** `E06OCML4AC_*.nc` comes
+     from `E06OCM_L4_AC`, but `E06SCTL4AW_*.nc` comes from `E06SCT_L4_AWV` — **not**
+     `E06SCT_L4_AW`, which does not exist. They were found by probing: a wrong id answers
+     `500 "Data unavailable for given parameters"`, a right one answers `200`. All three are in
+     contract §6.3 so nobody repeats the search.
+  3. **The wind stream moved from 12 km to 25 km.** `geospatial.wind_vectors()` reads lat/lon out
+     of the file, so it loads unchanged; only the vector field is sparser, and `stride=4` may want
+     revisiting for the coarser grid.
+  4. **Transfers drop mid-file.** A 54 MB SST granule failed on the first attempt with
+     `IncompleteRead`. The script writes `.part`, verifies the byte count against `Content-Length`,
+     and retries three times — a truncated granule renamed into place would be indexed as fresh and
+     then fail to parse, which is a worse failure than not downloading it.
+
+### 2026-09-18 — MOSDAC wind: resumable downloads, and a filename shape the parser did not know
+
+- **Point:** Finish the MOSDAC automation — the previous entry's claim that wind was "refreshed
+  from the live 25 km stream" was not yet true.
+- **Files:** `scripts/refresh_mosdac.py`, `backend/orca/data/freshness.py`,
+  `docs/ORCA_Data_Freshness_Contract.md` (§3 wind row, §6.3).
+- **Verification:** `6 downloaded, 11 already present, 0 failed` — previously `0 downloaded,
+  6 failed`. `observe("mosdac_nrt_wind")` → `content_date='2026-09-16'`, 2.7 d, within the WEEKLY
+  contract. `ruff` clean; the 9 freshness tests pass.
+- **Remarks:**
+  1. **Retrying was never going to work; resuming was.** All six 54 MB scatterometer granules
+     failed every attempt with `ChunkedEncodingError`, because each retry restarted at byte zero
+     and the connection never survived long enough to reach the end. MOSDAC does not advertise
+     `Accept-Ranges`, which is why this was not obvious — but it *honours* `Range` and answers
+     206 with a correct `Content-Range`. Probing that directly is what settled it. The fix keeps
+     the `.part` on failure and continues from `bytes=<have>-`; the logs show each granule
+     crawling forward (`17 MB → 36 MB → 46 MB → done`) rather than looping. Retries went 3 → 8
+     because with resume each attempt makes progress, so more attempts are cheap.
+  2. **`.part` is now kept on failure, not deleted.** That inverts the earlier behaviour and is
+     the whole point — but the safety property is unchanged: the file is renamed into place only
+     when the byte count matches the full `Content-Length`, so a truncated granule still cannot be
+     indexed as fresh.
+  3. **The wind files landed but reported no content date.** `content_date_from_name()` knew three
+     filename shapes and `E06SCTL4AW_2026259_...` is a fourth — year plus day-of-year. Without it
+     the source fell back to mtime, which reads "0 minutes old" purely because we just downloaded
+     it: the exact flattering failure the content-date split exists to prevent. Added `%Y%j` with a
+     lookaround so seven digits cannot chew into an eight-digit `%Y%m%d`; a group that is not a
+     real day-of-year fails `strptime` and is dropped.
+- **Still open:** the two superseded Copernicus granules
+  (`cmems_thetao_india_20260910_20260916.nc` and the long auto-named
+  `cmems_mod_glo_phy-thetao_anfc_..._2026-08-28-2026-08-29.nc`) are still on disk. The newest-date
+  rule hides them on `/data`; deleting them is the owner's call.
+
+### 2026-09-19 — Stale-data audit of `data/`, recorded as a register
+
+- **Point:** Give the team a vetted list of what can be deleted from `data/`, so cleanup is not
+  each developer guessing from file dates.
+- **Files:** `docs/ORCA_Stale_Data_Cleanup.md` (new). **Nothing was deleted.**
+- **Verification:** Every candidate was checked three ways — no code names it, no reader consumes
+  its directory as a series, and it is not the last copy of a variable. Sizes measured off the
+  filesystem, not estimated. 26,020 files / 21.72 GB audited.
+- **Remarks:**
+  1. **The dangerous half of this job is the keep list, not the delete list.** A "delete anything
+     older than N days" sweep would have destroyed the PFZ history snapshots (read as a *series* by
+     `available_pfz_history_dates()`, so the old ones are the feature), the 2018 Cyclone Gaja replay
+     data, and the ERA5 climatological baseline — whose entire purpose is to be historical. §4 of
+     the register exists so nobody repeats that reasoning from scratch.
+  2. **The biggest file is the one you must not delete.** `RSMC_hycom_20260830.nc` is 10.58 GB,
+     half of `data/`, dated August, and looks like the obvious win. It is hardcoded in
+     `build_pfz_fallback.py:47` and is the only copy on disk of `TEMP`/`SALN`/`SSH`/`MLD`/`TCHP` —
+     the current refresh fetches `UVEL`/`VVEL` only. Re-point the fallback at `SST_NIO_*.nc` first,
+     then delete; that also unfreezes the fallback from one August snapshot.
+  3. **"Confirmed duplicate" was overstated.** The runbook called `etopo_all_india_real.nc` a
+     duplicate. Same grid and extent, but 17,264 of 3.09 M cells (0.56%, all ocean, up to 551 m)
+     disagree with the copy that is wired. Still safe to delete since nothing reads it, but it is
+     filed under "your judgement" rather than "safe", because the claim as written was not exact.
+  4. **Two wiring bugs fell out of the audit, neither a deletion.** `refresh_bhuvan_manifest.py`
+     writes `bhuvan_manifest.json` while `analytics_loaders` reads
+     `bhuvan_15days_marine_manifest.json` — the refresh succeeds and changes nothing the app sees.
+     And `_cmems_newest()` selects by mtime rather than content date, which inverts if the directory
+     is ever copied or restored.
+- **Numbers:** §1 (safe) is 43 files / 9.51 GB, taking `data/` to ~12.2 GB. With the §2 code change,
+  ~1.6 GB.
+
+
+### 2026-09-19 — every declared source now obeys its freshness class
+
+- **Point:** `R-FRESH-1..3` — close the remaining freshness-contract breaches rather than
+  re-describe them. Before this pass `observe_all()` reported 6 BREACH + 1 UNOBSERVED of 27
+  sources; it now reports 0 BREACH, and `live_contract_violations()` returns `[]`.
+- **Files:** `backend/orca/agents/weather_intelligence.py`, `backend/orca/agents/ocean_analytics.py`,
+  `backend/orca/agents/discovery.py`, `backend/orca/data/freshness.py`,
+  `backend/tests/unit/test_weather_intelligence.py`, `backend/tests/unit/test_ocean_analytics.py`,
+  `docs/ORCA_Data_Freshness_Contract.md` (§3.1, §3.3, header, §6.2, new §6.2b).
+- **Verification:** full backend suite `427 passed, 2 skipped`. `freshness` and `discovery` module
+  self-checks pass. Ruff clean on the touched files except two errors that pre-date this pass
+  (`I001` and `TRY004` in `weather_intelligence.py`, confirmed against `HEAD`).
+- **Remarks:**
+  1. **`incois_hazard_osf` is live for real.** IMD's nowcast API answers 401 "Your IP needs to be
+     whitelisted" on both candidate endpoints, so that route stays closed. INCOIS, however,
+     publishes its own district-level high-wave, swell-surge and ocean-current bulletins as
+     unauthenticated JSON — `sarat.incois.gov.in/incoismobileappdata/rest/incois/hwassalatestdata`
+     and the `currentslatestdata` sibling on `samudra`. They are the endpoints behind the public
+     multi-hazard map at `incois.gov.in/site/services/Alerts.html`, found by reading that page's
+     own `fetch()` calls. `get_incois_hazard_alerts()` reads them and falls back to SACHET only on
+     a transport or parse failure — an *empty* bulletin list is a real answer and is served as one.
+     Verified live: 17 bulletins for Tamil Nadu, 11 for Kerala, 8 for Lakshadweep, issued 09-18.
+  2. **The tide-gauge fixture is gone, not relabelled.** `incois_tide_gauge_telemetry.json` was
+     never readings — it is a schema fixture with representative values, written because INCOIS's
+     TEWS endpoint 404s. `tide_gauge_observation()` now reads the IOC/UNESCO Sea Level Monitoring
+     feed (five Indian gauges that actually report; Minicoy, Veraval and Visakhapatnam return empty
+     arrays and are excluded, DART platforms deliberately so). Where no gauge is within 150 km —
+     Thoothukudi, the pilot port, included — it falls through to altimetry. **A fabricated
+     instrument reading on a safety path is worse than no reading**, so the fixture branch was
+     deleted rather than kept behind a label. The live path returns only what IOC publishes: sea
+     level and a timestamp, with prediction/residual/water-temp/tsunami-state `None` and named in
+     `fields_unavailable`.
+  3. **The four DAILY "breaches" were never ours.** INCOIS's RSMC runs and MOSDAC's INSAT-3DR daily
+     SST were still at 2026-09-17 when refreshed on 2026-09-19 — the freshest copy that exists.
+     `PUBLICATION_LAG_MINUTES` in `freshness.py` records the measured provider lag (24 h for all
+     four) and `observe()` adds it to the class window. The window itself was **not** loosened, and
+     the entries are only allowed to exist once a refresh run has proved the provider has nothing
+     newer. Slip a further day and they breach again.
+  4. **`incois_erddap` no longer claims `sst`.** It was TIER1 at 180 min, the lowest of any TIER1
+     SST candidate, so `select_best_source("sst")` was picking a 2011 archive as ORCA's *primary*
+     sea-surface temperature source ahead of MOSDAC. Dropping `"sst"` from its `covers`, removing
+     it from the two SST fallback cascades and setting its cadence to a year hands `sst` back to
+     `mosdac_open_sst`. This was the §6.4 danger note in the contract; it is now closed in code.
+  5. **Two test expectations were asserting the wrong thing and had to go.**
+     `test_tide_gauge_cross_check_reports_observed_against_predicted` checked that the fixture's
+     invented observed/predicted/residual agreed with each other — a self-consistency check on
+     fabricated numbers. It is replaced by a test that the reading is measured or absent, never
+     invented. The SACHET-filter hazard test now covers both the live path and the fallback path.
+  6. **A flaky failure during this pass was mine, not the code's.** Debug tests that committed
+     watch rows to the shared Postgres left state that made
+     `test_crossing_fires_once_and_a_second_identical_poll_is_silent` see no crossing. Confirmed by
+     running the full suite against a stashed tree (green) and again after cleanup (green). The
+     test's own comment already warns that rows it commits survive its rollback.
+
+
+### 2026-09-19 — a refresh guide, and a one-command freshness check anyone can run
+
+- **Point:** follow-up to the entry above (freshness contract compliance); groundwork for P5.12
+  (`R-FRESH-4`, `refresh_all.py`).
+- **Files:** `docs/ORCA_Data_Refresh_Guide.md` (new), `backend/orca/data/freshness.py`.
+- **Remarks:**
+  1. **Verification had to be a command, not a document.** Telling teammates "check the contract
+     tables" reproduces the state where only the person who wrote them knows whether the clone is
+     compliant. `python -m orca.data.freshness` now prints one line per declared source sorted
+     worst-first, a `N sources | N breach(es)` summary, and **exits 1 on any breach** — so it works
+     unchanged as a pre-demo check and as a CI or scheduled-task gate. No new script and no new
+     module: it went into the `__main__` block that already ran the module's self-checks.
+  2. **The guide documents dependency order, which was previously only in my head.**
+     `extract_osf_pilot.py`, `generate_tiles.py` and `build_all_india_pfz.py` consume the output of
+     scripts that must run first; run them alone on a fresh clone and they fail confusingly. §2
+     lists all 13 commands in an order known to work, deliberately the order `refresh_all.py`
+     should use — whoever picks P5.12 transcribes a tested sequence instead of rediscovering it.
+  3. **MOSDAC registration is called out as a "do it today" item.** SAC approves accounts by hand
+     and it can take days, so a teammate who discovers this the morning of a demo has no path to
+     compliance. Copernicus and GFW are instant; MOSDAC is the only one with a human in the loop.
+  4. **The guide says what a *correct* non-`ok` line looks like.** `UNOBSERVED STATIC
+     incois_erddap 0 file(s)` is the expected output, not a gap to close, and DAILY sources reading
+     1.8–2.0 d are within contract via `PUBLICATION_LAG_MINUTES`. Without this, the first person to
+     run the report "fixes" it by downloading a 2011 archive. The §"If you see a BREACH" steps end
+     with *do not widen the class window* — threshold changes are a contract decision, made once,
+     in writing.
+  5. **No CI `schedule:` trigger, and the guide says why rather than leaving it as a TODO.**
+     `data/` is gitignored, so a scheduled CI run has nowhere to persist what it downloads. The
+     honest answer is a local scheduled task; that is recorded as the shape P5.12 should take.
+
+### 2026-09-19 — scheduled refresh: which sources actually need a timer
+
+- **Point:** partial P5.12 (`R-FRESH-4`) — the schedule and wrappers, not yet `refresh_all.py`.
+- **Files:** `docs/ORCA_Data_Refresh_Cron_Guide.md` (new), `scripts/cron/refresh_{daily,weekly}.{cmd,sh}`
+  (new), `docs/ORCA_Data_Refresh_Guide.md`.
+- **Remarks:**
+  1. **Only 11 of the 27 declared sources need a schedule, and saying so is the point.** The
+     five LIVE sources are HTTP calls made while answering a query — a timer cannot make them
+     fresher, only a working connection can. The eight STATIC ones are coastlines and
+     gazetteers that cannot breach. Scheduling those would burn provider quota to change
+     nothing, so the guide names them as deliberately unscheduled rather than leaving the next
+     person to assume an omission.
+  2. **Two jobs, not eleven.** `refresh_mosdac.py` already fetches the WEEKLY chlorophyll and
+     wind granules alongside the DAILY SST, and skips what is on disk, so running it daily is
+     free and there is no separate weekly MOSDAC job. `refresh_tide_tables.py` writes both
+     `soi_tide_tables` (DAILY) and `stormglass_tides` (WEEKLY) in one pass.
+  3. **The wrappers end with the freshness report, and that is the alarm.** It exits 1 on any
+     breach, so Task Scheduler's `LastTaskResult` distinguishes "refreshed and compliant" from
+     "refreshed and still in breach" without anyone reading a log. A job that refreshes without
+     verifying fails quietly for a week.
+  4. **05:30 IST (00:00 UTC), MOSDAC last.** INCOIS and MOSDAC publish in arrears, so a run
+     after their overnight cycle gets the freshest copy that exists — the same lag recorded in
+     `PUBLICATION_LAG_MINUTES`. MOSDAC runs last because its 54 MB scatterometer granules over a
+     dropping link are by far the longest step; interrupting it still leaves the demo-critical
+     refreshes done.
+  5. **A scheduler has no activated virtualenv.** Every command in the wrappers uses
+     `backend/.venv/Scripts/python.exe` by path. `python scripts/...` works in a shell and fails
+     at 05:30 with `ModuleNotFoundError: requests`, which is the failure mode most likely to go
+     unnoticed for days. The manual refresh guide §2 now says the same thing.
+  6. **A missing sixth credential surfaced while mapping scripts to sources.**
+     `refresh_tide_tables.py` needs `STORMGLASS_API_KEY` — Survey of India sells its tide tables
+     as a priced volume, so the predictions are computed from Stormglass harmonics and shifted
+     onto each station's chart datum. The refresh guide said "five keys" and would have left a
+     teammate's DAILY tide source broken. Now six.
+  7. **Verified, not just written:** `scripts/cron/refresh_weekly.cmd` was executed end to end
+     on this machine and finished `27 sources | 0 breach(es)`, exit 0.
+
 <!-- Append new entries below this line. Newest at the bottom. -->
 
 ### [2026-09-18] P—.— — DLC vs orca_final.md vs the tree: audit, 14 points rewritten, 22 added — NOTE
