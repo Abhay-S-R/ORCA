@@ -20,9 +20,14 @@ export const BASEMAP_STYLE =
 // arrives. Never rendered as a location marker; that's userLocation only.
 export const INDIA_CENTER: [number, number] = [78.9, 20.5];
 
-// The chart's default camera on load — all of India, matching the product's
-// national scope. A query or region pick moves it from here.
-export const INDIA_VIEW = { center: INDIA_CENTER, zoom: 4.4 };
+// The chart's default camera on load, and what the recenter button returns
+// to: all of India plus the western Arabian Sea water the surface-current
+// field covers. Fixed center/zoom rather than a fitBounds, because the
+// requirement is an exact camera — at this zoom the scale bar reads 110 nm
+// per 100 px (mpp = 78271.517 * cos(12.76) / 2^5.2278), and on a full-width
+// desktop chart the left edge sits on the 64.99E / 12.76N sounding point.
+// A query or region pick moves it from here.
+export const INDIA_VIEW = { center: [78.46, 12.76] as [number, number], zoom: 5.2278 };
 
 import type { RasterSourceSpecification } from "maplibre-gl";
 
@@ -37,6 +42,75 @@ export const RASTER_OVERLAYS: Record<string, { source: RasterSourceSpecification
       attribution: '<a href="https://www.openseamap.org">OpenSeaMap</a>',
     },
     opacity: 0.9,
+  },
+};
+
+/** Alternate basemaps. These ride as raster layers *inside* the same style,
+ *  inserted under its own labels, so switching is a visibility toggle — not a
+ *  setStyle(), which tears down every ORCA source and layer and would need the
+ *  whole load handler re-run. "chart" is the default vector look above and
+ *  adds no raster at all. All three are OpenStreetMap-derived or open imagery;
+ *  none needs a key. */
+export type BasemapId = "chart" | "streets" | "satellite" | "terrain";
+
+export const BASEMAP_LABELS: Record<BasemapId, string> = {
+  chart: "Chart",
+  streets: "Streets",
+  satellite: "Satellite",
+  terrain: "Terrain",
+};
+
+/** `labelled` decides where the raster is inserted: a basemap that already
+ *  draws its own place names goes ABOVE the vector style's labels (otherwise
+ *  every city is written twice, in two fonts); bare imagery goes below them so
+ *  it borrows the chart's labels instead of having none. */
+export const BASEMAP_RASTERS: Record<
+  Exclude<BasemapId, "chart">,
+  { source: RasterSourceSpecification; labelled: boolean }
+> = {
+  // Plain OpenStreetMap Standard — the raster tiles, same data as the chart.
+  streets: {
+    labelled: true,
+    source: {
+      type: "raster",
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    },
+  },
+  // Esri World Imagery — keyless, and the only free global satellite mosaic
+  // that resolves Indian coastline at the zooms a fisherman actually works at.
+  satellite: {
+    labelled: false,
+    source: {
+      type: "raster",
+      tiles: [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      ],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution:
+        'Imagery &copy; <a href="https://www.esri.com">Esri</a>, Maxar, Earthstar Geographics',
+    },
+  },
+  // OpenTopoMap — OSM data with SRTM hillshade/contours. maxzoom 17 is the
+  // provider's real ceiling; asking for 18+ returns blanks, not upscaled tiles.
+  terrain: {
+    labelled: true,
+    source: {
+      type: "raster",
+      tiles: [
+        "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
+        "https://b.tile.opentopomap.org/{z}/{x}/{y}.png",
+        "https://c.tile.opentopomap.org/{z}/{x}/{y}.png",
+      ],
+      tileSize: 256,
+      maxzoom: 17,
+      attribution:
+        '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA), &copy; OpenStreetMap contributors',
+    },
   },
 };
 

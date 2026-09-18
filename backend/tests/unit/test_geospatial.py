@@ -232,3 +232,17 @@ def test_fishing_ban_never_asserts_the_central_order_inside_territorial_waters()
     # Every answer carries the order it came from — a date with no file number
     # behind it is the kind of claim the deterministic core exists to prevent.
     assert inshore["order"]["file_number"]
+
+
+def test_depth_at_point_reads_land_on_a_small_island_far_from_the_pilot_box() -> None:
+    """Maakurandhoo (Maldives, ~5.70 N 73.31 E) is a ~1 km island — smaller than
+    one cell of the 60" ETOPO fallback, which reports ~22 m of open water there.
+    Only the 15" national GEBCO grid sees it as land, so this fails if the grid
+    choice ever gets pinned at import time again and a running server is left on
+    the pilot box after the national download lands.
+    """
+    from orca.agents.geospatial import GEBCO_ALL_FILE
+
+    if not GEBCO_ALL_FILE.exists():
+        return  # national subset is a gitignored 100 MB download — absence is legitimate
+    assert depth_at_point(5.7024, 73.3105).on_land is True

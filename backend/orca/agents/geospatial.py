@@ -36,9 +36,8 @@ GEBCO_ALL_FILE = DATA_ROOT / "tier1" / "bathymetry" / "gebco_2026_n26.0_s4.0_w60
 GEBCO_PILOT_FILE = DATA_ROOT / "tier1" / "bathymetry" / "gebco_2026_n10.5_s7.5_w77.5_e80.5.nc"
 # scripts/download_gebco_bathymetry.py fetches the national subset; the pilot
 # box stays the fallback so a fresh clone without it still answers.
-BATHYMETRY_FILE = GEBCO_ALL_FILE if GEBCO_ALL_FILE.exists() else GEBCO_PILOT_FILE
 ETOPO_ALL_FILE = DATA_ROOT / "tier1" / "bathymetry" / "etopo_all_india_bathymetry.nc"
-ETOPO_FILE = ETOPO_ALL_FILE if ETOPO_ALL_FILE.exists() else DATA_ROOT / "tier1" / "bathymetry" / "etopo_south_india_bathymetry.nc"
+ETOPO_PILOT_FILE = DATA_ROOT / "tier1" / "bathymetry" / "etopo_south_india_bathymetry.nc"
 
 _GEOD = Geod(ellps="WGS84")
 NM_PER_METER = 1.0 / 1852.0
@@ -340,15 +339,22 @@ def bearing_and_distance(from_lat: float, from_lon: float, to_lat: float, to_lon
 
 # ---- Bathymetry (Day 5) -----------------------------------------------------
 
+# Which grid is on disk is decided on first use, NOT at import: the national
+# GEBCO subset is a 100 MB download that routinely finishes AFTER the server is
+# already up. A path pinned at import time left a running process on the 7.5-10.5 N
+# / 77.5-80.5 E pilot box forever, so every click outside it silently fell through
+# to ETOPO's 60" grid — which is too coarse to contain a small island at all, and
+# answered "22 m of water" for a point on dry land.
 @lru_cache(maxsize=1)
 def _bathymetry() -> xr.Dataset:
-    return xr.open_dataset(BATHYMETRY_FILE)
+    return xr.open_dataset(GEBCO_ALL_FILE if GEBCO_ALL_FILE.exists() else GEBCO_PILOT_FILE)
 
 
 @lru_cache(maxsize=1)
 def _etopo_bathymetry() -> xr.Dataset | None:
-    if ETOPO_FILE.exists():
-        return xr.open_dataset(ETOPO_FILE)
+    for path in (ETOPO_ALL_FILE, ETOPO_PILOT_FILE):
+        if path.exists():
+            return xr.open_dataset(path)
     return None
 
 
