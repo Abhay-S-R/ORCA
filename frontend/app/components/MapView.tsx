@@ -219,6 +219,21 @@ export type QueryFocus = {
   nonce: number;
 };
 
+/** What a question actually asks the chart to show. Answering a query swaps
+ *  the layer set to exactly this — every other layer goes off, so the chart
+ *  under an answer carries the evidence for that answer and nothing else.
+ *  "safety" keeps two layers because the go/no-go verdict is itself built on
+ *  two: sea state and boundary standoff. "general" is absent on purpose — an
+ *  unclassifiable question is not a request to strip the chart bare, so it
+ *  leaves the layers exactly as the reader left them. */
+const QUERY_INTENT_LAYERS: Partial<Record<QueryFocus["intent"], readonly string[]>> = {
+  fishing: ["pfz"],
+  boundary: ["boundaries", "boundaryLines"],
+  current: ["currents"],
+  wave: ["waveForecast"],
+  safety: ["waveForecast", "boundaries"],
+};
+
 export function MapView({
   className = "h-full w-full",
   showPanels = true,
@@ -1089,9 +1104,23 @@ export function MapView({
     if (queryFocus.regionId) {
       setSelectedRegion(queryFocus.regionId);
     }
+    // The layer set for this question — exactly the prescription above, not
+    // the previous answer's layers plus one more.
+    const prescribed = QUERY_INTENT_LAYERS[queryFocus.intent];
+    if (prescribed) {
+      setLayers((s) => {
+        const next = { ...s };
+        for (const key of Object.keys(next) as (keyof typeof next)[]) {
+          next[key] = prescribed.includes(key);
+        }
+        return next;
+      });
+      // Keep the heavy-layer LRU honest about what is actually running, or
+      // the next manual toggle evicts a layer that is already off.
+      lru.current = HEAVY_KEYS.filter((k) => prescribed.includes(k));
+    }
     let bearing: number | null = null;
     if (queryFocus.intent === "boundary") {
-      setLayers((s) => (s.boundaries ? s : { ...s, boundaries: true }));
       const coords = boundaryFeatures.features.filter((f) => f.properties.near).flatMap((f) => flattenCoords(f.geometry));
       if (coords.length) {
         const lon = coords.reduce((s, c) => s + c[0], 0) / coords.length;
@@ -1099,7 +1128,6 @@ export function MapView({
         bearing = bearingDeg(focusPoint[1], focusPoint[0], lat, lon);
       }
     } else if (queryFocus.intent === "fishing") {
-      setLayers((s) => (s.pfz ? s : { ...s, pfz: true }));
       const near = pfzFeatures.filter(
         (f) => haversineKm(focusPoint[1], focusPoint[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
       );
@@ -1108,10 +1136,6 @@ export function MapView({
         const lat = near.reduce((s, f) => s + f.geometry.coordinates[1], 0) / near.length;
         bearing = bearingDeg(focusPoint[1], focusPoint[0], lat, lon);
       }
-    } else if (queryFocus.intent === "current") {
-      setLayers((s) => (s.currents ? s : { ...s, currents: true }));
-    } else if (queryFocus.intent === "wave") {
-      setLayers((s) => (s.waveForecast ? s : { ...s, waveForecast: true }));
     }
     setShipBearing(bearing);
   }
