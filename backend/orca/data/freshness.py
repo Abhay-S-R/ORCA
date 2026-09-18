@@ -293,6 +293,22 @@ def live_contract_violations() -> list[str]:
                   if cls == "LIVE" and sid not in FETCHED_LIVE)
 
 
+# --- the staleness ceiling (R-SAFE-1, plan P0.5) ------------------------------
+
+def staleness_ceiling_minutes(cls: FreshnessClass) -> int | None:
+    """Age past which data of this class may not back a GO. Twice the class
+    window, never under two hours — LIVE's window is 0 (a disk copy has already
+    missed its contract), and a verdict that flips to CAUTION the minute a
+    fetch fails would make every offline run a CAUTION. None = never stale."""
+    max_age = MAX_AGE_MINUTES[cls]
+    return None if max_age is None else max(2 * max_age, 120)
+
+
+def past_staleness_ceiling(age_minutes: int, cls: FreshnessClass) -> bool:
+    ceiling = staleness_ceiling_minutes(cls)
+    return ceiling is not None and age_minutes > ceiling
+
+
 # --- the cache-expiry half (R-FRESH-2) ---------------------------------------
 
 def is_stale(path: Path, max_age_minutes: int, *, now: datetime | None = None) -> bool:
@@ -368,7 +384,7 @@ if __name__ == "__main__":  # smallest check that fails if the logic breaks
     print("freshness self-check OK")
     print()
 
-    # --- the report `docs/ORCA_Data_Refresh_Guide.md` tells people to run ---
+    # --- the report `docs/Guide/ORCA_Data_Refresh_Guide.md` tells people to run ---
     #
     # Printed rather than hidden behind the API so it can be checked from a terminal
     # after a refresh, and so CI can fail on the exit code. Sorted worst-first: a

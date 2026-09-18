@@ -1,7 +1,7 @@
 # ORCA Scheduled Refresh (cron / Task Scheduler) Guide
 
 **Status:** operational. **Audience:** every developer with a clone.
-**Companion:** `docs/ORCA_Data_Refresh_Guide.md` — the manual procedure and the credential
+**Companion:** `docs/Guide/ORCA_Data_Refresh_Guide.md` — the manual procedure and the credential
 setup. Do that once, by hand, and confirm `0 breach(es)` **before** you automate anything.
 Automating a run you have never seen succeed just schedules a silent failure.
 **Normative source:** `docs/ORCA_Data_Freshness_Contract.md` §3 assigns every class below.

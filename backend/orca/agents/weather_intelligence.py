@@ -135,6 +135,7 @@ def get_marine_weather(lat: float, lon: float, hours_ahead: int = 48) -> dict[st
         )
         confidence = Confidence(score="HIGH", rationale="Live Open-Meteo Marine + Forecast APIs, matching target window")
         freshness_minutes = 0
+        fallback_depth = 0
     except (httpx.HTTPError, KeyError, ValueError):
         port = _nearest_port(lat, lon, CACHED_MARINE_PORTS)
         marine_raw = load_json(cached_marine_path(port))
@@ -163,6 +164,7 @@ def get_marine_weather(lat: float, lon: float, hours_ahead: int = 48) -> dict[st
         )
         cached_dt = datetime.fromisoformat(cached_acquisition_utc.replace("Z", "+00:00"))
         freshness_minutes = max(0, int((now - cached_dt).total_seconds() // 60))
+        fallback_depth = 1
 
     records = normalized.data.to_dict(orient="records")
     return {
@@ -173,6 +175,7 @@ def get_marine_weather(lat: float, lon: float, hours_ahead: int = 48) -> dict[st
             freshness_minutes=freshness_minutes,
         ),
         "confidence": confidence,
+        "fallback_depth": fallback_depth,
     }
 
 
@@ -596,4 +599,17 @@ def run(state: ORCAState) -> AgentResult:
         outputs=outputs,
         source_provenance=weather["source_provenance"],
         confidence=confidence,
+        # Measured factors for orca/confidence_score.py. Open-Meteo is LIVE-class
+        # (data/freshness.py SOURCE_CLASS["open_meteo_marine"]); a cached read is
+        # rung 1 and its real age is what the freshness factor judges.
+        data_age_minutes=weather["source_provenance"].freshness_minutes,
+        freshness_class="LIVE",
+        fallback_depth=weather.get("fallback_depth"),
+        coverage=_reading_coverage((weather["hourly"] or [{}])[0], ("wave_height", "wind_speed_10m")),
     )
+
+
+def _reading_coverage(record: dict, keys: tuple[str, ...]) -> tuple[int, int]:
+    """(present, expected) — a reading counts only if it is a real number, not None/NaN."""
+    present = sum(1 for k in keys if isinstance(record.get(k), (int, float)) and record[k] == record[k])
+    return present, len(keys)

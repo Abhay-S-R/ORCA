@@ -14,6 +14,13 @@
 import React from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { AlertTriangle, Check, Loader2, X } from "lucide-react";
+import { confidenceLabel, type ConfidenceTier } from "./Badge";
+
+const CONFIDENCE_FILL: Record<ConfidenceTier, string> = {
+  HIGH: "bg-[color-mix(in_oklab,var(--color-confidence-high)_85%,black)]",
+  MEDIUM: "bg-[color-mix(in_oklab,var(--color-confidence-medium)_85%,black)]",
+  LOW_DATA: "bg-[color-mix(in_oklab,var(--color-confidence-low)_85%,black)]",
+};
 
 export type AgentStatus = "pending" | "running" | "ok" | "degraded" | "failed" | "skipped";
 
@@ -107,11 +114,13 @@ export function AgentPill({
   name,
   status,
   latencyMs,
+  confidence,
   className = "",
 }: {
   name: string;
   status: AgentStatus;
   latencyMs?: number;
+  confidence?: ConfidenceTier;
   className?: string;
 }) {
   const reduce = useReducedMotion();
@@ -119,13 +128,17 @@ export function AgentPill({
   const fullLabel = formatAgentLabel(name);
   const shortLabel = meta?.shortLabel ?? fullLabel;
   const pulse = status === "running" && !reduce;
+  // Only a finished agent has a confidence; failed already reads as failed.
+  const showConfidence = confidence && (status === "ok" || status === "degraded");
 
   return (
     <span
-      className={`inline-flex w-full min-w-0 h-7 shrink-0 items-center justify-center gap-1 sm:gap-1.5 rounded-md border px-1.5 sm:px-2 text-[11px] sm:text-xs font-medium tracking-tight whitespace-nowrap select-none transition-colors duration-150 ${STATUS_STYLE[status]} ${pulse ? "animate-pulse" : ""} ${className}`}
-      title={`${fullLabel} — ${STATUS_TEXT[status]}${latencyMs ? ` (${latencyMs}ms)` : ""}`}
+      className={`relative inline-flex w-full min-w-0 h-7 shrink-0 items-center justify-center gap-1 sm:gap-1.5 rounded-md border px-1.5 sm:px-2 text-[11px] sm:text-xs font-medium tracking-tight whitespace-nowrap select-none transition-colors duration-150 ${STATUS_STYLE[status]} ${pulse ? "animate-pulse" : ""} ${className}`}
+      title={`${fullLabel} — ${STATUS_TEXT[status]}${showConfidence ? `, ${confidenceLabel(confidence)} confidence` : ""}${latencyMs ? ` (${latencyMs}ms)` : ""}`}
     >
-      {status === "ok" && (
+      {/* A confidence token already says "finished" — dropping the tick keeps
+          the agent name from truncating in the 5-across strip. */}
+      {status === "ok" && !showConfidence && (
         <Check className="size-3 sm:size-3.5 shrink-0 text-go" aria-hidden="true" strokeWidth={2.5} />
       )}
       {status === "running" && (
@@ -138,8 +151,20 @@ export function AgentPill({
         <X className="size-3 sm:size-3.5 shrink-0 text-no-go" aria-hidden="true" />
       )}
       <span className="truncate">{shortLabel}</span>
-      <span className="sr-only">({STATUS_TEXT[status]})</span>
-
+      <span className="sr-only">({STATUS_TEXT[status]}{showConfidence ? `, ${confidenceLabel(confidence)} confidence` : ""})</span>
+      {showConfidence && (
+        // One boxed letter pinned to the pill's top-right corner, so it takes
+        // no width from the name (which otherwise truncated at ~1366 px).
+        // Filled in the tier colour, 15% darker so white text clears 4.5:1 on
+        // the lightest tier; still a letter, not colour alone (principle 9) —
+        // the full word is in the title and the sr-only text above.
+        <span
+          aria-hidden="true"
+          className={`absolute -right-1.5 -top-1.5 grid size-3.5 place-items-center rounded-[3px] font-mono text-[9px] font-bold leading-none text-white ring-2 ring-shelf-1 ${CONFIDENCE_FILL[confidence]}`}
+        >
+          {confidence === "LOW_DATA" ? "L" : confidence === "MEDIUM" ? "M" : "H"}
+        </span>
+      )}
       {latencyMs != null && status === "ok" && (
         <span
           data-readout

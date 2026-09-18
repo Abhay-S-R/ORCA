@@ -1,5 +1,5 @@
 #!/bin/sh
-# ORCA daily refresh — see docs/ORCA_Data_Refresh_Cron_Guide.md.
+# ORCA daily refresh — see docs/Guide/ORCA_Data_Refresh_Cron_Guide.md.
 # No `set -e`: one provider being down should not skip the other five refreshes.
 # The freshness report at the end is what decides the exit code.
 cd "$(dirname "$0")/../.." || exit 1

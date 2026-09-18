@@ -7,6 +7,7 @@ route re-invokes a single specialist agent. `POST /render` calls only Agent
 """
 from __future__ import annotations
 
+import math
 import os
 import uuid
 from typing import Any, Literal
@@ -118,6 +119,8 @@ class TraceNode(BaseModel):
     depth: int
     status: str
     confidence_tier: str
+    confidence_score: int | None = None
+    confidence_detail: dict[str, Any] | None = None
     latency_ms: float | None
     reasoning_summary: str
     source_count: int
@@ -177,8 +180,9 @@ def _reasoning_summary(agent_name: str, outputs: dict[str, Any], status: str = "
         imbl_str = f"{imbl:.1f}" if isinstance(imbl, (int, float)) else str(imbl or "?")
         return f"IMBL {imbl_str} nm · MPA violation={outputs.get('mpa_violation', False)}"
     if agent_name == "weather_intelligence":
-        hs = outputs.get("wave_height")
-        hs_str = f"{hs:.1f}" if isinstance(hs, (int, float)) else str(hs or "?")
+        # weather_intelligence.run puts readings under hourly[0], never at the top level.
+        hs = (outputs.get("hourly") or [{}])[0].get("wave_height")
+        hs_str = f"{hs:.1f}" if isinstance(hs, (int, float)) and math.isfinite(hs) else "?"
         return f"Hs {hs_str} m · lightning={outputs.get('lightning_active', False)}"
     if agent_name == "ocean_analytics":
         tide = outputs.get("tide")
@@ -280,6 +284,8 @@ def build_trace_graph(query_id: str, rows: list[Any]) -> TraceGraph:
             depth=_NODE_DEPTH.get(agent_name, 99),
             status=status,
             confidence_tier=confidence,
+            confidence_score=_get_val(row, "confidence_score"),
+            confidence_detail=_get_val(row, "confidence_detail"),
             latency_ms=latency_ms,
             reasoning_summary=_reasoning_summary(agent_name, outputs, status),
             source_count=1 if source_provenance else 0,

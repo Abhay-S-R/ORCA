@@ -17,7 +17,9 @@ import { API_BASE } from "../lib/apiBase";
 import { classifyQueryIntent, matchRegionInQuery } from "../lib/queryIntent";
 import { readActiveChat, restoreContext, writeActiveChat, type ChatStore } from "./chatStore";
 
-export type AgentSpan = { agent_name: string; status: AgentStatus };
+// confidence_tier: the band of the agent's measured score (orca/confidence_score.py).
+// Only the label travels here — the number stays on /reasoning.
+export type AgentSpan = { agent_name: string; status: AgentStatus; confidence_tier?: ConfidenceTier };
 export type FinalResponse = {
   query_id?: string;
   final_english_response: string;
@@ -33,6 +35,9 @@ export type FinalResponse = {
   // Earlier turns of this chat the backend answered with (its context window,
   // orca/session.py). Absent on answers cached before the field existed.
   context_turns?: number;
+  // Per-agent scored labels (orca/api/main.py). A query-cache hit streams no
+  // agent_span events, so this is what the strip falls back to.
+  agent_confidence?: AgentSpan[];
 };
 
 export type Turn = {
@@ -242,7 +247,7 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
       es.onmessage = (ev) => {
         const data = JSON.parse(ev.data);
         if (data.type === "agent_span") {
-          updateTurn(id, (t) => ({ spans: [...t.spans, { agent_name: data.agent_name, status: data.status }] }));
+          updateTurn(id, (t) => ({ spans: [...t.spans, { agent_name: data.agent_name, status: data.status, confidence_tier: data.confidence_tier }] }));
         } else if (data.type === "final_response") {
           updateTurn(id, { answer: data, streaming: false });
           es.close();

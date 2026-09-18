@@ -134,6 +134,8 @@ class AuditTraceLog(Base):
     outputs: Mapped[dict | None] = mapped_column(JSONB)
     source_provenance: Mapped[dict | None] = mapped_column(JSONB)
     confidence: Mapped[str | None] = mapped_column(confidence_tier_enum)
+    confidence_score: Mapped[int | None]  # 005_confidence_score.sql
+    confidence_detail: Mapped[dict | None] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(execution_status_enum, nullable=False, server_default="ok")
     error_detail: Mapped[str | None] = mapped_column(Text)
     latency_ms: Mapped[int | None]

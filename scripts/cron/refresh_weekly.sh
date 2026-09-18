@@ -1,5 +1,5 @@
 #!/bin/sh
-# ORCA weekly refresh — see docs/ORCA_Data_Refresh_Cron_Guide.md.
+# ORCA weekly refresh — see docs/Guide/ORCA_Data_Refresh_Cron_Guide.md.
 cd "$(dirname "$0")/../.." || exit 1
 PY=backend/.venv/bin/python
 

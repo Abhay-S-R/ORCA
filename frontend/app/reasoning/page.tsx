@@ -209,6 +209,8 @@ function ReasoningContent() {
                   status: (data.status as TraceNode["status"]) || "ok",
                   latency_ms: data.latency_ms ?? n.latency_ms,
                   confidence_tier: data.confidence_tier ?? n.confidence_tier,
+                  confidence_score: data.confidence_score ?? null,
+                  confidence_detail: data.confidence_detail ?? null,
                   reasoning_summary: data.reasoning_summary || n.reasoning_summary,
                   inputs_consumed: data.inputs_consumed,
                   outputs: data.outputs,

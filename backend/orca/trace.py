@@ -18,6 +18,7 @@ from typing import Any
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 
+from orca.confidence_score import score_agent
 from orca.contracts import AgentResult, Confidence, SourceProvenance
 from orca.state import ORCAState
 
@@ -88,11 +89,16 @@ def run_traced_node(
                 error_detail=str(exc),
             )
     ended = time.time()
+    scored = score_agent(result)
     entry = {
         "agent_name": result.agent_name,
         "query_id": result.query_id,
         "status": result.status,
-        "confidence": result.confidence.score,
+        # The label every surface shows: the band of the measured score, never
+        # higher than the agent's own rule label (orca/confidence_score.py).
+        "confidence": scored["label"],
+        "confidence_score": scored["score"],
+        "confidence_detail": scored,
         "started_at": _utc_iso(started),
         "ended_at": _utc_iso(ended),
         "latency_ms": round((ended - started) * 1000, 1),

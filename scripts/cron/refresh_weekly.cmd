@@ -1,7 +1,7 @@
 @echo off
 REM ORCA weekly refresh — the WEEKLY-class sources not already covered by the
 REM daily MOSDAC run, plus the Open-Meteo offline caches (7-day validity).
-REM Scheduled by docs/ORCA_Data_Refresh_Cron_Guide.md.
+REM Scheduled by docs/Guide/ORCA_Data_Refresh_Cron_Guide.md.
 cd /d "%~dp0..\.."
 set PY=backend\.venv\Scripts\python.exe
 

@@ -1338,6 +1338,10 @@ def run(state: ORCAState) -> AgentResult:
             freshness_minutes=0,
         ),
         confidence=confidence,
+        # Coverage = contributing inputs that produced a usable reading (not
+        # LOW_DATA) out of those this query needed. Data age is not measured
+        # here yet — PFZ/tide freshness is P5.13's observed-freshness work.
+        coverage=(sum(1 for c in contributing if c.score != "LOW_DATA"), len(contributing)),
     )
 
 

@@ -184,7 +184,7 @@ That distinction is the entire reason this system exists — see the contract §
 
 There is no `schedule:` trigger in CI, and there cannot usefully be one: `data/` is gitignored,
 so a CI run has nowhere to persist what it downloads. The realistic answer is a local scheduled
-task — Task Scheduler on Windows, `cron` elsewhere. **`docs/ORCA_Data_Refresh_Cron_Guide.md`
+task — Task Scheduler on Windows, `cron` elsewhere. **`docs/Guide/ORCA_Data_Refresh_Cron_Guide.md`
 sets that up**: which of the 27 sources actually need a timer (11 do), the two jobs that cover
 them, and the wrapper scripts. Beyond it lies point
 P5.12 (`R-FRESH-4`, `refresh_all.py`) in the DLC implementation plan; the command list above is
