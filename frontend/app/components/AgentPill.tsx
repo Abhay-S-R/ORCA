@@ -1,66 +1,74 @@
 "use client";
 
 // The live agent activity strip (differentiator 1 — "what makes the UI
-// visibly agentic", §4.5). Up to ten agents execute per query (nine on the
-// query path plus the conditional Critic on DEEP depth); this is how a user
-// sees that happening instead of watching a spinner.
+// visibly agentic", §4.5). Up to ten agents execute per query; this is how a
+// user sees that happening instead of watching a spinner.
 //
-// Status is carried by BOTH a glyph and a colour, and the running state adds
-// motion on top — three redundant channels, so reduced-motion and colour
-// blindness each still leave two.
-import React, { useRef, type ComponentType } from "react";
+// No per-agent glyph and no static connector arrow: status reads through
+// colour, text and motion, and the link between two pills is itself the
+// tell — a current flowing toward whichever agent is in flight, the same
+// "water finding its way downstream" language the chart's own
+// FlowFieldCanvas uses for real ocean currents, just scaled down to a 12px
+// channel. A solid line once the flow has arrived, a quiet dashed one where
+// it hasn't reached yet.
+import React from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import {
-  Activity,
-  AlertTriangle,
-  ArrowRight,
-  Check,
-  ChevronRight,
-  Clock,
-  Cloud,
-  Compass,
-  Eye,
-  FileText,
-  Languages,
-  ListChecks,
-  Loader2,
-  Minus,
-  ShieldAlert,
-  ShieldCheck,
-  Sparkles,
-  Waves,
-  X,
-} from "lucide-react";
+import { AlertTriangle, Check, Loader2, X } from "lucide-react";
 
 export type AgentStatus = "pending" | "running" | "ok" | "degraded" | "failed" | "skipped";
 
-export const AGENT_REGISTRY: Record<
-  string,
-  { label: string; shortLabel: string; icon: ComponentType<{ className?: string }> }
-> = {
-  distress: { label: "Distress Check", shortLabel: "Distress", icon: ShieldAlert },
-  distresscheck: { label: "Distress Check", shortLabel: "Distress", icon: ShieldAlert },
-  distress_check: { label: "Distress Check", shortLabel: "Distress", icon: ShieldAlert },
-  languageingress: { label: "Language Ingress", shortLabel: "Ingress", icon: Languages },
-  language_ingress: { label: "Language Ingress", shortLabel: "Ingress", icon: Languages },
-  planning: { label: "Planning", shortLabel: "Planning", icon: ListChecks },
-  weatherintelligence: { label: "Weather Intel", shortLabel: "Weather", icon: Cloud },
-  weather_intelligence: { label: "Weather Intel", shortLabel: "Weather", icon: Cloud },
-  weather: { label: "Weather Intel", shortLabel: "Weather", icon: Cloud },
-  geospatial: { label: "Geospatial", shortLabel: "Geospatial", icon: Compass },
-  oceananalytics: { label: "Ocean Analytics", shortLabel: "Ocean", icon: Waves },
-  ocean_analytics: { label: "Ocean Analytics", shortLabel: "Ocean", icon: Waves },
-  ocean: { label: "Ocean Analytics", shortLabel: "Ocean", icon: Waves },
-  riskassessment: { label: "Risk Assessment", shortLabel: "Risk", icon: ShieldCheck },
-  risk_assessment: { label: "Risk Assessment", shortLabel: "Risk", icon: ShieldCheck },
-  risk: { label: "Risk Assessment", shortLabel: "Risk", icon: ShieldCheck },
-  visualization: { label: "Visualization", shortLabel: "Visuals", icon: Sparkles },
-  reporting: { label: "Reporting", shortLabel: "Reporting", icon: FileText },
-  critic: { label: "Critic", shortLabel: "Critic", icon: Eye },
-  languageegress: { label: "Language Egress", shortLabel: "Egress", icon: Languages },
-  language_egress: { label: "Language Egress", shortLabel: "Egress", icon: Languages },
-  working: { label: "Processing...", shortLabel: "Running", icon: Loader2 },
+export const AGENT_REGISTRY: Record<string, { label: string; shortLabel: string }> = {
+  distress: { label: "Distress Check", shortLabel: "Distress" },
+  distresscheck: { label: "Distress Check", shortLabel: "Distress" },
+  distress_check: { label: "Distress Check", shortLabel: "Distress" },
+  languageingress: { label: "Language Ingress", shortLabel: "Ingress" },
+  language_ingress: { label: "Language Ingress", shortLabel: "Ingress" },
+  planning: { label: "Planning", shortLabel: "Planning" },
+  weatherintelligence: { label: "Weather Intel", shortLabel: "Weather" },
+  weather_intelligence: { label: "Weather Intel", shortLabel: "Weather" },
+  weather: { label: "Weather Intel", shortLabel: "Weather" },
+  geospatial: { label: "Geospatial", shortLabel: "Geospatial" },
+  oceananalytics: { label: "Ocean Analytics", shortLabel: "Ocean" },
+  ocean_analytics: { label: "Ocean Analytics", shortLabel: "Ocean" },
+  ocean: { label: "Ocean Analytics", shortLabel: "Ocean" },
+  riskassessment: { label: "Risk Assessment", shortLabel: "Risk" },
+  risk_assessment: { label: "Risk Assessment", shortLabel: "Risk" },
+  risk: { label: "Risk Assessment", shortLabel: "Risk" },
+  visualization: { label: "Visualization", shortLabel: "Visuals" },
+  reporting: { label: "Reporting", shortLabel: "Reporting" },
+  critic: { label: "Critic", shortLabel: "Critic" },
+  languageegress: { label: "Language Egress", shortLabel: "Egress" },
+  language_egress: { label: "Language Egress", shortLabel: "Egress" },
 };
+
+// The normal query path, in execution order. The backend only ever reports
+// a span once an agent *finishes* — it never announces one starting — so
+// the strip has no real name for whichever agent is currently running
+// unless it infers one: the first agent in this order that hasn't reported
+// in yet. Critic is conditional (DEEP depth only) and left out on purpose;
+// it's rare enough that guessing it would be wrong more often than right,
+// and any wrong guess self-corrects the moment the next real span arrives.
+export const AGENT_ORDER = [
+  "distress",
+  "languageingress",
+  "planning",
+  "geospatial",
+  "oceananalytics",
+  "weatherintelligence",
+  "riskassessment",
+  "visualization",
+  "reporting",
+  "languageegress",
+];
+
+export function nextRunningAgent(spans: { agent_name: string }[]): string | null {
+  // Spans and AGENT_ORDER can each spell an agent differently (the registry
+  // carries several raw-name aliases per agent) — comparing by resolved
+  // short label, not raw string, is what makes this match regardless of
+  // which alias the backend happens to send.
+  const done = new Set(spans.map((s) => getAgentMeta(s.agent_name)?.shortLabel ?? s.agent_name));
+  return AGENT_ORDER.find((key) => !done.has(getAgentMeta(key)?.shortLabel ?? key)) ?? null;
+}
 
 export function getAgentMeta(raw: string) {
   const normalizedKey = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -77,6 +85,24 @@ export function formatAgentLabel(raw: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const STATUS_TEXT: Record<AgentStatus, string> = {
+  ok: "done",
+  running: "running",
+  degraded: "degraded",
+  failed: "failed",
+  pending: "queued",
+  skipped: "skipped",
+};
+
+const STATUS_STYLE: Record<AgentStatus, string> = {
+  ok: "border-hairline/80 bg-shelf-3 text-ink hover:border-hairline-strong shadow-2xs hover:shadow-xs",
+  running: "border-ocean-cyan/70 bg-ocean-cyan/10 text-ocean-cyan ring-1 ring-ocean-cyan/30 shadow-xs",
+  degraded: "border-caution/50 bg-caution/10 text-caution shadow-2xs hover:shadow-xs",
+  failed: "border-no-go/50 bg-no-go/10 text-no-go shadow-2xs hover:shadow-xs",
+  pending: "border-hairline/50 bg-shelf-1/60 text-ink-dim/80 opacity-75",
+  skipped: "border-hairline/40 bg-shelf-1/40 text-ink-dim/60 opacity-60",
+};
+
 export function AgentPill({
   name,
   status,
@@ -92,75 +118,27 @@ export function AgentPill({
   const meta = getAgentMeta(name);
   const fullLabel = formatAgentLabel(name);
   const shortLabel = meta?.shortLabel ?? fullLabel;
-  const Icon = meta?.icon ?? Activity;
-
-  const statusConfig = {
-    ok: {
-      container:
-        "border-hairline/80 bg-shelf-3 text-ink hover:border-hairline-strong shadow-2xs hover:shadow-xs",
-      badge: "bg-go/15 text-go",
-      iconColor: "text-ocean-cyan",
-      badgeIcon: Check,
-      text: "done",
-    },
-    running: {
-      container:
-        "border-ocean-cyan/70 bg-ocean-cyan/10 text-ocean-cyan ring-1 ring-ocean-cyan/30 shadow-xs",
-      badge: "bg-ocean-cyan/25 text-ocean-cyan",
-      iconColor: "text-ocean-cyan",
-      badgeIcon: Loader2,
-      text: "running",
-    },
-    degraded: {
-      container: "border-caution/50 bg-caution/10 text-caution shadow-2xs hover:shadow-xs",
-      badge: "bg-caution/20 text-caution",
-      iconColor: "text-caution",
-      badgeIcon: AlertTriangle,
-      text: "degraded",
-    },
-    failed: {
-      container: "border-no-go/50 bg-no-go/10 text-no-go shadow-2xs hover:shadow-xs",
-      badge: "bg-no-go/20 text-no-go",
-      iconColor: "text-no-go",
-      badgeIcon: X,
-      text: "failed",
-    },
-    pending: {
-      container: "border-hairline/50 bg-shelf-1/60 text-ink-dim/80 opacity-75",
-      badge: "bg-shelf-2 text-ink-dim",
-      iconColor: "text-ink-dim",
-      badgeIcon: Clock,
-      text: "queued",
-    },
-    skipped: {
-      container: "border-hairline/40 bg-shelf-1/40 text-ink-dim/60 opacity-60",
-      badge: "bg-shelf-2 text-ink-dim",
-      iconColor: "text-ink-dim",
-      badgeIcon: Minus,
-      text: "skipped",
-    },
-  }[status];
-
-  const BadgeIcon = statusConfig.badgeIcon;
+  const pulse = status === "running" && !reduce;
 
   return (
     <span
-      className={`inline-flex w-full min-w-0 h-7 shrink-0 items-center justify-center gap-1 sm:gap-1.5 rounded-md border px-1.5 sm:px-2 text-[11px] sm:text-xs font-medium tracking-tight whitespace-nowrap select-none transition-all duration-150 ${statusConfig.container} ${className}`}
-      title={`${fullLabel} — ${statusConfig.text}${latencyMs ? ` (${latencyMs}ms)` : ""}`}
+      className={`inline-flex w-full min-w-0 h-7 shrink-0 items-center justify-center gap-1 sm:gap-1.5 rounded-md border px-1.5 sm:px-2 text-[11px] sm:text-xs font-medium tracking-tight whitespace-nowrap select-none transition-colors duration-150 ${STATUS_STYLE[status]} ${pulse ? "animate-pulse" : ""} ${className}`}
+      title={`${fullLabel} — ${STATUS_TEXT[status]}${latencyMs ? ` (${latencyMs}ms)` : ""}`}
     >
-      <span
-        className={`flex size-3 shrink-0 items-center justify-center rounded-full ${statusConfig.badge}`}
-        aria-hidden="true"
-      >
-        <BadgeIcon
-          className={`size-2 ${status === "running" && !reduce ? "animate-spin" : ""} stroke-[2.5]`}
-        />
-      </span>
-
-      <Icon className={`size-3 shrink-0 hidden md:inline-block ${statusConfig.iconColor}`} aria-hidden="true" />
-
+      {status === "ok" && (
+        <Check className="size-3 sm:size-3.5 shrink-0 text-go" aria-hidden="true" strokeWidth={2.5} />
+      )}
+      {status === "running" && (
+        <Loader2 className="size-3 sm:size-3.5 shrink-0 animate-spin text-ocean-cyan" aria-hidden="true" />
+      )}
+      {status === "degraded" && (
+        <AlertTriangle className="size-3 sm:size-3.5 shrink-0 text-caution" aria-hidden="true" />
+      )}
+      {status === "failed" && (
+        <X className="size-3 sm:size-3.5 shrink-0 text-no-go" aria-hidden="true" />
+      )}
       <span className="truncate">{shortLabel}</span>
-      <span className="sr-only">({statusConfig.text})</span>
+      <span className="sr-only">({STATUS_TEXT[status]})</span>
 
       {latencyMs != null && status === "ok" && (
         <span
@@ -174,20 +152,62 @@ export function AgentPill({
   );
 }
 
+type LinkState = "idle" | "flowing" | "delivered";
+
+function linkState(left: AgentStatus | undefined, right: AgentStatus | undefined): LinkState {
+  const leftDone = !!left && left !== "pending" && left !== "running";
+  if (!leftDone || !right) return "idle";
+  const rightDone = right !== "pending" && right !== "running";
+  return rightDone ? "delivered" : "flowing";
+}
+
+// The connector: a 12–16px channel standing in for the water between two
+// buoys. Idle water is a faint dashed line; once the upstream agent is done
+// and the downstream one is in flight, a short bead of light runs the
+// channel on a loop — current carrying the query onward, not a spinner
+// telling you to wait. It solidifies into a steady cyan line once both
+// sides have actually landed.
+function AgentLink({ state }: { state: LinkState }) {
+  const reduce = useReducedMotion();
+
+  if (state === "flowing" && !reduce) {
+    return (
+      <div
+        aria-hidden="true"
+        className="relative h-1 w-3 shrink-0 self-center overflow-hidden rounded-full bg-hairline/25 sm:w-4"
+      >
+        <motion.span
+          className="absolute inset-y-0 left-0 w-2/3 rounded-full bg-gradient-to-r from-transparent via-ocean-cyan to-transparent"
+          animate={{ x: ["-100%", "250%"] }}
+          transition={{ duration: 0.9, repeat: Infinity, ease: "linear" }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      aria-hidden="true"
+      className={`h-px w-3 shrink-0 self-center rounded-full sm:w-4 ${
+        state === "delivered" ? "bg-ocean-cyan/70" : state === "flowing" ? "bg-ocean-cyan/40" : "bg-hairline/30"
+      }`}
+    />
+  );
+}
+
 export function AgentStrip({
   children,
   className = "",
 }: {
   children: React.ReactNode;
-  connectors?: boolean;
   className?: string;
 }) {
-  const items = React.Children.toArray(children).filter(Boolean);
+  const items = React.Children.toArray(children).filter(Boolean) as React.ReactElement<{ status: AgentStatus }>[];
 
   const row1 = items.slice(0, 5);
   const row2 = items.slice(5, 10);
 
-  const renderRow = (rowItems: React.ReactNode[]) => (
+  const renderRow = (rowItems: React.ReactElement<{ status: AgentStatus }>[]) => (
     <div className="flex items-center w-full justify-between gap-1 sm:gap-1.5">
       {Array.from({ length: 5 }).map((_, index) => {
         const item = rowItems[index];
@@ -198,13 +218,7 @@ export function AgentStrip({
                 <div className="h-7 w-full rounded-md border border-dashed border-hairline/30 bg-shelf-1/20" />
               )}
             </div>
-            {index < 4 && (
-              <ArrowRight
-                className="size-3 text-ink-dim/40 shrink-0 select-none"
-                strokeWidth={1.5}
-                aria-hidden="true"
-              />
-            )}
+            {index < 4 && <AgentLink state={linkState(item?.props.status, rowItems[index + 1]?.props.status)} />}
           </React.Fragment>
         );
       })}

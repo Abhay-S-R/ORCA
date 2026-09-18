@@ -5,7 +5,7 @@
 // evidence, rendered plainly. Every number carries its source (criterion 4).
 import { useRef, useState } from "react";
 import { AlertTriangle, ShieldCheck } from "lucide-react";
-import { AgentPill, AgentStrip, type AgentStatus } from "../components/AgentPill";
+import { AGENT_ORDER, AgentPill, AgentStrip, nextRunningAgent, type AgentStatus } from "../components/AgentPill";
 import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
@@ -106,6 +106,13 @@ export default function SafetyPage() {
   const weatherCite = answer?.citations.find((c) => c.agent_name === "weather_intelligence");
   const geoCite = answer?.citations.find((c) => c.agent_name === "geospatial");
 
+  const displaySpans =
+    spans.length > 0
+      ? spans
+      : answer
+      ? AGENT_ORDER.map((name) => ({ agent_name: name, status: "ok" as AgentStatus }))
+      : [];
+
   return (
     <PageBody className="mx-auto max-w-3xl">
       <PageHeader
@@ -149,13 +156,17 @@ export default function SafetyPage() {
         </form>
       </div>
 
-      {spans.length > 0 && (
+      {displaySpans.length > 0 && (
         <div className="mb-5 min-w-0 max-w-full">
           <AgentStrip>
-            {spans.map((s, i) => (
+            {displaySpans.map((s, i) => (
               <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} />
             ))}
-            {streaming && <AgentPill name="working" status="running" />}
+            {streaming &&
+              (() => {
+                const next = nextRunningAgent(spans);
+                return next && <AgentPill name={next} status="running" />;
+              })()}
           </AgentStrip>
         </div>
       )}

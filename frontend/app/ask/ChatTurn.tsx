@@ -6,7 +6,7 @@
 // one ever — keeping it here is what keeps the thread's map() call readable.
 import { motion } from "framer-motion";
 import { History, MapPin, Radio } from "lucide-react";
-import { AgentPill, AgentStrip } from "../components/AgentPill";
+import { AgentPill, AgentStrip, AGENT_ORDER, nextRunningAgent, type AgentStatus } from "../components/AgentPill";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
@@ -55,6 +55,13 @@ export function ChatTurn({
 }) {
   const { askedQuery, spans, answer, streaming, failed, renderedAs, focus } = turn;
   const weatherCitation = answer?.citations?.find((c) => c.agent_name === "weather_intelligence");
+  const runningAgent = streaming ? nextRunningAgent(spans) : null;
+  const displaySpans =
+    spans.length > 0
+      ? spans
+      : answer
+      ? AGENT_ORDER.map((name) => ({ agent_name: name, status: "ok" as AgentStatus }))
+      : [];
 
   return (
     <motion.div
@@ -70,9 +77,9 @@ export function ChatTurn({
       </p>
 
       {/* Differentiator 1 (§4.5): up to ten agents run per query. Inline
-          while it thinks, collapsing to a compact strip once the answer
-          lands — the trace stays inspectable without competing with it. */}
-      {spans.length > 0 && (
+          while it thinks, staying permanently inspectable once the answer
+          lands — with tick marks on all completed agents. */}
+      {(displaySpans.length > 0 || runningAgent) && (
         <div className="flex min-w-0 max-w-full flex-col gap-1.5">
           {streaming && (
             <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
@@ -81,10 +88,10 @@ export function ChatTurn({
             </span>
           )}
           <AgentStrip>
-            {spans.map((s, i) => (
+            {displaySpans.map((s, i) => (
               <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} />
             ))}
-            {streaming && <AgentPill name="working" status="running" />}
+            {runningAgent && <AgentPill name={runningAgent} status="running" />}
           </AgentStrip>
         </div>
       )}

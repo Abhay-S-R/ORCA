@@ -13,8 +13,8 @@
 // browser for guests and in the account once signed in (./chatStore).
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { motion, useReducedMotion } from "framer-motion";
-import { Compass, Fish, History, Maximize2, MapPin, Minimize2, Plus, ShieldCheck, Waves, Wind } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { Compass, Fish, History, Maximize2, MapPin, Minimize2, PanelLeftOpen, Plus, ShieldCheck, Waves, Wind } from "lucide-react";
 import { Button } from "../components/Button";
 import { Skeleton } from "../components/States";
 import { useVoiceInput } from "../components/VoiceInput";
@@ -23,7 +23,7 @@ import { usePersona } from "../persona/context";
 import { classifyQueryIntent, type QueryIntent } from "../lib/queryIntent";
 import { Composer } from "./Composer";
 import { ChatTurn } from "./ChatTurn";
-import { ChatHistoryRail, CollapsedChatRail } from "./ChatHistoryRail";
+import { ChatHistoryRail, CollapsedChatRail, iconButtonClass } from "./ChatHistoryRail";
 import { accountStore, browserStore, chatTitle } from "./chatStore";
 import { useAskThread } from "./useAskThread";
 
@@ -140,10 +140,42 @@ export default function AskPage() {
   );
 
   return (
-    <div className="flex h-full min-h-0 gap-4 p-5 lg:p-7">
-      <div className="hidden min-h-0 lg:flex">
-        {railCollapsed ? <CollapsedChatRail onExpand={() => collapseRail(false)} onNew={newChat} /> : history("rail")}
-      </div>
+    <div className="relative flex h-full min-h-0 gap-3 p-3 lg:p-4">
+      <AnimatePresence initial={false}>
+        {!railCollapsed && (
+          <motion.div
+            key="rail"
+            layout={!reduceMotion}
+            initial={reduceMotion ? false : { opacity: 0, width: 0 }}
+            animate={{ opacity: 1, width: "auto" }}
+            exit={reduceMotion ? undefined : { opacity: 0, width: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="hidden min-h-0 overflow-hidden lg:flex"
+          >
+            {history("rail")}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Collapsed rail before a thread exists: a floating pill, not a
+          reserved column, since the welcome screen has no header row to
+          anchor an inline control to. Once a thread starts, the same
+          control moves inline into the thread's own header (below) so it
+          can never sit on top of that header's text. */}
+      <AnimatePresence>
+        {railCollapsed && !hasStarted && (
+          <motion.div
+            key="rail-expand"
+            initial={reduceMotion ? false : { opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={reduceMotion ? undefined : { opacity: 0, scale: 0.9 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className="absolute top-3 left-3 z-20 hidden lg:block"
+          >
+            <CollapsedChatRail onExpand={() => collapseRail(false)} onNew={newChat} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {drawerOpen && (
         <div className="fixed inset-0 z-50 flex bg-abyss/50 lg:hidden" onClick={() => setDrawerOpen(false)}>
@@ -187,10 +219,21 @@ export default function AskPage() {
           />
         </div>
       ) : (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 lg:flex-row">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-4 lg:flex-row">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
             <div className="flex items-center justify-between gap-3 border-b border-hairline/60 pb-3">
               <div className="flex min-w-0 items-baseline gap-2">
+                {railCollapsed && (
+                  <button
+                    type="button"
+                    onClick={() => collapseRail(false)}
+                    aria-label="Show chat history"
+                    title="Chats"
+                    className={`${iconButtonClass} hidden self-center lg:grid`}
+                  >
+                    <PanelLeftOpen className="size-3.5" aria-hidden="true" />
+                  </button>
+                )}
                 <h1 className="shrink-0 text-xs font-bold uppercase tracking-wider text-ink-dim">Ask ORCA</h1>
                 {firstQuestion && (
                   <span className="truncate text-xs text-ink-muted" title={firstQuestion}>
@@ -207,13 +250,32 @@ export default function AskPage() {
                   </span>
                 )}
                 {historyButton}
+                {mapCollapsed && (
+                  <button
+                    type="button"
+                    onClick={() => setMapCollapsed(false)}
+                    aria-label="Expand map"
+                    title="Map"
+                    className={iconButtonClass}
+                  >
+                    <Maximize2 className="size-3.5" aria-hidden="true" />
+                  </button>
+                )}
                 <Button variant="ghost" icon={<Plus className="size-3.5" />} onClick={newChat}>
                   New chat
                 </Button>
               </div>
             </div>
 
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
+            {/* `relative` is load-bearing, not decoration: it makes this
+                scroller the containing block for the absolutely positioned
+                bits inside a turn (the agent pills' sr-only status spans).
+                Without it those resolve against the panel wrapper below,
+                escape this box's clipping, and stretch the page's own scroll
+                area by the full height of the thread — the empty scroll
+                space that appeared under the composer, map and history once a
+                thread ran past one screen. */}
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
               {turns.map((turn, i) => (
                 <ChatTurn
                   key={turn.id}
@@ -247,25 +309,34 @@ export default function AskPage() {
           <motion.div
             layout={!reduceMotion}
             transition={{ duration: 0.25, ease: "easeOut" }}
-            className={`relative shrink-0 overflow-hidden rounded-2xl border border-hairline bg-shelf-1/60 shadow-2xl ${mapCollapsed ? "h-11 w-full lg:h-full lg:w-11" : "h-64 w-full lg:h-full lg:w-[42%]"
-              }`}
+            // Collapsed: pulled out of the flex flow entirely (absolute,
+            // zero-opacity, non-interactive) so the thread covers the full
+            // width instead of yielding a reserved strip — but still
+            // rendered at its normal target size, kept mounted, one
+            // MapLibre instance for the whole session, per MapView's own
+            // layout thesis. Expanded: a normal flex sibling again.
+            className={
+              mapCollapsed
+                ? "pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl opacity-0 lg:right-0 lg:left-auto lg:w-[42%]"
+                : "relative h-64 w-full shrink-0 overflow-hidden rounded-2xl border border-hairline bg-shelf-1/60 shadow-2xl lg:h-full lg:w-[42%]"
+            }
           >
-            <button
-              type="button"
-              onClick={() => setMapCollapsed((c) => !c)}
-              aria-label={mapCollapsed ? "Expand map" : "Collapse map"}
-              aria-expanded={!mapCollapsed}
-              className="absolute top-2 left-2 z-10 flex size-7 items-center justify-center rounded-lg border border-hairline/80 bg-shelf-1/90 text-ink-dim shadow-sm backdrop-blur-sm transition-colors hover:border-ocean-cyan/60 hover:text-ocean-cyan"
-            >
-              {mapCollapsed ? <Maximize2 className="size-3.5" /> : <Minimize2 className="size-3.5" />}
-            </button>
+            {!mapCollapsed && (
+              <button
+                type="button"
+                onClick={() => setMapCollapsed(true)}
+                aria-label="Collapse map"
+                aria-expanded={true}
+                className="absolute top-2 left-2 z-10 flex size-7 items-center justify-center rounded-lg border border-hairline/80 bg-shelf-1/90 text-ink-dim shadow-sm backdrop-blur-sm transition-colors hover:border-ocean-cyan/60 hover:text-ocean-cyan"
+              >
+                <Minimize2 className="size-3.5" />
+              </button>
+            )}
 
             {/* Depth shading + surface currents on by default (plan §9) — the
                 only Ask-specific default; /map and /voyage keep their own tuned
-                defaults via the same `initialLayers` prop. Kept mounted while
-                collapsed (opacity only) — one MapLibre instance for the whole
-                session, per MapView's own layout thesis. */}
-            <div className={mapCollapsed ? "pointer-events-none h-full w-full opacity-0" : "h-full w-full transition-opacity duration-200"}>
+                defaults via the same `initialLayers` prop. */}
+            <div className="h-full w-full">
               <MapView
                 className="h-full w-full"
                 initialLayers={{ srvBathymetry: true, currents: true }}

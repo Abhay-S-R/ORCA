@@ -34,17 +34,22 @@ export const INTENT_LABEL: Record<QueryIntent, string> = {
 // region can move the camera there directly. Kept as plain keyword lookup —
 // good enough to catch "near Chennai" or "off the Kerala coast", not a full
 // geocoder.
+// Each alias below is a port or town that genuinely sits inside that
+// sector's own frame (roughly within 150 km of its centre), so naming it puts
+// the chart somewhere the reader would recognise. Places with no sector close
+// enough are deliberately absent — a wrong "near enough" region is worse than
+// falling back to the reader's own position.
 const REGION_KEYWORDS: { id: string; pattern: RegExp }[] = [
-  { id: "gulf_mannar", pattern: /thoothukudi|tuticorin|gulf of mannar/i },
-  { id: "gujarat", pattern: /gujarat|kutch|saurashtra/i },
-  { id: "mumbai", pattern: /mumbai|bombay|konkan/i },
-  { id: "goa", pattern: /\bgoa\b|karwar/i },
-  { id: "kochi", pattern: /kochi|cochin|malabar|kerala/i },
-  { id: "lakshadweep", pattern: /lakshadweep/i },
-  { id: "chennai", pattern: /chennai|madras|coromandel|tamil nadu/i },
-  { id: "vizag", pattern: /visakhapatnam|vizag|andhra pradesh/i },
-  { id: "kolkata", pattern: /odisha|sundarbans|kolkata|west bengal/i },
-  { id: "andaman", pattern: /andaman|nicobar/i },
+  { id: "gulf_mannar", pattern: /thoothukudi|tuticorin|gulf of mannar|rameswaram|rameshwaram|pamban|mandapam|kanyakumari|kanniyakumari/i },
+  { id: "gujarat", pattern: /gujarat|kutch|saurashtra|porbandar|veraval|dwarka|okha|jamnagar|kandla|mundra/i },
+  { id: "mumbai", pattern: /mumbai|bombay|konkan|alibag|uran|jnpt|vasai|thane/i },
+  { id: "goa", pattern: /\bgoa\b|karwar|panaji|panjim|vasco|mormugao|malvan/i },
+  { id: "kochi", pattern: /kochi|cochin|malabar|kerala|alappuzha|alleppey|kollam|kozhikode|calicut|munambam|beypore/i },
+  { id: "lakshadweep", pattern: /lakshadweep|kavaratti|minicoy/i },
+  { id: "chennai", pattern: /chennai|madras|coromandel|tamil nadu|ennore|mahabalipuram|mamallapuram|puducherry|pondicherry/i },
+  { id: "vizag", pattern: /visakhapatnam|vizag|andhra pradesh|kakinada|bheemunipatnam|bhimunipatnam|srikakulam/i },
+  { id: "kolkata", pattern: /odisha|sundarbans|kolkata|west bengal|paradip|paradeep|digha|haldia/i },
+  { id: "andaman", pattern: /andaman|nicobar|port blair/i },
 ];
 
 export function matchRegionInQuery(query: string): string | undefined {

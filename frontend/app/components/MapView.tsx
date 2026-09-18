@@ -182,6 +182,11 @@ const resolveTileUrl = (template: string, frame?: string) =>
 // distance across exactly this span.
 const SCALE_BAR_PX = 100;
 
+// The fence sits exactly on the data's own edge — no slack. Any padding here
+// shows up as a strip of bare basemap along the viewport edges at full
+// zoom-out, which is the thing the fence exists to prevent.
+const FENCE_PAD_DEG = 0;
+
 const HEAVY_KEYS = ["srvBathymetry", "waveForecast", "currents", "wind"] as const;
 type HeavyKey = (typeof HEAVY_KEYS)[number];
 const HEAVY_LABEL: Record<HeavyKey, string> = {
@@ -212,6 +217,21 @@ export type QueryFocus = {
   intent: "fishing" | "boundary" | "safety" | "current" | "wave" | "general";
   regionId?: string;
   nonce: number;
+};
+
+/** What a question actually asks the chart to show. Answering a query swaps
+ *  the layer set to exactly this — every other layer goes off, so the chart
+ *  under an answer carries the evidence for that answer and nothing else.
+ *  "safety" keeps two layers because the go/no-go verdict is itself built on
+ *  two: sea state and boundary standoff. "general" is absent on purpose — an
+ *  unclassifiable question is not a request to strip the chart bare, so it
+ *  leaves the layers exactly as the reader left them. */
+const QUERY_INTENT_LAYERS: Partial<Record<QueryFocus["intent"], readonly string[]>> = {
+  fishing: ["pfz"],
+  boundary: ["boundaries", "boundaryLines"],
+  current: ["currents"],
+  wave: ["waveForecast"],
+  safety: ["waveForecast", "boundaries"],
 };
 
 export function MapView({
@@ -317,6 +337,9 @@ export function MapView({
     ...initialLayers,
   });
   const [rasterLayers, setRasterLayers] = useState<RasterLayerMeta[]>([]);
+  // The opening view's own bounds, captured the first time the fence below is
+  // built, so the fence always contains the camera the chart starts at.
+  const homeBounds = useRef<[number, number, number, number] | null>(null);
   const [currentVectors, setCurrentVectors] = useState<CurrentVector[] | null>(null);
   const [currentBounds, setCurrentBounds] = useState<[number, number, number, number] | null>(null);
   // Archived ScatSat wind — a second, honestly-distinct vector field from
@@ -1086,29 +1109,45 @@ export function MapView({
     if (queryFocus.regionId) {
       setSelectedRegion(queryFocus.regionId);
     }
+    // The layer set for this question — exactly the prescription above, not
+    // the previous answer's layers plus one more.
+    const prescribed = QUERY_INTENT_LAYERS[queryFocus.intent];
+    if (prescribed) {
+      setLayers((s) => {
+        const next = { ...s };
+        for (const key of Object.keys(next) as (keyof typeof next)[]) {
+          next[key] = prescribed.includes(key);
+        }
+        return next;
+      });
+      // Keep the heavy-layer LRU honest about what is actually running, or
+      // the next manual toggle evicts a layer that is already off.
+      lru.current = HEAVY_KEYS.filter((k) => prescribed.includes(k));
+    }
+    // Same anchor the camera effect below uses: a named place if the query
+    // had one, the reader's own position otherwise — so the ship marker
+    // points at geometry that is actually on screen.
+    const focusRegion = queryFocus.regionId
+      ? COASTAL_REGIONS.find((r) => r.id === queryFocus.regionId)
+      : undefined;
+    const anchor: [number, number] = focusRegion ? focusRegion.center : focusPoint;
     let bearing: number | null = null;
     if (queryFocus.intent === "boundary") {
-      setLayers((s) => (s.boundaries ? s : { ...s, boundaries: true }));
       const coords = boundaryFeatures.features.filter((f) => f.properties.near).flatMap((f) => flattenCoords(f.geometry));
       if (coords.length) {
         const lon = coords.reduce((s, c) => s + c[0], 0) / coords.length;
         const lat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
-        bearing = bearingDeg(focusPoint[1], focusPoint[0], lat, lon);
+        bearing = bearingDeg(anchor[1], anchor[0], lat, lon);
       }
     } else if (queryFocus.intent === "fishing") {
-      setLayers((s) => (s.pfz ? s : { ...s, pfz: true }));
       const near = pfzFeatures.filter(
-        (f) => haversineKm(focusPoint[1], focusPoint[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
+        (f) => haversineKm(anchor[1], anchor[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
       );
       if (near.length) {
         const lon = near.reduce((s, f) => s + f.geometry.coordinates[0], 0) / near.length;
         const lat = near.reduce((s, f) => s + f.geometry.coordinates[1], 0) / near.length;
-        bearing = bearingDeg(focusPoint[1], focusPoint[0], lat, lon);
+        bearing = bearingDeg(anchor[1], anchor[0], lat, lon);
       }
-    } else if (queryFocus.intent === "current") {
-      setLayers((s) => (s.currents ? s : { ...s, currents: true }));
-    } else if (queryFocus.intent === "wave") {
-      setLayers((s) => (s.waveForecast ? s : { ...s, waveForecast: true }));
     }
     setShipBearing(bearing);
   }
@@ -1130,51 +1169,71 @@ export function MapView({
     const m = map.current;
 
     // A named place in the query (plan item 8, "location-specific query")
-    // wins outright — the user asked about somewhere specific, so the chart
-    // goes there over any topic-based default.
-    if (queryFocus.regionId) {
-      const region = COASTAL_REGIONS.find((r) => r.id === queryFocus.regionId);
-      if (region) {
-        m.flyTo({ center: region.center, zoom: region.zoom, duration: 1000 });
-        return;
-      }
-    }
+    // becomes the ANCHOR the topic then settles around, rather than a camera
+    // move that wins outright: "PFZ near Kochi" has to show Kochi AND the
+    // zones, so the place decides where to look and the intent decides how
+    // wide. With no place named, the anchor stays the reader's own position,
+    // exactly as before.
+    const region = queryFocus.regionId
+      ? COASTAL_REGIONS.find((r) => r.id === queryFocus.regionId)
+      : undefined;
+    const anchor: [number, number] = region ? region.center : focusPoint;
+    // Where the camera lands when the topic has no geometry near the anchor:
+    // the named sector at its own framing, or the reader's position.
+    const fallback = (zoom: number) =>
+      m.flyTo(
+        region
+          ? { center: region.center, zoom: region.zoom, duration: 1000 }
+          : { center: focusPoint, zoom, duration: 900 },
+      );
 
     if (queryFocus.intent === "boundary") {
       const near = boundaryFeatures.features.filter((f) => f.properties.near);
       const coords = near.flatMap((f) => flattenCoords(f.geometry));
       if (coords.length) {
-        const lons = [focusPoint[0], ...coords.map((c) => c[0])];
-        const lats = [focusPoint[1], ...coords.map((c) => c[1])];
+        const lons = [anchor[0], ...coords.map((c) => c[0])];
+        const lats = [anchor[1], ...coords.map((c) => c[1])];
         m.fitBounds(
           [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
           { padding: 72, maxZoom: 9.5, duration: 900 },
         );
       } else {
-        m.flyTo({ center: focusPoint, zoom: 8.2, duration: 900 });
+        fallback(8.2);
       }
     } else if (queryFocus.intent === "fishing") {
       const near = pfzFeatures.filter(
-        (f) => haversineKm(focusPoint[1], focusPoint[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
+        (f) => haversineKm(anchor[1], anchor[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
       );
       if (near.length) {
-        const lons = [focusPoint[0], ...near.map((f) => f.geometry.coordinates[0])];
-        const lats = [focusPoint[1], ...near.map((f) => f.geometry.coordinates[1])];
+        const lons = [anchor[0], ...near.map((f) => f.geometry.coordinates[0])];
+        const lats = [anchor[1], ...near.map((f) => f.geometry.coordinates[1])];
         m.fitBounds(
           [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
           { padding: 80, maxZoom: 9, duration: 900 },
         );
       } else {
-        m.flyTo({ center: focusPoint, zoom: 8.6, duration: 900 });
+        fallback(8.6);
       }
-    } else if (queryFocus.intent === "current" && currentBounds) {
-      const [w, s, e, n] = currentBounds;
-      m.fitBounds([[w, s], [e, n]], { padding: 60, maxZoom: 6.5, duration: 900 });
-    } else if (queryFocus.intent === "wave" && forecastLayer?.bounds) {
-      const [w, s, e, n] = forecastLayer.bounds;
-      m.fitBounds([[w, s], [e, n]], { padding: 60, maxZoom: 8, duration: 900 });
+    } else if (queryFocus.intent === "current" || queryFocus.intent === "wave") {
+      // Both fields cover the whole basin, so there is no "nearby geometry"
+      // to frame: a named place keeps its own sector (the field is drawn
+      // there too), and only an unplaced question falls back to the whole
+      // field's extent.
+      const bounds = queryFocus.intent === "current" ? currentBounds : forecastLayer?.bounds;
+      if (region) {
+        fallback(8.2);
+      } else if (bounds) {
+        const [w, s, e, n] = bounds;
+        m.fitBounds([[w, s], [e, n]], {
+          padding: 60,
+          maxZoom: queryFocus.intent === "current" ? 6.5 : 8,
+          duration: 900,
+        });
+      } else {
+        fallback(8.2);
+      }
     } else {
-      m.flyTo({ center: focusPoint, zoom: 8.2, duration: 900 });
+      fallback(8.2);
     }
     // Only the nonce should retrigger this — `boundaryFeatures`/`pfzFeatures`
     // are read for their current value, not watched (both settle long
@@ -1237,6 +1296,42 @@ export function MapView({
       vis(`srv-${layer.layer_id}-raster`, on);
     }
   }, [ready, layers, rasterLayers, basemap]);
+
+  /* ---- camera fence: the chart can only be panned and zoomed inside the
+     water we actually hold values for. The box is measured from the plotted
+     data itself — every current vector, wind vector and fishing zone — not
+     from a layer's declared envelope: the bathymetry raster advertises
+     [65,0 .. 98,26] but its own depth lookup answers "Outside coverage" over
+     much of that, which is exactly the empty ocean this fence is meant to
+     keep the chart out of. Unioned with the opening view, because MapLibre
+     clamps a camera that would show outside maxBounds and would otherwise
+     shove the home view in. Recomputed as feeds land. */
+  useEffect(() => {
+    const m = map.current;
+    if (!ready || !m) return;
+    const lons: number[] = [];
+    const lats: number[] = [];
+    for (const v of currentVectors ?? []) (lons.push(v.lon), lats.push(v.lat));
+    for (const v of windVectors ?? []) (lons.push(v.lon), lats.push(v.lat));
+    for (const f of pfzFeatures) {
+      lons.push(f.geometry.coordinates[0]);
+      lats.push(f.geometry.coordinates[1]);
+    }
+    if (!lons.length) return;
+    // The opening view, measured once — not recomputed later, or panning to
+    // the fence edge would drag the fence along with it.
+    if (!homeBounds.current) {
+      const b = m.getBounds();
+      homeBounds.current = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+    }
+    const [hw, hs, he, hn] = homeBounds.current;
+    lons.push(hw, he);
+    lats.push(hs, hn);
+    m.setMaxBounds([
+      [Math.min(...lons) - FENCE_PAD_DEG, Math.min(...lats) - FENCE_PAD_DEG],
+      [Math.max(...lons) + FENCE_PAD_DEG, Math.max(...lats) + FENCE_PAD_DEG],
+    ]);
+  }, [ready, currentVectors, windVectors, pfzFeatures]);
 
   /* ---- PFZ glyph re-tint: the fish follows what is under it — deep-water
      imagery wants a bright body on a near-black halo, pale chart paper wants
