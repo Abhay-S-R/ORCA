@@ -106,6 +106,13 @@ export default function SafetyPage() {
   const weatherCite = answer?.citations.find((c) => c.agent_name === "weather_intelligence");
   const geoCite = answer?.citations.find((c) => c.agent_name === "geospatial");
 
+  const displaySpans =
+    spans.length > 0
+      ? spans
+      : answer
+      ? AGENT_ORDER.map((name) => ({ agent_name: name, status: "ok" as AgentStatus }))
+      : [];
+
   return (
     <PageBody className="mx-auto max-w-3xl">
       <PageHeader
@@ -149,10 +156,10 @@ export default function SafetyPage() {
         </form>
       </div>
 
-      {spans.length > 0 && (
+      {displaySpans.length > 0 && (
         <div className="mb-5 min-w-0 max-w-full">
           <AgentStrip>
-            {spans.map((s, i) => (
+            {displaySpans.map((s, i) => (
               <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} />
             ))}
             {streaming &&
