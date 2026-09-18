@@ -1119,22 +1119,29 @@ export function MapView({
       // the next manual toggle evicts a layer that is already off.
       lru.current = HEAVY_KEYS.filter((k) => prescribed.includes(k));
     }
+    // Same anchor the camera effect below uses: a named place if the query
+    // had one, the reader's own position otherwise — so the ship marker
+    // points at geometry that is actually on screen.
+    const focusRegion = queryFocus.regionId
+      ? COASTAL_REGIONS.find((r) => r.id === queryFocus.regionId)
+      : undefined;
+    const anchor: [number, number] = focusRegion ? focusRegion.center : focusPoint;
     let bearing: number | null = null;
     if (queryFocus.intent === "boundary") {
       const coords = boundaryFeatures.features.filter((f) => f.properties.near).flatMap((f) => flattenCoords(f.geometry));
       if (coords.length) {
         const lon = coords.reduce((s, c) => s + c[0], 0) / coords.length;
         const lat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
-        bearing = bearingDeg(focusPoint[1], focusPoint[0], lat, lon);
+        bearing = bearingDeg(anchor[1], anchor[0], lat, lon);
       }
     } else if (queryFocus.intent === "fishing") {
       const near = pfzFeatures.filter(
-        (f) => haversineKm(focusPoint[1], focusPoint[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
+        (f) => haversineKm(anchor[1], anchor[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
       );
       if (near.length) {
         const lon = near.reduce((s, f) => s + f.geometry.coordinates[0], 0) / near.length;
         const lat = near.reduce((s, f) => s + f.geometry.coordinates[1], 0) / near.length;
-        bearing = bearingDeg(focusPoint[1], focusPoint[0], lat, lon);
+        bearing = bearingDeg(anchor[1], anchor[0], lat, lon);
       }
     }
     setShipBearing(bearing);
@@ -1157,51 +1164,71 @@ export function MapView({
     const m = map.current;
 
     // A named place in the query (plan item 8, "location-specific query")
-    // wins outright — the user asked about somewhere specific, so the chart
-    // goes there over any topic-based default.
-    if (queryFocus.regionId) {
-      const region = COASTAL_REGIONS.find((r) => r.id === queryFocus.regionId);
-      if (region) {
-        m.flyTo({ center: region.center, zoom: region.zoom, duration: 1000 });
-        return;
-      }
-    }
+    // becomes the ANCHOR the topic then settles around, rather than a camera
+    // move that wins outright: "PFZ near Kochi" has to show Kochi AND the
+    // zones, so the place decides where to look and the intent decides how
+    // wide. With no place named, the anchor stays the reader's own position,
+    // exactly as before.
+    const region = queryFocus.regionId
+      ? COASTAL_REGIONS.find((r) => r.id === queryFocus.regionId)
+      : undefined;
+    const anchor: [number, number] = region ? region.center : focusPoint;
+    // Where the camera lands when the topic has no geometry near the anchor:
+    // the named sector at its own framing, or the reader's position.
+    const fallback = (zoom: number) =>
+      m.flyTo(
+        region
+          ? { center: region.center, zoom: region.zoom, duration: 1000 }
+          : { center: focusPoint, zoom, duration: 900 },
+      );
 
     if (queryFocus.intent === "boundary") {
       const near = boundaryFeatures.features.filter((f) => f.properties.near);
       const coords = near.flatMap((f) => flattenCoords(f.geometry));
       if (coords.length) {
-        const lons = [focusPoint[0], ...coords.map((c) => c[0])];
-        const lats = [focusPoint[1], ...coords.map((c) => c[1])];
+        const lons = [anchor[0], ...coords.map((c) => c[0])];
+        const lats = [anchor[1], ...coords.map((c) => c[1])];
         m.fitBounds(
           [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
           { padding: 72, maxZoom: 9.5, duration: 900 },
         );
       } else {
-        m.flyTo({ center: focusPoint, zoom: 8.2, duration: 900 });
+        fallback(8.2);
       }
     } else if (queryFocus.intent === "fishing") {
       const near = pfzFeatures.filter(
-        (f) => haversineKm(focusPoint[1], focusPoint[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
+        (f) => haversineKm(anchor[1], anchor[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
       );
       if (near.length) {
-        const lons = [focusPoint[0], ...near.map((f) => f.geometry.coordinates[0])];
-        const lats = [focusPoint[1], ...near.map((f) => f.geometry.coordinates[1])];
+        const lons = [anchor[0], ...near.map((f) => f.geometry.coordinates[0])];
+        const lats = [anchor[1], ...near.map((f) => f.geometry.coordinates[1])];
         m.fitBounds(
           [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
           { padding: 80, maxZoom: 9, duration: 900 },
         );
       } else {
-        m.flyTo({ center: focusPoint, zoom: 8.6, duration: 900 });
+        fallback(8.6);
       }
-    } else if (queryFocus.intent === "current" && currentBounds) {
-      const [w, s, e, n] = currentBounds;
-      m.fitBounds([[w, s], [e, n]], { padding: 60, maxZoom: 6.5, duration: 900 });
-    } else if (queryFocus.intent === "wave" && forecastLayer?.bounds) {
-      const [w, s, e, n] = forecastLayer.bounds;
-      m.fitBounds([[w, s], [e, n]], { padding: 60, maxZoom: 8, duration: 900 });
+    } else if (queryFocus.intent === "current" || queryFocus.intent === "wave") {
+      // Both fields cover the whole basin, so there is no "nearby geometry"
+      // to frame: a named place keeps its own sector (the field is drawn
+      // there too), and only an unplaced question falls back to the whole
+      // field's extent.
+      const bounds = queryFocus.intent === "current" ? currentBounds : forecastLayer?.bounds;
+      if (region) {
+        fallback(8.2);
+      } else if (bounds) {
+        const [w, s, e, n] = bounds;
+        m.fitBounds([[w, s], [e, n]], {
+          padding: 60,
+          maxZoom: queryFocus.intent === "current" ? 6.5 : 8,
+          duration: 900,
+        });
+      } else {
+        fallback(8.2);
+      }
     } else {
-      m.flyTo({ center: focusPoint, zoom: 8.2, duration: 900 });
+      fallback(8.2);
     }
     // Only the nonce should retrigger this — `boundaryFeatures`/`pfzFeatures`
     // are read for their current value, not watched (both settle long
