@@ -267,7 +267,15 @@ export default function AskPage() {
               </div>
             </div>
 
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
+            {/* `relative` is load-bearing, not decoration: it makes this
+                scroller the containing block for the absolutely positioned
+                bits inside a turn (the agent pills' sr-only status spans).
+                Without it those resolve against the panel wrapper below,
+                escape this box's clipping, and stretch the page's own scroll
+                area by the full height of the thread — the empty scroll
+                space that appeared under the composer, map and history once a
+                thread ran past one screen. */}
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
               {turns.map((turn, i) => (
                 <ChatTurn
                   key={turn.id}

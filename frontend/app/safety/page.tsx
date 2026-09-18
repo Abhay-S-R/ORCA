@@ -5,7 +5,7 @@
 // evidence, rendered plainly. Every number carries its source (criterion 4).
 import { useRef, useState } from "react";
 import { AlertTriangle, ShieldCheck } from "lucide-react";
-import { AgentPill, AgentStrip, nextRunningAgent, type AgentStatus } from "../components/AgentPill";
+import { AGENT_ORDER, AgentPill, AgentStrip, nextRunningAgent, type AgentStatus } from "../components/AgentPill";
 import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
