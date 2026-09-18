@@ -28,6 +28,13 @@ from orca.agents.geospatial import (
 )
 from orca.agents.visualization import generate_map_layers as agent8_generate_map_layers
 from orca.data.analytics_loaders import load_boundary_provenance
+from orca.data.freshness import max_age_minutes, read_json_if_fresh
+
+# Derived-cache windows, taken from the class of the source each is derived from
+# (docs/ORCA_Data_Freshness_Contract.md): HYCOM currents are DAILY, scatterometer
+# wind is WEEKLY. A derived artefact may never claim to be fresher than its input.
+CURRENT_VECTOR_TTL_MINUTES = max_age_minutes("DAILY")
+WIND_VECTOR_TTL_MINUTES = max_age_minutes("WEEKLY")
 from orca.trace import record_layer_metric
 from orca.api.params import Lat, Lon, OptLat, OptLon
 
@@ -63,15 +70,18 @@ def raster_layers(lat: OptLat = None, lon: OptLon = None) -> dict:
 def current_vectors_route(pan_india: bool = True) -> dict:
     """Real HYCOM surface current vectors (plan's revised D3 stack — the
     flow particle layer). Points, not a MapLayer: a vector field the frontend
-    turns into an animated flow field client-side."""
+    turns into an animated flow field client-side.
+
+    The cache expires (R-FRESH-2). It used to be returned whenever the file
+    existed, which meant a field computed on 2026-09-09 was still being served
+    nine days later while a newer HYCOM run sat unread on the same disk. HYCOM is
+    a DAILY-class source, so the window is a day.
+    """
     cache_path = DATA_ROOT / "tier1" / "vectors" / "pan_india_currents_v2.json"
-    if pan_india and cache_path.exists():
-        import json
-        try:
-            with open(cache_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
+    if pan_india:
+        cached = read_json_if_fresh(cache_path, CURRENT_VECTOR_TTL_MINUTES)
+        if cached is not None:
+            return cached
     if pan_india:
         pts = current_vectors(bbox=PAN_INDIA_BBOX_WSEN, stride=3)
         result = {"points": pts, "bounds": list(PAN_INDIA_BBOX_WSEN)}
@@ -90,15 +100,19 @@ def current_vectors_route(pan_india: bool = True) -> dict:
 def wind_vectors_route(pan_india: bool = True) -> dict:
     """Archived ScatSat 10m wind. NOT live — one snapshot per day —
     so `acquisition_date` ships in the response for the frontend to render
-    as an honest freshness label, never silently presented as 'now'."""
+    as an honest freshness label, never silently presented as 'now'.
+
+    Scatterometer wind is WEEKLY-class, so the derived cache expires weekly
+    (R-FRESH-2); before this it never expired at all and served a field built
+    on 2026-09-04 from an 2026-08-27 pass. Note that rebuilding only helps once
+    someone has downloaded a newer granule — the honest label carried by
+    `acquisition_date` is what covers the gap in between.
+    """
     cache_path = DATA_ROOT / "tier1" / "vectors" / "pan_india_wind.json"
-    if pan_india and cache_path.exists():
-        import json
-        try:
-            with open(cache_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
+    if pan_india:
+        cached = read_json_if_fresh(cache_path, WIND_VECTOR_TTL_MINUTES)
+        if cached is not None:
+            return cached
     if pan_india:
         res = wind_vectors(bbox=PAN_INDIA_BBOX_WSEN, stride=4)
         try:

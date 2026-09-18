@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from orca.data.loaders import DATA_DIR
@@ -182,14 +183,43 @@ def load_pfz_master() -> list[dict[str, Any]]:
         return list(csv.DictReader(f))
 
 
+def _pfz_valid_for(doc: dict[str, Any]) -> str:
+    """Newest `valid_for` across a PFZ FeatureCollection, "" when it has none."""
+    dates = {
+        f.get("properties", {}).get("valid_for", "")
+        for f in doc.get("features", ())
+    }
+    return max((d for d in dates if d), default="")
+
+
 def load_pfz_live_geojson() -> dict[str, Any]:
-    """All INCOIS live advisory points formatted as GeoJSON."""
+    """All INCOIS advisory points as GeoJSON — national coverage when it is at
+    least as current as the live scrape, otherwise the live scrape.
+
+    The national file (`build_all_india_pfz.py`) covers more sectors, so it is
+    preferred — but on `valid_for`, never on mere existence. It used to be picked
+    whenever it was on disk, which meant a national build from 2026-09-02 was
+    served in preference to a live scrape from 09-17: sixteen-day-old advisories,
+    nationwide, with nothing saying so (R-INDIA-3 / R-FRESH-2).
+    """
     all_india = PFZ_DIR / "all_india_pfz_advisories.geojson"
-    path = all_india if all_india.exists() else (PFZ_DIR / "incois_pfz_live_advisories.geojson")
-    if not path.exists():
-        return {"type": "FeatureCollection", "features": []}
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    live = PFZ_DIR / "incois_pfz_live_advisories.geojson"
+
+    def _read(path: Path) -> dict[str, Any] | None:
+        if not path.exists():
+            return None
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    national, live_doc = _read(all_india), _read(live)
+    if national is None:
+        return live_doc or {"type": "FeatureCollection", "features": []}
+    if live_doc is None:
+        return national
+    return national if _pfz_valid_for(national) >= _pfz_valid_for(live_doc) else live_doc
 
 
 # --- catch statistics --------------------------------------------------------

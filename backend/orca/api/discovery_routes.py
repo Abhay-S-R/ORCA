@@ -12,6 +12,7 @@ from orca.agents.discovery import (
     local_catalog,
     select_source_with_fallback,
 )
+from orca.data.freshness import observe_all
 
 router = APIRouter(prefix="/api", tags=["discovery"])
 
@@ -25,10 +26,17 @@ def list_sources(data_type: str | None = None, down: str | None = None) -> dict:
     `/zones` moved to analytics_routes (Phase 2 D2 owns that surface).
     """
     if data_type is None:
+        observed = observe_all()
         return {
             "sources": [
                 {
                     **s.__dict__,
+                    # `typical_freshness_minutes` is the upstream provider's
+                    # published cadence; the `observed_*` fields are how old
+                    # ORCA's own copy is right now. /data renders both, because
+                    # showing only the first reads as a claim about the second
+                    # and was false for three sources (R-FRESH-3).
+                    **(observed[s.id].as_dict() if s.id in observed else {}),
                     "fallback_chain": list(FALLBACK_CASCADES.get(s.id, ())),
                     # Index-only sources (NASA CMR granules, Bhuvan WMS
                     # services) ship what ORCA can name locally; an empty list

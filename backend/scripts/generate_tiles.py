@@ -28,9 +28,15 @@ DATA_ROOT = Path(__file__).resolve().parents[2] / "data"
 
 
 def generate_wave_height_forecast_tiles():
-    """Plan §5.10 Day 12: `forecast_frames` over the 56 WW3 3-hourly steps
-    (2026-09-01T00:00Z -> 2026-09-07T21:00Z), real data — the significant
-    wave height (`HS`) variable off `data/incois_osf_pfz/osf_ww3/`.
+    """Plan §5.10 Day 12: `forecast_frames` over the 56 WW3 3-hourly steps of
+    the **newest** run on disk — real data, the significant wave height (`HS`)
+    variable off `data/incois_osf_pfz/osf_ww3/`.
+
+    Take the last file of the sorted glob, not the first: `refresh_osf_forecasts.py`
+    writes a new `rsmc_combined_ww3_<date>.nc` each run and leaves the old one
+    beside it, so `[0]` pins the animated layer to the oldest run forever
+    (R-FRESH-1 — it did exactly that, for 17 days). Same reasoning as
+    `geospatial._hycom()`.
 
     ponytail: cropped to the pilot bbox + margin before tiling (the source
     grid is basin-wide, 901x901 at every one of 56 steps) and built at zoom
@@ -53,7 +59,8 @@ def generate_wave_height_forecast_tiles():
         if not ww3_files:
             print("[WARN] No WW3 .nc file found under data/incois_osf_pfz/osf_ww3/ — skipping.")
             return
-        ds = xr.open_dataset(ww3_files[0], decode_times=False)
+        ds = xr.open_dataset(ww3_files[-1], decode_times=False)
+        print(f"        source run: {ww3_files[-1].name} (newest of {len(ww3_files)} on disk)")
 
         # TIME units are "hours since 0001-01-01" (proleptic Gregorian) —
         # cftime isn't a project dependency and pandas' datetime64 overflows
@@ -64,6 +71,18 @@ def generate_wave_height_forecast_tiles():
             (ref + datetime.timedelta(hours=float(h))).strftime("%Y-%m-%dT%H:%M:%SZ")
             for h in ds["TIME"].values
         ]
+
+        # A forecast pyramid whose last frame is already in the past is not a
+        # forecast. Warn loudly rather than failing — the tiles are still the
+        # best available — but nobody should discover this from the map legend.
+        last_frame = datetime.datetime.strptime(timestamps[-1], "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=datetime.timezone.utc
+        )
+        if last_frame < datetime.datetime.now(datetime.timezone.utc):
+            print(
+                f"[WARN] Newest frame {timestamps[-1]} is already in the past — "
+                f"run scripts/refresh_osf_forecasts.py before relying on this layer."
+            )
 
         # Pan-India maritime bounds matching INCOIS RSMC domain & user's reference image
         west, south, east, north = 65.0, 2.0, 96.0, 25.0

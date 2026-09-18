@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Grounded in** | `docs/ORCA_PS_SIH26176_Problem_Statement.md` — the canonical PS text. Clause IDs (`PS-Q*`, `PS-C*`, `PS-ARCH`) used here are defined there |
-| **Sources merged** | `docs/ORCA_SIH2026_Judge_Verdict.md` (code-forensic audit), `docs/ORCA_SIH2026_Grand_Finale_Judge_Audit.md` (PPT + repo audit, external), the verbatim PS 26176 capability list, the five flags raised by the internal-round judge, and the 2026-09-13 dataset wiring audit in `docs/ORCA_SIH26176_AllIndia_Dataset_Coverage_Guide.md` §0 |
+| **Sources merged** | `docs/ORCA_SIH2026_Judge_Verdict.md` (code-forensic audit), `docs/ORCA_SIH2026_Grand_Finale_Judge_Audit.md` (PPT + repo audit, external), the verbatim PS 26176 capability list, the five flags raised by the internal-round judge, and the 2026-09-13 dataset wiring audit in `docs/ORCA_SIH26176_AllIndia_Dataset_Coverage_Guide.md` §0. §7.1 additionally folds in the PS-grounded requirements surfaced by `orca_final.md`, the consolidated feature specification |
 | **Written for** | Team GeekMaxxers, SIH 2026 Grand Finale |
 | **Prime directive** | The PS is a **conversational agentic platform** first. The chatbot, the agents, and their visible collaboration are the product. Everything else is evidence that the product is real. |
 | **Rule of this document** | Every requirement has a file-level root cause and a **binary acceptance test**. If the test can't be run in front of a judge, the requirement isn't done. |
@@ -23,6 +23,14 @@ Requirements are numbered `R-<area>-<n>` so they can be assigned and tracked. Ea
 
 Priority bands are defined in §8, not inline, so that the requirements can be read as a specification rather than a to-do list.
 
+**Precedence.** `docs/ORCA_PS_SIH26176_Problem_Statement.md` is canonical for *what the PS asks*; where
+this document and that one disagree, that one wins. This document is the source of truth for *what gets
+built and how it is proven* — every implementation plan, sprint doc and demo script in this repo should
+cite an `R-` ID from here and, through it, the `PS-` clause that `R-` ID serves. `orca_final.md` is a
+**specification of the target state, not a status report**: it describes in present tense capabilities
+that are not all shipped, so it may be quoted for scope and never for status. Status lives in the `Now:`
+line of the requirement here.
+
 ---
 
 ## 1. Corrections to the external Grand Finale Judge Audit
@@ -31,7 +39,7 @@ Your friend's audit is good and mostly accurate — its reading of the determini
 
 | # | External audit says | Reality in this working tree | Consequence |
 |---|---|---|---|
-| C1 | Multi-turn memory: *"⚪ Unverified — no dedicated conversation-memory module visible in the file tree"*, later *"I could not confirm… if it doesn't [exist], this is an explicit PS ask with no current evidence"* | **Wrong.** `backend/orca/session.py` is a real Redis-backed session store: `TTL_SECONDS = 1800`, `MAX_TURNS = 5`, a `_REAL_PLACE_SOURCES` allowlist and `last_place()` that stops a follow-up inheriting a regional-default location. It is wired end to end — `frontend/app/ask/page.tsx:150` sends `session_id`, and `graph.py:369` feeds `session_history` into reporting | You are **credited too low** on an explicit PS requirement. This is a strength, not a gap — demo it (§3, R-CONV-1) |
+| C1 | Multi-turn memory: *"⚪ Unverified — no dedicated conversation-memory module visible in the file tree"*, later *"I could not confirm… if it doesn't [exist], this is an explicit PS ask with no current evidence"* | **Wrong.** `backend/orca/session.py` is a real Redis-backed session store: `TTL_SECONDS = 1800`, `MAX_TURNS = 5`, a `_REAL_PLACE_SOURCES` allowlist and `last_place()` that stops a follow-up inheriting a regional-default location. It is wired end to end — `frontend/app/ask/page.tsx:150` sends `session_id`, and `graph.py:369` feeds `session_history` into reporting | You are **credited too low** on an explicit PS requirement. This is a strength, not a gap — demo it (§3, R-PS-3) |
 | C2 | *"103/103 passed in the safety-core suite"* | Understated. The **full** suite is **372 passed, 2 skipped, 138.66s** | Use the real number. It is a better number |
 | C3 | *"a 16-route Next.js frontend"* | 13 routed pages (`frontend/app/**/page.tsx`) | Minor, but don't repeat a count a judge can check in 20 seconds |
 | C4 | Route optimization: *"I could not verify optimization depth vs. heuristic from static code"* | **Verified, and it is a heuristic.** `voyage.py` generates exactly three fixed candidates (`offset_east`, `offset_west`, `wait_6h`) and constraint-checks them. There is no search over a cost surface. It is also **not a LangGraph node** — the file says so itself | The gap is worse than the external audit could tell, and the fix is known (R-ROUTE-1) |
@@ -334,9 +342,495 @@ Flagged in the code-forensic audit and worth restating as a requirement because 
 
 ---
 
+## 7.1 Gaps surfaced by the consolidated feature specification
+
+`orca_final.md` describes the target end state of everything in this document, and in the course of
+doing so it names capabilities neither audit reached. Each one below was tested against the PS doc's own
+rule (§4: *work that cannot name a clause it serves is scope creep*). These six pass, and every one of
+them either completes a requirement already in this pack or reuses machinery it already specifies.
+Nothing here is new architecture.
+
+### R-NEW-7 — Observed-versus-predicted tide cross-check
+
+- **Serves:** PS-Q3 (tide, weather and sea conditions), PS-C5 (correlating heterogeneous sources).
+- **Now:** `ocean_analytics.tide_gauge_observation()` (`ocean_analytics.py:640`) already reads INCOIS
+  tide-gauge telemetry, and the astronomical prediction for the same station and hour is already
+  available. **The two are never compared.** §10 / `R-INDIA-5` treated tides purely as a coverage gap and
+  never asked what the two tide sources say about each other.
+- **Required:** render both curves on the `/voyage` berthing panel and state the residual. The residual
+  **is** the sea-level anomaly, and a persistent positive residual is storm-surge setup arriving ahead of
+  the surge. Where they diverge beyond tolerance, floor the berthing-window confidence and name the
+  divergence in metres rather than smoothing it into one curve. This is `R-PS-5` / `R-AGENT-3`
+  reconciliation applied to a second variable — same deterministic arithmetic, same rule (surface both,
+  take the conservative one, drop a tier, say so). No new mechanism.
+- **Accept:** a station where gauge and prediction differ shows both values, the residual in metres, and a
+  reduced confidence tier on the berthing window. A tide answer traces to two sources, not one.
+- **Effort:** 0.5 day.
+
+### R-NEW-8 — Strict parameter circuit breaker on route planning
+
+- **Serves:** PS-C9 (route optimization, safe navigation, operational planning).
+- **Now:** `R-NEW-1` identified silent position fallback on the query path. **The same defect exists on
+  the voyage path and was never audited.** A missing, unparseable or ambiguous `origin` / `destination`
+  produces a confident plan for a voyage nobody intended.
+- **Required:** one shared place-resolution guard used by **both** `/query` and `/api/voyage-plan` — not
+  two implementations. On failure, stop and name the parameter that could not be resolved rather than
+  substituting a default: absent endpoint → ask; name ambiguous across states → return the candidate list
+  with state and coordinates; coordinates malformed or on land → say so and show the parsed
+  interpretation; draft or vessel class unknown → plan with the most conservative class, state that it was
+  assumed, and make it correctable in one tap. A default the user did not choose and cannot see is a
+  fabricated input, and is forbidden on exactly the same grounds as a fabricated output.
+- **Accept:** a voyage request with a missing destination returns a question, never a plan. An ambiguous
+  port name returns candidates. Neither path silently substitutes a regional default.
+- **Effort:** 2 hours **on top of `R-NEW-1`** — build them as one guard or the second one will rot.
+
+### R-NEW-9 — The five-tier provenance legend
+
+- **Serves:** PS-C6, PS-C10.
+- **Now:** `R-JUDGE-4` makes *confidence* legible. Nothing makes *provenance* legible. The two are
+  orthogonal and the product currently collapses them: "LIVE but LOW-DATA" and "REFERENCE and HIGH" are
+  different situations and today they look the same.
+- **Required:** one fixed five-badge legend on every card, telemetry tile and map layer, rendered with its
+  key on `/data`, `/safety` and the map — 🟢 **LIVE** (fetched within the source's cadence) ·
+  🔵 **REFERENCE** (authoritative static geometry: GEBCO, VLIZ, SoI tide tables) · 🟡 **DERIVED**
+  (computed by ORCA, never fetched: the |∇SST| front proxy, deterioration time, time-to-boundary) ·
+  🟣 **DEMO** (replayed record: the Gaja ERA5 frames) · ⚪ **MISSING** (no value — rendered as absent,
+  never as a number). The rule the legend enforces is the one `R-JUDGE-2` already demands: **a control
+  whose data is unavailable is disabled and labelled MISSING, never populated with a plausible
+  substitute.** Show the provenance badge and the confidence tier together.
+- **Accept:** every number on screen carries a badge; a judge can tell a fetched value from a computed one
+  from a replayed one without asking. No tile shows a value where the badge would read MISSING.
+- **Effort:** 0.5 day.
+
+### R-NEW-10 — NASA GIBS satellite failover tier
+
+- **Serves:** PS-Q5 (high chlorophyll and favourable SST), PS-C4.
+- **Now:** `R-SCI-1` says "read the ISRO products on disk" and stops there. It does not handle the routine
+  case — a cloud-obscured pass, a feed outage, a rate limit. **PS-Q5 is the one benchmark query that is
+  explicitly about chlorophyll and SST, and it has no answer path at all today.**
+- **Required:** a declared cascade in `discovery.py`'s existing `FALLBACK_CASCADES`, not a new mechanism:
+
+  ```
+  SST          MOSDAC INSAT-3D/3DR  ->  INCOIS ERDDAP  ->  NASA GIBS MUR L4 (1 km)  ->  MISSING
+  Chlorophyll  MOSDAC EOS-06 OCM-3  ->  INCOIS ERDDAP  ->  NASA GIBS VIIRS / MODIS  ->  MISSING
+  ```
+
+  Wire `analytics_loaders.load_nasa_chl_granules` to `discovery.local_catalog("nasa_ocean_color")` so the
+  granule catalogue is a real source Agent 2 can *select*, not a hand-rolled fallback. Every tier is
+  labelled with the source that actually served the value and confidence steps down at each hop — a MUR L4
+  value is never presented as though it came from MOSDAC. The last rung is `MISSING` (`R-NEW-9`), not a
+  substitute; that is what produces the Cloud Cover tile rather than a confident wrong number.
+- **Why it belongs beside `R-SCI-1`:** it de-risks it. If the L3B scale-factor work overruns, PS-Q5 still
+  has an answer path and the ISRO-lineage claim is still made honestly at the rung that served.
+- **Accept:** kill the MOSDAC read in front of a judge; the cascade selects GIBS, says so in the
+  narration, and the confidence tier drops one rung.
+- **Effort:** 0.5 day.
+
+### R-NEW-11 — Tsunami sovereignty: relay the state, never re-threshold it
+
+- **Serves:** PS-C7, PS-C10.
+- **Now:** **already implemented and entirely unclaimed.** `ocean_analytics.py` carries INCOIS's own
+  `tsunami_trigger_state` through verbatim and deliberately does not re-derive one. It appears in no demo
+  script, no slide and no rehearsed answer, so the team gets no credit for the clearest
+  institutional-boundary decision in the codebase.
+- **Required:** no code change — a **claim** and a rehearsed answer. Tsunami determination is INCOIS's
+  sovereign statutory mandate under the Indian Tsunami Early Warning Centre. A decision-support tool that
+  re-derived a tsunami state from raw gauge residuals would assert an authority it does not hold and could
+  contradict the national warning in a way that costs lives in either direction. ORCA relays the state,
+  attributes it to ITEWC, links the official bulletin and escalates its alerting accordingly. It never
+  computes one and never softens one. This is `R-SCI-1`'s "relay the INCOIS PFZ, do not re-derive it"
+  applied to the one hazard where getting it wrong is unrecoverable — and it is the argument an
+  ISRO-lineage panel is most likely to respect.
+- **Accept:** the team can state the boundary unprompted, and `grep tsunami_trigger_state` backs it.
+- **Effort:** 0 — it is written; say it.
+
+### R-NEW-12 — Language selection as the first screen after sign-in
+
+- **Serves:** PS-C2 ("automatically identifying the language… with emphasis on supporting Indian regional
+  languages").
+- **Now:** `R-AUTH-1` specifies *reading* `users.language` at query time but never specifies how it is ever
+  *set*. PS-C2 is currently satisfied only by per-query detection; a stated preference the user has
+  already saved is the stronger reading of the clause, and it is the one that survives a romanized or
+  code-mixed query the detector reads wrong.
+- **Required:** the first screen after a successful sign-in or registration is a full-screen language
+  chooser — not buried in settings, not skippable. Each language written **in its own script**
+  (`தமிழ` · `हिन्दी` · `తెలుగు` …), large tap target, and a speaker icon that pronounces the
+  language name aloud so a user who cannot read can choose by listening — `R-NEW-6` and `R-JUDGE-5`'s
+  accessibility argument applied at the one moment it matters most. Suggest a default from device locale
+  and home-port state, but never auto-apply it. Write to `users.language`; take effect immediately across
+  UI chrome, answers, voice and alert channels.
+- **Accept:** two accounts with different saved languages ask the identical English question and each
+  receives the answer in their own saved language, without having typed in it.
+- **Effort:** 3 hours. Completes `R-AUTH-1` rather than adding to it.
+
+### Conditional — defensible, but verify the premise before building
+
+| ID | Item | Clause | The condition |
+|---|---|---|---|
+| **R-NEW-13** | Species tags on PFZ nodes, with INCOIS's own exploited / under-exploited classification rendered as a filter and spoken in the fisherman surface | PS-Q1, PS-C8 ("ecologically sensitive") | **Only if the advisory rows actually carry the tag.** `analytics_loaders.py:198` mentions species in a comment; no field was found. If the tag is in the data this is a relay and nearly free. If it is not, inventing a sustainability classification is a fabricated value and is forbidden |
+| **R-NEW-14** | Crew-aware threshold deltas — single-handed, a minor aboard, no engine redundancy, night departure each tighten the CAUTION band | PS-Q2, PS-C7 | Real safety content, and a natural extension of the vessel-class deltas that already exist. Also completes `R-EDGE-2`'s *"I have a 6 m fibreglass boat with no engine"* row, which specs the vessel half and not the crew half. Must stay deterministic: the free-text parse confirms back to the user before any threshold moves |
+| **R-NEW-15** | Bhuvan and NRSC catalogued via `GET /api/sources`, explicitly **not** shipped as map layers | PS-C4 | A live audit returned `400 Unknown layer` and failed CORS preflight. Catalogued with full attribution beats a toggle that renders a blank tile, and beats substituting another basemap while still crediting Bhuvan. Pure `R-CLAIM-1` territory, and it concerns the sponsoring organisation's own data, which is why the honest position is worth stating out loud |
+| **R-NEW-16** | Pre-dawn departure briefing — a scheduled Sentinel digest before the hour a registered fisherman habitually departs | PS-C7 | The decision is made at 03:30 on the shore, not at 09:00 in the app. Sentinel's loop and subscriber join already exist, so this is a schedule, not machinery. Weakest clause link of the set, strongest claim on the word *proactive* |
+
+## 7.2 Recorded as out of scope — specified, deliberately not built
+
+These appear in `orca_final.md` and **fail the PS §4 test**: none names a clause it serves, and each one
+spends effort against §2's prime directive (move effort from *more capability* to a conversation that
+visibly reasons). They are recorded here so the decision is not re-litigated every time someone reads the
+feature spec. Keep them in the spec as roadmap; do not build them before the finale.
+
+| Item | Why it is out | Disposition |
+|---|---|---|
+| Solunar bite-time calendar | No clause. `orca_final.md` calls it "deliberately the weakest-claimed feature" itself | Roadmap |
+| Cooperative condition corroboration (*k*-anonymous nearby-vessel reports) | No clause, and it is explicitly barred from `evaluate_marine_safety`, so it cannot serve PS-C7. Large privacy surface for zero clause coverage | Excellent slide, bad sprint |
+| Ground-truth advisory feedback loop | No clause. Trust-building for a deployment that does not exist yet | Roadmap |
+| WhatsApp, USSD, IVR, missed-call callback, VHF script, display board | PS-C7 names no channel. In-app + voice + SMS discharges it. Six dispatchers is six things that can fail on stage | Name one as roadmap, build none |
+| Sarvam-105B / sovereign on-premise reporting tier | No clause. This is a rehearsed answer about portability, not a requirement | Rehearsed answer only |
+| Saved locations / FLC bookmarks | Serves `R-JUDGE-5`'s fisherman workflow, not a PS clause | Fine as persona work; do not justify it as PS coverage |
+
+
+---
+
+## 7.3 The product surface, onboarding, and the two graded axes nothing points at
+
+§§3–7.2 justify work by **PS clause**. This section adds a second, separately labelled basis:
+the **SIH evaluation axes** — relevance, feasibility, innovation, business justification and demo
+quality — against a **30 September** submission of an 8–9 slide PDF (no embedded media, GIFs or
+animation — they do not render for judges), a 100-word abstract, and a 3–5 minute unlisted demo
+video. Two of the requirements below serve an axis and **no PS clause**, and they say so rather than
+inventing a clause to hide behind; the §4 scope-creep rule is satisfied by naming the axis explicitly,
+not by pretending.
+
+**The consequence that reorders everything below:** the app is not the submitted artifact. The video
+is. A surface that does not appear in the demo script is Tier 3 regardless of how unfinished it looks,
+and a surface that appears for thirty seconds is worth more polish than one nobody films.
+
+### R-UX-1 — The greeting must carry the forecast, not a salutation
+
+- **Serves:** PS-C7 (proactive safety), PS-C3 (multi-turn context). Axis: demo quality.
+- **Now:** `/ask` opens on a static heading, *"Ask about conditions at sea"*, and a paragraph of prose
+  about what ORCA evaluates (`ask/page.tsx:172-174`). It is identical at 04:00 and 16:00, identical for
+  every persona, and identical whether the user's home port is calm or under a cyclone warning. The
+  product waits to be asked.
+- **Required:** the empty state greets by **local IST time of day and the user's own conditions**, not
+  by name alone. A salutation with no operational content is decoration and will be read as decoration:
+
+  > *Good evening. Seas off Rameswaram are 1.2 m and falling. Your usual 04:30 departure looks GO —
+  > I'll re-check at 03:00.*
+
+  Every element comes from something that already exists: time of day from the IST clock, position and
+  departure hour from the profile (`R-UX-6`), the verdict from `evaluate_marine_safety`, the re-check
+  promise from Sentinel (`R-NEW-16`). It carries a confidence tier and a provenance badge (`R-NEW-9`)
+  like any other verdict, because it **is** one. Signed out, or profile empty, it degrades to the time
+  of day plus the national picture — never to an invented position (`R-NEW-1`).
+- **Accept:** two accounts in different states, opened at different hours, get materially different
+  first screens without either having typed anything.
+- **Effort:** 3 hours, and it is one of the strongest three seconds in the video.
+
+### R-UX-2 — The status bar: one health signal, data time, and no persona switch
+
+Four separate defects in a 40 px strip that is on screen in **every** frame of the demo video.
+
+- **Serves:** PS-C6, PS-C10. Axis: demo quality.
+- **Now** (`components/StatusBar.tsx`):
+  1. **`FeedStatus()` (`:80`) is hardcoded.** It renders a green dot and the words "Feeds Live" from
+     literal JSX with no fetch behind it — it would read "Feeds Live" with every upstream dead. This is
+     precisely the fabricated-status defect `R-JUDGE-2` was raised about, sitting in the chrome.
+  2. **It contradicts the component beside it.** `SystemStatusStrip` (`:47`) *is* real — it fetches
+     `/api/system-status` — and renders "4 of 5 fallback". So the bar asserts healthy and degraded
+     simultaneously, and the degraded one is the honest one.
+  3. **"4 OF 5 FALLBACK" is unreadable.** A judge cannot tell whether four-of-five is good or bad, and
+     the word "fallback" alone reads as breakage. The underlying disclosure is a genuine strength being
+     presented as an alarm.
+  4. **`Clock()` (`:50`) re-renders every second** to show seconds precision of wall-clock time. Wall
+     time changes no decision. **Data** time does.
+- **Required:** delete `FeedStatus`. Keep the real one, relabel it to lead with what works —
+  "4 of 5 feeds live", the popover unchanged — and make it the home of the five-tier provenance key
+  from `R-NEW-9`. Replace the ticking clock with data currency: *"Data as of 11:45 IST · 30 min old"*,
+  which is PS-C10 in the same pixels and does not repaint every second. Move `PersonaSelector` out of
+  the chrome entirely (see `R-UX-4`). Keep the ORCA wordmark; a video with no brand in frame gives the
+  panel nothing to remember.
+- **Accept:** stop the backend and reload — the bar says so. No two elements of the bar disagree. No
+  element repaints on a timer.
+- **Effort:** 0.5 day.
+
+### R-UX-3 — Refinement, scoped to the frames that are filmed
+
+- **Serves:** PS-C6. Axis: demo quality, which the orientation names the single most critical component.
+- **Now:** quality is uneven across eleven routes because effort has been spread evenly across eleven
+  routes. `/design` is an internal style guide and ships to production.
+- **Required:** write the demo script **first**, then rank surfaces by seconds on camera, and spend the
+  remaining UI budget strictly in that order. Expect the list to be `/ask`, `/map`, `/reasoning`,
+  `/voyage` or `/ops` depending on the persona arc, and the onboarding flow — five surfaces, not eleven.
+  Per surface, in this order: (a) nothing fabricated — every control whose data is unavailable is
+  disabled and labelled MISSING (`R-JUDGE-2`, `R-NEW-9`); (b) typographic hierarchy — one object per
+  screen is unambiguously the loudest; (c) consistent spacing and state coverage — loading, empty,
+  error, offline; (d) motion only where it explains something. `/design` is removed from the production
+  build; it is a developer tool.
+- **Accept:** a ranked surface list exists, derived from the script, with a named owner per surface. Any
+  surface not on it is explicitly frozen. A full pass of the script surfaces produces no fabricated
+  value, no empty-state gap, and no unlabelled number.
+- **Effort:** 1.5 days spread across the team, and it is the axis with the heaviest weight.
+
+### R-UX-4 — Collapse `/safety` into the conversation, and shrink the nav behind it
+
+- **Serves:** §2 prime directive, PS-C1. Axis: relevance.
+- **Now:** `/safety` posts to **the same `/query` endpoint** as `/ask` with one extra parameter,
+  `vessel_class` (`safety/page.tsx:83`). It is `/ask` with a boat dropdown and a larger verdict badge.
+  A second page calling the same endpoint is the precise opposite of §2's directive — effort spent on
+  *another surface* rather than on a conversation that visibly reasons. And it is one of **ten** entries
+  in `NAV_ROUTES` (`persona/config.ts:21`); the visibility matrix gives the **fisherman seven of them**,
+  which is not the product `R-JUDGE-5` describes for a non-literate user on a phone before dawn.
+- **Required:** remove `/safety` from `NAV_ROUTES`; keep the URL as a redirect to `/ask` so demo
+  scripts, links and any printed material survive. Carry over the two things it has that `/ask` lacks,
+  and do not lose them:
+  - the **vessel selector**, which becomes a profile field (`R-UX-6`) surfaced as an editable chip above
+    the composer — "Small fishing boat · 6 m" — so it is still visibly driving the verdict, with the
+    threshold deltas `VESSEL_DELTAS` already explains;
+  - the **verdict-first answer card**, which is the correct rendering of a GO/NO-GO answer inside chat
+    and is better than what `/ask` renders today.
+
+  Then cut the rail to what each persona actually opens: fisherman → `/ask`, `/map`, `/watches`. Every
+  other route stays reachable by URL — visibility is a rendering concern and never a capability gate,
+  as the file's own header says. Persona moves out of the status bar into the account menu and the
+  wizard; the live persona switch the demo needs is already served, better, by `PersonaCorrection`,
+  which re-renders an answered query under a different persona **without re-querying**.
+- **Accept:** `/safety` 301s to `/ask`, a GO/NO-GO asked in chat renders verdict-first with the vessel
+  visible, and no persona sees more than four primary rail entries.
+- **Effort:** 2 hours.
+
+### R-UX-5 — A five-step tour that runs real queries
+
+- **Serves:** no PS clause. Axis: demo quality and feasibility (accessibility for a first-time user).
+  Stated plainly rather than attached to a clause it does not serve.
+- **Now:** nothing. A first-time user lands on a static prompt and must invent a question.
+- **Required:** five steps, each of which **executes a real query and shows the real answer** — not
+  coach-marks over a frozen screen, which judges skip and which look like an installed library:
+  1. Ask a GO/NO-GO question and watch the verdict arrive.
+  2. Watch the agent strip while it streams — the reasoning is the product.
+  3. Open one citation and see the source, timestamp and freshness.
+  4. Ask a follow-up in a different language and get it answered in that language.
+  5. Open `/reasoning` on the trace just produced.
+
+  Skippable from step 1, resumable, and never shown twice. Step 5 is the close, because a visible agent
+  trace is the innovation claim and most teams cannot show one.
+- **Accept:** a first-time account completes all five in under 90 seconds and ends holding a real,
+  cited answer to a question about its own home port.
+- **Effort:** 0.5 day.
+
+### R-UX-6 — The setup wizard: two mandatory screens, the rest asked in conversation
+
+- **Serves:** PS-C2, PS-C7, PS-C9. Extends `R-NEW-12`, which specifies the language screen only, and
+  completes the write half of `R-AUTH-1`, which specifies only the read.
+- **Now:** `users.language` exists on the profile (`lib/auth.ts:30`) and there is **no screen anywhere
+  that sets it**. Persona is a status-bar dropdown, vessel class is a per-page dropdown on a page about
+  to be deleted, and home port does not exist — which is why `R-INDIA-1` / `R-NEW-1` have to be defended
+  with a silent-fallback guard at query time.
+- **The rule for every field — apply it before adding any:** *name the answer that changes if we know
+  this.* If no answer changes, do not ask. This is the §4 scope-creep test applied to onboarding, and it
+  is also what stops the wizard becoming a form nobody finishes.
+
+  | Field | The answer it changes |
+  |---|---|
+  | Language | Every response (`R-NEW-12`, PS-C2) |
+  | Role / persona | The entire layout (`R-JUDGE-5`) |
+  | Home port or landing centre | Default position, INCOIS sector, MRCC routing — removes the need to guess (`R-INDIA-1`, `R-INDIA-7`, `R-NEW-1`) |
+  | Vessel class, length, engine or none | Safety thresholds, directly (`R-EDGE-2`) |
+  | Crew: single-handed, minor aboard | Threshold deltas (`R-NEW-14`) |
+  | Typical departure hour | Forecast horizon and the pre-dawn briefing (`R-NEW-16`, `R-UX-1`) |
+  | Typical range offshore | Which grid cell answers, and the connectivity expectation (§9) |
+  | Phone number + SMS consent | Whether a proactive alert can reach them at all — PS-C7 is unprovable without it |
+  | "Do you read comfortably?" | Whether to default to voice-first (`R-NEW-6`, `R-JUDGE-5`) |
+  | Units — km/h or knots, m or ft | Navigator readouts |
+  | *Researcher:* institution, variables of interest | Default map layers and export format |
+  | *Coastal authority:* districts of responsibility | The `/ops` roll-up |
+
+  **Do not ask for:** target species or gear (unless the INCOIS advisory rows actually carry the tag —
+  that is the open condition on `R-NEW-13`), income, boat registration number, or any identity document.
+  Collecting identity data the product cannot use is a liability on the feasibility axis, not a feature.
+
+- **Required flow:** exactly **two mandatory screens** — language (`R-NEW-12`, in-script, spoken aloud),
+  then role. Everything else is asked **in the conversation, at the moment it first matters**: *"you're
+  asking about tomorrow morning — what boat are you taking?"* That is the pattern users already expect
+  from a good assistant, it films far better than a form, and it means a judge who skips onboarding
+  still gets a personalized system. Every answer is editable afterwards from the account menu, which is
+  where persona now lives.
+- **Accept:** a new account reaches its first answer having seen two screens; the fourth question it
+  asks is answered using a fact it volunteered mid-conversation, not one it was made to fill in first.
+- **Effort:** 1 day on top of `R-NEW-12`.
+
+### R-EVID-1 — Quantitative validation of the safety core
+
+The highest-value unclaimed point available, and it is a document rather than a feature.
+
+- **Serves:** PS-C10. Axis: innovation and feasibility — the orientation is explicit that AI/ML claims
+  require mathematical validation (confusion matrices, regression tests) and that supporting material of
+  **arbitrary length** may be uploaded alongside the 8–9 slide limit.
+- **Now:** ORCA asserts accuracy nowhere in numbers. Every accuracy claim in the deck and the video is
+  currently a qualitative one.
+- **Why ORCA can do this and most teams cannot:** the verdict is produced by `evaluate_marine_safety`,
+  which is deterministic and has **no LLM in the path**, enforced by the CI guards in `R-SAFE-*`. A
+  deterministic classifier can be scored. A verdict emitted by a language model cannot be, which is
+  exactly why competing teams will assert accuracy without measuring it.
+- **Required:** a supporting PDF containing at minimum —
+  - a **confusion matrix** of ORCA GO/NO-GO against the INCOIS small-vessel advisory over a held-out
+    window of real conditions, reported as precision and recall **per class**, with false NO-GO and
+    false GO discussed separately because their costs are not symmetric — a false GO risks a life, a
+    false NO-GO costs a day's income, and the thresholds are deliberately tuned toward the second;
+  - a **golden-case regression table**: fixed inputs, expected verdict, current verdict, run in CI so
+    the number in the deck cannot silently rot;
+  - **threshold provenance** — every constant traced to the IMD/INCOIS document it comes from, since
+    the defensible claim is faithful implementation of published criteria, not invented cutoffs;
+  - **error bars and honest limits** — sample size, the regions and seasons covered, and what is not.
+- **Accept:** the deck can state one accuracy number, the video can say it aloud, and the supporting
+  document reproduces it from committed code and committed fixtures.
+- **Effort:** 1 day, and it can proceed in parallel with UI work because it touches no UI.
+
+### R-BIZ-1 — The cost and market case
+
+- **Serves:** no PS clause. Axis: business justification, and the cost-efficiency and scalability half of
+  feasibility. Stated plainly.
+- **Now:** nothing in this pack, in `orca_final.md`, or in the deck addresses cost per query, cost at
+  scale, or who pays. It is a graded axis with nothing pointed at it.
+- **Required:** one slide and one rehearsed answer, built on numbers the system can actually produce —
+  - **cost per query**, measured: token spend per turn times the model price, plus compute. The
+    LLM-off toggle in `R-NEW-3` and the latency display in `R-NEW-4` already instrument the two inputs.
+    Note that the deterministic safety path costs ₹0 per verdict, which is a cost story *and* a safety
+    story in one sentence.
+  - **cost at scale:** the marginal cost of the 10,000th user, given that upstream feeds are free
+    government sources and are fetched once and shared, not once per user.
+  - **who pays:** the realistic Indian route is institutional — state fisheries departments, INCOIS
+    dissemination, district disaster authorities — not per-fisherman subscription. Say so; a free-to-user,
+    institution-funded model is the credible one and pretending otherwise invites the obvious question.
+  - **what it displaces:** the counterfactual is a fisherman with a portal, a text advisory in a language
+    they may not read, and a phone call. Name the gap ORCA closes and quantify the exposure where public
+    figures exist.
+  - **differentiation in one line** — faster, cheaper, or better, pick the one that is provably true.
+    ORCA's is *better*: cited, multilingual, and reasoned, with `R-EVID-1`'s number behind "better".
+- **Accept:** a judge asking "what does this cost to run and who pays for it" gets a number and a named
+  buyer, not a hypothesis.
+- **Effort:** 0.5 day, and it is mostly writing.
+
+### Already covered — raised, but funded elsewhere in this pack
+
+| Raised | Where it already lives |
+|---|---|
+| "Responses should be more refined and far more personalized per persona" | **`R-JUDGE-5`** — the internal judge's own flag, already Tier 2, with a four-persona layout specification. Not duplicated here |
+| "The language chooser should come first" | **`R-NEW-12`** (§7.1). `R-UX-6` extends it rather than restating it |
+| "Don't show numbers we don't have" | **`R-JUDGE-2`** and **`R-NEW-9`** |
+
+
+---
+
+## 7.4 Freshness — what the product actually serves versus what it claims
+
+Audited 2026-09-18 against the working tree and `data/`. The finding is not that one file is old. It
+is that **ORCA has no mechanism that makes any cached dataset become current**, and the one surface
+that talks about freshness — `/data` — reports the upstream provider's published cadence as though it
+described ORCA's own copy. A judge who asks "is this actually refreshed every six hours?" gets a
+false yes today. These five requirements fix the mechanism, not the files.
+
+### R-FRESH-1 — The tile generator picks the oldest forecast on disk, forever
+
+- **Now:** `backend/scripts/generate_tiles.py:52-56` does `ww3_files = sorted(...glob("*.nc"))` then
+  `xr.open_dataset(ww3_files[0])` — index `0` of an ascending sort is the **oldest** file. With
+  `rsmc_combined_ww3_20260829.nc` and `rsmc_combined_ww3_20260915.nc` both on disk it builds from
+  August. `data/tier1/tiles/wave_height_forecast/meta.json` carries 56 frames spanning
+  **2026-09-01T00:00Z → 2026-09-07T21:00Z**: the flagship animated wave-height layer, the most
+  demo-visible surface in the product, is animating a week that finished eleven days ago, and running
+  `scripts/refresh_osf_forecasts.py` does not change that. `geospatial.py:_hycom()` gets the identical
+  problem right with `files[-1]`, so this is an inconsistency, not a design choice.
+- **Required:** `ww3_files[-1]`, regenerate the pyramid, and assert in the generator that the newest
+  frame is within the forecast horizon of the source run rather than trusting the glob.
+- **Accept:** with both `.nc` files present, `meta.json["timestamps"][0]` is on or after the newest
+  run date. A regression test pins this — it is a one-character bug that silently costs the demo.
+- **Effort:** 15 minutes plus tile regeneration.
+
+### R-FRESH-2 — Write-once caches that can never expire
+
+- **Now:** `backend/orca/api/geospatial_routes.py:66-73` and `:93-100` both read
+  `if cache_path.exists(): return json.load(...)`. There is no TTL, no mtime check, no invalidation.
+  `data/tier1/vectors/pan_india_currents_v2.json` was written 2026-09-09 and
+  `pan_india_wind.json` on 2026-09-04 (newest wind sample inside it: **2026-08-27**), and both
+  endpoints will serve those bytes until someone deletes the file by hand. This is the same defect
+  shape as `R-INDIA-3`, where `load_pfz_live_geojson()` prefers the national PFZ file because it
+  exists rather than because it is current — three instances of one mistake.
+- **Required:** one shared helper — a cached read that takes a maximum age and falls through to
+  regeneration when the file is older, used by all three call sites. Where regeneration is not
+  possible (no upstream, no credentials), the response carries the real acquisition date and the
+  provenance tier drops to REFERENCE per `R-NEW-9` rather than being served as current.
+- **Accept:** touching nothing and waiting past the TTL causes the next request to regenerate; a
+  deliberately stale cache is never served as LIVE.
+- **Effort:** 3 hours.
+
+### R-FRESH-3 — `/data`'s freshness labels are constants, not measurements
+
+- **Now:** `discovery.py:52-98` hard-codes `typical_freshness_minutes` per source and
+  `frontend/app/data/page.tsx:29-33` renders it as "refreshed roughly every 6 h" / "static reference
+  dataset". Nothing anywhere measures ORCA's copy. Every line on that page is a true statement about
+  INCOIS or MOSDAC and an unverified one about this product. Several are currently false as read:
+  MOSDAC chlorophyll is labelled 24 h and the newest file on disk is from **March 2026**; MOSDAC SST
+  is labelled 6 h and stops at **29 August**; the Copernicus chlorophyll NRT file holds **2023** data.
+- **Required:** keep the declared cadence, add a measured one beside it. Every source gets an
+  `observed_*` triple — when ORCA last refreshed it, what date the content covers, and how it was
+  obtained (live call / cached file / static) — computed from the manifest in `R-FRESH-4`, and `/data`
+  renders "declared every 6 h · last refreshed 14 h ago · content valid 2026-09-17". Anything with no
+  observed timestamp renders as unverified rather than inheriting the declared number.
+- **Accept:** deleting a cache file changes what `/data` says without any code change.
+- **Effort:** 0.5 day.
+
+### R-FRESH-4 — One refresh command and a manifest that proves it ran
+
+- **Now:** eleven refresh and scrape scripts under `scripts/`, run entirely by hand, with no ordering
+  and no record. `.github/workflows/ci.yml` has no `schedule:` trigger and there is no scheduler
+  anywhere in the tree, so no dataset in the product refreshes without a person remembering to. The
+  result is visible on disk: Open-Meteo caches, lightning caches, tide tables, PFZ live and the OSF
+  grids are all current to 2026-09-17, while the wind vectors, wave tiles, national PFZ file and every
+  MOSDAC and Copernicus product are weeks to months behind, with nothing marking the difference.
+- **Required:** `scripts/refresh_all.py` running the existing scripts in dependency order (scrape and
+  download first, then derived artefacts: national PFZ build, tile pyramid, vector caches), writing
+  `data/refresh_manifest.json` with per-dataset `last_refresh_utc`, `content_valid_for`, `row_count`
+  and `ok`. Failures do not abort the run; they are recorded and surfaced. This becomes the single
+  pre-demo command and the input to `R-FRESH-3`.
+- **Accept:** one command, run cold, brings every refreshable dataset to today and prints a table of
+  what could not be refreshed and why.
+- **Effort:** 1 day.
+
+### R-FRESH-5 — Decide the freshness class of every dataset and enforce it
+
+- **Now:** the registry records an authority tier but not a freshness obligation, so a six-month-old
+  chlorophyll grid and a fifteen-minute tide gauge feed are treated as interchangeable inputs.
+- **Required:** each source in `SOURCE_REGISTRY` carries a class, and the safety floor already built
+  for `R-SAFE-1` reads it:
+  - **LIVE** — fetched over HTTP at query time, never read from disk first: Open-Meteo marine and
+    forecast, Damini lightning nowcast, NDMA SACHET CAP, INCOIS hazard warnings, INCOIS tide-gauge
+    observations. Only the first four are live today; the tide gauge is a file from 2026-09-03.
+  - **DAILY** — must carry today's date or the run is refused: PFZ advisories, WW3 and HYCOM forecast
+    grids and everything derived from them (wave tiles, current vectors), tide predictions, INSAT SST.
+  - **WEEKLY** — a week old is acceptable and labelled: chlorophyll and ocean colour, scatterometer
+    wind, AIS effort density, CMEMS reanalysis, ERA5 history.
+  - **STATIC** — no refresh obligation, correct as shipped: bathymetry, EEZ and IMBL geometry, MPA
+    polygons, the Coast Guard SAR roster, the fishing-ban dates, CMFRI and data.gov catch statistics,
+    tide-station metadata.
+- **Accept:** a DAILY source whose content date is not today floors the verdict and labels the layer,
+  exactly as `R-SAFE-1` does for staleness; a WEEKLY source at three months does the same. No dataset
+  is silently presented as current because nobody classified it.
+- **Effort:** 0.5 day on top of `R-SAFE-1`.
+- **Recorded in:** `docs/ORCA_Data_Freshness_Contract.md` — the normative version of this list, with a
+  per-dataset justification for every class assignment, the measured state of `data/` on 2026-09-18,
+  and the mechanism that makes each class hold. Implemented by `backend/orca/data/freshness.py`; the
+  document and `SOURCE_CLASS` change together.
+
 ## 8. Priority and sequencing
 
 Ordered by *judge-visible impact per hour*, not by difficulty.
+
+**Against the calendar.** Submission closes **30 September**: an 8–9 slide PDF with no embedded media,
+a 100-word abstract, and a 3–5 minute unlisted demo video. The graded artifact is the video, not the
+running app — so the demo script is written **first** and the tiers below are read through it. Anything
+the script does not show is Tier 3 no matter how unfinished it looks. Two workstreams run in parallel
+with all of it and touch no UI, so they are nobody's excuse for slipping: `R-EVID-1` (the accuracy
+number) and `R-BIZ-1` (the cost and buyer). Both are due before the deck is laid out, not after.
 
 ### Tier 1 — The chatbot and its agents (do first, ~7 days)
 
@@ -354,14 +848,18 @@ Ordered by *judge-visible impact per hour*, not by difficulty.
 | R-AGENT-2 | Discovery promoted to a graph node | 1 d |
 | R-PS-3 | Session history feeds intent classification | 0.5 d |
 | R-AGENT-4 | Change the headline claim | 1 h |
+| R-NEW-11 | Claim the tsunami-sovereignty boundary — already in the code, never said aloud | 0 |
+| R-UX-4 | Collapse `/safety` into chat; shrink the rail to what each persona opens | 2 h |
+| R-UX-2 | Status bar: delete the hardcoded "Feeds Live", show data currency | 0.5 d |
+| R-EVID-1 | The confusion matrix and the golden-case regression table | 1 d |
 
 ### Tier 2 — Credibility and the remaining PS clauses (~5 days)
 
-`R-JUDGE-5` (aggressive persona UI, 2 d) · `R-SCI-1` (revive SST/chl, 1 d) · `R-ROUTE-1` steps 1–2 (rename + A\*, 1.5 d) · `R-PS-1` (intent robustness, 1 d) · `R-PS-7` (localized alerts, 0.5 d) · `R-PS-8` (draw the IMBL line, 1 d) · `R-SAFE-1` (staleness ceiling, 1 h) · `R-CLAIM-1` (README, 30 min) · `R-VOICE-1` (GPU Whisper, 15 min) · `R-INDIA-2` (sector by position, 0.5 d) · `R-INDIA-3` (run the national PFZ build, 15 min) · `R-INDIA-7` (all-India MRCC/MRSC table, 1 h) · `R-EDGE-3` (position/time edge cases, 1 d) · `R-EDGE-5` (unrehearsed-query test suite, 0.5 d) · `R-AUTH-1` (read the profile at query time, 2.5 h) · `R-AUTH-2` (real session on the audit trail, 1 h)
+`R-JUDGE-5` (aggressive persona UI, 2 d) · `R-SCI-1` (revive SST/chl, 1 d) · `R-ROUTE-1` steps 1–2 (rename + A\*, 1.5 d) · `R-PS-1` (intent robustness, 1 d) · `R-PS-7` (localized alerts, 0.5 d) · `R-PS-8` (draw the IMBL line, 1 d) · `R-SAFE-1` (staleness ceiling, 1 h) · `R-CLAIM-1` (README, 30 min) · `R-VOICE-1` (GPU Whisper, 15 min) · `R-NEW-10` (GIBS failover tier, 0.5 d) · `R-NEW-12` (language chooser after sign-in, 3 h) · `R-NEW-8` (route parameter circuit breaker, 2 h with `R-NEW-1`) · `R-INDIA-2` (sector by position, 0.5 d) · `R-INDIA-3` (run the national PFZ build, 15 min) · `R-INDIA-7` (all-India MRCC/MRSC table, 1 h) · `R-EDGE-3` (position/time edge cases, 1 d) · `R-EDGE-5` (unrehearsed-query test suite, 0.5 d) · `R-AUTH-1` (read the profile at query time, 2.5 h) · `R-AUTH-2` (real session on the audit trail, 1 h) · `R-UX-6` (setup wizard, 1 d on top of `R-NEW-12`) · `R-UX-1` (greeting that carries the forecast, 3 h) · `R-BIZ-1` (cost and buyer, 0.5 d)
 
 ### Tier 3 — Polish, safety margin, and demo (~2 days)
 
-`R-SAFE-2` (Tamil distress phrases) · `R-NEW-2` (safe ≠ worthwhile) · `R-NEW-3` (LLM-off toggle) · `R-NEW-4` (latency display) · `R-HYGIENE-1` · `R-DEMO-1/2/3` · `R-PS-2` (romanized Indic) · `R-PS-6` (charts) · `R-PS-10` (plain-language reasoning) · `R-INDIA-4` (port caches) · `R-INDIA-5` (tide + catch refresh — the tide half is **mandatory before any demo**, see §10) · `R-INDIA-6` (missing boundary layers) · `R-INDIA-8` (honest coverage claim) · `R-EDGE-2` (implied-query routing) · `R-EDGE-4` (language edge cases) · `R-AUTH-4` (query history over existing rows — see §12 before building it)
+`R-SAFE-2` (Tamil distress phrases) · `R-NEW-2` (safe ≠ worthwhile) · `R-NEW-3` (LLM-off toggle) · `R-NEW-4` (latency display) · `R-HYGIENE-1` · `R-DEMO-1/2/3` · `R-NEW-7` (tide cross-check) · `R-NEW-9` (provenance legend) · `R-NEW-13/14/15/16` (conditional, §7.1) · `R-PS-2` (romanized Indic) · `R-PS-6` (charts) · `R-PS-10` (plain-language reasoning) · `R-INDIA-4` (port caches) · `R-INDIA-5` (tide + catch refresh — the tide half is **mandatory before any demo**, see §10) · `R-INDIA-6` (missing boundary layers) · `R-INDIA-8` (honest coverage claim) · `R-EDGE-2` (implied-query routing) · `R-EDGE-4` (language edge cases) · `R-AUTH-4` (query history over existing rows — see §12 before building it) · `R-UX-3` (refinement of the filmed surfaces only, 1.5 d) · `R-UX-5` (five-step tour, 0.5 d)
 
 ### Tier 4 — PWA (last, by design)
 
@@ -464,11 +962,23 @@ HYCOM, WW3 and ScatSat all cover the whole basin. The platform answers as if non
 
 ### R-INDIA-3 — Generate the national PFZ layer that the loader already prefers
 
-- **Now:** `analytics_loaders.py:164` reads `all_india_pfz_advisories.geojson` when it exists and falls
-  back when it does not. `backend/scripts/build_all_india_pfz.py` writes exactly that file and has
-  never been run.
-- **Required:** run it, and add it to the data-refresh checklist so it regenerates with each scrape.
-- **Effort:** 15 minutes. Free national map coverage.
+- **Now:** *(corrected 2026-09-18 — the earlier "has never been run" was false.)*
+  `backend/scripts/build_all_india_pfz.py` **has** been run: `all_india_pfz_advisories.geojson`
+  exists, 407 features across 13 sectors, written 2026-09-16. But every one of those 407 advisories
+  carries `valid_for: 2026-09-02`, while the fallback file `incois_pfz_live_advisories.geojson`
+  carries `valid_for: 2026-09-17` across 591 features. `load_pfz_live_geojson()`
+  (`analytics_loaders.py:185-188`) prefers the national file **whenever it exists**, so the product is
+  currently serving the country 16-day-old advisories in preference to today's. The defect is worse
+  than the one originally recorded: not missing coverage, but silently stale coverage.
+- **Required:** regenerate the national file from the current scrape, then make the preference
+  conditional on freshness rather than on existence — take the national file only when its `valid_for`
+  is no older than the live file's, otherwise fall back and surface the staleness through the
+  provenance legend (`R-NEW-9`). Add regeneration to the data-refresh checklist so the two files move
+  together. Note the national file covers 13 sectors to the live file's 11, so verify sector coverage
+  after regeneration rather than assuming it is a superset.
+- **Accept:** with a deliberately stale `all_india_pfz_advisories.geojson` on disk, the map serves
+  the live file and labels the national layer as unavailable rather than serving the stale one.
+- **Effort:** 1 hour.
 
 ### R-INDIA-4 — Fallback caches for the ports that will actually be asked about
 
@@ -485,10 +995,14 @@ HYCOM, WW3 and ScatSat all cover the whole basin. The platform answers as if non
 
 Unlike everything above, these cannot be fixed with code:
 
-- **Tides (PS-Q3):** 5 stations only (Thoothukudi, Pamban, Chennai, Kochi, Mumbai), 189 predictions,
-  **and the table's last date is 2026-09-08 — it has already expired.** PS-Q3 is unanswerable today
-  even in the pilot region. Refresh is mandatory; extending to the 13 ports in coverage guide §3 is the
-  coverage work.
+- **Tides (PS-Q3):** 5 stations only (Thoothukudi, Pamban, Chennai, Kochi, Mumbai).
+  *(Corrected 2026-09-18 — the earlier "expired 2026-09-08" no longer holds.)*
+  `data/tier1/tides/soi_tide_tables_2026.csv` was refreshed on 2026-09-17 and now carries 130 rows
+  covering **2026-09-16 to 2026-09-23**, so PS-Q3 is answerable again at those five stations. The
+  refresh is therefore not a blocker but a **recurring obligation** — the window is eight days wide
+  and expires on 2026-09-23, which is before the 30 September submission. It is a DAILY-class source
+  under `R-FRESH-5` and belongs in `scripts/refresh_all.py` (`R-FRESH-4`). The remaining gap is
+  coverage, not currency: extending to the 13 ports in coverage guide §3.
 - **Catch statistics (PS-Q7):** 4 districts (Thoothukudi, Ramanathapuram, Ernakulam, Mumbai Coastal),
   2019–2024. "Why has productivity declined in Kakinada?" has no data path. The honest interim
   behaviour is to name the districts on record and offer the nearest one — not to reason from the
@@ -640,7 +1154,8 @@ R-INDIA-1's failure mode arriving through the language path, and it will happen 
 Already folded into §8: `R-INDIA-1` and `R-EDGE-1` sit in **Tier 1** — both are one-question exposures
 for a judge and both are half-day fixes. `R-INDIA-2/3/7`, `R-EDGE-3` and `R-EDGE-5` are Tier 2; the
 rest are Tier 3. The one Tier-3 item with a hard deadline is `R-INDIA-5`'s **tide refresh**, which must
-happen before any demo regardless of its tier — the tables expired on 2026-09-08 and PS-Q3 cannot be
+happen before any demo regardless of its tier — the tables were refreshed on 2026-09-17 but only to
+2026-09-23, which expires before submission, and until re-run PS-Q3 cannot be
 answered until they are renewed.
 
 ---
@@ -748,7 +1263,22 @@ ORCA is Grand-Finale-ready when all of the following are true at once:
 12. A junk, off-topic, or prompt-injection query produces a **refusal, not a marine answer** — while a profane or garbled distress phrase still triggers the SOS path. (§11)
 13. A **signed-in user's stored context is used**: their home port answers a place-less question, in their saved language, on their persona's screen — and a **reload mid-conversation** either keeps the thread or says it lost it. (§12)
 
-Thirteen for thirteen is a PS winner. The current state passes three.
+14. A **first-time account** sees two screens — language, then role — and its next answer uses a fact it
+    volunteered in conversation rather than one it was made to fill in. The **opening screen greets by
+    local time with that user's own conditions**, not with a static heading. (§7.3)
+15. **Nothing in the chrome is hardcoded.** Stop the backend and the status bar says so; no two elements
+    of it disagree; nothing in it repaints on a timer. (§7.3)
+16. One **accuracy number** exists, is stated aloud in the video, and is reproduced by committed code
+    against committed fixtures — with false GO and false NO-GO discussed separately. (`R-EVID-1`)
+17. "What does it cost to run, and who pays?" is answered with a **measured number and a named buyer**.
+    (`R-BIZ-1`)
+
+Seventeen for seventeen is a PS winner. The current state passes three.
+
+Items 1–13 are clause coverage — they decide whether ORCA answers the problem statement. Items 14–17
+are the graded axes the clauses do not reach: demo quality, innovation evidence and business
+justification. A submission can pass every clause and still lose on the axes, which is the failure mode
+this pack exists to prevent.
 
 ---
 

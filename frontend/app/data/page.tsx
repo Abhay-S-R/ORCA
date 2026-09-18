@@ -18,6 +18,16 @@ type DataSource = {
   typical_freshness_minutes: number;
   covers: string[];
   fallback_chain: string[];
+  // Measured, not declared. `typical_freshness_minutes` above is the upstream
+  // provider's published cadence; these say how old ORCA's own copy is right
+  // now (backend orca/data/freshness.py, DLC R-FRESH-3). Optional because a
+  // source whose files we cannot observe must read as unverified, never as
+  // fresh — the whole point of splitting the two.
+  freshness_class?: "LIVE" | "DAILY" | "WEEKLY" | "STATIC" | null;
+  observed_last_refresh_utc?: string | null;
+  observed_age_minutes?: number | null;
+  fetched_live?: boolean;
+  within_contract?: boolean | null;
 };
 
 const TIER_LABEL: Record<DataSource["authority_tier"], string> = {
@@ -26,11 +36,26 @@ const TIER_LABEL: Record<DataSource["authority_tier"], string> = {
   TIER3: "Tier 3 · derived",
 };
 
-function freshness(min: number): string {
+// The provider's published cadence. Deliberately worded as a claim about them,
+// not about us — "refreshed roughly every 6 h" used to sit here alone and read
+// as a promise ORCA was not keeping for three of these sources.
+function declaredCadence(min: number): string {
   if (min === 0) return "static reference dataset";
-  if (min < 90) return `refreshed roughly every ${min} min`;
-  if (min < 2880) return `refreshed roughly every ${Math.round(min / 60)} h`;
-  return `refreshed roughly every ${Math.round(min / 1440)} d`;
+  if (min < 90) return `source publishes roughly every ${min} min`;
+  if (min < 2880) return `source publishes roughly every ${Math.round(min / 60)} h`;
+  return `source publishes roughly every ${Math.round(min / 1440)} d`;
+}
+
+// How old our copy is. Returns null when we cannot observe it, which renders as
+// "freshness unverified" rather than borrowing the declared number.
+function observedAge(s: DataSource): string | null {
+  if (s.fetched_live) return "fetched live per query";
+  const min = s.observed_age_minutes;
+  if (min === null || min === undefined) return null;
+  if (s.freshness_class === "STATIC") return "static — no refresh due";
+  if (min < 90) return `our copy: ${min} min old`;
+  if (min < 2880) return `our copy: ${Math.round(min / 60)} h old`;
+  return `our copy: ${Math.round(min / 1440)} d old`;
 }
 
 // Researcher export (plan §4 D2 Day 13 / exit criterion 2) — the same facts
@@ -191,7 +216,20 @@ export default function DataPage() {
                           />
                         </button>
                         <p className="mt-1.5 text-xs text-ink-dim">
-                          Covers {s.covers.join(", ")} · {freshness(s.typical_freshness_minutes)}
+                          Covers {s.covers.join(", ")} · {declaredCadence(s.typical_freshness_minutes)}
+                        </p>
+                        <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+                          {s.freshness_class && (
+                            <span className="rounded-sm border border-hairline px-1.5 py-0.5 text-[10px] tracking-wide text-ink-dim">
+                              {s.freshness_class}
+                            </span>
+                          )}
+                          <span className={s.within_contract === false ? "text-no-go" : "text-ink-muted"}>
+                            {observedAge(s) ?? "freshness unverified"}
+                          </span>
+                          {s.within_contract === false && (
+                            <span className="text-no-go">· outside its {s.freshness_class} window</span>
+                          )}
                         </p>
                         {isOpen && (
                           <div className="mt-3 border-t border-hairline pt-2.5 text-xs">
