@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
-import type { TraceNode } from "./fixture";
+import type { ConfidenceDetail, TraceNode } from "./fixture";
 import { formatReasoningSummary } from "./AgentNode";
 
 const ICON: Record<string, ComponentType<{ className?: string }>> = {
@@ -135,6 +135,7 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                 <div className="mt-1.5">
                   <ConfidenceMeter tier={node.confidence_tier} />
                 </div>
+                {node.confidence_detail && <ConfidenceBreakdown detail={node.confidence_detail} />}
               </div>
 
               <div>
@@ -346,5 +347,32 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
         </div>
       </motion.div>
     </AnimatePresence>
+  );
+}
+
+// The arithmetic behind the tier: 100 × each measured factor, capped by the
+// agent's own rule label (orca/confidence_score.py). Unmeasured factors are
+// listed as such, never shown as a perfect 1.00.
+function ConfidenceBreakdown({ detail }: { detail: ConfidenceDetail }) {
+  return (
+    <div className="mt-2 rounded-lg border border-hairline/60 bg-shelf-2/50 p-3 text-[11px] text-ink">
+      <p className="font-mono">
+        Score <span className="font-semibold">{detail.score}</span> / 100
+        {detail.capped_by_rule_label && (
+          <span className="text-ink-dim"> · capped by rule label {detail.rule_label}</span>
+        )}
+      </p>
+      <ul className="mt-1.5 space-y-0.5 font-mono">
+        {detail.factors.map((f) => (
+          <li key={f.factor} className="flex justify-between gap-3">
+            <span className="text-ink-dim">{f.factor}</span>
+            <span className="text-right">
+              {f.value == null ? "—" : f.value.toFixed(2)} <span className="text-ink-dim">{f.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1.5 text-ink-dim">Rule: {detail.rule_rationale}</p>
+    </div>
   );
 }

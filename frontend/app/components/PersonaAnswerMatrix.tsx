@@ -46,39 +46,6 @@ const VERDICT_ICON: Record<Verdict, typeof CheckCircle2> = {
 };
 const VERDICT_LABEL: Record<Verdict, string> = { GO: "Go", CAUTION: "Caution", NO_GO: "No go" };
 
-// A verdict + confidence collapse to one 0-100 score for the gauge — never a
-// second opinion, just a visual read of the same facts the badge states in
-// words (the word and colour stay the source of truth, same rule the old
-// VerdictBadge followed).
-function verdictScore(verdict: Verdict, confidenceTier: ConfidenceTier): number {
-  const base = verdict === "GO" ? 88 : verdict === "CAUTION" ? 55 : 16;
-  const penalty = confidenceTier === "LOW_DATA" ? 10 : confidenceTier === "MEDIUM" ? 4 : 0;
-  return Math.max(2, Math.min(98, base - penalty));
-}
-
-function ScoreRing({ verdict, score }: { verdict: Verdict; score: number }) {
-  const r = 30;
-  const c = 2 * Math.PI * r;
-  const toneClass = verdict === "GO" ? "text-go" : verdict === "CAUTION" ? "text-caution" : "text-no-go";
-  return (
-    <div className="relative grid size-[76px] shrink-0 place-items-center">
-      <svg viewBox="0 0 76 76" className="size-[76px] -rotate-90">
-        <circle cx="38" cy="38" r={r} fill="none" stroke="currentColor" strokeWidth="6" className="text-hairline" />
-        <circle
-          cx="38" cy="38" r={r} fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round"
-          strokeDasharray={c} strokeDashoffset={c - (score / 100) * c} className={toneClass}
-        />
-      </svg>
-      <div className="absolute flex flex-col items-center leading-none">
-        <span className="font-mono text-xl font-black text-ink">{score}</span>
-        <span className={`mt-0.5 text-[8px] font-semibold uppercase tracking-wider ${toneClass}`}>
-          {VERDICT_LABEL[verdict]}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 export type HazardBreakdown = {
   imbl_distance_nm: number | null;
   imbl_alert_level: string | null;
@@ -371,7 +338,6 @@ export function PersonaAnswerMatrix({
   const productivity = formatProductivityData(ocean.productivity_diagnosis);
   const HeaderIcon = INTENT_ICON[intent];
   const VerdictIcon = VERDICT_ICON[verdict];
-  const showRing = intent === "safety" || intent === "general";
 
   return (
     <div className="flex flex-col gap-3.5">
@@ -396,7 +362,6 @@ export function PersonaAnswerMatrix({
           persona (what VerdictBadge's `summary` prop used to guarantee),
           just without the loud banner chrome. */}
       <div className="flex items-start gap-3.5">
-        {showRing && <ScoreRing verdict={verdict} score={verdictScore(verdict, confidenceTier)} />}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={verdictTone(verdict)} icon={<VerdictIcon className="size-3" aria-hidden="true" />}>

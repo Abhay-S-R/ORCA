@@ -56,9 +56,11 @@ export function ChatTurn({
   const { askedQuery, spans, answer, streaming, failed, renderedAs, focus } = turn;
   const weatherCitation = answer?.citations?.find((c) => c.agent_name === "weather_intelligence");
   const runningAgent = streaming ? nextRunningAgent(spans) : null;
-  const displaySpans =
+  const displaySpans: typeof spans =
     spans.length > 0
       ? spans
+      : answer?.agent_confidence?.length
+      ? answer.agent_confidence
       : answer
       ? AGENT_ORDER.map((name) => ({ agent_name: name, status: "ok" as AgentStatus }))
       : [];
@@ -89,7 +91,7 @@ export function ChatTurn({
           )}
           <AgentStrip>
             {displaySpans.map((s, i) => (
-              <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} />
+              <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} confidence={s.confidence_tier} />
             ))}
             {runningAgent && <AgentPill name={runningAgent} status="running" />}
           </AgentStrip>

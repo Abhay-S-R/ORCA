@@ -35,6 +35,18 @@ export type TraceNode = {
     acquisition_timestamp: string;
     freshness_minutes: number;
   } | null;
+  // orca/confidence_score.py — the measured score behind confidence_tier.
+  confidence_score?: number | null;
+  confidence_detail?: ConfidenceDetail | null;
+};
+
+export type ConfidenceDetail = {
+  score: number;
+  label: ConfidenceTier;
+  rule_label: ConfidenceTier;
+  rule_rationale: string;
+  capped_by_rule_label: boolean;
+  factors: { factor: string; value: number | null; detail: string }[];
 };
 
 export type TraceEdge = {

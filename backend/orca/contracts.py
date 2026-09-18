@@ -39,6 +39,13 @@ class AgentResult:
     confidence: Confidence
     status: Literal["ok", "degraded", "failed", "skipped", "cancelled"] = "ok"
     error_detail: str | None = None
+    # Measured inputs to the per-agent confidence score (orca/confidence_score.py).
+    # None means "not measured" — never "perfect". freshness_class is one of
+    # data.freshness.FreshnessClass; coverage is (present, expected) readings.
+    data_age_minutes: int | None = None
+    freshness_class: str | None = None
+    fallback_depth: int | None = None
+    coverage: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True)

@@ -155,6 +155,8 @@ def persist_trace_entries(
                 outputs=entry.get("outputs"),
                 source_provenance=entry.get("source_provenance"),
                 confidence=entry.get("confidence"),
+                confidence_score=entry.get("confidence_score"),
+                confidence_detail=entry.get("confidence_detail"),
                 status=entry.get("status", "ok"),
                 error_detail=entry.get("error_detail"),
                 latency_ms=int(entry["latency_ms"]) if entry.get("latency_ms") is not None else None,

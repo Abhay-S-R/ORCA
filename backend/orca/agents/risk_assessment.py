@@ -14,6 +14,7 @@ import math
 from typing import Literal, TypedDict
 
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
+from orca.data.freshness import SOURCE_CLASS, past_staleness_ceiling
 from orca.data.normalize import ms_to_kmh
 from orca.resilience import conservative_or, safety_floor_for_missing_inputs
 from orca.state import ORCAState
@@ -237,10 +238,19 @@ def run(state: ORCAState) -> AgentResult:
     # absent (`wind_speed_10m`), which is what an operator has to go looking
     # for, so the floor's wording wins whenever no readable input proved a
     # hazard by itself.
-    floor = safety_floor_for_missing_inputs(missing)
+    # Staleness ceiling (P0.5): weather is the one input read with a measured
+    # age. Open-Meteo is LIVE-class; a cached copy past the ceiling cannot back
+    # a GO however calm it looks.
+    stale: list[str] = []
+    weather_age = weather.get("freshness_minutes")
+    if isinstance(weather_age, int) and past_staleness_ceiling(weather_age, SOURCE_CLASS["open_meteo_marine"]):
+        stale.append(f"{weather.get('dataset') or 'weather forecast'} ({weather_age // 60} h old)")
+
+    floor = safety_floor_for_missing_inputs(missing, stale)
     if floor is not None and verdict["status"] in ("SAFE", "CAUTION_MISSING_DATA"):
         go_no_go, reason = floor
-        verdict = {"status": "CAUTION_MISSING_DATA", "go_no_go": go_no_go, "reason": reason}
+        status = "CAUTION_MISSING_DATA" if missing else "CAUTION_STALE_DATA"
+        verdict = {"status": status, "go_no_go": go_no_go, "reason": reason}
 
     confidence = compute_confidence(
         [c for c in [weather.get("confidence"), geospatial.get("confidence")] if c is not None]
@@ -249,6 +259,8 @@ def run(state: ORCAState) -> AgentResult:
         # Missing required telemetry is never a HIGH- or MEDIUM-confidence
         # answer, whatever the upstream agents individually reported.
         confidence = Confidence(score="LOW_DATA", rationale=f"Missing required input(s): {', '.join(missing)}")
+    elif stale:
+        confidence = Confidence(score="LOW_DATA", rationale=f"Stale input(s): {', '.join(stale)}")
 
     return AgentResult(
         agent_name="risk_assessment",
@@ -265,4 +277,7 @@ def run(state: ORCAState) -> AgentResult:
             freshness_minutes=0,
         ),
         confidence=confidence,
+        # The three inputs conservative_or tracks (wave, wind, IMBL distance):
+        # how many actually arrived is this agent's measured coverage.
+        coverage=(3 - len(missing), 3),
     )

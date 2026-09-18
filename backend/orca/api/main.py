@@ -291,6 +291,8 @@ async def _query_stream(
                 "query_id": values.get("query_id"),
                 "status": trace_entry.get("status", "ok"),
                 "confidence_tier": trace_entry.get("confidence", "LOW_DATA"),
+                "confidence_score": trace_entry.get("confidence_score"),
+                "confidence_detail": trace_entry.get("confidence_detail"),
                 "latency_ms": trace_entry.get("latency_ms", 0.0),
                 "reasoning_summary": _reasoning_summary(agent_real, trace_entry.get("outputs", {}), trace_entry.get("status", "ok")),
                 "inputs_consumed": trace_entry.get("inputs_consumed", {}),
@@ -330,6 +332,14 @@ async def _query_stream(
             # being answered as turn one (docs/ORCA_DLC_Extension_Pack.md R-AUTH-3).
             "context_turns": len(session_history or []),
             "confidence_tier": final_state.get("confidence_tier", "LOW_DATA"),
+            # Per-agent scored labels, carried on the answer itself because a
+            # query-cache hit replays only this event — no agent_span events —
+            # and the /ask strip would otherwise draw bare ticks for it.
+            "agent_confidence": [
+                {"agent_name": e.get("agent_name"), "status": e.get("status", "ok"), "confidence_tier": e.get("confidence")}
+                for e in final_state.get("audit_trace_log") or []
+                if e.get("agent_name")
+            ],
             "risk_assessment": final_state.get("risk_assessment"),
             # Same gate graph.py already applies to the narrative's verdict
             # header (reporting.should_lead_with_verdict) — exposed so the

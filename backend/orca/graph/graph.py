@@ -65,6 +65,19 @@ _IMBL_PROXY_BOUNDARY = "Sri Lankan Exclusive Economic Zone"
 _MPA_BOUNDARY = "Gulf of Mannar Marine National Park"
 
 
+def _scored(result: AgentResult, entry: dict) -> Confidence:
+    """The confidence downstream agents compose from: the band of the measured
+    score (orca/confidence_score.py), which is never above the agent's own
+    rule label. Using the rule label here let a 50 h-old cached forecast read
+    MEDIUM on the answer card while its own pill read LOW."""
+    detail = entry.get("confidence_detail") or {}
+    factors = "; ".join(f"{f['factor']} {f['detail']}" for f in detail.get("factors", []) if f.get("value") is not None)
+    return Confidence(
+        score=coerce_confidence_score(entry.get("confidence", result.confidence.score)),
+        rationale=f"{result.confidence.rationale} [score {detail.get('score', '?')}: {factors}]",
+    )
+
+
 def distress_check_node(state: ORCAState) -> dict:
     """Runs Agent 12 exactly ONCE. Previously this node only extracted the
     boolean flag, and a separate distress_response_node re-ran distress.run()
@@ -138,7 +151,7 @@ def weather_node(state: ORCAState) -> dict:
         # An empty outputs dict means the agent failed, and downstream code
         # tests weather_data for truthiness — so don't make it truthy with a
         # lone confidence key.
-        "weather_data": {**result.outputs, "confidence": result.confidence} if result.outputs else {},
+        "weather_data": {**result.outputs, "confidence": _scored(result, entry)} if result.outputs else {},
         "audit_trace_log": [entry],
         "completed_nodes": ["weather_intelligence"],
     }
@@ -164,7 +177,7 @@ def ocean_analytics_node(state: ORCAState) -> dict:
 
     result, entry = run_traced_node("ocean_analytics", ocean_analytics.run, state)
     update: dict = {
-        "ocean_data": {**result.outputs, "confidence": result.confidence} if result.outputs else {},
+        "ocean_data": {**result.outputs, "confidence": _scored(result, entry)} if result.outputs else {},
         "audit_trace_log": [entry],
         "completed_nodes": ["ocean_analytics"],
     }
@@ -225,13 +238,19 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         # boundary proxy (not the literal IMBL treaty line) stays MEDIUM
         # until that's independently verified (plan §4 S5 exit note).
         confidence=Confidence(score="MEDIUM", rationale=f"Real boundary check against {_IMBL_PROXY_BOUNDARY} (IMBL proxy) and {_MPA_BOUNDARY}"),
+        # Boundary geometry is STATIC-class reference data; coverage is whether
+        # both proximity checks returned a distance.
+        freshness_class="STATIC",
+        data_age_minutes=0,
+        fallback_depth=0,
+        coverage=(sum(1 for c in (imbl, mpa) if c.distance_nm == c.distance_nm), 2),  # NaN != NaN
     )
 
 
 def geospatial_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("geospatial", geospatial_run, state)
     return {
-        "geospatial_data": {**result.outputs, "confidence": result.confidence},
+        "geospatial_data": {**result.outputs, "confidence": _scored(result, entry)},
         "audit_trace_log": [entry],
         "completed_nodes": ["geospatial"],
     }

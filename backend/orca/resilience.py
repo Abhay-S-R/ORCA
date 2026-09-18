@@ -172,13 +172,24 @@ def conservative_or(value: T | None, *, missing_field_name: str, missing: list[s
     return value
 
 
-def safety_floor_for_missing_inputs(missing: list[str]) -> tuple[Literal["CAUTION", "NO_GO"], str] | None:
+def safety_floor_for_missing_inputs(
+    missing: list[str], stale: list[str] | None = None
+) -> tuple[Literal["CAUTION", "NO_GO"], str] | None:
     """Returns (go_no_go, reason) to force onto a verdict when `missing` is
     non-empty, or None when nothing was missing and the verdict computed
     normally should stand. NO_GO only when the input is one nothing else can
     compensate for; everything else forces CAUTION, per plan §5.7: "a
     missing required input yields CAUTION or NO_GO naming the input, never
-    GO."""
-    if not missing:
+    GO."
+
+    `stale` (plan P0.5, R-SAFE-1) names inputs that arrived but are past their
+    staleness ceiling: a calm reading two days old is not evidence of a calm
+    sea today, so it floors to CAUTION the same way an absent one does."""
+    reasons = []
+    if missing:
+        reasons.append(f"missing: {', '.join(missing)}")
+    if stale:
+        reasons.append(f"stale: {', '.join(stale)}")
+    if not reasons:
         return None
-    return "CAUTION", f"Insufficient data — missing: {', '.join(missing)}"
+    return "CAUTION", f"Insufficient data — {'; '.join(reasons)}"
