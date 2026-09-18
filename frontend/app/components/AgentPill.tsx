@@ -13,31 +13,32 @@
 // it hasn't reached yet.
 import React from "react";
 import { motion, useReducedMotion } from "framer-motion";
+import { AlertTriangle, Check, Loader2, MinusCircle, XCircle } from "lucide-react";
 
 export type AgentStatus = "pending" | "running" | "ok" | "degraded" | "failed" | "skipped";
 
 export const AGENT_REGISTRY: Record<string, { label: string; shortLabel: string }> = {
-  distress: { label: "Distress Check", shortLabel: "Distress" },
-  distresscheck: { label: "Distress Check", shortLabel: "Distress" },
-  distress_check: { label: "Distress Check", shortLabel: "Distress" },
-  languageingress: { label: "Language Ingress", shortLabel: "Ingress" },
-  language_ingress: { label: "Language Ingress", shortLabel: "Ingress" },
+  distress: { label: "Distress Check", shortLabel: "Distress Check" },
+  distresscheck: { label: "Distress Check", shortLabel: "Distress Check" },
+  distress_check: { label: "Distress Check", shortLabel: "Distress Check" },
+  languageingress: { label: "Language Ingress", shortLabel: "Language Ingress" },
+  language_ingress: { label: "Language Ingress", shortLabel: "Language Ingress" },
   planning: { label: "Planning", shortLabel: "Planning" },
-  weatherintelligence: { label: "Weather Intel", shortLabel: "Weather" },
-  weather_intelligence: { label: "Weather Intel", shortLabel: "Weather" },
-  weather: { label: "Weather Intel", shortLabel: "Weather" },
+  weatherintelligence: { label: "Weather Intel", shortLabel: "Weather Intel" },
+  weather_intelligence: { label: "Weather Intel", shortLabel: "Weather Intel" },
+  weather: { label: "Weather Intel", shortLabel: "Weather Intel" },
   geospatial: { label: "Geospatial", shortLabel: "Geospatial" },
-  oceananalytics: { label: "Ocean Analytics", shortLabel: "Ocean" },
-  ocean_analytics: { label: "Ocean Analytics", shortLabel: "Ocean" },
-  ocean: { label: "Ocean Analytics", shortLabel: "Ocean" },
-  riskassessment: { label: "Risk Assessment", shortLabel: "Risk" },
-  risk_assessment: { label: "Risk Assessment", shortLabel: "Risk" },
-  risk: { label: "Risk Assessment", shortLabel: "Risk" },
-  visualization: { label: "Visualization", shortLabel: "Visuals" },
+  oceananalytics: { label: "Ocean Analytics", shortLabel: "Ocean Analytics" },
+  ocean_analytics: { label: "Ocean Analytics", shortLabel: "Ocean Analytics" },
+  ocean: { label: "Ocean Analytics", shortLabel: "Ocean Analytics" },
+  riskassessment: { label: "Risk Assessment", shortLabel: "Risk Assessment" },
+  risk_assessment: { label: "Risk Assessment", shortLabel: "Risk Assessment" },
+  risk: { label: "Risk Assessment", shortLabel: "Risk Assessment" },
+  visualization: { label: "Visualization", shortLabel: "Visualization" },
   reporting: { label: "Reporting", shortLabel: "Reporting" },
   critic: { label: "Critic", shortLabel: "Critic" },
-  languageegress: { label: "Language Egress", shortLabel: "Egress" },
-  language_egress: { label: "Language Egress", shortLabel: "Egress" },
+  languageegress: { label: "Language Egress", shortLabel: "Language Egress" },
+  language_egress: { label: "Language Egress", shortLabel: "Language Egress" },
 };
 
 // The normal query path, in execution order. The backend only ever reports
@@ -85,7 +86,7 @@ export function formatAgentLabel(raw: string): string {
 }
 
 const STATUS_TEXT: Record<AgentStatus, string> = {
-  ok: "done",
+  ok: "completed",
   running: "running",
   degraded: "degraded",
   failed: "failed",
@@ -94,7 +95,7 @@ const STATUS_TEXT: Record<AgentStatus, string> = {
 };
 
 const STATUS_STYLE: Record<AgentStatus, string> = {
-  ok: "border-hairline/80 bg-shelf-3 text-ink hover:border-hairline-strong shadow-2xs hover:shadow-xs",
+  ok: "border-emerald-500/35 bg-emerald-500/5 text-ink hover:border-emerald-500/60 shadow-2xs hover:shadow-xs",
   running: "border-ocean-cyan/70 bg-ocean-cyan/10 text-ocean-cyan ring-1 ring-ocean-cyan/30 shadow-xs",
   degraded: "border-caution/50 bg-caution/10 text-caution shadow-2xs hover:shadow-xs",
   failed: "border-no-go/50 bg-no-go/10 text-no-go shadow-2xs hover:shadow-xs",
@@ -114,17 +115,36 @@ export function AgentPill({
   className?: string;
 }) {
   const reduce = useReducedMotion();
-  const meta = getAgentMeta(name);
   const fullLabel = formatAgentLabel(name);
-  const shortLabel = meta?.shortLabel ?? fullLabel;
   const pulse = status === "running" && !reduce;
 
   return (
     <span
-      className={`inline-flex w-full min-w-0 h-7 shrink-0 items-center justify-center gap-1.5 rounded-md border px-2 text-[11px] sm:text-xs font-medium tracking-tight whitespace-nowrap select-none transition-colors duration-150 ${STATUS_STYLE[status]} ${pulse ? "animate-pulse" : ""} ${className}`}
+      className={`inline-flex w-full min-w-0 h-7.5 sm:h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2 text-[10px] sm:text-[11px] font-semibold tracking-tight whitespace-nowrap select-none transition-all duration-200 ${STATUS_STYLE[status]} ${pulse ? "animate-pulse" : ""} ${className}`}
       title={`${fullLabel} — ${STATUS_TEXT[status]}${latencyMs ? ` (${latencyMs}ms)` : ""}`}
     >
-      <span className="truncate">{shortLabel}</span>
+      {status === "ok" && (
+        <span className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+          <Check className="size-2.5 stroke-[2.5]" aria-hidden="true" />
+        </span>
+      )}
+      {status === "running" && (
+        <Loader2 className="size-3.5 shrink-0 animate-spin text-ocean-cyan" aria-hidden="true" />
+      )}
+      {status === "degraded" && (
+        <AlertTriangle className="size-3.5 shrink-0 text-caution" aria-hidden="true" />
+      )}
+      {status === "failed" && (
+        <XCircle className="size-3.5 shrink-0 text-no-go" aria-hidden="true" />
+      )}
+      {status === "pending" && (
+        <span className="size-1.5 shrink-0 rounded-full bg-ink-dim/30" aria-hidden="true" />
+      )}
+      {status === "skipped" && (
+        <MinusCircle className="size-3 shrink-0 text-ink-dim/40" aria-hidden="true" />
+      )}
+
+      <span className="truncate">{fullLabel}</span>
       <span className="sr-only">({STATUS_TEXT[status]})</span>
 
       {latencyMs != null && status === "ok" && (

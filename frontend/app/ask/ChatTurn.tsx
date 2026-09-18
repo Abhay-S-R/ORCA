@@ -5,7 +5,7 @@
 // because that file renders one of these per turn now instead of exactly
 // one ever — keeping it here is what keeps the thread's map() call readable.
 import { motion } from "framer-motion";
-import { History, MapPin, Radio } from "lucide-react";
+import { CheckCircle2, History, MapPin, Radio } from "lucide-react";
 import { AgentPill, AgentStrip, nextRunningAgent } from "../components/AgentPill";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
@@ -75,12 +75,19 @@ export function ChatTurn({
           lands — the trace stays inspectable without competing with it. */}
       {spans.length > 0 && (
         <div className="flex min-w-0 max-w-full flex-col gap-1.5">
-          {streaming && (
-            <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
-              <Radio className="size-3" aria-hidden="true" />
-              Agent trace
-            </span>
-          )}
+          <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
+            {streaming ? (
+              <>
+                <Radio className="size-3 text-ocean-cyan animate-pulse" aria-hidden="true" />
+                Agent trace running...
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="size-3 text-emerald-500" aria-hidden="true" />
+                Verified agent trace ({spans.filter((s) => s.status === "ok").length}/{spans.length} completed)
+              </>
+            )}
+          </span>
           <AgentStrip>
             {spans.map((s, i) => (
               <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} />
