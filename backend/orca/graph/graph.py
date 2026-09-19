@@ -134,12 +134,17 @@ def language_ingress_node(state: ORCAState) -> dict:
 
 def planning_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("planning", planning.run, state)
-    return {
+    update = {
         "matched_intent_rows": result.outputs["matched_intent_rows"],
         "execution_plan": result.outputs["execution_plan"],
         "audit_trace_log": [entry],
         "completed_nodes": ["planning"],
     }
+    # A "why has the catch dropped?" question is what DEEP exists for — the
+    # productivity diagnosis only runs there (P5.29). Only ever raises depth.
+    if "DIAGNOSTIC" in update["matched_intent_rows"]:
+        update["reasoning_depth"] = "DEEP"
+    return update
 
 
 def weather_node(state: ORCAState) -> dict:

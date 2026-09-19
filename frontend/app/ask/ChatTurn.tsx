@@ -22,6 +22,7 @@ import { ErrorState, Skeleton } from "../components/States";
 import { INTENT_LABEL, type QueryIntent } from "../lib/queryIntent";
 import { type Persona } from "../persona/config";
 import type { Turn } from "./useAskThread";
+import { IntentActions } from "./IntentActions";
 
 const FOLLOW_UPS: Record<QueryIntent, string[]> = {
   safety: ["What are the wind and wave timings for the next 24 hours?", "Where is the nearest fishing zone right now?"],
@@ -196,6 +197,8 @@ export function ChatTurn({
                   </div>
                 );
               })()}
+
+              <IntentActions actions={answer.intent_actions ?? []} />
 
               {answer.final_vernacular_response &&
                 answer.detected_language !== "en" &&

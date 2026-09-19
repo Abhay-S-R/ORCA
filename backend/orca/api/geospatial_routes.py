@@ -23,6 +23,7 @@ from orca.agents.geospatial import (
     nearest_boundary_line,
     point_in_polygon,
     fishing_ban_status,
+    hycom_nearest_step,
     spatial_query_zones,
     wind_vectors,
 )
@@ -78,13 +79,17 @@ def current_vectors_route(pan_india: bool = True) -> dict:
     a DAILY-class source, so the window is a day.
     """
     cache_path = DATA_ROOT / "tier1" / "vectors" / "pan_india_currents_v2.json"
+    # `valid_time` is the HYCOM step the field is for (P4.15): the time slider
+    # greys this layer out when it is more than half a step away. A cached
+    # field for a step that is no longer the nearest one is stale too.
+    step, valid_time = hycom_nearest_step()
     if pan_india:
         cached = read_json_if_fresh(cache_path, CURRENT_VECTOR_TTL_MINUTES)
-        if cached is not None:
+        if cached is not None and cached.get("valid_time") == valid_time:
             return cached
     if pan_india:
-        pts = current_vectors(bbox=PAN_INDIA_BBOX_WSEN, stride=3)
-        result = {"points": pts, "bounds": list(PAN_INDIA_BBOX_WSEN)}
+        pts = current_vectors(bbox=PAN_INDIA_BBOX_WSEN, stride=3, step=step)
+        result = {"points": pts, "bounds": list(PAN_INDIA_BBOX_WSEN), "valid_time": valid_time, "step_hours": 3}
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             with open(cache_path, "w", encoding="utf-8") as f:
@@ -93,7 +98,7 @@ def current_vectors_route(pan_india: bool = True) -> dict:
         except Exception:
             pass
         return result
-    return {"points": current_vectors(), "bounds": list(PILOT_BBOX_WSEN)}
+    return {"points": current_vectors(step=step), "bounds": list(PILOT_BBOX_WSEN), "valid_time": valid_time, "step_hours": 3}
 
 
 @router.get("/wind-vectors")
@@ -111,7 +116,7 @@ def wind_vectors_route(pan_india: bool = True) -> dict:
     cache_path = DATA_ROOT / "tier1" / "vectors" / "pan_india_wind.json"
     if pan_india:
         cached = read_json_if_fresh(cache_path, WIND_VECTOR_TTL_MINUTES)
-        if cached is not None:
+        if cached is not None and "valid_time" in cached:
             return cached
     if pan_india:
         res = wind_vectors(bbox=PAN_INDIA_BBOX_WSEN, stride=4)
@@ -151,6 +156,28 @@ def boundary_proximity(lat: Lat, lon: Lon, boundary_name: str) -> dict:
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     return asdict(result)
+
+
+_CYCLONE_MEMO: dict[str, tuple[float, dict]] = {}
+_CYCLONE_MEMO_S = 600  # GDACS updates every ~6 h; one fetch per 10 min is plenty
+
+
+@router.get("/cyclone-track")
+def cyclone_track() -> dict:
+    """Active North Indian Ocean cyclones — track, positions (observed and
+    forecast) and uncertainty cone — as GeoJSON for the map (P5.30). Source is
+    GDACS, labelled as such; it never feeds the verdict."""
+    import time
+
+    from orca.agents.weather_intelligence import get_cyclone_tracks
+
+    hit = _CYCLONE_MEMO.get("nio")
+    if hit and time.monotonic() - hit[0] < _CYCLONE_MEMO_S:
+        return hit[1]
+    result = get_cyclone_tracks()
+    if not result.get("cached") and result.get("available"):
+        _CYCLONE_MEMO["nio"] = (time.monotonic(), result)
+    return result
 
 
 @router.get("/boundary-line")

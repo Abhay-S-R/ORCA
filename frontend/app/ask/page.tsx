@@ -11,7 +11,7 @@
 // Past chats sit in a rail to the left (a drawer below lg, where a third
 // column would squeeze the thread and the chart); they are kept in this
 // browser for guests and in the account once signed in (./chatStore).
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Compass, Fish, History, Maximize2, MapPin, Minimize2, PanelLeftOpen, Plus, ShieldCheck, Waves, Wind } from "lucide-react";
@@ -75,6 +75,18 @@ export default function AskPage() {
     setRenderedAs,
     applyRender,
   } = useAskThread(persona, store, () => setHistoryVersion((v) => v + 1));
+
+  // The latest distress call in this chat with a position — pinned on the map
+  // for as long as the chat is open (P4.16). No position, no pin: the answer
+  // card already says the position is missing, the map never guesses one.
+  const distressMarkers = useMemo(() => {
+    // A regional default is where the backend computed, not where the caller is.
+    const t = [...turns]
+      .reverse()
+      .find((x) => x.answer?.distress_flag && x.answer.user_location && x.answer.user_location.place_source !== "regional_default");
+    const loc = t?.answer?.user_location;
+    return t && loc ? [{ id: t.id, lat: loc.lat, lon: loc.lon, label: loc.place_name?.replace(/\b\p{L}/gu, (c) => c.toUpperCase()) ?? "your position" }] : [];
+  }, [turns]);
 
   useEffect(() => {
     try {
@@ -341,6 +353,7 @@ export default function AskPage() {
                 className="h-full w-full"
                 initialLayers={{ srvBathymetry: true, currents: true }}
                 queryFocus={activeFocus}
+                distressMarkers={distressMarkers}
                 showLayerPanel={false}
                 showRegionSwitcher={false}
                 showLegends={false}

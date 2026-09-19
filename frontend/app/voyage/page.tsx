@@ -4,7 +4,7 @@
 // chart to drop origin/destination (or type coordinates), and ORCA returns a
 // per-leg classified route: the same hazard cascade `/safety` runs for a
 // single point, walked along the whole passage at each leg's own ETA.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Anchor, AlertTriangle, MapPin, Navigation } from "lucide-react";
 import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
 import { Button } from "../components/Button";
@@ -105,6 +105,22 @@ export default function VoyagePage() {
   const [tide, setTide] = useState<Tide | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // A ROUTE question on /ask links here with its endpoints already resolved
+  // (?from=lat,lon&to=lat,lon — P5.29). Pins only; the user still presses Plan.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const parse = (v: string | null) => {
+      const [lat, lon] = (v ?? "").split(",").map(Number);
+      return Number.isFinite(lat) && Number.isFinite(lon) && v ? { lat, lon } : null;
+    };
+    const from = parse(q.get("from"));
+    const to = parse(q.get("to"));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the URL only exists after mount
+    if (from) setOrigin(from);
+    if (to) setDestination(to);
+    if (from && !to) setMode("destination");
+  }, []);
 
   function handlePointClick(lat: number, lon: number) {
     const setPoint = mode === "origin" ? setOrigin : setDestination;

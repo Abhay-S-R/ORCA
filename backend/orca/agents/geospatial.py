@@ -16,7 +16,7 @@ against.
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 import math
 from dataclasses import dataclass
 from functools import lru_cache
@@ -442,20 +442,41 @@ def _hycom() -> xr.Dataset:
     return xr.open_dataset(files[-1], decode_times=False)
 
 
+def _hycom_times(ds: xr.Dataset) -> list[datetime]:
+    """HYCOM's TIME axis as UTC datetimes. The file is opened with
+    decode_times=False, so the "hours since <epoch>" units are applied here."""
+    epoch = datetime.fromisoformat(ds["TIME"].attrs["units"].split("since", 1)[1].strip()).replace(tzinfo=timezone.utc)
+    return [epoch + timedelta(hours=float(h)) for h in ds["TIME"].values]
+
+
+def hycom_nearest_step(when: datetime | None = None) -> tuple[int, str]:
+    """(index, ISO valid time) of the HYCOM step nearest `when` (default now)."""
+    times = _hycom_times(_hycom())
+    when = when or datetime.now(timezone.utc)
+    i = min(range(len(times)), key=lambda k: abs(times[k] - when))
+    return i, times[i].isoformat().replace("+00:00", "Z")
+
+
 def current_vectors(
     bbox: tuple[float, float, float, float] = PILOT_BBOX_WSEN,
     stride: int = 4,
+    step: int | None = None,
 ) -> list[dict[str, float]]:
-    """Real HYCOM surface (DEPTH=0) current vectors, latest forecast step,
-    cropped to the specified bbox (defaults to pilot bbox) and downsampled.
-    U/V are eastward/northward m/s; `direction_deg` is the compass bearing the
-    current flows TOWARD (oceanographic convention — the opposite sense of
-    a meteorological wind direction).
+    """Real HYCOM surface (DEPTH=0) current vectors at one forecast step
+    (default: the step nearest now — `hycom_nearest_step`), cropped to the
+    bbox and downsampled. It used to take the *last* step, up to five days
+    ahead, while the map drew it as today's flow; the step's valid time now
+    travels with the points (P4.15). U/V are eastward/northward m/s;
+    `direction_deg` is the compass bearing the current flows TOWARD
+    (oceanographic convention — the opposite sense of a meteorological wind
+    direction).
     """
     ds = _hycom()
+    if step is None:
+        step = hycom_nearest_step()[0]
     west, south, east, north = bbox
-    u = ds["UVEL"].isel(TIME=-1, DEPTH=0).sel(LON=slice(west, east), LAT=slice(south, north))
-    v = ds["VVEL"].isel(TIME=-1, DEPTH=0).sel(LON=slice(west, east), LAT=slice(south, north))
+    u = ds["UVEL"].isel(TIME=step, DEPTH=0).sel(LON=slice(west, east), LAT=slice(south, north))
+    v = ds["VVEL"].isel(TIME=step, DEPTH=0).sel(LON=slice(west, east), LAT=slice(south, north))
     lats = u["LAT"].values[::stride]
     lons = u["LON"].values[::stride]
     u_vals = u.values[::stride, ::stride]
@@ -473,7 +494,7 @@ def current_vectors(
                 "lat": round(float(lat), 3),
                 "lon": round(float(lon), 3),
                 "speed_ms": round(speed, 3),
-                "direction_deg": round(direction, 1),
+                "direction_deg": round(direction, 1) % 360.0,  # 359.96 must not round to 360.0
                 "u": round(uu, 3),
                 "v": round(vv, 3),
             })
@@ -526,7 +547,7 @@ def wind_vectors(
                 "lat": round(float(lat), 3),
                 "lon": round(float(lon), 3),
                 "speed_ms": round(speed, 3),
-                "direction_deg": round(direction, 1),
+                "direction_deg": round(direction, 1) % 360.0,  # 359.96 must not round to 360.0
                 "u": round(uu, 3),
                 "v": round(vv, 3),
             })
@@ -535,6 +556,10 @@ def wind_vectors(
         "points": points,
         "bounds": list(bbox),
         "acquisition_date": acquisition_date,
+        # A daily L4 composite, stamped at 12:00 UTC of its day: the time
+        # slider treats it as one frame with a 24-hour step (P4.15).
+        "valid_time": str(ds["time"].values[0])[:19] + "Z",
+        "step_hours": 24,
         "source_file": path.name,
     }
 

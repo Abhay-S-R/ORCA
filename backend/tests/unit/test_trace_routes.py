@@ -197,3 +197,22 @@ def test_render_persona_serves_a_cache_row_when_postgres_has_nothing():
         assert res.citations, "citations must survive the dict-row path"
     finally:
         _RECENT_TRACES.pop(cached_qid, None)
+
+
+def test_recent_summary_from_stored_rows_never_invents_a_value():
+    """The Postgres fallback used to return "HIGH" and 1250 ms for every trace.
+    Every field now comes from the stored rows, or is None."""
+    from orca.api.trace_routes import recent_summary_from_row
+
+    bare = recent_summary_from_row({"query_id": "q1", "node_count": 3})
+    assert bare == {"query_id": "q1", "query_text": None, "verdict": None,
+                    "confidence_tier": None, "node_count": 3, "total_latency_ms": None}
+
+    full = recent_summary_from_row({"query_id": "q2", "node_count": 10, "total_latency_ms": 812,
+                                    "ingress_text": "Is it safe?", "go_no_go": "CAUTION", "risk_tier": "MEDIUM"})
+    assert (full["query_text"], full["verdict"], full["confidence_tier"], full["total_latency_ms"]) == (
+        "Is it safe?", "CAUTION", "MEDIUM", 812.0)
+
+    sos = recent_summary_from_row({"query_id": "q3", "node_count": 1, "is_distress": True, "go_no_go": None,
+                                   "distress_text": "boat sinking boat sinking"})
+    assert sos["verdict"] == "DISTRESS" and sos["query_text"] == "boat sinking"

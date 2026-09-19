@@ -48,6 +48,11 @@ def cached_ndma_cap_alerts_path() -> Path:
     return DATA_DIR / "tier1" / "hazards" / "ndma_cap_alerts.json"
 
 
+def cached_gdacs_tc_path() -> Path:
+    """Last successful GDACS tropical-cyclone fetch — the fallback for the map layer."""
+    return DATA_DIR / "tier1" / "hazards" / "gdacs_tc_tracks.json"
+
+
 # Ports with a cached fallback on disk. Globbed from the files themselves rather
 # than hand-listed, so `scripts/refresh_openmeteo_caches.py` widening coverage
 # (it fetches every _GAZETTEER coordinate) is picked up without a second edit

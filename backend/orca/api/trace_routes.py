@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 
 from orca.agents import reporting
 from orca.contracts import (
@@ -111,6 +112,50 @@ def record_recent_trace(
     # Prepend to list, dedup by query_id, cap at 20
     global _RECENT_SUMMARIES
     _RECENT_SUMMARIES = [summary] + [s for s in _RECENT_SUMMARIES if s["query_id"] != query_id][:19]
+
+
+def recent_traces_sql(limit: int = 10) -> str:
+    return f"""
+        SELECT query_id,
+               MAX(created_at) AS last_seen,
+               COUNT(*) AS node_count,
+               SUM(latency_ms) AS total_latency_ms,
+               MAX(inputs_consumed->>'raw_user_query') FILTER (WHERE agent_name = 'language_ingress') AS ingress_text,
+               MAX(inputs_consumed->>'normalized_query') FILTER (WHERE agent_name = 'planning') AS planning_text,
+               MAX(inputs_consumed->>'text') FILTER (WHERE agent_name = 'distress') AS distress_text,
+               BOOL_OR((outputs->'detection'->>'is_distress')::boolean) FILTER (WHERE agent_name = 'distress') AS is_distress,
+               MAX(outputs->>'go_no_go') FILTER (WHERE agent_name = 'risk_assessment') AS go_no_go,
+               MAX(confidence::text) FILTER (WHERE agent_name = 'risk_assessment') AS risk_tier
+        FROM audit_trace_log
+        WHERE agent_name NOT IN ('security', 'sentinel', 'feedback')
+        GROUP BY query_id
+        ORDER BY last_seen DESC
+        LIMIT {int(limit)}
+    """
+
+
+def _undouble(t: str | None) -> str | None:
+    """The distress agent stores raw + normalized text joined; for an English
+    query those are the same sentence twice."""
+    if not t:
+        return t
+    t = t.strip()
+    half = len(t) // 2
+    return t[:half].strip() if t[:half].strip() == t[half:].strip() else t
+
+
+def recent_summary_from_row(r: dict[str, Any]) -> dict[str, Any]:
+    """One switcher entry from stored audit rows only. Missing -> None."""
+    verdict = "DISTRESS" if r.get("is_distress") else r.get("go_no_go")
+    total = r.get("total_latency_ms")
+    return {
+        "query_id": str(r["query_id"]),
+        "query_text": r.get("ingress_text") or r.get("planning_text") or _undouble(r.get("distress_text")),
+        "verdict": verdict,
+        "confidence_tier": r.get("risk_tier"),
+        "node_count": int(r.get("node_count") or 0),
+        "total_latency_ms": None if total is None else round(float(total), 1),
+    }
 
 
 class TraceNode(BaseModel):
@@ -326,34 +371,18 @@ def get_recent_traces() -> list[dict[str, Any]]:
     if _RECENT_SUMMARIES:
         return _RECENT_SUMMARIES
 
-    # Fall back to querying distinct query_ids from Postgres if available
+    # Fall back to Postgres (e.g. after a backend restart). Every field comes
+    # from the stored rows; one the rows don't hold is None, never a stand-in
+    # value — this used to return "HIGH" and 1250 ms for every trace.
+    # Security/Sentinel/feedback rows share the table but are not queries.
     try:
-        from sqlalchemy import text
         db = get_sessionmaker()()
         try:
-            sql = text("""
-                SELECT query_id, MAX(created_at) as last_seen, count(*) as cnt
-                FROM audit_trace_log
-                GROUP BY query_id
-                ORDER BY last_seen DESC
-                LIMIT 10
-            """)
-            res = db.execute(sql).fetchall()
-            summaries = []
-            for r in res:
-                qid = str(r[0])
-                summaries.append({
-                    "query_id": qid,
-                    "query_text": f"Query {qid[:8]}...",
-                    "verdict": "RECORDED",
-                    "confidence_tier": "HIGH",
-                    "node_count": r[2],
-                    "total_latency_ms": 1250.0,
-                })
-            return summaries
+            rows = db.execute(text(recent_traces_sql())).mappings().all()
+            return [recent_summary_from_row(dict(r)) for r in rows]
         finally:
             db.close()
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 — no DB: the in-memory list (possibly empty) is the answer
         pass
 
     return _RECENT_SUMMARIES

@@ -6,8 +6,9 @@ four-channel broadcast preview, audit trail. Aggregation is a hard constraint
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -17,6 +18,8 @@ from orca.db.engine import get_db
 from orca.db.models import User
 from orca.ops.aggregation import notification_severity_counts, sector_threat_matrix
 from orca.ops.cap import build_cap_xml, four_channel_preview
+from orca.ops.distress_queue import list_events as list_distress_events
+from orca.ops.distress_queue import set_state as set_distress_state
 
 router = APIRouter(prefix="/api/ops", tags=["district-ops"])
 
@@ -105,3 +108,22 @@ def audit_trail(
             for r in rows
         ],
     }
+
+
+# --- Distress queue (P4.16) — the one place an authority sees a position, and
+# only while the incident is not closed; every such read is audited. ---------
+
+@router.get("/distress")
+def distress_queue(hours: int = 24, user: User = Depends(_authority), db: Session = Depends(get_db)) -> dict:
+    return {"events": list_distress_events(db, reader_id=user.id, hours=hours)}
+
+
+@router.post("/distress/{event_id}/{action}")
+def distress_transition(
+    event_id: uuid.UUID, action: Literal["acknowledge", "close"],
+    user: User = Depends(_authority), db: Session = Depends(get_db),
+) -> dict:
+    result = set_distress_state(db, event_id, action, user.id)
+    if result is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"distress event not found, or already past '{action}'")
+    return result

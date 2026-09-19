@@ -24,12 +24,12 @@ class RoutingRow:
     agents: tuple[str, ...]
 
 
-# Architecture §4 routing table. Only the rows meaningful without Agents 3/5
-# (Phase 2) or Agent 11 (Phase 3) are populated with real keyword sets;
-# export/notify-me/proactive-geofence rows are named but return no match in
-# Phase 1 — they need agents that don't exist yet, and a row that always
-# fails to match is more honest than one that matches and dispatches to
-# nothing.
+# Architecture §4 routing table (orca_final §3.2). Every row does real work:
+# the first five dispatch the agents that answer them; the last seven (P5.29)
+# also get one concrete action on the answer card from orca/intent_actions.py,
+# built from what exists today. A row that could only dispatch to nothing is
+# still left out — the scenario rows (TIMING, COUNTERFACTUAL, COMPARISON,
+# ENDURANCE, WORTHWHILENESS) arrive with P5.9 and HISTORICAL with P5.25.
 ROUTING_TABLE: tuple[RoutingRow, ...] = (
     RoutingRow(
         "SAFETY_CHECK",
@@ -55,6 +55,41 @@ ROUTING_TABLE: tuple[RoutingRow, ...] = (
         "ZONES_TO_AVOID",
         ("zones to avoid", "boundary", "geofence", "restricted zone", "marine park"),
         ("geospatial", "risk_assessment"),
+    ),
+    RoutingRow(
+        "ROUTE",
+        ("safest route", "route from", "route to", "passage from", "voyage from", "plan a voyage", "plan my route", "navigate from"),
+        ("geospatial", "weather_intelligence", "risk_assessment"),
+    ),
+    RoutingRow(
+        "DIAGNOSTIC",
+        ("why has", "declined", "decline in", "fewer fish", "productivity", "catch dropped", "catch has dropped"),
+        ("marine_data_discovery", "ocean_analytics"),
+    ),
+    RoutingRow(
+        "REGULATORY",
+        ("allowed to fish", "fishing ban", "ban period", "fishing banned", "closed season", "fishing season", "legal to fish"),
+        ("geospatial", "risk_assessment"),
+    ),
+    RoutingRow(
+        "META",
+        ("how do you know", "are you sure", "who made you", "where does this data", "your source", "can i trust", "how sure are you"),
+        (),
+    ),
+    RoutingRow(
+        "EXPORT",
+        ("export", "download", "csv", "geojson", "netcdf", "as a spreadsheet"),
+        ("marine_data_discovery", "ocean_analytics"),
+    ),
+    RoutingRow(
+        "SUBSCRIPTION",
+        ("watch for me", "notify me", "alert me when", "tell me when", "subscribe", "keep an eye on"),
+        ("weather_intelligence", "risk_assessment"),
+    ),
+    RoutingRow(
+        "ADMINISTRATIVE",
+        ("change my home port", "update my boat", "my profile", "register my boat", "change my vessel", "my account"),
+        (),
     ),
 )
 

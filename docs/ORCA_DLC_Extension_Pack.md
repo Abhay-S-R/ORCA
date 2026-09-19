@@ -1,5 +1,12 @@
 # ORCA — DLC Extension Pack
 
+> **Superseded as the source of truth — 2026-09-19.** ORCA now has two working documents:
+> `docs/orca_final.md` describes every feature ORCA has when the build is complete, and
+> `docs/DLC_implementation_plan.md` is the single list of work remaining to get there, and **wins on
+> any conflict with this Pack**. This Pack is kept as the historical origin of the `R-*` requirement
+> IDs and their `Accept:` criteria, which the plan still cites. Its `Now:` lines are dated snapshots
+> and many are stale (see `docs/DLC_verification_report.md` §2); do not plan from them.
+
 **Everything that must be built, fixed, or proven to turn ORCA from a strong national finalist into the PS 26176 winner.**
 
 | | |

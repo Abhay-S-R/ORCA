@@ -16,6 +16,7 @@ import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
 import { classifyQueryIntent, matchRegionInQuery } from "../lib/queryIntent";
 import { readActiveChat, restoreContext, writeActiveChat, type ChatStore } from "./chatStore";
+import type { IntentAction } from "./IntentActions";
 
 // confidence_tier: the band of the agent's measured score (orca/confidence_score.py).
 // Only the label travels here — the number stays on /reasoning.
@@ -38,6 +39,12 @@ export type FinalResponse = {
   // Per-agent scored labels (orca/api/main.py). A query-cache hit streams no
   // agent_span events, so this is what the strip falls back to.
   agent_confidence?: AgentSpan[];
+  // A distress answer bypasses every agent but the distress check; the map
+  // pins the caller's position from these (P4.16).
+  // One concrete action per ROUTE / META / EXPORT / … intent (P5.29).
+  intent_actions?: IntentAction[];
+  distress_flag?: boolean;
+  user_location?: { lat: number; lon: number; place_name?: string | null; place_source?: string } | null;
 };
 
 export type Turn = {

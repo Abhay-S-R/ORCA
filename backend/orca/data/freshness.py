@@ -53,6 +53,7 @@ SOURCE_CLASS: dict[str, FreshnessClass] = {
     "ndma_sachet": "LIVE",
     "damini_lightning": "LIVE",
     "incois_tide_gauge": "LIVE",
+    "gdacs_tc": "LIVE",
     # --- DAILY: published on a daily cycle; a day late is degraded, a week late is wrong ---
     "incois_pfz": "DAILY",
     "incois_osf_ww3": "DAILY",
@@ -98,6 +99,7 @@ SOURCE_FILES: dict[str, tuple[str, ...]] = {
     "open_meteo_marine": ("tier1/ocean/openmeteo_marine_*.json", "tier1/weather/openmeteo_weather_*.json"),
     "damini_lightning": ("tier1/hazards/lightning_nowcast_*.json",),
     "ndma_sachet": ("tier1/hazards/ndma_cap_alerts.json",),
+    "gdacs_tc": ("tier1/hazards/gdacs_tc_tracks.json",),
     "incois_hazard_osf": ("tier1/hazards/imd_nowcast_alerts.json",),
     "incois_tide_gauge": ("tier1/tides/incois_tide_gauge_telemetry.json",),
     "incois_pfz": ("incois_osf_pfz/pfz/incois_pfz_live_advisories.geojson",),
@@ -130,7 +132,9 @@ FETCHED_LIVE: frozenset[str] = frozenset(
     {"open_meteo_marine", "damini_lightning", "ndma_sachet",
      # `get_incois_hazard_alerts` reads INCOIS's public HWA/SSA/currents
      # bulletins; `_live_gauge_observation` reads the IOC/UNESCO gauge feed.
-     "incois_hazard_osf", "incois_tide_gauge"}
+     "incois_hazard_osf", "incois_tide_gauge",
+     # `get_cyclone_tracks` — the live cyclone track and cone for the map.
+     "gdacs_tc"}
 )
 
 

@@ -74,6 +74,10 @@ SOURCE_REGISTRY: tuple[DataSource, ...] = (
     DataSource("incois_hazard_osf", "INCOIS Hazard Alerts & Ocean State Warnings", "TIER1", 30,
                ("hazard", "swell_surge", "high_wave", "kallakkadal")),
     DataSource("ndma_sachet", "NDMA SACHET / IMD CAP alert feed", "TIER1", 15, ("cyclone", "hazard", "cap_alert")),
+    # Track + cone geometry only (IMD RSMC has no machine-readable track). Never
+    # feeds the verdict — the alert level stays SACHET's.
+    DataSource("gdacs_tc", "GDACS tropical cyclone track and cone (EU JRC; JTWC forecast)", "TIER2", 360,
+               ("cyclone_track",)),
     DataSource("damini_lightning", "IMD Damini Lightning Nowcast", "TIER1", 10, ("lightning",)),
     DataSource("datagov_catch", "data.gov.in Marine Fish Landings & species trends", "TIER1", 0, ("catch_statistics",)),
     DataSource("gebco_bathymetry", "GEBCO 2026 15\" Bathymetry Grid", "TIER1", 0, ("bathymetry",)),

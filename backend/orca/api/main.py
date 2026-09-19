@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from orca import intent_actions
 from orca.agents import distress as distress_agent
 from orca.agents.geospatial import DATA_ROOT
 from orca.agents.language import IndicTrans2Backend, register_translation_backend
@@ -326,6 +327,12 @@ async def _query_stream(
             # rows, so a Tamil follow-up still continues the right intent.
             "normalized_english_query": final_state.get("normalized_english_query") or query,
             "matched_intent_rows": final_state.get("matched_intent_rows") or [],
+            # The one concrete thing a ROUTE / DIAGNOSTIC / REGULATORY / META /
+            # EXPORT / SUBSCRIPTION / ADMINISTRATIVE question asks for (P5.29).
+            "intent_actions": intent_actions.build(
+                final_state.get("matched_intent_rows") or [], query,
+                final_state.get("user_location"), final_state.get("query_id"),
+            ),
             # How many earlier turns this answer was given with. The chat UI
             # compares it to its own thread: 0 after earlier answers means the
             # context expired, and it says so instead of the follow-up quietly
@@ -415,6 +422,8 @@ async def _query_stream(
             "source_selections": discovery.get("source_selections", []),
         }
         _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []))
+        if final_state.get("distress_flag"):
+            _record_distress_event(final_state, final.get("mrcc_contact"))
         # The turn itself is remembered by _remember_turns in query(), not
         # here: a query-cache hit or a coalesced follower never runs this
         # generator, and remembering only here left those turns out of the
@@ -450,6 +459,23 @@ async def _remember_turns(session_id: str | None, query: str, stream: AsyncItera
             except Exception:  # memory is best-effort; the answer itself must still ship
                 logging.getLogger("orca.session").warning("session: could not remember turn", exc_info=True)
         yield line
+
+
+def _record_distress_event(final_state: dict, mrcc_contact: dict | None) -> None:
+    """Puts the distress query on the authority queue (P4.16). Best-effort for
+    the same reason as the audit write below: the caller's MRCC contacts are
+    in the answer already, and a DB outage must not fail that answer."""
+    try:
+        from orca.db.engine import get_sessionmaker
+        from orca.ops.distress_queue import record_event
+
+        db = get_sessionmaker()()
+        try:
+            record_event(db, final_state, mrcc_contact)
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 — see _persist_audit_trace_log
+        logging.getLogger("orca.distress").warning("distress event not queued", exc_info=True)
 
 
 def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:

@@ -12,12 +12,15 @@ export function TimeSlider({
   onIndexChange,
   playing = false,
   onPlayingChange,
+  notes = [],
 }: {
   frames: { t: string }[];
   index: number;
   onIndexChange: (next: number) => void;
   playing?: boolean;
   onPlayingChange?: (next: boolean) => void;
+  /** One line per snapshot layer: when it was really sampled, and whether it is greyed at this hour. */
+  notes?: string[];
 }) {
   useEffect(() => {
     if (!playing || frames.length === 0) return;
@@ -30,7 +33,8 @@ export function TimeSlider({
   const offset = relativeOffset(frames[0].t, current.t);
 
   return (
-    <div className="glass flex items-center gap-3 rounded-md px-3 py-2">
+    <div className="glass rounded-md px-3 py-2">
+    <div className="flex items-center gap-3">
       {onPlayingChange && (
         <button
           type="button"
@@ -59,6 +63,14 @@ export function TimeSlider({
         {formatFrame(current.t)}
         <span className="ml-1 text-ink-dim">{offset}</span>
       </time>
+    </div>
+      {notes.length > 0 && (
+        <ul aria-live="polite" className="mt-1 space-y-0.5 text-[10px] text-ink-dim">
+          {notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

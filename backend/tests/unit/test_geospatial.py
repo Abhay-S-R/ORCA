@@ -246,3 +246,20 @@ def test_depth_at_point_reads_land_on_a_small_island_far_from_the_pilot_box() ->
     if not GEBCO_ALL_FILE.exists():
         return  # national subset is a gitignored 100 MB download — absence is legitimate
     assert depth_at_point(5.7024, 73.3105).on_land is True
+
+
+def test_currents_are_the_step_nearest_now_and_say_which_one() -> None:
+    """P4.15: the currents layer carries the valid time of the HYCOM step it
+    shows, and that step is the one nearest the requested time — not the
+    last step in the file, which can be days ahead."""
+    from datetime import datetime, timedelta, timezone
+
+    from orca.agents.geospatial import _hycom, _hycom_times, hycom_nearest_step
+
+    times = _hycom_times(_hycom())
+    assert all(b - a == timedelta(hours=3) for a, b in zip(times, times[1:]))
+    target = times[5] + timedelta(minutes=80)  # closer to step 5 than step 6
+    i, iso = hycom_nearest_step(target)
+    assert i == 5 and iso == times[5].isoformat().replace("+00:00", "Z")
+    assert hycom_nearest_step(times[-1] + timedelta(days=30))[0] == len(times) - 1
+    assert hycom_nearest_step(datetime(2000, 1, 1, tzinfo=timezone.utc))[0] == 0

@@ -14,6 +14,11 @@ Commit `283927f` added a per-agent confidence score. That needs **one database m
 `column "confidence_score" of relation "audit_trace_log" does not exist`. That breaks queries'
 audit trail, login/register and chat saving.
 
+**Update 2026-09-19 — a second migration, `006_distress_events.sql`,** adds the `distress_events`
+table behind the `/ops` distress queue (plan P4.16). Without it, distress calls are not queued and
+`/ops` shows "Could not load the distress queue"; everything else keeps working. Apply it in the
+same step below.
+
 Nothing else needs installing. No Python or npm dependency changed.
 
 ---
@@ -24,7 +29,7 @@ Nothing else needs installing. No Python or npm dependency changed.
 git pull
 ```
 
-Check: `ls infra/db/` lists `005_confidence_score.sql`.
+Check: `ls infra/db/` lists `005_confidence_score.sql` and `006_distress_events.sql`.
 
 ## Step 2 — Apply the migration
 
@@ -46,7 +51,8 @@ differently, use that name in place of `orca-postgres-1` below. If it isn't runn
 DATABASE_URL="<value of DATABASE_URL from .env>" ./infra/db/migrate.sh
 ```
 
-It prints `apply 005_confidence_score.sql`, then `migrations up to date`.
+It prints `apply 005_confidence_score.sql` and `apply 006_distress_events.sql` (or `skip` for one
+already applied), then `migrations up to date`.
 
 **Option B — no `psql`** (the usual case on Windows). Run the migration inside the container:
 
@@ -58,10 +64,26 @@ docker cp infra/db/005_confidence_score.sql orca-postgres-1:/tmp/005.sql
 docker exec orca-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d orca -v ON_ERROR_STOP=1 --single-transaction -f /tmp/005.sql -c "INSERT INTO schema_migrations (filename) VALUES ('"'"'005_confidence_score.sql'"'"') ON CONFLICT DO NOTHING;"'
 ```
 
-Both options are safe to re-run: the SQL uses `ADD COLUMN IF NOT EXISTS`, and neither changes any
-data.
+Then the same for `006`:
 
-**Check** — both columns must be listed:
+```bash
+docker cp infra/db/006_distress_events.sql orca-postgres-1:/tmp/006.sql
+```
+
+```bash
+docker exec orca-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d orca -v ON_ERROR_STOP=1 --single-transaction -f /tmp/006.sql -c "INSERT INTO schema_migrations (filename) VALUES ('"'"'006_distress_events.sql'"'"') ON CONFLICT DO NOTHING;"'
+```
+
+Both options are safe to re-run: the SQL uses `ADD COLUMN IF NOT EXISTS` / `CREATE TABLE IF NOT
+EXISTS`, and neither changes any existing data.
+
+**Check `006`** — must print `0` (the table exists and is empty), not an error:
+
+```bash
+docker exec orca-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d orca -tAc "SELECT count(*) FROM distress_events"'
+```
+
+**Check `005`** — both columns must be listed:
 
 ```bash
 docker exec orca-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d orca -tAc "SELECT column_name FROM information_schema.columns WHERE table_name='"'"'audit_trace_log'"'"' AND column_name LIKE '"'"'confidence%'"'"'"'
@@ -124,7 +146,7 @@ the wave layer empty until it's run again.
 ## Not needed
 
 - `pip install` / `npm install` — no dependency changes.
-- Any other migration — `001`–`004` are unchanged.
+- Any other migration — `001`–`004` are unchanged (`006` is covered in Step 2).
 
 ## If something fails
 

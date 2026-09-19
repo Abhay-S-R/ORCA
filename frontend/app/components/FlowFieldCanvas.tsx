@@ -20,7 +20,13 @@ interface FlowFieldCanvasProps {
   windVectors: VectorPoint[] | null;
   currentBounds?: [number, number, number, number] | null;
   windBounds?: [number, number, number, number] | null;
+  /** Drawn grey when the time slider is on an hour this field was not sampled at (P4.15). */
+  greyCurrents?: boolean;
+  greyWind?: boolean;
 }
+
+// Neutral grey, fainter: "this is not the hour you are looking at".
+const GREY_RGB = "rgba(120, 120, 120, ALPHA)";
 
 interface Particle {
   lon: number;
@@ -132,6 +138,8 @@ export function FlowFieldCanvas({
   windVectors,
   currentBounds,
   windBounds,
+  greyCurrents = false,
+  greyWind = false,
 }: FlowFieldCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -335,7 +343,7 @@ export function FlowFieldCanvas({
             ctx.strokeStyle = opts.haloRgb;
             ctx.lineWidth = opts.widths[t] + 0.5;
             ctx.stroke();
-            const alpha = [0.32, 0.5, 0.72][t];
+            const alpha = [0.32, 0.5, 0.72][t] * (opts.colorRgb === GREY_RGB ? 0.5 : 1);
             ctx.strokeStyle = opts.colorRgb.replace("ALPHA", String(alpha));
             ctx.lineWidth = opts.widths[t];
             ctx.stroke();
@@ -351,7 +359,7 @@ export function FlowFieldCanvas({
             maxSpeed: 1.2,
             haloRgb: "rgba(4, 20, 28, 0.28)",
             lightHaloRgb: "rgba(255, 255, 255, 0.4)",
-            colorRgb: "rgba(8, 145, 178, ALPHA)",
+            colorRgb: greyCurrents ? GREY_RGB : "rgba(8, 145, 178, ALPHA)",
             widths: [0.55, 0.8, 1.15],
             pxPerFrame: [0.28, 0.55, 0.85],
           });
@@ -364,7 +372,7 @@ export function FlowFieldCanvas({
             maxSpeed: 12,
             haloRgb: "rgba(4, 20, 28, 0.24)",
             lightHaloRgb: "rgba(255, 255, 255, 0.35)",
-            colorRgb: "rgba(202, 138, 4, ALPHA)",
+            colorRgb: greyWind ? GREY_RGB : "rgba(202, 138, 4, ALPHA)",
             widths: [0.5, 0.7, 1.0],
             pxPerFrame: [0.25, 0.48, 0.75],
           });
@@ -383,7 +391,7 @@ export function FlowFieldCanvas({
       map.off("resize", resize);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     };
-  }, [map, showCurrents, showWind, currentVectors, windVectors, currentBounds, windBounds]);
+  }, [map, showCurrents, showWind, currentVectors, windVectors, currentBounds, windBounds, greyCurrents, greyWind]);
 
   if (!showCurrents && !showWind) return null;
 

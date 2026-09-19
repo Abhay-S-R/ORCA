@@ -46,14 +46,18 @@ const edgeTypes: EdgeTypes = {
   animatedFlow: AnimatedFlowEdge,
 };
 
+// Anything the stored trace doesn't hold arrives as null and is shown as
+// "not recorded" — never replaced by a plausible-looking value.
 type RecentTraceSummary = {
   query_id: string;
-  query_text: string;
-  verdict: string;
-  confidence_tier: string;
+  query_text: string | null;
+  verdict: string | null;
+  confidence_tier: string | null;
   node_count: number;
-  total_latency_ms: number;
+  total_latency_ms: number | null;
 };
+
+const NOT_RECORDED = "not recorded";
 
 const SCENARIOS = [
   {
@@ -142,9 +146,9 @@ function ReasoningContent() {
         setActiveNodeIds(new Set());
         setTimelineIndex(PIPELINE_STAGES.length - 1);
         setFinalVerdict({
-          verdict: data.nodes.find((n) => n.id === "risk_assessment")?.reasoning_summary?.split(":")[0] ?? "COMPLETED",
+          verdict: data.nodes.find((n) => n.id === "risk_assessment")?.reasoning_summary?.split(":")[0] ?? NOT_RECORDED,
           text: data.nodes.find((n) => n.id === "reporting")?.reasoning_summary ?? "Trace loaded from session.",
-          confidence: data.nodes.find((n) => n.id === "risk_assessment")?.confidence_tier ?? "HIGH",
+          confidence: data.nodes.find((n) => n.id === "risk_assessment")?.confidence_tier ?? NOT_RECORDED,
           queryId: qid,
         });
         setIsVerdictExpanded(false);
@@ -278,12 +282,12 @@ function ReasoningContent() {
 
           const verdict = data.distress_flag
             ? "DISTRESS"
-            : data.risk_assessment?.go_no_go || "CAUTION";
+            : data.risk_assessment?.go_no_go || NOT_RECORDED;
 
           setFinalVerdict({
             verdict,
             text: data.final_english_response || "Analysis complete.",
-            confidence: data.confidence_tier || "HIGH",
+            confidence: data.confidence_tier || NOT_RECORDED,
             queryId: data.query_id,
           });
 
@@ -327,7 +331,8 @@ function ReasoningContent() {
 
   // Compute total latency
   const totalLatency = useMemo(() => {
-    return trace.nodes.reduce((acc, n) => acc + (n.latency_ms || 0), 0);
+    // Round the sum: per-node latencies are 0.1 ms floats, so the raw total prints as 17111.600000000002.
+    return Math.round(trace.nodes.reduce((acc, n) => acc + (n.latency_ms || 0), 0));
   }, [trace]);
 
   const activeStage = PIPELINE_STAGES[timelineIndex];
@@ -465,7 +470,7 @@ function ReasoningContent() {
                           >
                             <div className="flex items-center justify-between">
                               <span className="truncate text-xs font-medium text-ink">
-                                {item.query_text}
+                                {item.query_text ?? `Query ${item.query_id.slice(0, 8)} (text ${NOT_RECORDED})`}
                               </span>
                               <span
                                 className={`rounded px-1.5 py-0.2 text-[9px] font-bold ${
@@ -476,13 +481,13 @@ function ReasoningContent() {
                                     : "bg-caution/15 text-caution border border-caution/30"
                                 }`}
                               >
-                                {item.verdict}
+                                {item.verdict ?? NOT_RECORDED}
                               </span>
                             </div>
                             <div className="mt-1 flex items-center gap-2 text-[10px] font-mono text-ink-dim">
                               <span>{item.node_count} agents</span>
                               <span>·</span>
-                              <span>{item.total_latency_ms} ms</span>
+                              <span>{item.total_latency_ms == null ? `time ${NOT_RECORDED}` : `${item.total_latency_ms} ms`}</span>
                             </div>
                           </button>
                         ))

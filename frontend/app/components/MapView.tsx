@@ -32,6 +32,7 @@ import { Panel } from "./Panel";
 import { Readout, ReadoutGrid } from "./Readout";
 import { EmptyState } from "./States";
 import { TimeSlider } from "./TimeSlider";
+import { inSync, syncNote, type LayerTiming } from "../lib/timeSync";
 import { getToken } from "../lib/auth";
 import { useGeolocation } from "../lib/useGeolocation";
 import { measureLayerToggle, reportLayerMetrics } from "../lib/layerPerf";
@@ -213,6 +214,8 @@ export type MapPin = { lat: number; lon: number; label: string; color: string };
 // `regionId` is an optional direct hit against COASTAL_REGIONS (the query
 // named a place) — when present it wins the camera move outright, since a
 // named location is a stronger signal than the topic-based intent.
+export type DistressMarker = { id: string; lat: number; lon: number; label: string };
+
 export type QueryFocus = {
   intent: "fishing" | "boundary" | "safety" | "current" | "wave" | "general";
   regionId?: string;
@@ -247,6 +250,7 @@ export function MapView({
   defaultCollapsedSounding = false,
   initialLayers,
   queryFocus,
+  distressMarkers,
 }: {
   className?: string;
   showPanels?: boolean;
@@ -280,8 +284,13 @@ export function MapView({
     currents: boolean;
     wind: boolean;
     watchBadges: boolean;
+    cyclone: boolean;
   }>;
   queryFocus?: QueryFocus | null;
+  /** Distress positions (P4.16). Drawn on top of everything with no close
+   *  control — a distress marker is never dismissible from the map; it goes
+   *  away only when the caller stops passing it (e.g. /ops closes the event). */
+  distressMarkers?: DistressMarker[];
 }) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -334,6 +343,7 @@ export function MapView({
     currents: false,
     wind: true,
     watchBadges: true,
+    cyclone: true,
     ...initialLayers,
   });
   const [rasterLayers, setRasterLayers] = useState<RasterLayerMeta[]>([]);
@@ -349,6 +359,12 @@ export function MapView({
   const [windVectors, setWindVectors] = useState<WindVector[] | null>(null);
   const [windBounds, setWindBounds] = useState<[number, number, number, number] | null>(null);
   const [windAcquisitionDate, setWindAcquisitionDate] = useState<string | null>(null);
+  // Each snapshot field's real valid time and step, for the time slider (P4.15).
+  const [currentsTiming, setCurrentsTiming] = useState<LayerTiming | null>(null);
+  const [windTiming, setWindTiming] = useState<LayerTiming | null>(null);
+  // Live cyclone track and cone (GDACS, P5.30). `note` is what the legend
+  // says — including "no active cyclone" — so an empty layer is never silent.
+  const [cyclone, setCyclone] = useState<{ available: boolean; note: string; systems: unknown[] } | null>(null);
   const [selectedPfz, setSelectedPfz] = useState<PfzProperties | null>(null);
   const [selectedBadge, setSelectedBadge] = useState<WatchBadge | null>(null);
   // Kept alongside the map-source copies of the same fetches (never a second
@@ -362,6 +378,20 @@ export function MapView({
   const [frameIndex, setFrameIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const forecastLayer = rasterLayers.find((l) => l.forecast_frames && l.forecast_frames.length > 0);
+  // The slider's hour, only while the slider is actually on screen. Snapshot
+  // layers are compared against it and greyed when they don't match (P4.15).
+  const sliderIso =
+    forecastLayer?.forecast_frames && layers.waveForecast
+      ? forecastLayer.forecast_frames[Math.min(frameIndex, forecastLayer.forecast_frames.length - 1)]
+      : null;
+  const greyCurrents = sliderIso !== null && layers.currents && !inSync(sliderIso, currentsTiming);
+  const greyWind = sliderIso !== null && layers.wind && !inSync(sliderIso, windTiming);
+  const sliderNotes = sliderIso
+    ? [
+        ...(layers.currents && currentVectors?.length ? [syncNote("Currents (HYCOM)", sliderIso, currentsTiming)] : []),
+        ...(layers.wind && windVectors?.length ? [syncNote("Wind (ScatSat)", sliderIso, windTiming)] : []),
+      ]
+    : [];
 
   // §4.7 layer lifecycle: heavy-layer LRU + eviction notice.
   const [heavyLimit, setHeavyLimit] = useState(4);
@@ -621,6 +651,7 @@ export function MapView({
       });
       m.addSource("route", { type: "geojson", data: EMPTY as never });
       m.addSource("watch-badges", { type: "geojson", data: EMPTY as never });
+      m.addSource("cyclone", { type: "geojson", data: EMPTY as never });
 
       // The per-feature JS style function from Leaflet becomes a data-driven
       // paint expression evaluated on the GPU. This is what buys the 60 fps
@@ -795,6 +826,35 @@ export function MapView({
         "match", ["get", "severity"],
         "danger", CHART.noGo, "warning", CHART.caution, "advisory", CHART.eez, "#7a8a99",
       ];
+      // Cyclone (GDACS): cone as a translucent fill, track as a line, positions
+      // as dots — filled when observed, hollow when forecast, so the forecast
+      // part never reads as where the storm has already been.
+      m.addLayer({
+        id: "cyclone-cone",
+        type: "fill",
+        source: "cyclone",
+        filter: ["==", ["get", "kind"], "cone"],
+        paint: { "fill-color": CHART.noGo, "fill-opacity": 0.12, "fill-outline-color": CHART.noGo },
+      });
+      m.addLayer({
+        id: "cyclone-track",
+        type: "line",
+        source: "cyclone",
+        filter: ["==", ["get", "kind"], "track"],
+        paint: { "line-color": CHART.noGo, "line-width": 2 },
+      });
+      m.addLayer({
+        id: "cyclone-positions",
+        type: "circle",
+        source: "cyclone",
+        filter: ["==", ["get", "kind"], "position"],
+        paint: {
+          "circle-radius": 4,
+          "circle-color": ["case", ["get", "forecast"], "rgba(0,0,0,0)", CHART.noGo],
+          "circle-stroke-color": CHART.noGo,
+          "circle-stroke-width": 1.5,
+        },
+      });
       m.addLayer({
         id: "watch-badges-circles",
         type: "circle",
@@ -954,6 +1014,33 @@ export function MapView({
     };
   }, [ready, pins]);
 
+  /* ---- distress markers (P4.16): text + icon, never colour alone ---- */
+  const newestDistress = distressMarkers?.[0]?.id;
+  useEffect(() => {
+    if (!ready || !map.current || !distressMarkers?.length) return;
+    const built = distressMarkers.map((d) => {
+      const el = document.createElement("div");
+      el.setAttribute("role", "img");
+      el.setAttribute("aria-label", `Distress: ${d.label}`);
+      el.className = "orca-distress-marker";
+      el.style.cssText =
+        "display:flex;align-items:center;gap:4px;padding:2px 6px;border-radius:4px;border:2px solid #fffdf6;" +
+        `background:${CHART.noGo};color:#fffdf6;font:700 11px/1.2 var(--font-sans);box-shadow:0 0 0 2px ${CHART.noGo};`;
+      el.textContent = `SOS · ${d.label}`;
+      return new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([d.lon, d.lat]).addTo(map.current!);
+    });
+    return () => {
+      for (const m of built) m.remove();
+    };
+  }, [ready, distressMarkers]);
+  // Fly to a distress position the moment a new one appears.
+  useEffect(() => {
+    const d = distressMarkers?.[0];
+    if (!ready || !map.current || !d) return;
+    map.current.flyTo({ center: [d.lon, d.lat], zoom: Math.max(map.current.getZoom(), 8) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a NEW marker moves the camera
+  }, [ready, newestDistress]);
+
   /* ---- data: fetched once, pushed through setData ---- */
   useEffect(() => {
     if (!ready) return;
@@ -981,11 +1068,13 @@ export function MapView({
       if (currentsRes?.points?.length) {
         setCurrentVectors(currentsRes.points as CurrentVector[]);
         setCurrentBounds(currentsRes.bounds as [number, number, number, number]);
+        if (currentsRes.valid_time) setCurrentsTiming({ validTime: currentsRes.valid_time, stepHours: currentsRes.step_hours ?? 3 });
       }
       if (windRes?.points?.length) {
         setWindVectors(windRes.points as WindVector[]);
         setWindBounds(windRes.bounds as [number, number, number, number]);
         setWindAcquisitionDate(windRes.acquisition_date as string);
+        if (windRes.valid_time) setWindTiming({ validTime: windRes.valid_time, stepHours: windRes.step_hours ?? 24 });
       }
 
       // Agent 8's self-hosted tile pyramids (bathymetry + forecast). Sources
@@ -1272,6 +1361,27 @@ export function MapView({
     };
   }, [ready]);
 
+  /* ---- live cyclone track and cone (GDACS, P5.30) — refreshed every 15 min ---- */
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    const load = () =>
+      fetch(`${API_BASE}/api/cyclone-track`)
+        .then((r) => r.json())
+        .then((res) => {
+          if (cancelled || !map.current) return;
+          setCyclone(res);
+          (map.current.getSource("cyclone") as maplibregl.GeoJSONSource | undefined)?.setData(res.geojson ?? EMPTY);
+        })
+        .catch(() => !cancelled && setCyclone({ available: false, note: "Cyclone track unavailable — the server did not answer.", systems: [] }));
+    void load();
+    const id = setInterval(load, 15 * 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [ready]);
+
   /* ---- layer visibility: a layout change, never a remount ---- */
   useEffect(() => {
     if (!ready || !map.current) return;
@@ -1290,6 +1400,7 @@ export function MapView({
     vis("pfz-clusters", layers.pfz);
     vis("pfz-cluster-count", layers.pfz);
     vis("watch-badges-circles", layers.watchBadges);
+    for (const id of ["cyclone-cone", "cyclone-track", "cyclone-positions"]) vis(id, layers.cyclone);
     vis("seamarks-raster", layers.seamarks);
     for (const layer of rasterLayers) {
       const on = layer.forecast_frames?.length ? layers.waveForecast : layers.srvBathymetry;
@@ -1438,6 +1549,8 @@ export function MapView({
         windVectors={windVectors}
         currentBounds={currentBounds}
         windBounds={windBounds}
+        greyCurrents={greyCurrents}
+        greyWind={greyWind}
       />
 
       {showPanels && (
@@ -1512,6 +1625,15 @@ export function MapView({
                         onChange={(v) => setLayers((s) => ({ ...s, watchBadges: v }))}
                       />
                     )}
+                    <LayerToggle
+                      label="Cyclone track & cone (GDACS)"
+                      swatch={CHART.noGo}
+                      checked={layers.cyclone}
+                      disabled={cyclone !== null && !cyclone.available}
+                      disabledReason={cyclone?.note}
+                      onChange={(v) => setLayers((s) => ({ ...s, cyclone: v }))}
+                    />
+                    {cyclone && <p className="px-2 pb-1 text-[10px] text-ink-dim">{cyclone.note}</p>}
                     <LayerToggle
                       label="Seamarks (Port Buoys & Lights)"
                       swatch={CHART.ink}
@@ -2101,6 +2223,7 @@ export function MapView({
                 onIndexChange={setFrameIndex}
                 playing={playing}
                 onPlayingChange={setPlaying}
+                notes={sliderNotes}
               />
             </div>
           )}

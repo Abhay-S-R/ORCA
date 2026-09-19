@@ -87,6 +87,7 @@ One row per id in `SOURCE_CLASS`. **Observed** columns are the measured state on
 | `ndma_sachet` | NDMA SACHET CAP alerts | Statutory alerts (cyclone, tsunami). An alert issued after our last fetch is precisely the alert that matters. | OK — fetched live |
 | `incois_hazard_osf` | INCOIS hazard bulletins / IMD nowcast | Same reasoning as SACHET — it feeds the risk cascade. | OK — fetched live since 2026-09-19 from INCOIS's own public multi-hazard endpoints (`hwassalatestdata` + `currentslatestdata`), the ones behind incois.gov.in/site/services/Alerts.html. SACHET stays the fallback |
 | `incois_tide_gauge` | INCOIS real-time tide gauge telemetry | A *gauge* is an instrument reading. "The observed water level at Chennai" with a 15-day-old timestamp is not a degraded reading, it is a false one. | OK — fetched live since 2026-09-19 from the IOC/UNESCO Sea Level Monitoring feed, which carries the Indian gauges INCOIS's own 404-ing TEWS endpoint does not. Out of gauge range it falls to altimetry, never to the old fixture |
+| `gdacs_tc` | GDACS tropical-cyclone track and cone (EU JRC; JTWC forecast) | A cyclone's position and forecast cone move every six hours; yesterday's track draws the storm where it no longer is. Map layer only — the verdict's cyclone level stays SACHET's. | OK — fetched live since 2026-09-19 (`get_cyclone_tracks`, P5.30); the last good fetch is the fallback, served with its own timestamp |
 
 ### 3.2 DAILY
 

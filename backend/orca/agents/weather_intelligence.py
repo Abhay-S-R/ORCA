@@ -44,6 +44,7 @@ from orca.data.loaders import (
     CACHED_WEATHER_PORTS,
     cached_lightning_path,
     cached_marine_path,
+    cached_gdacs_tc_path,
     cached_ndma_cap_alerts_path,
     cached_weather_path,
     load_json,
@@ -436,6 +437,122 @@ def get_cyclone_status(basin: Literal["BoB", "AS"]) -> dict[str, Any]:
         ),
         "confidence": confidence,
     }
+
+
+# --- get_cyclone_tracks (GDACS) — the live track and cone, for the map ------
+#
+# IMD RSMC New Delhi publishes its track only as PDF/text bulletins, so the
+# geometry comes from GDACS (EU JRC), which republishes each agency's forecast
+# (JTWC for the North Indian Ocean) as GeoJSON. It is drawn and labelled as
+# GDACS — never as IMD — and it never reaches the verdict: the cyclone alert
+# level evaluate_marine_safety reads still comes from NDMA SACHET above.
+
+GDACS_EVENTS_URL = "https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH"
+GDACS_GEOMETRY_URL = "https://www.gdacs.org/gdacsapi/api/polygons/getgeometry"
+# North Indian Ocean: Arabian Sea, Bay of Bengal and the southern reach of the EEZ.
+NIO_BBOX_WSEN = (40.0, -10.0, 100.0, 30.0)
+# Not the safety path — this draws a layer, the verdict never waits on it.
+GDACS_TIMEOUT_S = 5.0
+_GDACS_POSITION_RE = re.compile(r"(\d{2})/(\d{2}) (\d{2}):(\d{2})")
+
+
+def _in_nio(lon: float, lat: float) -> bool:
+    west, south, east, north = NIO_BBOX_WSEN
+    return west <= lon <= east and south <= lat <= north
+
+
+def _ring_centroid(ring: list[list[float]]) -> tuple[float, float]:
+    pts = ring[:-1] if len(ring) > 1 and ring[0] == ring[-1] else ring
+    return sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+
+
+def _position_time(label: str, year: int) -> str | None:
+    """GDACS labels a track position "15/09 12:00 UTC" — day/month, no year."""
+    m = _GDACS_POSITION_RE.search(label or "")
+    if not m:
+        return None
+    day, month, hour, minute = (int(g) for g in m.groups())
+    return datetime(year, month, day, hour, minute, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _tc_features(geometry: dict, event: dict) -> list[dict]:
+    """Keep the track (lines), the timed positions and the uncertainty cone;
+    drop GDACS's wind-buffer polygons, which are a different product."""
+    props = event.get("properties", {})
+    year = int(str(props.get("fromdate", "1970"))[:4])
+    last_observed = props.get("todate")  # positions after this are forecast
+    base = {"event_id": props.get("eventid"), "name": props.get("eventname"),
+            "alert_level": props.get("alertlevel"), "forecast_agency": props.get("source")}
+    out: list[dict] = []
+    for f in geometry.get("features", []):
+        cls = (f.get("properties") or {}).get("Class", "")
+        label = (f.get("properties") or {}).get("polygonlabel", "")
+        geom = f.get("geometry") or {}
+        if cls.startswith("Line_Line"):
+            out.append({"type": "Feature", "geometry": geom, "properties": {**base, "kind": "track", "status": label}})
+        elif cls == "Poly_Cones":
+            out.append({"type": "Feature", "geometry": geom, "properties": {**base, "kind": "cone"}})
+        elif cls.startswith("Point_Polygon_Point") and geom.get("type") == "Polygon":
+            lon, lat = _ring_centroid(geom["coordinates"][0])
+            t = _position_time(label, year)
+            forecast = bool(t and last_observed and t > f"{last_observed}Z")
+            out.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [round(lon, 3), round(lat, 3)]},
+                        "properties": {**base, "kind": "position", "time": t, "forecast": forecast}})
+    return out
+
+
+def _fetch_gdacs_tracks() -> dict[str, Any]:
+    events = httpx.get(GDACS_EVENTS_URL, params={"eventlist": "TC"}, timeout=GDACS_TIMEOUT_S)
+    events.raise_for_status()
+    systems: list[dict] = []
+    features: list[dict] = []
+    for ev in events.json().get("features", []):
+        props = ev.get("properties", {})
+        lon, lat = (ev.get("geometry") or {}).get("coordinates", [None, None])[:2]
+        if str(props.get("iscurrent")).lower() != "true" or lon is None or not _in_nio(lon, lat):
+            continue
+        geo = httpx.get(GDACS_GEOMETRY_URL, timeout=GDACS_TIMEOUT_S, params={
+            "eventtype": "TC", "eventid": props.get("eventid"), "episodeid": props.get("episodeid")})
+        geo.raise_for_status()
+        features.extend(_tc_features(geo.json(), ev))
+        systems.append({
+            "event_id": props.get("eventid"), "name": props.get("eventname"), "alert_level": props.get("alertlevel"),
+            "forecast_agency": props.get("source"), "severity": (props.get("severitydata") or {}).get("severitytext"),
+            "last_observed": props.get("todate"), "report_url": (props.get("url") or {}).get("report"),
+        })
+    return {"systems": systems, "geojson": {"type": "FeatureCollection", "features": features}}
+
+
+def get_cyclone_tracks() -> dict[str, Any]:
+    """Active North Indian Ocean cyclones as a map layer: track, timed positions
+    (observed vs forecast) and the uncertainty cone. Live from GDACS; on failure
+    the last successful fetch is served with its own timestamp and `cached`
+    set; with no fetch ever made, `available` is False — never an invented track."""
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    try:
+        result = {**_fetch_gdacs_tracks(), "fetched_at": now, "cached": False}
+        try:
+            path = cached_gdacs_tc_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(result), encoding="utf-8")
+        except OSError:
+            pass  # a failed cache write must not cost the live answer
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        try:
+            result = {**load_json(cached_gdacs_tc_path()), "cached": True}
+        except (OSError, ValueError):
+            return {"available": False, "systems": [], "geojson": {"type": "FeatureCollection", "features": []},
+                    "cached": False, "note": "GDACS unreachable and no earlier fetch on disk — cyclone track unavailable.",
+                    "source": "GDACS (EU JRC)"}
+    active = len(result["systems"])
+    result.update({
+        "available": True,
+        "source": "GDACS (EU JRC)",
+        "note": (f"{active} active system(s) in the North Indian Ocean" if active
+                 else "No active cyclone in the North Indian Ocean") + f" — GDACS, checked {result['fetched_at']}"
+                + (" (cached — live fetch failed)" if result["cached"] else "") + ".",
+    })
+    return result
 
 
 def _cyclone_alert_severity(active_cyclones: list[dict]) -> str | None:

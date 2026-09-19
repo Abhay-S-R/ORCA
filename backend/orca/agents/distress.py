@@ -23,8 +23,8 @@ import math
 from datetime import datetime, timezone
 from typing import Any
 
-from orca.data import analytics_loaders as al
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
+from orca.data import analytics_loaders as al
 from orca.state import ORCAState
 
 # Each phrase confirmed via a real dictionary/translation source while writing
@@ -137,7 +137,7 @@ def surface_mrcc_contact(user_location: dict[str, Any] | None, language: str = "
     1554 rather than to nothing.
     """
     lat, lon = _position_of(user_location)
-    nearest = nearest_sar_station(lat, lon) if lat is not None else None
+    nearest = nearest_sar_station(lat, lon) if lat is not None and lon is not None else None
     if nearest is None:
         return {
             "primary": MRCC_CONTACTS["default"],
@@ -164,8 +164,14 @@ def surface_mrcc_contact(user_location: dict[str, Any] | None, language: str = "
 
 
 def _position_of(user_location: dict[str, Any] | None) -> tuple[float | None, float | None]:
-    """(lat, lon) out of whichever key shape the state carried, or (None, None)."""
-    if not isinstance(user_location, dict):
+    """(lat, lon) out of whichever key shape the state carried, or (None, None).
+
+    A regional default is not a position. When the caller named no place, the
+    query path fills in the pilot port so the other agents have somewhere to
+    compute — but routing an SOS to the MRCC for that port, or handing its
+    coordinates to DAT-SG as the vessel's position, would send rescuers to the
+    wrong coast. So here it counts as no position at all (P4.16)."""
+    if not isinstance(user_location, dict) or user_location.get("place_source") == "regional_default":
         return None, None
     for la, lo in (("lat", "lon"), ("latitude", "longitude")):
         try:
@@ -210,8 +216,9 @@ def run(state: ORCAState) -> AgentResult:
 
     location = state.get("user_location")
     mrcc = surface_mrcc_contact(location)
+    lat, lon = _position_of(location)
     handoff = emit_datsg_handoff(
-        position=location,
+        position=None if lat is None or lon is None else {"lat": lat, "lon": lon},
         vessel_id=None,
         distress_type=detection["distress_type"],
         timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),

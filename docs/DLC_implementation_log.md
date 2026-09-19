@@ -10,9 +10,10 @@
 
 | | |
 |---|---|
-| **Plan** | `docs/DLC_implementation_plan.md` — 95 points, Phase 0 – Phase 7 (22 added 2026-09-18, 4 on 2026-09-19) |
+| **Plan** | `docs/DLC_implementation_plan.md` — 118 points, Phase 0 – Phase 7 (22 added 2026-09-18, 27 on 2026-09-19) |
+| **Target** | `docs/orca_final.md` — every feature; reconciled with the plan and the tree 2026-09-19 |
 | **Audit** | `docs/DLC_verification_report.md` — DLC vs `orca_final.md` vs the tree, 2026-09-18 |
-| **Requirements** | `docs/ORCA_DLC_Extension_Pack.md` — the source of truth for *what* and *how proven* |
+| **Requirements** | `docs/ORCA_DLC_Extension_Pack.md` — historical origin of the `R-*` IDs; superseded by the plan 2026-09-19 |
 | **Canonical PS** | `docs/ORCA_PS_SIH26176_Problem_Statement.md` |
 | **Current phase** | Phase 0 — not started |
 
@@ -89,7 +90,7 @@ record.
 | P0.11 | R-FRESH-2 | **DONE** · `read_json_if_fresh` on both vector caches |
 | P0.12 | principle 2 (safety-path guard) | Not started · **guard does not exist today** |
 | P0.13 | vessel-class vocabulary | Not started |
-| P0.14 | orca_final.md reconciliation | Not started · owner decision required |
+| P0.14 | orca_final.md reconciliation | orca_final reconciled 2026-09-19 (NOTE below); the per-recording check stays open |
 | P0.15 | Sentinel: no GO on missing data | Not started · **safety bug** |
 
 ### Phase 1 — Never be confidently wrong
@@ -105,6 +106,7 @@ record.
 | P1.7 | R-INDIA-7 | Not started · nearest-station half found in tree; MRCC numbers missing |
 | P1.8 | R-INDIA-8 | Not started |
 | P1.9 | R-EDGE-5 | Not started |
+| P1.10 | injury / medical → distress | Not started |
 
 ### Phase 2 — The conversation that visibly reasons
 
@@ -123,6 +125,7 @@ record.
 | P2.11 | R-NEW-3 | Not started |
 | P2.12 | orca_final §4.1 early exit | Not started |
 | P2.13 | LLM budget (Gemini) | Not started |
+| P2.14 | "forget that" reset | Not started |
 
 ### Phase 3 — Identity, language and onboarding
 
@@ -139,6 +142,9 @@ record.
 | P3.9 | vessel operational fields | Not started |
 | P3.10 | saved locations | Not started |
 | P3.11 | Indic Unicode SMS + romanized variant | Not started |
+| P3.12 | UI chrome translation (JSON + `useT()`) | Not started |
+| P3.13 | retroactive language change, voice command | Not started |
+| P3.14 | code-mixed / script-mixed input | Not started |
 
 ### Phase 4 — The surfaces that get filmed
 
@@ -158,6 +164,9 @@ record.
 | P4.11 | `/alerts` inbox | Not started |
 | P4.12 | critical alert takeover | Not started |
 | P4.13 | "what was sent" per alert | Not started |
+| P4.14 | reasoning graph export | Not started |
+| P4.15 | time-slider honesty | **DONE** (2026-09-19) — in-app check waits on P0.10's wave pyramid |
+| P4.16 | distress marker + authority queue | **DONE** (2026-09-19) + regional-default distress fix |
 
 ### Phase 5 — Data and science depth
 
@@ -182,6 +191,17 @@ record.
 | P5.17 | watch geometries | Not started |
 | P5.18 | geofence_approach + pfz_shift watches | Not started · both types currently do nothing |
 | P5.19 | "safe again" alerts | Not started |
+| P5.20 | saved voyages, en-route re-planning | Not started |
+| P5.21 | CAP alert intersecting a watch | Not started |
+| P5.22 | quiet hours, per-severity escalation | Not started |
+| P5.23 | voyage: ban + current drift | Not started |
+| P5.24 | voyage outputs (UKC, harbour, profile, fuel, print) | Not started |
+| P5.25 | historical comparison | Not started |
+| P5.26 | MPA precision grades | Not started |
+| P5.27 | circuit breakers | Not started |
+| P5.28 | map drawing tool | Not started |
+| P5.29 | complete the routing table | **DONE with today's parts** (2026-09-19) |
+| P5.30 | live cyclone track and cone | **DONE** (2026-09-19) — GDACS |
 
 ### Phase 6 — Evidence, business, demo
 
@@ -197,6 +217,9 @@ record.
 | P6.8 | Gaja replay surface | Not started |
 | P6.9 | depth-blocked detour scenario | Not started |
 | P6.10 | remaining channel renderers (simulated) | Not started |
+| P6.11 | all-sources-down cached verdict | Not started |
+| P6.12 | Compose brings up all four services | Not started |
+| P6.13 | authority evidence export | Not started |
 
 ### Phase 7 — PWA and the final sweep
 
@@ -205,6 +228,7 @@ record.
 | P7.1 | DLC §9 | Not started |
 | P7.3 | web push (real) | Not started |
 | P7.4 | offline basemap (PMTiles) | Not started |
+| P7.5 | background sync, per-port bundle, offline voyage | Not started |
 | P7.2 | DLC §13 (all 17) | Not started · runs last |
 
 ---
@@ -1121,3 +1145,89 @@ Remarks:
      first reload even with the flag above.
   4. The backend currently running was started by Claude in its own minimized console window, with
      the flag above.
+
+### [2026-09-19] P—.— — Second orca_final audit: orca_final reconciled, 19 points added, plan stands alone — NOTE
+
+- **Implements:** nothing in code. Documents only.
+- **By:** Claude (Opus 5), at Dev A's request. Decisions taken from Dev A before editing: in voyage
+  planning **the tree wins** (NO-GO-level waves and active lightning within 3 h block a leg); the
+  **per-agent 0–100 confidence score stays**, and orca_final describes it as built; the **plan
+  stands alone**, and the Extension Pack becomes the historical source of `R-*` IDs.
+- **Files:** `docs/orca_final.md`, `docs/DLC_implementation_plan.md`, `docs/DLC_implementation_log.md`,
+  `docs/ORCA_DLC_Extension_Pack.md` (a superseded banner only).
+- **Commit:** —
+- **Done-when test:** n/a — documents. Method, so it can be repeated: walk orca_final section by
+  section; for each feature grep the tree (`@router` decorators, `infra/db/*.sql`,
+  `frontend/package.json`, `frontend/app/*`, `backend/orca/**`) and the plan; a feature in neither
+  the tree, a plan point nor §13.2 is a gap. Point count after the change:
+  `grep -cE "^\| \*\*P[0-9]+\.[0-9]+\*\*" docs/DLC_implementation_plan.md` → **114**.
+- **Remarks:**
+  1. **orca_final.md now agrees with the plan.** Every §13.2 decision is written into it (Bhashini
+     primary, 8 voiced languages, `/safety` → `/ask` + `/alerts`, two-screen setup, real-query tour,
+     hand-written `sw.js`, CARTO Positron + PMTiles, simulated channels with web push real, four CI
+     guards + provenance test, Critic capped at one re-invocation, measured counts). Excluded and
+     roadmap features moved to a new orca_final **§34**. Code facts it now states: distress runs
+     before language ingress; 27 registry sources; ~120 gazetteer places; 104 cache places; the
+     parchment design tokens and Barlow / Fraunces / IBM Plex Mono / Noto Sans Tamil; the real route
+     mounts (`GET /query`, `GET /trace/{id}`, `POST /render`, `GET /health` are not under `/api`).
+  2. **Stack changes written into both documents:** web push via `pywebpush` (P7.3); NASA GIBS as
+     imagery only, numeric SST/chlorophyll fallback from NOAA CoastWatch ERDDAP (P5.2 — GIBS serves
+     pictures, not values, so the earlier plan could not have worked); measure Bhashini latency per
+     service before wiring (P3.8); `multilingual-e5-small` for Tier-2 intent matching (P2.8);
+     FES2022 subset to the India bbox once and pinned (P5.14); plain JSON dictionaries + `useT()` for
+     UI strings (P3.12). Kept: hand-written A*, PMTiles, hand-written `sw.js`, Task Scheduler,
+     MapLibre, IndicTrans2, LangGraph.
+  3. **19 new points** (P1.10, P2.14, P3.12–P3.14, P4.14, P5.20–P5.28, P6.11–P6.13, P7.5) and edits to
+     P1.2 (no silent default draft — `voyage.py:329` uses 1.2 m today), P3.6, P3.9
+     (`active_vessel_id`, quiet-hours columns), P4.9 (persona presets), P6.7 (IMBL scenario on
+     `/reasoning`). The list is plan §13.1 "Second audit".
+  4. **Two things to fix before any recording, unchanged by this entry:** the wave-tile pyramid is
+     still half-built (P0.10) and the SoI tide table expires 2026-09-23 (P0.7).
+  5. **Fresh pass after the rewrite** (re-read orca_final end to end against the tree) found four
+     more gaps, now **P4.15** (time-slider cadence honesty), **P4.16** (distress map marker and
+     authority distress queue — neither exists), **P5.29** (`ROUTING_TABLE` has 5 rows, orca_final
+     names 18; orca_final now uses the tree's row names) and **P5.30** (live cyclone track and cone —
+     only the Gaja replay has them), plus smaller additions folded into P2.6 (arrival validation),
+     P4.3 (landing live-conditions strip), P4.8 (threshold lines — no `ReferenceLine` anywhere),
+     P4.10 (per-turn Copy) and P6.12 (JSON logs keyed by `query_id`). orca_final also now says wind
+     anomaly lives in Ocean Analytics (`wind_anomaly`, `ocean_analytics.py:854`) and names the real
+     visualization functions. Final count: **118 points**, 118 status rows.
+
+### [2026-09-19] P4.15, P4.16, P5.29, P5.30 — time slider, distress queue, full routing table, live cyclone track — DONE
+
+- **Implements:** orca_final §10 (slider honesty, cyclone track), §13.2 item 4 and §17 (distress marker and queue), §3.2 (routing table). Plan points P4.15, P4.16, P5.29, P5.30.
+- **By:** Claude (Opus 5), at Dev A's request. Decisions taken from Dev A first: cyclone geometry from **GDACS**, SACHET still drives the verdict · P5.29 does **real work with today's parts** · the distress queue is **list + acknowledge/close** with a new table · the slider **greys and notes**, it does not animate currents.
+- **Files:**
+  - Backend: `orca/agents/weather_intelligence.py` (`get_cyclone_tracks`, GDACS), `orca/data/loaders.py` (`cached_gdacs_tc_path`), `orca/agents/discovery.py` + `orca/data/freshness.py` (`gdacs_tc`, LIVE, fetched live — registry now 28), `orca/api/geospatial_routes.py` (`/api/cyclone-track`; `valid_time` + `step_hours` on both vector routes; the currents cache is refreshed when the nearest step changes), `orca/agents/geospatial.py` (`hycom_nearest_step`, currents at the nearest step, wind `valid_time`, direction rounding fix), `infra/db/006_distress_events.sql` (new; applied to the local dev DB), `orca/ops/distress_queue.py` (new), `orca/api/ops_routes.py` (`/api/ops/distress`, `/api/ops/distress/{id}/{acknowledge|close}`), `orca/api/main.py` (queue the event after the answer streams; `intent_actions` on `final_response`), `orca/agents/distress.py` (regional default is not a position), `orca/agents/planning.py` (7 rows), `orca/graph/graph.py` (DIAGNOSTIC → DEEP), `orca/intent_actions.py` (new).
+  - Frontend: `components/MapView.tsx` (cyclone layers + toggle + note; `distressMarkers`; slider greying), `components/FlowFieldCanvas.tsx` (grey fields), `components/TimeSlider.tsx` (notes), `lib/timeSync.ts` (new), `ops/page.tsx` (distress queue + map), `ask/page.tsx` (SOS pin), `ask/IntentActions.tsx` (new), `ask/ChatTurn.tsx`, `ask/useAskThread.ts`, `voyage/page.tsx` (`?from=&to=` prefill).
+  - Tests: `tests/unit/test_cyclone_tracks.py` (3), `tests/unit/test_distress_queue.py` (5, real Postgres), `tests/unit/test_intent_actions.py` (15), `tests/unit/test_geospatial.py` (+1).
+  - Docs: `docs/orca_final.md` (§3.2, §3.7, §3.8, §10, §13.2, §22, §30, header count 28), `docs/DLC_implementation_plan.md` (point texts, P3.9 migration now `007`, §13.2 decisions), `docs/ORCA_Data_Freshness_Contract.md` (`gdacs_tc` row).
+- **Commit:** — (not committed)
+- **Done-when test:**
+  - `pytest -q tests/unit` → **445 passed, 5 failed, 1 skipped**. The 5 failures (`test_analytics_routes.py` ×2 trends specs, `test_ocean_analytics.py` ×3: stormglass tide fallback, wind-anomaly baseline, tide roster) **also fail on a clean `HEAD` worktree** — pre-existing, not from this change. `pytest -q tests/e2e` → 12 passed, 1 skipped. ruff + mypy clean on every new/edited backend file; `verify_ci_guards.py` green; `tsc --noEmit` clean; eslint shows only 3 pre-existing MapView errors (identical at `HEAD`).
+  - Live GDACS: `/api/cyclone-track` → `available: true`, "No active cyclone in the North Indian Ocean — GDACS, checked 2026-09-19T16:44Z". `/map` legend shows the toggle and that note. Track/cone drawing is covered by the recorded-shape test only — no NIO system was active to see it live.
+  - `/ops` with a temporary authority account and two seeded events (Playwright): queue shows "2 active", SOS pin at Rameswaram on the map, the regional-default event reads "No position given by the caller"; Acknowledge → ACKNOWLEDGED; Close → CLOSED, "Position withheld — incident closed", pin gone. Temporary user and rows deleted afterwards (the 8 security-audit rows stay — the audit trail is append-only).
+  - `/ask` "Help! Our boat is sinking near Rameswaram" → SOS pin "SOS · Rameswaram" on the chat map; a `distress_events` row with position 9.28, 79.30 and phrase "sinking" (test row deleted). "What is the safest route from Thoothukudi to Rameswaram tomorrow?" → card "Plan the passage Thoothukudi → Rameswaram…" linking `/voyage?from=8.77,78.23&to=9.28,79.3`, which opens with both pins set. "How do you know that?" → "Open the full trace" linking this answer's `query_id`.
+  - Slider rule: node asserts on `lib/timeSync.ts` (±1.5 h in, 1 min past half a step out, unknown time never in sync, daily wind inside its day).
+- **Remarks:**
+  1. **Safety bug fixed on the way (P4.16):** with no place in a distress message, `user_location` is the regional default (Thoothukudi), and `surface_mrcc_contact` / the DAT-SG handoff used it as the caller's position — rescuers would be pointed at the wrong coast. `distress._position_of` now treats `place_source == "regional_default"` as no position everywhere on the distress path (MRCC falls to 1554 / VHF 16, handoff carries `position: null`, no pin, queue says so). Tested.
+  2. **Behaviour change (P4.15):** the currents layer used HYCOM's *last* step — up to five days ahead — while being drawn as today's flow. It now uses the step nearest now and says which step. Changing the step exposed a latent bug: `round(direction, 1)` could return 360.0; fixed with `% 360`.
+  3. **P4.15 can't be seen in the app yet:** the slider only renders with the wave-forecast layer, and the wave pyramid is still half-built (P0.10). Rebuild it, then check the note under the slider with Surface currents on.
+  4. **P5.29 is deliberately shallow:** each row does one true thing now; ROUTE still hands off to `/voyage` rather than running a voyage node (P5.7); SUBSCRIPTION creates a plain point watch only after the user confirms; ADMINISTRATIVE only links to `/profile` (P3.1). The scenario rows are still P5.9 / P5.25.
+  5. **Deviation from P4.16's text:** the queue polls every 15 s instead of using the notifications SSE (that stream is per-user alerts, not incidents), and the marker is drawn from the answer's position (`MapView` `distressMarkers`) rather than a `distress_layer` payload from `visualization.py`. orca_final §3.7 now says so.
+  6. **Seen, not fixed (pre-existing):** a hydration mismatch in `MapView` on `/voyage` (the geolocation "denied/unavailable" note renders differently on server and client); a 404 for bathymetry tile `8/183/120`; `GET /traces/recent`'s Postgres fallback returns a hard-coded `"confidence_tier": "HIGH"` and `total_latency_ms: 1250.0` for every trace — invented values on the reasoning page, against principle 1.
+
+### [2026-09-19] P—.— — Two pre-existing defects fixed: invented recent-trace values, map hydration mismatch — DONE
+
+- **Implements:** plan principle 1 ("no fabricated values") on `/reasoning`; a React hydration error on every page with a map. Both were logged as "seen, not fixed" in the entry above.
+- **By:** Claude (Opus 5), at Dev A's request.
+- **Files:** `backend/orca/api/trace_routes.py` (`recent_traces_sql`, `recent_summary_from_row`), `backend/tests/unit/test_trace_routes.py` (+1), `frontend/app/reasoning/page.tsx`, `frontend/app/lib/useGeolocation.ts`.
+- **Commit:** —
+- **Done-when test:**
+  - `pytest -q tests/unit/test_trace_routes.py` → 13 passed. After the backend reload (in-memory list empty, so the Postgres fallback serves), `GET /api/traces/recent` returned each query's real text, verdict (`GO`, `DISTRESS`), stored confidence tier and summed agent latency (45202 ms, 1 ms, …) — not "HIGH" / 1250 ms. `/reasoning`'s "Query traces" list shows the same.
+  - Playwright on `/voyage`: 0 console errors (it logged "Hydration failed…" on every load before).
+  - `tsc --noEmit` clean; eslint on the touched files shows only the 2 `/reasoning` errors that also exist at `HEAD`.
+- **Remarks:**
+  1. **Recent traces:** the Postgres fallback hard-coded `"confidence_tier": "HIGH"`, `"total_latency_ms": 1250.0` and `"verdict": "RECORDED"` for every trace, and also listed security/Sentinel audit rows as if they were queries. It now reads text, verdict, tier and latency from the stored rows and returns `null` for anything they don't hold; `/reasoning` shows `null` as "not recorded". The page's own fallbacks (`?? "HIGH"`, `"COMPLETED"`, `|| "CAUTION"`) were invented values too and now read "not recorded".
+  2. **Latency is the sum of agent times**, the same as the in-memory summary — the three specialists run in parallel, so it is larger than wall-clock time. Wall-clock would need a start/end timestamp per query, which the audit rows don't carry.
+  3. **Hydration:** `useGeolocation` computed "unavailable" on the server (no `navigator`) and "loading" in the browser. It now always starts at "loading" and decides availability after mount — fixed once in the hook, so every page using it is covered.
