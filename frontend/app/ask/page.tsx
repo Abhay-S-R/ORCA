@@ -11,7 +11,7 @@
 // Past chats sit in a rail to the left (a drawer below lg, where a third
 // column would squeeze the thread and the chart); they are kept in this
 // browser for guests and in the account once signed in (./chatStore).
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Compass, Fish, History, Maximize2, MapPin, Minimize2, PanelLeftOpen, Plus, ShieldCheck, Waves, Wind } from "lucide-react";
@@ -62,6 +62,12 @@ export default function AskPage() {
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
+  // Auto-scroll: threadRef is the scrollable container, threadBottomRef is a
+  // zero-height sentinel at the end of the list. Scrolling the sentinel into
+  // view on every turns/streaming change keeps the latest message visible
+  // without manual scrolling — same mechanic as most chat UIs.
+  const threadRef = useRef<HTMLDivElement>(null);
+  const threadBottomRef = useRef<HTMLDivElement>(null);
   const {
     turns,
     chatId,
@@ -91,6 +97,15 @@ export default function AskPage() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [drawerOpen]);
+
+  // Scroll to the bottom sentinel whenever a new turn is added or the
+  // streaming state changes (each chunk that arrives extends the answer).
+  // `block: "end"` keeps the sentinel flush at the bottom of the container
+  // rather than centering it, and `behavior: "smooth"` gives the same feel
+  // as the Framer Motion entrance animation on each new ChatTurn.
+  useEffect(() => {
+    threadBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turns.length, streaming]);
 
   function collapseRail(collapsed: boolean) {
     setRailCollapsed(collapsed);
@@ -275,7 +290,7 @@ export default function AskPage() {
                 area by the full height of the thread — the empty scroll
                 space that appeared under the composer, map and history once a
                 thread ran past one screen. */}
-            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
+            <div ref={threadRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
               {turns.map((turn, i) => (
                 <ChatTurn
                   key={turn.id}
@@ -293,6 +308,10 @@ export default function AskPage() {
                   onRendered={(result) => applyRender(turn.id, result)}
                 />
               ))}
+              {/* Sentinel: scrolled into view whenever a new turn arrives or
+                  a streaming answer updates, keeping the latest exchange
+                  visible without the user having to scroll manually. */}
+              <div ref={threadBottomRef} />
             </div>
 
             <Composer
