@@ -65,16 +65,17 @@ def _load_credentials() -> bool:
 
 
 def main() -> int:
-    try:
-        import copernicusmarine
-    except ImportError:
-        print("[ERROR] copernicusmarine not installed. Run: pip install -r backend/requirements.txt")
-        return 1
-
+    # Credentials first: copernicusmarine reads its env vars once, at import time.
     if not _load_credentials():
         print("[ERROR] No Copernicus credentials. Add COPERNICUS_USERNAME and "
               "COPERNICUS_PASSWORD to .env (register free at "
               "https://data.marine.copernicus.eu/register).")
+        return 1
+
+    try:
+        import copernicusmarine
+    except ImportError:
+        print("[ERROR] copernicusmarine not installed. Run: pip install -r backend/requirements.txt")
         return 1
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
