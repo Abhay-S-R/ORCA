@@ -37,13 +37,6 @@ export function LayerToggle({
         onChange={(e) => onChange(e.target.checked)}
         className="size-3.5 shrink-0 accent-[var(--color-accent)]"
       />
-      {swatch && (
-        <span
-          aria-hidden="true"
-          className="size-2.5 shrink-0 rounded-[2px] ring-1 ring-inset ring-white/20"
-          style={{ background: swatch }}
-        />
-      )}
       <span className={`flex-1 ${checked ? "text-ink" : "text-ink-muted"}`}>{label}</span>
       {heavy && (
         <span className="text-[10px] text-ink-dim" title="Heavy layer — counts against the mobile limit of 2">

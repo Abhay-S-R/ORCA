@@ -1814,7 +1814,6 @@ export function MapView({
                       disabledReason={cyclone?.note}
                       onChange={(v) => setLayers((s) => ({ ...s, cyclone: v }))}
                     />
-                    {cyclone && <p className="px-2 pb-1 text-[10px] text-ink-dim">{cyclone.note}</p>}
                     <LayerToggle
                       label="Seamarks (Port Buoys & Lights)"
                       swatch={CHART.ink}
