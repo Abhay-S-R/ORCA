@@ -66,6 +66,36 @@ type PfzFeature = {
   geometry: { coordinates: [number, number] };
   properties: PfzProperties;
 };
+type PfzScreenPos = {
+  left: number;
+  top: number;
+  side: "left" | "right";
+  arrowY: number;
+};
+
+// Projects a PFZ marker to screen space and picks which side of it the
+// advisory bubble should sit on, clamping coordinates so it never clips
+// off the top/bottom/edges of the map container, with arrowY dynamically
+// pointing directly back at the marker coordinates.
+function projectPfzPos(m: maplibregl.Map, coords: [number, number]): PfzScreenPos {
+  const pos = m.project(coords);
+  const container = m.getContainer();
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  const cardWidth = 288; // w-72
+  const cardHeight = 350;
+  const gap = 14;
+
+  const side: "left" | "right" = pos.x > width / 2 ? "left" : "right";
+  const rawLeft = side === "right" ? pos.x + gap : pos.x - gap - cardWidth;
+  const left = Math.max(8, Math.min(width - cardWidth - 8, rawLeft));
+
+  const rawTop = pos.y - cardHeight / 2;
+  const top = Math.max(8, Math.min(height - cardHeight - 8, rawTop));
+  const arrowY = Math.max(28, Math.min(cardHeight - 28, pos.y - top));
+
+  return { left, top, side, arrowY };
+}
 // D2 -> D3 handoff (plan §14, orca/notifications/watch_badges.py) — same
 // severity vocabulary as the notification feed, never re-derived here.
 const SEVERITY_TONE: Record<WatchBadge["severity"], BadgeTone> = {
@@ -366,6 +396,8 @@ export function MapView({
   // says — including "no active cyclone" — so an empty layer is never silent.
   const [cyclone, setCyclone] = useState<{ available: boolean; note: string; systems: unknown[] } | null>(null);
   const [selectedPfz, setSelectedPfz] = useState<PfzProperties | null>(null);
+  const [selectedPfzPos, setSelectedPfzPos] = useState<PfzScreenPos | null>(null);
+  const selectedPfzCoordsRef = useRef<[number, number] | null>(null);
   const [selectedBadge, setSelectedBadge] = useState<WatchBadge | null>(null);
   // Kept alongside the map-source copies of the same fetches (never a second
   // fetch) purely so the region dashboard below can filter them by distance.
@@ -523,6 +555,8 @@ export function MapView({
   const handleClick = useCallback(async (lat: number, lon: number) => {
     onPointClick?.(lat, lon);
     setClicked({ lat, lon });
+    setSoundingDismissed(false);
+    setSoundingCollapsed(false);
     setDepth(null);
     setBearing(null);
     setBoundaryLine(null);
@@ -915,16 +949,29 @@ export function MapView({
       if (badgeFeatures.length && badgeFeatures[0].properties) {
         setSelectedBadge(badgeFeatures[0].properties as WatchBadge);
         setSelectedPfz(null);
+        selectedPfzCoordsRef.current = null;
+        setSelectedPfzPos(null);
         return;
       }
       setSelectedBadge(null);
       const pfzFeatures = m.queryRenderedFeatures(e.point, { layers: ["pfz-circles"] });
       if (pfzFeatures.length && pfzFeatures[0].properties) {
         setSelectedPfz(pfzFeatures[0].properties as PfzProperties);
+        const geometry = pfzFeatures[0].geometry as { type: "Point"; coordinates: [number, number] };
+        selectedPfzCoordsRef.current = geometry.coordinates;
+        setSelectedPfzPos(projectPfzPos(m, geometry.coordinates));
       } else {
         setSelectedPfz(null);
+        selectedPfzCoordsRef.current = null;
+        setSelectedPfzPos(null);
       }
       void handleClick(e.lngLat.lat, e.lngLat.lng);
+    });
+    // Keep the PFZ popup glued to its marker's screen position while the
+    // map pans/zooms, same as a native maplibre Popup would.
+    m.on("move", () => {
+      if (!selectedPfzCoordsRef.current) return;
+      setSelectedPfzPos(projectPfzPos(m, selectedPfzCoordsRef.current));
     });
     for (const id of ["boundaries-fill", "pfz-circles", "pfz-clusters", "watch-badges-circles"]) {
       m.on("mouseenter", id, () => {
@@ -1553,6 +1600,140 @@ export function MapView({
         greyWind={greyWind}
       />
 
+      {selectedPfz && selectedPfzPos && (
+        <div
+          className="pointer-events-auto absolute z-30 w-72 transition-all duration-75"
+          style={{ left: selectedPfzPos.left, top: selectedPfzPos.top }}
+        >
+          {/* Speech-bubble tail — sits OUTSIDE overflow-hidden so it isn't
+              clipped. Positioned at arrowY along the card edge, pointing directly
+              at the fishing zone marker it describes. */}
+          <div
+            className={`absolute z-10 size-3.5 -translate-y-1/2 rotate-45 bg-shelf-3 ${
+              selectedPfzPos.side === "right"
+                ? "-left-[7px] border-b border-l border-go/40"
+                : "-right-[7px] border-t border-r border-go/40"
+            }`}
+            style={{ top: selectedPfzPos.arrowY }}
+          />
+          <div className="relative overflow-hidden rounded-xl border border-go/30 bg-shelf-3/95 backdrop-blur-xl shadow-xl transition-all">
+            {/* Glowing top line */}
+            <div className="h-0.5 bg-gradient-to-r from-go to-ocean-cyan" />
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-hairline px-3.5 py-2.5 bg-gradient-to-b from-white/[0.03] to-transparent">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-go opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-go" />
+                </span>
+                <span className="rounded-full border border-go/40 bg-go/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-go">
+                  PFZ Advisory
+                </span>
+                <h4 className="text-xs font-bold tracking-tight text-ink truncate max-w-[140px]">
+                  {selectedPfz.landing_center ? String(selectedPfz.landing_center) : "Fishing Zone"}
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedPfz(null);
+                  selectedPfzCoordsRef.current = null;
+                  setSelectedPfzPos(null);
+                }}
+                className="flex size-6 cursor-pointer items-center justify-center rounded-lg text-ink-dim hover:bg-hairline/40 hover:text-ink transition-colors"
+                aria-label="Close PFZ details"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+
+            {/* Body Content */}
+            <div className="p-3">
+              <div className="grid grid-cols-2 gap-2">
+                {/* Sector Tile */}
+                <div className="rounded-lg border border-hairline/50 bg-shelf-2/60 p-2">
+                  <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
+                    <MapPin className="size-2.5 text-go" /> Sector
+                  </span>
+                  <p className="mt-1 text-xs font-bold text-ink truncate">
+                    {String(selectedPfz.sector || "General Offshore")}
+                  </p>
+                </div>
+
+                {/* Advised Depth Tile */}
+                <div className="rounded-lg border border-hairline/50 bg-shelf-2/60 p-2">
+                  <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
+                    <Waves className="size-2.5 text-ocean-cyan" /> Advised Depth
+                  </span>
+                  <p className="mt-1 font-mono text-xs font-bold text-ocean-cyan">
+                    {selectedPfz.depth_m ? (
+                      <>
+                        {String(selectedPfz.depth_m)}{" "}
+                        <span className="text-[10px] font-normal text-ocean-cyan/80">m</span>
+                      </>
+                    ) : "Surface / Mid-water"}
+                  </p>
+                </div>
+
+                {/* Distance & Bearing Tile */}
+                <div className="rounded-lg border border-hairline/50 bg-shelf-2/60 p-2">
+                  <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
+                    <Navigation className="size-2.5 text-ocean-cyan" /> From Landing
+                  </span>
+                  <p className="mt-1 font-mono text-xs font-bold text-ink">
+                    {selectedPfz.distance_km != null ? `${selectedPfz.distance_km} km` : "—"}
+                  </p>
+                  {selectedPfz.direction && (
+                    <span className="mt-1 inline-flex items-center rounded border border-hairline bg-shelf-2/80 px-1 py-0.5 font-mono text-[9px] text-ink-muted">
+                      {selectedPfz.direction} {selectedPfz.bearing_deg != null ? `(${selectedPfz.bearing_deg}°)` : ""}
+                    </span>
+                  )}
+                </div>
+
+                {/* Validity & Status Tile */}
+                <div className="rounded-lg border border-hairline/50 bg-shelf-2/60 p-2">
+                  <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
+                    <Calendar className="size-2.5 text-go" /> Valid Until
+                  </span>
+                  <p className="mt-1 font-mono text-[11px] font-semibold text-ink-muted truncate">
+                    {selectedPfz.valid_for ? String(selectedPfz.valid_for) : "Current cycle"}
+                  </p>
+                  <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-go/30 bg-go/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-go">
+                    <span className="size-1 rounded-full bg-go animate-pulse" /> Active
+                  </span>
+                </div>
+              </div>
+
+              {/* Optional Micro-Metrics Row (SST & Area) */}
+              {(selectedPfz.mean_sst_c != null || selectedPfz.approx_area_km2 != null) && (
+                <div className="mt-2 flex flex-wrap gap-1.5 border-t border-hairline/50 pt-2">
+                  {selectedPfz.mean_sst_c != null && (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-caution/20 bg-caution/15 px-2 py-0.5 text-[10px] font-mono text-caution">
+                      <span>🌡</span> {selectedPfz.mean_sst_c}°C SST
+                    </span>
+                  )}
+                  {selectedPfz.approx_area_km2 != null && (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-ocean-cyan/20 bg-ocean-cyan/15 px-2 py-0.5 text-[10px] font-mono text-ocean-cyan">
+                      <span>📐</span> {selectedPfz.approx_area_km2} km² Area
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Provenance footer */}
+              <div className="mt-2.5 flex items-center justify-between border-t border-hairline pt-2 text-[9px] text-ink-dim">
+                <span className="flex items-center gap-1 text-go/90 font-medium">
+                  <ShieldCheck className="size-3 text-go" /> INCOIS Official PFZ
+                </span>
+                <span className="text-ink-dim font-mono">Satellite SST + Chlorophyll</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      )}
+
       {showPanels && (
         <div className="pointer-events-none absolute inset-0 z-10">
           {showLayerPanel && (
@@ -1890,118 +2071,6 @@ export function MapView({
                 </Panel>
               </div>
             )}
-            {selectedPfz && (
-              <div className="mb-2.5 overflow-hidden rounded-xl border border-go/30 bg-shelf-3/95 backdrop-blur-xl shadow-xl  transition-all">
-                {/* Glowing top line */}
-                <div className="h-0.5 bg-gradient-to-r from-go to-ocean-cyan" />
-
-                {/* Header */}
-                <div className="flex items-center justify-between border-b border-hairline px-3.5 py-2.5 bg-gradient-to-b from-white/[0.03] to-transparent">
-                  <div className="flex items-center gap-2">
-                    <span className="relative flex h-2 w-2">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-go opacity-75" />
-                      <span className="relative inline-flex h-2 w-2 rounded-full bg-go" />
-                    </span>
-                    <span className="rounded-full border border-go/40 bg-go/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-go">
-                      PFZ Advisory
-                    </span>
-                    <h4 className="text-xs font-bold tracking-tight text-ink truncate max-w-[140px]">
-                      {selectedPfz.landing_center ? String(selectedPfz.landing_center) : "Fishing Zone"}
-                    </h4>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPfz(null)}
-                    className="flex size-6 cursor-pointer items-center justify-center rounded-lg text-ink-dim hover:bg-hairline/40 hover:text-ink transition-colors"
-                    aria-label="Close PFZ details"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </div>
-
-                {/* Body Content */}
-                <div className="p-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    {/* Sector Tile */}
-                    <div className="rounded-lg border border-hairline/50 bg-shelf-2/60 p-2">
-                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
-                        <MapPin className="size-2.5 text-go" /> Sector
-                      </span>
-                      <p className="mt-1 text-xs font-bold text-ink truncate">
-                        {String(selectedPfz.sector || "General Offshore")}
-                      </p>
-                    </div>
-
-                    {/* Advised Depth Tile */}
-                    <div className="rounded-lg border border-hairline/50 bg-shelf-2/60 p-2">
-                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
-                        <Waves className="size-2.5 text-ocean-cyan" /> Advised Depth
-                      </span>
-                      <p className="mt-1 font-mono text-xs font-bold text-ocean-cyan">
-                        {selectedPfz.depth_m ? (
-                          <>
-                            {String(selectedPfz.depth_m)}{" "}
-                            <span className="text-[10px] font-normal text-ocean-cyan/80">m</span>
-                          </>
-                        ) : "Surface / Mid-water"}
-                      </p>
-                    </div>
-
-                    {/* Distance & Bearing Tile */}
-                    <div className="rounded-lg border border-hairline/50 bg-shelf-2/60 p-2">
-                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
-                        <Navigation className="size-2.5 text-ocean-cyan" /> From Landing
-                      </span>
-                      <p className="mt-1 font-mono text-xs font-bold text-ink">
-                        {selectedPfz.distance_km != null ? `${selectedPfz.distance_km} km` : "—"}
-                      </p>
-                      {selectedPfz.direction && (
-                        <span className="mt-1 inline-flex items-center rounded border border-hairline bg-shelf-2/80 px-1 py-0.5 font-mono text-[9px] text-ink-muted">
-                          {selectedPfz.direction} {selectedPfz.bearing_deg != null ? `(${selectedPfz.bearing_deg}°)` : ""}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Validity & Status Tile */}
-                    <div className="rounded-lg border border-hairline/50 bg-shelf-2/60 p-2">
-                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
-                        <Calendar className="size-2.5 text-go" /> Valid Until
-                      </span>
-                      <p className="mt-1 font-mono text-[11px] font-semibold text-ink-muted truncate">
-                        {selectedPfz.valid_for ? String(selectedPfz.valid_for) : "Current cycle"}
-                      </p>
-                      <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-go/30 bg-go/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-go">
-                        <span className="size-1 rounded-full bg-go animate-pulse" /> Active
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Optional Micro-Metrics Row (SST & Area) */}
-                  {(selectedPfz.mean_sst_c != null || selectedPfz.approx_area_km2 != null) && (
-                    <div className="mt-2 flex flex-wrap gap-1.5 border-t border-hairline/50 pt-2">
-                      {selectedPfz.mean_sst_c != null && (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-caution/20 bg-caution/15 px-2 py-0.5 text-[10px] font-mono text-caution">
-                          <span>🌡</span> {selectedPfz.mean_sst_c}°C SST
-                        </span>
-                      )}
-                      {selectedPfz.approx_area_km2 != null && (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-ocean-cyan/20 bg-ocean-cyan/15 px-2 py-0.5 text-[10px] font-mono text-ocean-cyan">
-                          <span>📐</span> {selectedPfz.approx_area_km2} km² Area
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Provenance footer */}
-                  <div className="mt-2.5 flex items-center justify-between border-t border-hairline pt-2 text-[9px] text-ink-dim">
-                    <span className="flex items-center gap-1 text-go/90 font-medium">
-                      <ShieldCheck className="size-3 text-go" /> INCOIS Official PFZ
-                    </span>
-                    <span className="text-ink-dim font-mono">Satellite SST + Chlorophyll</span>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Acoustic Sounding HUD */}
             {showSoundingHud && (
@@ -2013,7 +2082,7 @@ export function MapView({
                       setSoundingDismissed(false);
                       setSoundingCollapsed(false);
                     }}
-                    className="flex items-center gap-2 rounded-full border border-ocean-cyan/40 bg-shelf-3/95 px-3 py-1.5 backdrop-blur-xl text-[11px] font-semibold text-ocean-cyan shadow-lg hover:border-ocean-cyan hover:bg-ocean-cyan/15 transition-all cursor-pointer"
+                    className="flex items-center gap-2 rounded-full border border-ocean-cyan/40 bg-shelf-3/95 px-3 py-1.5 backdrop-blur-xl text-[11px] font-semibold text-ocean-cyan shadow-lg transition-colors duration-200 cursor-pointer hover:border-ocean-cyan hover:shadow-[0_0_18px_rgba(34,211,238,0.55)]"
                   >
                     <Crosshair className="size-3 text-ocean-cyan" />
                     <span>Sounding HUD</span>
