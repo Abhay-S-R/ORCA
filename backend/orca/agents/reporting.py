@@ -127,9 +127,28 @@ def describe_location(user_location: dict[str, Any] | None) -> str:
     lat, lon = loc.get("lat"), loc.get("lon")
     position = f"{lat}, {lon}" if lat is not None and lon is not None else "an unknown position"
     if loc.get("place_source") == "regional_default":
+        if loc.get("fix_on_land"):
+            # The caller did send a position; it was inland, so there is no sea
+            # at it to measure. Saying "no GPS fix was supplied" here would be
+            # false, and letting it pass unsaid is how the default's numbers
+            # get narrated as "your nearest fishing zone" to somebody a
+            # thousand kilometres from the coast.
+            return (
+                f"The telemetry below was measured at the pilot region's default position ({position}). "
+                "The caller's device did report a position, but it is inland, so there are no marine "
+                "readings there and it was not used. These numbers are NOT near the caller: do not call "
+                "this 'your position' or 'your nearest' anything. Name the default's own place instead, "
+                "and tell them to name a port or a position at sea for local numbers."
+            )
         return (
             f"The telemetry below was measured at the pilot region's default position ({position}) "
             "because the query named no location that could be resolved and no GPS fix was supplied."
+        )
+    if loc.get("place_source") == "gps_fix":
+        return (
+            f"The telemetry below was measured at the caller's own GPS position ({position}). "
+            "The query named no place ORCA holds data for, so this is where they actually are, "
+            "not a place they asked about — say so if the query named somewhere else."
         )
     name = loc.get("place_name")
     if loc.get("place_source") == "session_carried" and name:

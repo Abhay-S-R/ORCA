@@ -44,6 +44,13 @@ ANSWER_CHARS = 500
 # a place nobody actually asked about. "session_carried" counts: it is a real
 # place carried once already, and leaving it out meant the place was lost as
 # soon as the turn that originally named it rolled out of the window.
+#
+# "gps_fix" deliberately does NOT count. A browser fix is ambient context for
+# the turn it arrived on, not a place anybody named, and the Ask page re-sends
+# it on every request — so carrying it forward buys nothing and costs a real
+# failure: one turn answered at the caller's position pins every later turn to
+# wherever the phone was, ahead of the text, and a caller sitting inland turns
+# the whole rest of the chat into "those coordinates are on land".
 _REAL_PLACE_SOURCES = {"explicit", "port_fixture", "tide_station", "gazetteer", "session_carried"}
 
 # ponytail: per-process mirror — with several uvicorn workers and Redis down,

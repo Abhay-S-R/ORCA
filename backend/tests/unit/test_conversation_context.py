@@ -178,7 +178,7 @@ def api(monkeypatch):
 
     async def fake_stream(q, lat, lon, vessel_class, distress=False, persona=None, depth=None,
                           place=(None, "explicit"), on_final=None, session_id=None, session_history=None,
-                          resolution=None):
+                          resolution=None, **kwargs):
         seen.append({"q": q, "place": place, "history": list(session_history or []), "on_final": on_final})
         # Echo the position the route really resolved, as the graph does. A
         # hardcoded place_source here is how the allowlist's "pilot_gazetteer"

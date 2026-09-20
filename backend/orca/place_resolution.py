@@ -35,6 +35,7 @@ from orca.data.loaders import (
     DEFAULT_LON,
     ResolvedPlace,
     is_region_name,
+    near_miss_place_names,
     places_within_region,
     resolve_all_places_from_text,
 )
@@ -195,6 +196,26 @@ def resolve_or_ask(text: str, session: dict | None = None) -> PlaceResolution:
             )
         return PlaceResolution("resolved", place, [], None)
 
+    # Nothing matched exactly. Before treating the query as naming no place at
+    # all, check it is not naming one we hold with a typo in it — "gujurat" fell
+    # through to the pilot default and got answered with Gulf of Mannar numbers
+    # under a Gujarat question. Offered as a question, never resolved silently.
+    near = near_miss_place_names(text)
+    if near:
+        candidates: list[ResolvedPlace] = []
+        for name in near:
+            candidates.extend(
+                places_within_region(name) if is_region_name(name)
+                else resolve_all_places_from_text(name)
+            )
+        if candidates:
+            spelled = ", ".join(n.title() for n in near)
+            return PlaceResolution(
+                "ambiguous", None, candidates[:6],
+                f"No place in that question matches anything I hold — did you mean {spelled}? "
+                f"Pick one of these and I will answer for it.",
+            )
+
     if names_unplaceable_location(text):
         return PlaceResolution(
             "unresolvable", None, [],
@@ -331,6 +352,9 @@ if __name__ == "__main__":  # self-check; `python -m orca.place_resolution`
     assert resolve_or_ask("compare Chennai and Pamban").status == "ambiguous"
     assert resolve_or_ask("is it safe in Kerala").status == "ambiguous"
     assert resolve_or_ask("is it safe near my village").status == "unresolvable"
+    typo = resolve_or_ask("what are the nearest fishing zones near gujurat")
+    assert typo.status == "ambiguous" and "did you mean Gujarat" in (typo.disclosure or ""), typo
+    assert [c.name for c in typo.candidates] == [c.name for c in resolve_or_ask("near gujarat").candidates]
     assert position_guard(40.0, 10.0) is not None  # resolved, but outside the extent
     assert resolve_or_ask("is it safe to go to sea tomorrow").status == "fallback"
     r = resolve_or_ask("what about tomorrow?", {"last_place": (9.28, 79.20, "pamban")})

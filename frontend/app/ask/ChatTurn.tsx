@@ -19,7 +19,7 @@ import { FormattedResponse } from "../components/FormattedResponse";
 import { SourceChip } from "../components/SourceChip";
 import { SourceNarration } from "../components/SourceNarration";
 import { ErrorState, Skeleton } from "../components/States";
-import { INTENT_LABEL, type QueryIntent } from "../lib/queryIntent";
+import { intentLabel, type QueryIntent } from "../lib/queryIntent";
 import { type Persona } from "../persona/config";
 import type { Turn } from "./useAskThread";
 import { IntentActions } from "./IntentActions";
@@ -182,7 +182,10 @@ export function ChatTurn({
                   className="flex items-center gap-1.5 self-start text-[11px] text-ink-dim transition-colors hover:text-accent"
                 >
                   <MapPin className="size-3 text-accent" aria-hidden="true" />
-                  {isMapFocus ? `Map focused on ${INTENT_LABEL[focus.intent]}` : `View on map — ${INTENT_LABEL[focus.intent]}`}
+                  {(() => {
+                    const label = intentLabel(focus.intent, answer?.user_location?.place_source === "regional_default");
+                    return isMapFocus ? `Map focused on ${label}` : `View on map — ${label}`;
+                  })()}
                 </button>
               )}
 

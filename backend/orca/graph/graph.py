@@ -203,7 +203,10 @@ def query_guard_node(state: ORCAState) -> dict:
     # exists in scripts/orca_grid_utils.py — which is a data pass, not a guard
     # clause, and is not in P1.4's scope. Until it happens, a depth-dependent
     # answer at those places is thin and now says so.
-    if location.get("place_source") in ("explicit", "coordinates"):
+    # A GPS fix belongs with the coordinate sources, not the gazetteer ones:
+    # there is no "the town, not the harbour" to disclose about it — it is the
+    # caller's actual position, so out of range means out of range.
+    if location.get("place_source") in ("explicit", "coordinates", "gps_fix"):
         return _refusal("OUT_OF_RANGE", where)
     return {"disclosures": [where + " The position held for this place is the town, not the harbour approach, so depth-dependent readings here may be missing."]}
 

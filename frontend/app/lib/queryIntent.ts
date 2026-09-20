@@ -29,6 +29,19 @@ export const INTENT_LABEL: Record<QueryIntent, string> = {
   general: "your area",
 };
 
+// Two of those labels claim the map is showing the reader's own surroundings.
+// That is only true when the answer resolved to a position — at the pilot
+// default it is the same misattribution Agent 9 is forbidden from making in
+// the sentence directly below it on the page.
+const AT_DEFAULT_LABEL: Partial<Record<QueryIntent, string>> = {
+  fishing: "fishing zones in the default pilot region",
+  general: "the default pilot region",
+};
+
+export function intentLabel(intent: QueryIntent, atRegionalDefault: boolean): string {
+  return (atRegionalDefault && AT_DEFAULT_LABEL[intent]) || INTENT_LABEL[intent];
+}
+
 // A place named in the query (plan item 8: "location-specific query"),
 // matched against the chart's own coastal-sector vocabulary so a mentioned
 // region can move the camera there directly. Kept as plain keyword lookup —

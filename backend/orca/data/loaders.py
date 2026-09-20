@@ -5,6 +5,7 @@ normalize.py, not in here — a loader's job is "get bytes into memory", not
 """
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
@@ -309,6 +310,110 @@ _GAZETTEER: dict[str, tuple[float, float]] = {
     "little andaman": (10.67, 92.57),
     "north andaman": (13.25, 93.00),
     "havelock island": (12.02, 92.98),
+    # ── Fishing harbours and landing centres ────────────────────────────
+    #
+    # Audited 2026-09-20: 84 of 87 real Indian coastal fishing places tested
+    # resolved to NOTHING, and a query naming one was answered at the pilot
+    # default 1,500 km away ("nearest fishing zone near Mangrol" -> Karankadu,
+    # Gulf of Mannar). The PFZ, weather and lightning data for those coasts was
+    # already on disk and already all-India; the gazetteer was the bottleneck.
+    #
+    # Each coordinate is nudged seaward of the town centre, matching the
+    # existing entries (Porbandar is 69.50, the town is 69.60) and for the same
+    # reason DEFAULT_LAT/LON was moved offshore: a town point reads on_land to
+    # /api/depth, which nulls the seabed and disarms the shallow-water check.
+    # `scripts/verify_gazetteer_at_sea.py` is the runnable check on that.
+    # ── Gujarat
+    "mangrol": (21.08, 70.10),
+    "jakhau": (23.17, 68.62),
+    "diu": (20.68, 70.98),
+    "jafrabad": (20.83, 71.37),
+    "navabandar": (20.75, 71.10),
+    "sutrapada": (20.81, 70.45),
+    "valsad": (20.58, 72.88),
+    "navsari": (20.85, 72.70),
+    "umbergaon": (20.17, 72.68),
+    "mahuva": (21.02, 71.77),
+    "salaya": (22.40, 69.60),
+    "vanakbara": (20.70, 70.80),
+    # ── Maharashtra
+    "malvan": (16.05, 73.42),
+    "vengurla": (15.85, 73.58),
+    "harnai": (17.81, 73.05),
+    "dabhol": (17.58, 73.12),
+    "shrivardhan": (18.04, 72.97),
+    "murud": (18.33, 72.90),
+    "uran": (18.85, 72.92),
+    "satpati": (19.71, 72.66),
+    "arnala": (19.46, 72.72),
+    "versova": (19.13, 72.78),
+    # ── Karnataka
+    "malpe": (13.35, 74.66),
+    "gangolli": (13.65, 74.62),
+    "honnavar": (14.28, 74.40),
+    "belekeri": (14.71, 74.22),
+    "tadri": (14.52, 74.35),
+    "kumta": (14.42, 74.37),
+    # ── Kerala
+    "beypore": (11.16, 75.76),
+    "ponnani": (10.77, 75.87),
+    "munambam": (10.18, 76.12),
+    "vizhinjam": (8.35, 77.00),
+    "neendakara": (8.93, 76.50),
+    "azhikkal": (11.93, 75.25),
+    "thalassery": (11.74, 75.45),
+    "chavakkad": (10.58, 75.98),
+    # ── Tamil Nadu (Comorin and Gulf of Mannar)
+    "colachel": (8.15, 77.24),
+    "thengapattinam": (8.15, 77.25),
+    "muttom": (8.10, 77.31),
+    "kadiapatnam": (8.10, 77.40),
+    "manapad": (8.35, 78.10),
+    "uvari": (8.28, 77.98),
+    "periyathalai": (8.41, 78.07),
+    "chinnamuttom": (8.06, 77.56),
+    "tharuvaikulam": (8.88, 78.25),
+    "punnakayal": (8.62, 78.17),
+    # ── Tamil Nadu (Coromandel)
+    "nagore": (10.82, 79.89),
+    "tharangambadi": (11.03, 79.89),
+    "tranquebar": (11.03, 79.89),
+    "poompuhar": (11.14, 79.90),
+    "parangipettai": (11.49, 79.82),
+    "marakkanam": (12.19, 79.99),
+    "pulicat": (13.42, 80.37),
+    # ── Andhra Pradesh
+    "nizampatnam": (15.87, 80.70),
+    "kalingapatnam": (18.33, 84.18),
+    "bheemunipatnam": (17.89, 83.50),
+    "narsapur": (16.25, 81.80),
+    "antarvedi": (16.30, 81.77),
+    "uppada": (17.08, 82.40),
+    "gangavaram": (17.62, 83.27),
+    "vadarevu": (15.82, 80.55),
+    "suryalanka": (15.85, 80.64),
+    "ramayapatnam": (15.04, 80.10),
+    # ── Odisha
+    "astaranga": (20.00, 86.45),
+    "jatadhari": (20.24, 86.74),
+    "talchua": (20.70, 87.05),
+    "chandbali": (20.60, 87.00),
+    "konark": (19.85, 86.12),
+    "dhamara": (20.75, 87.05),
+    # ── West Bengal
+    "shankarpur": (21.60, 87.60),
+    "junput": (21.66, 87.78),
+    "kakdwip": (21.82, 88.20),
+    "namkhana": (21.50, 88.20),
+    "frasergunj": (21.53, 88.27),
+    "diamond harbour": (22.15, 88.20),
+    # ── Andaman & Nicobar
+    "mayabunder": (12.93, 92.95),
+    "rangat": (12.49, 92.99),
+    "diglipur": (13.30, 93.10),
+    "hutbay": (10.58, 92.62),
+    "campbell bay": (7.00, 93.90),
+    "kamorta": (8.05, 93.45),
     # ── Ocean regions ───────────────────────────────────────────────────
     "bay of bengal": (13.00, 82.00),
     "arabian sea": (12.00, 72.00),
@@ -442,6 +547,35 @@ def _name_pattern(name: str) -> re.Pattern[str]:
     stem = name.removesuffix("ம்")
     tail = "(?:ம்)?" if stem != name else ""
     return re.compile(rf"(?<!\w){re.escape(stem)}{tail}")
+
+
+# A misspelt place name is the commonest way a real query names a place we
+# hold and still resolves to nothing — "gujurat", "thootukudi", "porbander".
+# Exact matching drops those straight to the pilot default, which answers a
+# Gujarat question with Gulf of Mannar numbers. Near-misses are never resolved
+# silently: the caller turns them into "did you mean Gujarat?", because a
+# guessed place is the one output this module exists to prevent.
+_FUZZY_CUTOFF = 0.82  # "gujurat" -> "gujarat" scores 0.857; unrelated words fall well below
+
+
+@lru_cache(maxsize=1)
+def _single_token_place_names() -> tuple[str, ...]:
+    """Every one-word Latin-script name worth spell-checking against. Multi-word
+    names ("gulf of mannar") are excluded — the match is per token."""
+    names = set(_GAZETTEER) | set(tide_station_coordinates()) | set(port_coordinates()) | set(_PORT_ALIASES)
+    return tuple(n for n in names if n.isascii() and len(n) >= 4 and " " not in n)
+
+
+def near_miss_place_names(text: str, limit: int = 3) -> list[str]:
+    """Names a token in `text` is probably a misspelling of. Only meaningful
+    when exact resolution already found nothing."""
+    known = _single_token_place_names()
+    hits: list[str] = []
+    for token in re.findall(r"[a-z]{4,}", text.lower()):
+        for match in difflib.get_close_matches(token, known, n=1, cutoff=_FUZZY_CUTOFF):
+            if match not in hits:
+                hits.append(match)
+    return hits[:limit]
 
 
 # Gazetteer keys that name a *region*, not a position. A state's coastline is

@@ -14,6 +14,7 @@ import type { SourceSelection } from "../components/SourceNarration";
 import type { QueryFocus } from "../components/MapView";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
+import { useGeolocation } from "../lib/useGeolocation";
 import { classifyQueryIntent, matchRegionInQuery } from "../lib/queryIntent";
 import { readActiveChat, restoreContext, writeActiveChat, type ChatStore } from "./chatStore";
 import type { IntentAction } from "./IntentActions";
@@ -103,6 +104,12 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
   const [chatId, setChatId] = useState<string | null>(null);
   const [activeFocus, setActiveFocus] = useState<QueryFocus | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
+  // The browser's GPS fix, shared with MapView's marker through the one hook
+  // so the map and the answer are never about two different positions.
+  // Backend rule (api/main.py): an explicit lat/lon always beats a place name
+  // parsed out of the text, so sending this is what stops a query naming a
+  // harbour outside the gazetteer being answered at the pilot-region default.
+  const { position: geoPosition, status: geoStatus } = useGeolocation();
   const sourceRef = useRef<EventSource | null>(null);
   const focusNonce = useRef(0);
   const lastPersona = useRef(persona);
@@ -264,10 +271,19 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     // no classifier reads it (Ground Rule 1). "unresolved" = don't send one.
     const personaParam = persona !== "unresolved" ? `&persona=${persona}` : "";
     const sessionParam = `&session_id=${encodeURIComponent(sessionId)}`;
+    // useGeolocation stores [lon, lat] (GeoJSON order), so unpack, don't index blind.
+    // Only sent on a "granted" fix: a denied or still-loading permission must
+    // fall through to resolving the place from the query text, not to a stale
+    // or half-resolved position.
+    const [geoLon, geoLat] = geoPosition ?? [];
+    const geoParam =
+      geoStatus === "granted" && geoLat !== undefined && geoLon !== undefined
+        ? `&fix_lat=${geoLat}&fix_lon=${geoLon}`
+        : "";
     void restoring.current.then(() => {
       // The user may have switched chats while the context was restoring.
       if (chatIdRef.current !== sessionId) return;
-      const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}`);
+      const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${geoParam}`);
       sourceRef.current = es;
       es.onmessage = (ev) => {
         const data = JSON.parse(ev.data);
