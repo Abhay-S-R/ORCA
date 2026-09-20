@@ -3,14 +3,14 @@
 // Sign in / create account (D1 auth, plan §5.4). One page, two modes — the
 // fields barely differ, and a separate route would mean two places to keep
 // the phone/email guidance in step. All token handling is lib/auth's.
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "../components/Button";
 import { Field, inputClass } from "../components/Field";
 import { PasswordInput } from "../components/PasswordInput";
 import { Card } from "../components/Panel";
 import { OrcaMark } from "../nav";
-import { register, signInWithPassword } from "../lib/auth";
+import { register, signInWithPassword, useAuth } from "../lib/auth";
 
 type Mode = "sign_in" | "register";
 
@@ -23,6 +23,7 @@ function nextPath(): string {
 
 export default function LoginPage() {
   const router = useRouter();
+  const auth = useAuth();
   const [mode, setMode] = useState<Mode>("sign_in");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -31,6 +32,11 @@ export default function LoginPage() {
   const [pending, setPending] = useState(false);
 
   const registering = mode === "register";
+
+  // Already signed in (e.g. a stale bookmark) — nothing to do here.
+  useEffect(() => {
+    if (auth.status === "signed_in") router.replace(nextPath());
+  }, [auth.status, router]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
