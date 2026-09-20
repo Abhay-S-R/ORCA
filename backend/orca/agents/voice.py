@@ -13,11 +13,14 @@ silently ignored.
 
 `FasterWhisperBackend` uses the 'small' int8 CTranslate2 model
 (backend/scripts/download_ml_models.py already downloads and caches this
-one) rather than the plan's aspirational 'large-v3 on CUDA' — this machine
-has no CUDA device, and 'small' int8 is the model actually verified working
-end-to-end while writing this (confirmed transcribing real audio below), not
-a size chosen and left untested. Swapping to 'large-v3' on a CUDA box later
-is a one-line model-name change, not a rewrite.
+one). This is deliberate, not a placeholder for a bigger GPU model later:
+with Bhashini as the primary ASR path (P3.8), this backend's whole job is to
+be the *offline fallback rung* — what answers when the network or Bhashini
+itself is down — and 'small' int8 on CPU is what that rung needs to be:
+cheap to keep warm, no GPU dependency, verified working end-to-end
+(confirmed transcribing real audio below). There is no plan to move this to
+'large-v3' on CUDA; a bigger local model would only make the fallback rung
+slower to keep resident, not more useful as a fallback.
 
 `MmsTtsBackend` uses `facebook/mms-tts-<lang>` (transformers' VitsModel) —
 one checkpoint per language, downloaded lazily on first speak() call for

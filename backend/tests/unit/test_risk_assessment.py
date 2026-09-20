@@ -5,10 +5,12 @@ Every threshold boundary is tested on both sides, for every vessel class.
 import pytest
 
 from orca.agents.risk_assessment import (
+    DB_VESSEL_CLASS_TO_RISK_CLASS,
     check_active_hazards,
     compute_confidence,
     evaluate_marine_safety,
     generate_alert_payload,
+    risk_vessel_class,
     run,
 )
 from orca.contracts import Confidence
@@ -337,3 +339,34 @@ def test_run_missing_data_never_downgrades_an_already_worse_verdict():
     }
     result = run(state)
     assert result.outputs["go_no_go"] == "NO_GO"
+
+
+def test_every_db_vessel_enum_value_maps_to_a_risk_class():
+    # infra/db/001_init.sql:55 / orca/auth/schemas.py:109 — kept here as a
+    # literal list, not an import, so this test breaks (rather than silently
+    # passing) the day someone adds a DB enum value without updating the map.
+    db_enum_values = ["catamaran", "fibreglass", "mechanised", "trawler", "cargo"]
+    for value in db_enum_values:
+        assert value in DB_VESSEL_CLASS_TO_RISK_CLASS, f"{value} has no risk-class mapping"
+        assert DB_VESSEL_CLASS_TO_RISK_CLASS[value] in (
+            "small_fishing", "mechanized_trawler", "cargo_vessel",
+        )
+
+
+def test_risk_vessel_class_maps_catamaran_and_fibreglass_to_small_fishing():
+    assert risk_vessel_class("catamaran") == "small_fishing"
+    assert risk_vessel_class("fibreglass") == "small_fishing"
+
+
+def test_risk_vessel_class_maps_mechanised_and_trawler_to_mechanized_trawler():
+    assert risk_vessel_class("mechanised") == "mechanized_trawler"
+    assert risk_vessel_class("trawler") == "mechanized_trawler"
+
+
+def test_risk_vessel_class_maps_cargo_to_cargo_vessel():
+    assert risk_vessel_class("cargo") == "cargo_vessel"
+
+
+def test_risk_vessel_class_defaults_unknown_or_absent_to_small_fishing():
+    assert risk_vessel_class(None) == "small_fishing"
+    assert risk_vessel_class("something_new") == "small_fishing"

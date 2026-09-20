@@ -91,8 +91,8 @@ ORCA serves four distinct user personas. Every persona receives a different dept
 <tr>
 <td width="50%">
 
-**🤖 10-Agent Multi-Agent Pipeline**
-A LangGraph `StateGraph` orchestrates ten specialized agents that genuinely collaborate. Not one LLM call wearing different hats.
+**🤖 No AI in the Safety Core**
+A LangGraph `StateGraph` orchestrates eleven graph nodes that genuinely collaborate — five of them never call a model at all, and every node that can stop someone going to sea is one of the five.
 
 </td>
 <td width="50%">
@@ -106,7 +106,7 @@ All go/no-go decisions, geofence breaches, and hazard tiers are computed by expl
 <td>
 
 **🗣️ Multilingual Voice Interface**
-Speak in Tamil, Hindi, Telugu, Malayalam, Kannada, Bengali, Marathi, Gujarati, Odia, or English. ORCA replies in the same language, with voice playback.
+Speak in Tamil, Hindi, Telugu, Malayalam, Kannada, Bengali, Marathi, Gujarati, Odia, or English — all 10 detected and typed replies translated. Voice playback is round-trip verified for 4 of them (Tamil, Hindi, Telugu, English); the rest fall back to an unverified local TTS checkpoint.
 
 </td>
 <td>
@@ -166,7 +166,7 @@ Any query that reaches `DEEP` reasoning depth — regardless of persona — pass
 
 Every query flows through a compiled LangGraph `StateGraph`. Each node is a named, specialized agent. Here is the exact wiring:
 
-> **Why the labels below run to Agent 12 while we say "ten agents":** the numbers are stable role IDs, not a headcount. Agent 3 (Discovery) rides inside Agent 5's (Ocean Analytics) output as a source-selection narrative rather than running as its own node, and Agent 1 (Language) appears twice in the diagram — ingress and egress — because it's the same agent used at both ends of the pipeline. That gives nine on the query path (Distress, Language, Planning, Weather, Ocean Analytics, Geospatial, Risk Assessment, Visualization, Reporting) plus Agent 11 (Sentinel) running continuously in the background — ten. Agent 10 (Critic) is real but conditional — it only engages when a query reaches `DEEP` reasoning depth — so it's counted as a bonus verification pass, not one of the headline ten.
+> **Why the labels below run to Agent 12 while the graph itself has eleven nodes:** the numbers are stable role IDs, not a headcount. Agent 3 (Discovery) rides inside Agent 5's (Ocean Analytics) output as a source-selection narrative rather than running as its own node, and Agent 1 (Language) appears twice in the diagram — ingress and egress — because it's the same agent used at both ends of the pipeline. The compiled graph (`orca/graph/graph.py`) has eleven nodes: `distress_check`, `language_ingress`, `planning`, `weather_intelligence`, `geospatial`, `ocean_analytics`, `risk_assessment`, `visualization`, `reporting`, `critic`, `language_egress`. **Five of eleven never call a model at all** — `distress_check`, `weather_intelligence`, `geospatial`, `risk_assessment`, `visualization` — and every node that can stop someone going to sea is one of the five. `ocean_analytics` calls an LLM only at `DEEP` reasoning depth; `language_ingress`/`language_egress` run IndicTrans2, a local neural translation model, not a hosted LLM; `critic` is real but conditional, engaging only at `DEEP` depth, so it's a bonus verification pass rather than a headline node.
 
 ```
  ┌─────────────────────────────────────────────────────────────────────┐
@@ -366,8 +366,8 @@ Runs the full LangGraph pipeline. Responds as a streaming `text/event-stream`.
 | `GET /api/geospatial/boundary` | IMBL / MPA proximity check |
 | `GET /api/geospatial/depth` | Bathymetry depth lookup |
 | `GET /api/voyage-plan` | Compute a bathymetry-aware voyage plan |
-| `POST /api/voice/transcribe` | Speech-to-text (Bhashini ASR → Whisper fallback) |
-| `POST /api/voice/speak` | Text-to-speech (Bhashini TTS → Google Cloud TTS fallback) |
+| `POST /api/voice/transcribe` | Speech-to-text (Bhashini ASR seam, prepared not connected — pending government portal access — falls to local faster-whisper) |
+| `POST /api/voice/speak` | Text-to-speech (Bhashini TTS seam, prepared not connected — falls to local `facebook/mms-tts`) |
 | `GET /api/trace/{query_id}` | Retrieve full stored trace for a past query |
 | `GET /api/watches` | List Sentinel watch subscriptions |
 | `POST /api/watches` | Create a new watch |
@@ -414,9 +414,9 @@ ORCA integrates the following authoritative Indian and global marine data source
 | **Agent Orchestration** | LangGraph (StateGraph) |
 | **Backend API** | FastAPI 0.115+, Python 3.11, Uvicorn |
 | **LLM Providers** | Anthropic Claude · OpenAI GPT · Google Gemini · DeepSeek · Ollama |
-| **Language / Translation** | IndicTrans2 (local) · Bhashini ULCA NMT API |
-| **Speech-to-Text** | Bhashini ASR → Whisper (fallback) |
-| **Text-to-Speech** | Bhashini TTS → Google Cloud TTS (fallback) |
+| **Language / Translation** | IndicTrans2 (local, primary) · Bhashini ULCA NMT API (seam prepared, not yet connected) |
+| **Speech-to-Text** | faster-whisper `small` (local, primary) · Bhashini ASR (seam prepared, not yet connected) |
+| **Text-to-Speech** | `facebook/mms-tts` (local, primary) · Bhashini TTS (seam prepared, not yet connected) |
 | **Geospatial** | GeoPandas · Shapely · PyProj |
 | **Data Processing** | xarray · NumPy · Pandas · SciPy · h5py |
 | **Database** | PostgreSQL 16 + PostGIS · SQLAlchemy |
@@ -439,7 +439,7 @@ These ten principles are non-negotiable. Every agent, every API response, and ev
 
 | # | Principle |
 |---|---|
-| **1** | **Ten core agents, mapped 1:1 to ISRO's named roles.** The architecture builds exactly what the problem statement asked for. |
+| **1** | **Eleven graph nodes, mapped to ISRO's named roles — five never call a model.** The architecture builds exactly what the problem statement asked for, and the nodes that gate whether a boat leaves port are deterministic Python, not text generation. |
 | **2** | **Intent decides what fires. Persona decides how it's said.** The planning agent is completely persona-blind. Only the reporting agent reads persona. A misclassified fisherman never gets silently truncated analysis. |
 | **3** | **Zero LLM hallucination on safety.** Go/no-go decisions, geofence breaches, and hazard tiers are deterministic Python math — never generated text. |
 | **4** | **Every claim is provenance-stamped.** Source dataset, acquisition timestamp, and confidence tier travel with every fact to the user. |

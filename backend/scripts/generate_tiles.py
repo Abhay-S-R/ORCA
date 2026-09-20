@@ -152,14 +152,29 @@ def generate_wave_height_forecast_tiles():
             ts: _smooth_frame(cropped.isel(TIME=i))
             for i, ts in enumerate(timestamps)
         }
+        # Build into a sibling temp directory and swap it in with one os.replace
+        # once every frame and meta.json are written — an interrupted run (a
+        # laptop closed mid-build, a kill -9) then leaves the previous good
+        # pyramid live instead of an empty/half-written layer with no
+        # meta.json (R-FRESH-1: that exact interruption is what produced the
+        # 8/56-frames-no-meta.json state this replaces).
         import shutil
-        shutil.rmtree(TILES_ROOT / "wave_height_forecast", ignore_errors=True)
+
+        live_dir = TILES_ROOT / "wave_height_forecast"
+        build_dir = TILES_ROOT / "wave_height_forecast.building"
+        shutil.rmtree(build_dir, ignore_errors=True)
         meta = generate_forecast_tiles(
-            frames, layer_id="wave_height_forecast", out_dir=TILES_ROOT / "wave_height_forecast",
+            frames, layer_id="wave_height_forecast", out_dir=build_dir,
             cmap_name="wave_height", unit="m",
             valid_predicate=lambda v: np.isfinite(v) & (v >= 0) & (v < 30),  # HS fill values read as huge negatives/positives
             zoom_range=(5, 8),
         )
+        old_dir = TILES_ROOT / "wave_height_forecast.old"
+        shutil.rmtree(old_dir, ignore_errors=True)
+        if live_dir.exists():
+            live_dir.rename(old_dir)
+        build_dir.rename(live_dir)
+        shutil.rmtree(old_dir, ignore_errors=True)
         print(
             f"[OK] {meta['tile_count']} tiles across {len(meta['timestamps'])} frames written, "
             f"zoom {meta['min_zoom']}-{meta['max_zoom']}, "

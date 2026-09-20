@@ -32,6 +32,32 @@ _VESSEL_DELTAS: dict[VesselClass, tuple[float, float]] = {  # (wind_kmh_delta, h
     "cargo_vessel": (27.8, 1.5),
 }
 
+# P0.13 / prerequisite of R-AUTH-1: the DB's `vessel_class` enum
+# (infra/db/001_init.sql:55, orca/auth/schemas.py:109) is the richer,
+# user-facing vocabulary — catamaran / fibreglass / mechanised / trawler /
+# cargo — and stays that way; this engine's three-way vocabulary above is
+# what the safety math was written and reviewed against (Architecture §3.1),
+# and stays that way too. One mapping at the single point a registered
+# vessel enters this module, rather than two vocabularies drifting until a
+# vessel silently becomes "small_fishing" or a request fails outright.
+DB_VESSEL_CLASS_TO_RISK_CLASS: dict[str, VesselClass] = {
+    "catamaran": "small_fishing",
+    "fibreglass": "small_fishing",
+    "mechanised": "mechanized_trawler",
+    "trawler": "mechanized_trawler",
+    "cargo": "cargo_vessel",
+}
+
+
+def risk_vessel_class(db_vessel_class: str | None) -> VesselClass:
+    """A profile vessel's DB-enum class, translated to this module's
+    vocabulary. Unknown or absent falls to "small_fishing" — the same
+    conservative default `run()` already applies when no vessel is given at
+    all, never a guess at a more capable class."""
+    if db_vessel_class is None:
+        return "small_fishing"
+    return DB_VESSEL_CLASS_TO_RISK_CLASS.get(db_vessel_class, "small_fishing")
+
 
 class SafetyVerdict(TypedDict):
     status: str

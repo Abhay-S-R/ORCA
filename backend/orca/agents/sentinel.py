@@ -86,8 +86,15 @@ def cheap_check(lat: float, lon: float, *, vessel_class: str | None = None) -> W
     cyclone_alert = risk_assessment_cyclone_alert(active)
 
     verdict = risk_assessment.evaluate_marine_safety(
-        wave_height_m=wave or 0.0,
-        wind_speed_kmh=(wind or 0.0) * 3.6,
+        # P0.15 / R-SAFE-1: `wave or 0.0` / `(wind or 0.0) * 3.6` turned a
+        # missing reading into a calm sea and a still day — the exact
+        # fall-through evaluate_marine_safety's own `_known()` guard exists
+        # to catch, defeated by masking the gap before it ever got there.
+        # None passes through so a missing reading floors to
+        # CAUTION_MISSING_DATA, naming the field, instead of a background
+        # watch reporting GO on no data.
+        wave_height_m=wave,
+        wind_speed_kmh=(wind * 3.6) if wind is not None else None,
         lightning_active=lightning_active,
         cyclone_alert=cyclone_alert,
         imbl_distance_nm=999.0,   # geofence handled by geofence_approach watches, not here

@@ -33,4 +33,29 @@ secret_matches = re.findall(r"=[A-Za-z0-9_\-]{12,}", _read("../.env.example"))
 assert not secret_matches, f"Secret found in .env.example: {secret_matches}"
 print("[PASS] CI Guard 3: Zero-valued secret scan passed.")
 
-print("\nALL 3 CI GUARDS VERIFIED GREEN!")
+# 4. Safety-path guard (P0.12, principle 2 / R-JUDGE-4): CI fails if any of
+# these files imports orca.llm or a vendor SDK. This is the guard the plan
+# says CI is supposed to already have and does not — it does NOT check that
+# a number is never fabricated (that cannot be checked statically; P2.2 and
+# P4.6 cover the behaviour), only that the files responsible for a go/no-go
+# verdict never gain the *means* to call a model at all.
+SAFETY_PATH_FILES = [
+    "orca/agents/risk_assessment.py",
+    "orca/agents/geospatial.py",
+    "orca/agents/distress.py",
+    "orca/agents/sentinel.py",
+    "orca/agents/weather_intelligence.py",
+    "orca/agents/visualization.py",
+]
+llm_import_pattern = re.compile(
+    r"^\s*(import|from)\s+(orca\.llm|anthropic|openai|google\.generativeai|google\.genai)",
+    re.MULTILINE,
+)
+safety_path_fails = [
+    f for f in SAFETY_PATH_FILES
+    if Path(f).exists() and llm_import_pattern.search(_read(f))
+]
+assert not safety_path_fails, f"Safety-path file imports an LLM: {safety_path_fails}"
+print("[PASS] CI Guard 4: Safety-path LLM-import guard passed.")
+
+print("\nALL 4 CI GUARDS VERIFIED GREEN!")

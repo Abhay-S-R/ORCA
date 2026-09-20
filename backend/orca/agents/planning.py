@@ -252,15 +252,6 @@ def generate_execution_plan(matched_intent_rows: list[str], reasoning_depth: str
     return agents or list(NO_MATCH_FALLBACK_AGENTS)
 
 
-def check_early_exit(partial_agent_results: dict) -> bool:
-    """Tool per Architecture §3.1 Agent 2 / §9.3. NOT implemented in Phase 1
-    — always returns False. §9 optimizations (including cost-based early
-    exit) are explicitly Phase 4 only, on a graph that is already stable;
-    building this now, before there is a stable graph to short-circuit,
-    is exactly the scope creep the plan forbids."""
-    return False
-
-
 def run(state: ORCAState) -> AgentResult:
     """(ORCAState) -> AgentResult. Distress bypass (Architecture §4, last
     row) is NOT handled here — it happens in orca/graph/ before Planning is

@@ -22,41 +22,12 @@ jobs:
       - run: mypy orca
       - run: pytest -q
 
-      # plan §3.1 — no file under orca/agents/ may import a vendor SDK.
-      - name: vendor-SDK-import guard
-        run: |
-          if [ -d orca/agents ] && grep -rlE "^\s*(import|from)\s+(anthropic|openai|google\.generativeai|google\.genai)" orca/agents/; then
-            echo "::error::vendor SDK imported under orca/agents/ — route it through orca/llm/ instead"
-            exit 1
-          fi
-
-      # plan §5.4 — persona must never reach a specialist agent or an intent
-      # classifier. Agents 1 (ingress/egress) and 9 (Reporting) are the only
-      # ones allowed to reference it. orca/auth/ is scanned too (plan §5.4
-      # Day 10: "identity is the most tempting place to reintroduce the
-      # v1.0 routing bug") and gets no exclusion — auth resolves identity,
-      # not persona, so a real match there is always a bug, not a false positive.
-      - name: persona-leak guard
-        run: |
-          # Matches actual code usage (state["stakeholder_persona"], a
-          # `persona` kwarg/annotation, dict-key access) — not the English
-          # word "persona" in a comment/docstring. Excludes Agent 1's and
-          # Agent 9's real filenames (language.py, reporting.py) plus the
-          # older placeholder names in case anyone renames back to them.
-          PATTERN='\bstakeholder_persona\b|\bpersona["'"'"']?\s*[:=]|\["persona"\]|\.get\(["'"'"']persona'
-          if { [ -d orca/agents ] && grep -rlnE --include='*.py' "$PATTERN" orca/agents/ | grep -vE "(agent_1|agent_9|user_interaction|language|reporting)"; } \
-             || { [ -d orca/auth ] && grep -rlnE --include='*.py' "$PATTERN" orca/auth/; }; then
-            echo "::error::persona referenced outside Agents 1/9 — this is the v1.0 routing bug (plan Ground Rule 1)"
-            exit 1
-          fi
-
-      # plan §5.5 — .env.example must stay zero-valued; no real secret ever committed.
-      - name: secret scan
-        run: |
-          if grep -E "=[A-Za-z0-9_\-]{12,}" ../.env.example; then
-            echo "::error::.env.example must stay zero-valued"
-            exit 1
-          fi
+      # plan P0.12 / R-JUDGE-4 — one source of truth for all CI guards
+      # (vendor SDK import, persona leak, secret scan, safety-path LLM
+      # import), instead of re-implementing a subset of them as inline
+      # greps that silently drift from scripts/verify_ci_guards.py.
+      - name: CI guards (vendor SDK, persona leak, secret scan, safety-path LLM import)
+        run: python scripts/verify_ci_guards.py
 
   frontend:
     runs-on: ubuntu-latest

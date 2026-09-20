@@ -6,8 +6,8 @@ The functional requirement under test: an unchanged condition is a NO-OP —
 "no notification spam is a functional requirement" — verified by a second
 identical poll producing fired=False.
 """
-from orca.agents import sentinel
-from orca.agents.sentinel import WatchSnapshot, detect_crossing, evaluate
+from orca.agents import sentinel, weather_intelligence
+from orca.agents.sentinel import WatchSnapshot, cheap_check, detect_crossing, evaluate
 
 
 def _snap(**kw) -> WatchSnapshot:
@@ -110,3 +110,41 @@ def test_cyclone_alert_severity_helper():
     assert sentinel.risk_assessment_cyclone_alert([]) is None
     assert sentinel.risk_assessment_cyclone_alert([{"severity": "Red"}]) == "Red"
     assert sentinel.risk_assessment_cyclone_alert([{"severity": "Orange"}, {"severity": "Yellow"}]) == "Orange"
+
+
+def test_cheap_check_never_yields_go_when_wave_reading_is_missing(monkeypatch):
+    # P0.15 / R-SAFE-1: cheap_check() used to mask a missing reading as 0.0 m
+    # / 0.0 km/h — a calm sea by construction — so a watch could report GO
+    # on no data at all. A missing wave reading must floor to
+    # CAUTION_MISSING_DATA, never GO, exactly like the on-demand path.
+    monkeypatch.setattr(
+        weather_intelligence, "get_marine_weather",
+        lambda lat, lon, hours_ahead=48: {"hourly": [{"wave_height": None, "wind_speed_10m": 5.0}]},
+    )
+    monkeypatch.setattr(
+        weather_intelligence, "get_lightning_nowcast",
+        lambda lat, lon, radius_km=25.0: {"lightning_active": False, "confidence": None},
+    )
+    monkeypatch.setattr(weather_intelligence, "get_cyclone_status", lambda basin: {"active_cyclones": []})
+
+    snap = cheap_check(8.8, 78.1)
+
+    assert snap.go_no_go != "GO"
+    assert "wave_height_m" in snap.reason
+
+
+def test_cheap_check_never_yields_go_when_wind_reading_is_missing(monkeypatch):
+    monkeypatch.setattr(
+        weather_intelligence, "get_marine_weather",
+        lambda lat, lon, hours_ahead=48: {"hourly": [{"wave_height": 0.5, "wind_speed_10m": None}]},
+    )
+    monkeypatch.setattr(
+        weather_intelligence, "get_lightning_nowcast",
+        lambda lat, lon, radius_km=25.0: {"lightning_active": False, "confidence": None},
+    )
+    monkeypatch.setattr(weather_intelligence, "get_cyclone_status", lambda basin: {"active_cyclones": []})
+
+    snap = cheap_check(8.8, 78.1)
+
+    assert snap.go_no_go != "GO"
+    assert "wind_speed_kmh" in snap.reason

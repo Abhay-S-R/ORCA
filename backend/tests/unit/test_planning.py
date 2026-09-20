@@ -1,6 +1,5 @@
 from orca.agents.planning import (
     NO_MATCH_FALLBACK_AGENTS,
-    check_early_exit,
     classify_intent,
     generate_execution_plan,
     run,
@@ -42,10 +41,6 @@ def test_no_match_fallback_is_never_empty():
 def test_unknown_row_name_is_ignored_not_a_crash():
     plan = generate_execution_plan(["SOME_ROW_THAT_DOES_NOT_EXIST"], "SHALLOW")
     assert plan == list(NO_MATCH_FALLBACK_AGENTS)  # falls through to fallback, never empty
-
-
-def test_check_early_exit_always_false_in_phase_1():
-    assert check_early_exit({"anything": "at all"}) is False
 
 
 def test_run_produces_execution_plan_for_safety_query():
