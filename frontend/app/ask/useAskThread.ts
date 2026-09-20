@@ -15,7 +15,7 @@ import type { QueryFocus } from "../components/MapView";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
 import { classifyQueryIntent, matchRegionInQuery } from "../lib/queryIntent";
-import { readActiveChat, restoreContext, writeActiveChat, type ChatStore } from "./chatStore";
+import { confidenceFromTrace, readActiveChat, restoreContext, withCachedConfidence, writeActiveChat, type ChatStore } from "./chatStore";
 import type { IntentAction } from "./IntentActions";
 
 // confidence_tier: the band of the agent's measured score (orca/confidence_score.py).
@@ -65,6 +65,14 @@ export type FinalResponse = {
   } | null;
 };
 
+// One run of a question. A turn starts with exactly one; "try again" adds
+// another. Kept as a separate list rather than replacing `answer`/`spans`
+// because those two are read by the export, the context restore and the map's
+// distress pins — they stay mirrored to whichever version is on screen, so
+// none of that had to change, and a turn saved before versions existed loads
+// as a single-version turn without a migration.
+export type TurnVersion = { answer: FinalResponse | null; spans: AgentSpan[] };
+
 export type Turn = {
   id: string;
   askedQuery: string;
@@ -77,7 +85,16 @@ export type Turn = {
   failed: boolean;
   renderedAs: Persona | null;
   focus: QueryFocus | null;
+  // Absent on turns that were never re-run, and on every turn saved before
+  // this existed. `versions[versionIndex]` is what `answer`/`spans` mirror.
+  versions?: TurnVersion[];
+  versionIndex?: number;
 };
+
+/** Every run of a turn, oldest first — synthesized for turns that predate versions. */
+export function turnVersions(turn: Turn): TurnVersion[] {
+  return turn.versions?.length ? turn.versions : [{ answer: turn.answer, spans: turn.spans }];
+}
 
 // Chart focus reacts to the question itself, not the answer. A follow-up that
 // names no topic or region of its own ("what about tomorrow?") keeps the map
@@ -112,13 +129,17 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
   // again only when it actually changed (an answer landed, a re-render).
   const persisted = useRef(new Map<string, Turn>());
   const restoring = useRef<Promise<void>>(Promise.resolve());
+  // Read by rerun() when its answer lands: `turns` in a stream callback is the
+  // value captured when the stream opened, which is exactly the wrong one.
+  const turnsRef = useRef<Turn[]>([]);
+  turnsRef.current = turns;
 
   function show(id: string | null, shown: Turn[]) {
     let previous: QueryFocus | null = null;
     const ready = shown.map((t) => {
       // A turn still marked "streaming" belongs to a tab that closed mid
       // answer — its EventSource is gone, so it would hang forever as is.
-      const settled = t.streaming ? { ...t, streaming: false, failed: true } : t;
+      const settled = withCachedConfidence(t.streaming ? { ...t, streaming: false, failed: true } : t);
       focusNonce.current += 1;
       const focus = settled.focus ?? focusFor(settled.askedQuery, previous, focusNonce.current);
       previous = focus;
@@ -174,7 +195,7 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
       if (persisted.current.get(turn.id) === turn) continue;
       persisted.current.set(turn.id, turn);
       store
-        .saveTurn(id, turn, persona)
+        .saveTurn(id, withCachedConfidence(turn), persona)
         .then(() => {
           if (!turn.streaming) {
             setSaveFailed(false);
@@ -189,6 +210,37 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- persona/onChatSaved are read at save time, not triggers
   }, [savedTurns, store]);
+
+  // Confidence for turns saved before spans carried it — fetched once per turn
+  // from the trace store and written back, so the repair happens on the first
+  // open of an old chat and never again. Runs after render: the strip appears
+  // immediately with plain ticks and gains its confidence a moment later,
+  // rather than the whole chat waiting on a fetch per turn.
+  const traceRepairTried = useRef(new Set<string>());
+  useEffect(() => {
+    const needing = (savedTurns ?? []).filter(
+      (t) =>
+        !t.streaming &&
+        t.answer &&
+        t.spans.length > 0 &&
+        t.spans.some((s) => !s.confidence_tier) &&
+        !traceRepairTried.current.has(t.id),
+    );
+    if (!needing.length) return;
+    let cancelled = false;
+    void (async () => {
+      for (const turn of needing) {
+        traceRepairTried.current.add(turn.id);
+        const spans = await confidenceFromTrace(turn);
+        if (cancelled) return;
+        if (spans) updateTurn(turn.id, { spans });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- updateTurn only touches setters
+  }, [savedTurns]);
 
   // Switching persona (nav-wide setting) changes how an answer would render,
   // so start a new chat rather than mix renderings in one — the previous chat
@@ -285,6 +337,65 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     });
   }
 
+  /** "Try again" — re-runs the question with every agent, keeping the answer
+   *  it replaces as a version you can flip back to. Never offered on a distress
+   *  answer: re-running an SOS re-files it on the authority queue. */
+  function rerun(id: string) {
+    const turn = turnsRef.current.find((t) => t.id === id);
+    const sessionId = chatIdRef.current;
+    if (!turn || !sessionId || turn.streaming || turn.answer?.distress_flag) return;
+    sourceRef.current?.close();
+
+    // The run that is on screen becomes version 1 (or stays wherever it
+    // already was), and the new run is appended after it.
+    const history = turnVersions(turn);
+    updateTurn(id, {
+      versions: [...history, { answer: null, spans: [] }],
+      versionIndex: history.length,
+      answer: null,
+      spans: [],
+      streaming: true,
+      failed: false,
+      renderedAs: null,
+    });
+
+    const personaParam = persona !== "unresolved" ? `&persona=${persona}` : "";
+    const url = `${API_BASE}/query?q=${encodeURIComponent(turn.askedQuery)}${personaParam}&session_id=${encodeURIComponent(sessionId)}&fresh=1`;
+    const es = new EventSource(url);
+    sourceRef.current = es;
+    es.onmessage = (ev) => {
+      const data = JSON.parse(ev.data);
+      if (data.type === "agent_span") {
+        updateTurn(id, (t) => ({ spans: [...t.spans, { agent_name: data.agent_name, status: data.status, confidence_tier: data.confidence_tier }] }));
+      } else if (data.type === "final_response") {
+        updateTurn(id, (t) => ({
+          answer: data,
+          streaming: false,
+          versions: (t.versions ?? []).map((v, i) => (i === t.versionIndex ? { answer: data, spans: t.spans } : v)),
+        }));
+        es.close();
+        // /query?fresh=1 deliberately does NOT remember the turn — the question
+        // is already in the window with the answer this one replaces. Push the
+        // whole window again so it carries the new answer instead.
+        const updated = turnsRef.current.map((t) => (t.id === id ? { ...t, answer: data } : t));
+        void restoreContext(sessionId, updated).catch(() => {});
+      }
+    };
+    es.onerror = () => {
+      updateTurn(id, { streaming: false, failed: true });
+      es.close();
+    };
+  }
+
+  /** Flip between the runs of one question. `answer`/`spans` mirror the chosen
+   *  one so everything downstream reads a single answer, as it always has. */
+  function showVersion(id: string, index: number) {
+    updateTurn(id, (t) => {
+      const v = turnVersions(t)[index];
+      return v ? { versionIndex: index, answer: v.answer, spans: v.spans } : {};
+    });
+  }
+
   function setRenderedAs(id: string, p: Persona | null) {
     updateTurn(id, { renderedAs: p });
   }
@@ -314,6 +425,8 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     activeFocus,
     setActiveFocus,
     ask,
+    rerun,
+    showVersion,
     newChat,
     openChat,
     setRenderedAs,

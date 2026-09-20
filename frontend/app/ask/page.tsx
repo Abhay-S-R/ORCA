@@ -76,6 +76,8 @@ export default function AskPage() {
     activeFocus,
     setActiveFocus,
     ask,
+    rerun,
+    showVersion,
     newChat,
     openChat,
     setRenderedAs,
@@ -315,6 +317,8 @@ export default function AskPage() {
                     setMapCollapsed(false);
                   }}
                   onRetry={() => ask(turn.askedQuery)}
+                  onRerun={() => rerun(turn.id)}
+                  onShowVersion={(index) => showVersion(turn.id, index)}
                   onFollowUp={submit}
                   onPersonaChange={(p) => setRenderedAs(turn.id, p)}
                   onRendered={(result) => applyRender(turn.id, result)}

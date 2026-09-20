@@ -530,8 +530,21 @@ def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
 async def query(
     q: str = "", lat: OptLat = None, lon: OptLon = None, vessel_class: str | None = None,
     distress: bool = False, persona: str | None = None, depth: str | None = None,
-    session_id: str | None = None,
+    session_id: str | None = None, fresh: bool = False,
 ) -> StreamingResponse:
+    """`fresh=1` is the answer card's "try again": run every agent again for a
+    question that has already been answered, rather than replaying the cached
+    answer. It skips the cache *read* and the coalescer, but still writes what
+    it produces back to the cache — a re-run is the newest answer, so the next
+    ordinary asker should get it rather than the one it replaced.
+
+    It deliberately does NOT remember the turn (see `_remember_turns`): the
+    question is already in this chat's context window with its previous answer,
+    and appending it again would make the window read as if it had been asked
+    twice. The client re-pushes the window through
+    PUT /api/session/{id}/context once the re-run lands, which replaces it
+    wholesale with the new answer in place.
+    """
     # An explicit lat/lon from the caller always wins — a resolved GPS fix or
     # a registered home port (Phase 2 D1) is real; a place name in free text is
     # a fallback for the caller that has no location at all yet. Only when
@@ -591,6 +604,20 @@ async def query(
                 session_id=session_id, session_history=history, resolution=resolution,
             )),
             media_type="text/event-stream"
+        )
+
+    if fresh:
+        # A follow-up's answer depends on its conversation, so it is never
+        # written to the shared cache — the same rule the ordinary path below
+        # applies, and the reason this is not simply `on_final=store`.
+        shared_key = None if history else resolved_key(q, lat, lon, vessel_class, persona, depth)
+        return StreamingResponse(
+            _query_stream(
+                q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
+                on_final=None if shared_key is None else (lambda final: query_cache_store(shared_key, final)),
+                session_id=session_id, session_history=history, resolution=resolution,
+            ),
+            media_type="text/event-stream",
         )
 
     cache_key = resolved_key(q, lat, lon, vessel_class, persona, depth)
