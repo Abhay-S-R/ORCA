@@ -18,17 +18,17 @@ INLAND = (12.9380, 77.4953)
 
 
 def test_a_fix_at_sea_is_usable():
-    assert _usable_fix(*AT_SEA) is True
+    assert _usable_fix(*AT_SEA) == AT_SEA
 
 
 def test_an_inland_fix_is_not_a_position():
-    assert _usable_fix(*INLAND) is False
+    assert _usable_fix(*INLAND) is None
 
 
 def test_no_fix_at_all_is_not_a_position():
-    assert _usable_fix(None, None) is False
-    assert _usable_fix(8.60, None) is False
-    assert _usable_fix(None, 78.40) is False
+    assert _usable_fix(None, None) is None
+    assert _usable_fix(8.60, None) is None
+    assert _usable_fix(None, 78.40) is None
 
 
 def test_a_gps_fix_turn_is_not_carried_into_the_next_turn():

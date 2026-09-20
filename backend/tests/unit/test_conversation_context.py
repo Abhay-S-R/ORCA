@@ -235,3 +235,52 @@ def test_callers_without_a_session_are_unchanged(api):
     assert _frames(response)[-1]["type"] == "final_response"
     assert seen[0]["history"] == []
     assert session._local == {}
+
+
+# --- "Try again" on the answer card (fresh=1) -------------------------------
+
+def test_fresh_reruns_the_agents_instead_of_replaying_the_cached_answer(api):
+    """The whole point of the control: the second ask must actually run, not
+    hand back the answer the first one stored."""
+    client, seen, _ = api
+    client.get("/query", params={"q": "is it safe to go to sea near Pamban", "session_id": "chat-1"})
+    client.get("/query", params={"q": "is it safe to go to sea near Pamban", "session_id": "chat-2"})
+    assert len(seen) == 1, "precondition: an identical question is normally served from the cache"
+
+    client.get("/query", params={"q": "is it safe to go to sea near Pamban", "session_id": "chat-3", "fresh": "true"})
+    assert len(seen) == 2, "fresh=1 must bypass the cache and re-run every agent"
+
+
+def test_a_fresh_rerun_refreshes_the_shared_cache_for_the_next_asker(api):
+    """A re-run is the newest answer, so the next ordinary asker should get it
+    rather than the one it replaced."""
+    client, seen, stored = api
+    client.get("/query", params={"q": "is it safe to go to sea near Pamban"})
+    first = dict(stored)
+    assert first, "precondition: an ordinary first ask populates the cache"
+
+    client.get("/query", params={"q": "is it safe to go to sea near Pamban", "fresh": "true"})
+    assert seen[-1]["on_final"] is not None, "a fresh re-run still writes its answer back"
+    assert set(stored) == set(first), "and writes it under the same key, not a new one"
+
+
+def test_a_fresh_rerun_of_a_follow_up_never_writes_to_the_shared_cache(api):
+    """Same rule the ordinary path already enforces: a follow-up's answer
+    depends on its conversation and must not be served to another chat."""
+    client, seen, stored = api
+    client.get("/query", params={"q": "is it safe to go to sea near Pamban", "session_id": "chat-1"})
+    cached_before = dict(stored)
+    client.get("/query", params={"q": "what about tomorrow evening?", "session_id": "chat-1", "fresh": "true"})
+    assert seen[-1]["on_final"] is None
+    assert stored == cached_before
+
+
+def test_a_fresh_rerun_does_not_add_a_second_copy_of_the_turn_to_the_window(api):
+    """The question is already in the context window with its previous answer.
+    Appending it again would read as if it had been asked twice; the client
+    re-pushes the window through /api/session/{id}/context instead."""
+    client, _, _ = api
+    client.get("/query", params={"q": "is it safe to go to sea near Pamban", "session_id": "chat-1"})
+    assert len(session.get_turns("chat-1")) == 1
+    client.get("/query", params={"q": "is it safe to go to sea near Pamban", "session_id": "chat-1", "fresh": "true"})
+    assert len(session.get_turns("chat-1")) == 1

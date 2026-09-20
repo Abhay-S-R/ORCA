@@ -80,7 +80,7 @@ def _nearest(ds: xr.Dataset, var: str, when: datetime, lat: float, lon: float) -
     try:
         value = ds[var].sel(valid_time=np.datetime64(when), latitude=lat, longitude=lon, method="nearest")
         result = float(value.values)
-    except Exception:  # noqa: BLE001 — a timestep outside the ERA5 window, never interpolated across
+    except Exception:
         return None
     return result if np.isfinite(result) else None
 

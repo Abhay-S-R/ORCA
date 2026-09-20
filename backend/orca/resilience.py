@@ -68,7 +68,7 @@ def agent_boundary(agent_name: str, query_id_getter: Callable[..., str] = lambda
         def wrapped(*args: Any, **kwargs: Any) -> AgentResult:
             try:
                 return fn(*args, **kwargs)
-            except Exception as exc:  # noqa: BLE001 — deliberately blind, see trace.py
+            except Exception as exc:
                 return AgentResult(
                     agent_name=agent_name,
                     query_id=query_id_getter(*args, **kwargs),
@@ -112,7 +112,7 @@ def walk_fallback_cascade(rungs: Iterable[CascadeRung], validate: Callable[[dict
     for idx, rung in enumerate(rungs):
         try:
             payload = rung.fetch()
-        except Exception as exc:  # noqa: BLE001 — try the next rung
+        except Exception as exc:
             last_exc = exc
             continue
         if validate is not None and not validate(payload):

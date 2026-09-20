@@ -36,8 +36,8 @@ def test_a_non_go_always_leads_whatever_was_asked():
 
 
 def test_synthesize_never_prepends_a_header_it_was_told_to_omit(monkeypatch):
-    import orca.agents.reporting as reporting
-    import orca.llm.tiers as tiers
+    from orca.agents import reporting
+    from orca.llm import tiers
 
     class _Client:
         def complete(self, messages):

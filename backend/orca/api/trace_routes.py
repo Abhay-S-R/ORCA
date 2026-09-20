@@ -382,7 +382,7 @@ def get_recent_traces() -> list[dict[str, Any]]:
             return [recent_summary_from_row(dict(r)) for r in rows]
         finally:
             db.close()
-    except Exception:  # noqa: BLE001, S110 — no DB: the in-memory list (possibly empty) is the answer
+    except Exception:
         pass
 
     return _RECENT_SUMMARIES

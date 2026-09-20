@@ -218,7 +218,7 @@ def synthesize_narrative(
     try:
         from orca.llm.tiers import llm
         client = llm("mid")
-    except Exception:  # noqa: BLE001
+    except Exception:
         return fallback_line
 
     facts = []
@@ -289,7 +289,7 @@ CRITICAL RULES:
         if lead_with_verdict and verdict_str not in narrative:
             return f"{fallback_line}\n\n{narrative}"
         return narrative
-    except Exception:  # noqa: BLE001
+    except Exception:
         return fallback_line
 
 

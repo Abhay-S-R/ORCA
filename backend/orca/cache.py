@@ -81,7 +81,7 @@ def _background_refresh(fn: Callable[..., Any], args: tuple, kwargs: dict, key: 
             client = redis_client()
             client.setex(key, stale_ttl, json.dumps(result, default=str))
             client.setex(fresh_key, ttl, b"1")
-        except Exception as exc:  # noqa: BLE001 — a failed background refresh just leaves the stale value in place
+        except Exception as exc:
             logger.warning("orca_cache: stale-while-revalidate background refresh failed (%s)", exc)
 
     threading.Thread(target=_run, daemon=True).start()
@@ -113,7 +113,7 @@ def orca_cache(source_name: str, *, stale_ok: bool = False) -> Callable[[Callabl
                 client = redis_client()
                 fresh = client.get(fresh_key)
                 cached = client.get(key)
-            except Exception as exc:  # noqa: BLE001 — Redis outage falls through to the real fetch
+            except Exception as exc:
                 logger.warning("orca_cache: Redis unavailable (%s), calling %s directly", exc, fn.__name__)
                 return fn(*args, **kwargs)
 
@@ -133,7 +133,7 @@ def orca_cache(source_name: str, *, stale_ok: bool = False) -> Callable[[Callabl
             try:
                 client.setex(key, stale_ttl if stale_ok else ttl, json.dumps(result, default=str))
                 client.setex(fresh_key, ttl, b"1")
-            except Exception as exc:  # noqa: BLE001 — a write failure still returns the real result
+            except Exception as exc:
                 logger.warning("orca_cache: failed to store %s in Redis (%s)", key, exc)
             return result
 

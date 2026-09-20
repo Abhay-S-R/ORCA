@@ -21,7 +21,8 @@ import { SourceNarration } from "../components/SourceNarration";
 import { ErrorState, Skeleton } from "../components/States";
 import { intentLabel, type QueryIntent } from "../lib/queryIntent";
 import { type Persona } from "../persona/config";
-import type { Turn } from "./useAskThread";
+import { turnVersions, type Turn } from "./useAskThread";
+import { RerunControl } from "./RerunControl";
 import { IntentActions } from "./IntentActions";
 import { DisclosureBanner, RefusalCard } from "./Disclosures";
 
@@ -41,6 +42,8 @@ export function ChatTurn({
   hadEarlierAnswers,
   onViewOnMap,
   onRetry,
+  onRerun,
+  onShowVersion,
   onFollowUp,
   onPersonaChange,
   onRendered,
@@ -51,11 +54,25 @@ export function ChatTurn({
   hadEarlierAnswers: boolean;
   onViewOnMap: () => void;
   onRetry: () => void;
+  onRerun: () => void;
+  onShowVersion: (index: number) => void;
   onFollowUp: (q: string) => void;
   onPersonaChange: (p: Persona) => void;
   onRendered: (result: RenderResult) => void;
 }) {
   const { askedQuery, spans, answer, streaming, failed, renderedAs, focus } = turn;
+  // Re-running an SOS would re-file it on the authority queue, so the control
+  // is absent there rather than disabled — there is nothing to explain.
+  const versions = turnVersions(turn);
+  const rerunControl = answer && !answer.distress_flag && (
+    <RerunControl
+      versionCount={versions.length}
+      versionIndex={turn.versionIndex ?? 0}
+      streaming={streaming}
+      onRerun={onRerun}
+      onShowVersion={onShowVersion}
+    />
+  );
   const weatherCitation = answer?.citations?.find((c) => c.agent_name === "weather_intelligence");
   const runningAgent = streaming ? nextRunningAgent(spans) : null;
   const displaySpans: typeof spans =
@@ -125,14 +142,14 @@ export function ChatTurn({
           there is nothing on screen to mistake for an answer. Answers cached
           before `outcome` existed have no field and render as before. */}
       {answer && answer.outcome != null && answer.outcome !== "ANSWERED" && answer.outcome !== "DISTRESS" && (
-        <RefusalCard answer={answer} onFollowUp={onFollowUp} />
+        <RefusalCard answer={answer} onFollowUp={onFollowUp} actions={rerunControl} />
       )}
 
       {answer && (answer.outcome == null || answer.outcome === "ANSWERED" || answer.outcome === "DISTRESS") && (
         <>
           {/* Above the answer, never below it — see Disclosures.tsx. */}
           <DisclosureBanner disclosures={answer.disclosures} />
-          <Panel title="Answer">
+          <Panel title="Answer" action={rerunControl}>
             <div className="flex flex-col gap-4">
               {/* Architecture §2.6 rendering matrix — same facts, structure
                   differs by persona. Only rendered once risk_assessment

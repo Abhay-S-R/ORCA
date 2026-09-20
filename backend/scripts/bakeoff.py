@@ -134,7 +134,7 @@ def run_bakeoff() -> str:
                     f"{'PASS' if score.causal_restraint else 'FAIL'} | "
                     f"{'PASS' if score.refuses_to_fill_gaps else 'FAIL'} |"
                 )
-            except Exception as exc:  # noqa: BLE001 — one provider failing must not abort the whole bake-off
+            except Exception as exc:
                 rows.append(f"| {provider_name}/{model} | {prompt_name} | ERROR: {exc} | | |")
     return "\n".join(rows) + "\n"
 

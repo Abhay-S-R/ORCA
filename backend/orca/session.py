@@ -93,7 +93,7 @@ def get_turns(session_id: str | None) -> list[dict[str, Any]]:
     try:
         client = redis_client()
         raw = client.get(_key(session_id))
-    except Exception as exc:  # noqa: BLE001 — a cache outage falls back to the in-process mirror, never a failed request
+    except Exception as exc:
         logger.warning("session: Redis unavailable (%s), using in-process memory", exc)
         return _local_get(session_id)
     # A miss in Redis can still be a hit here: turns written while Redis was
@@ -115,7 +115,7 @@ def replace_turns(session_id: str | None, turns: list[dict[str, Any]]) -> None:
     try:
         client = redis_client()
         client.setex(_key(session_id), TTL_SECONDS, json.dumps(turns, default=str))
-    except Exception as exc:  # noqa: BLE001 — the mirror already holds it; Redis is best-effort
+    except Exception as exc:
         logger.warning("session: failed to store turn for %s in Redis (%s)", session_id, exc)
 
 
@@ -147,7 +147,7 @@ def last_place(turns: list[dict[str, Any]]) -> tuple[float, float, str | None] |
 
 
 if __name__ == "__main__":
-    import unittest.mock as mock
+    from unittest import mock
 
     store: dict[str, str] = {}
 

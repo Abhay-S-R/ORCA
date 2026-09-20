@@ -13,6 +13,7 @@
 // holds nothing for. It carries no verdict badge, no gauges and no numbers,
 // deliberately — the point of a first-class refusal is that there is nothing
 // on screen to mistake for an answer.
+import type React from "react";
 import { AlertTriangle, HelpCircle, MapPin } from "lucide-react";
 import { Panel } from "../components/Panel";
 import type { FinalResponse } from "./useAskThread";
@@ -40,9 +41,14 @@ const HEADING: Record<string, string> = {
 export function RefusalCard({
   answer,
   onFollowUp,
+  actions,
 }: {
   answer: FinalResponse;
   onFollowUp: (q: string) => void;
+  // Sits on the heading row rather than in Panel's own header slot, which
+  // only renders when the panel has a title — and this card's heading carries
+  // an icon that the plain title would drop.
+  actions?: React.ReactNode;
 }) {
   const outcome = answer.outcome ?? "ANSWERED";
   const candidates = answer.place_resolution?.candidates ?? [];
@@ -52,10 +58,13 @@ export function RefusalCard({
   return (
     <Panel>
       <div className="flex flex-col gap-3">
-        <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink">
-          <Icon className="size-4 shrink-0 text-caution" aria-hidden="true" />
-          {HEADING[outcome] ?? "ORCA did not answer this"}
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink">
+            <Icon className="size-4 shrink-0 text-caution" aria-hidden="true" />
+            {HEADING[outcome] ?? "ORCA did not answer this"}
+          </p>
+          {actions}
+        </div>
         <p className="max-w-[60ch] text-sm leading-relaxed text-ink-muted">{body}</p>
 
         {/* The redirect. A refusal that dead-ends is just a wall — each chip

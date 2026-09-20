@@ -112,7 +112,7 @@ def test_describe_location_admits_the_regional_default():
 def test_the_prompt_carries_the_location_and_forbids_naming_another():
     """A GO computed at the default position must not be narrated as a GO for
     the place the user named. The instruction is what stops that."""
-    import orca.agents.reporting as reporting
+    from orca.agents import reporting
 
     captured = {}
 
@@ -121,7 +121,7 @@ def test_the_prompt_carries_the_location_and_forbids_naming_another():
             captured["prompt"] = messages[0]["content"]
             return "NO_GO: nope"
 
-    import orca.llm.tiers as tiers
+    from orca.llm import tiers
 
     original = tiers.llm
     tiers.llm = lambda tier: _Client()

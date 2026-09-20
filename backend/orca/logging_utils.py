@@ -32,7 +32,7 @@ class RedactionFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             message = record.getMessage()
-        except Exception:  # noqa: BLE001 — a malformed record must still be logged, not dropped
+        except Exception:
             return True
         redacted = _redact(message)
         if redacted != message:

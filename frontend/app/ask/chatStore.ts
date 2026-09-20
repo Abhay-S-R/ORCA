@@ -4,6 +4,7 @@
 // in this browser (localStorage); a signed-in user's live in their account
 // (/api/chats, backend orca/db/chats_repo.py). The thread hook and the history
 // rail never branch on which one they have.
+import { getAgentMeta } from "../components/AgentPill";
 import { authFetch } from "../lib/auth";
 import { API_BASE } from "../lib/apiBase";
 import type { Persona } from "../persona/config";
@@ -37,6 +38,90 @@ export interface ChatStore {
 
 export function chatTitle(chat: Pick<ChatSummary, "title" | "first_question">): string {
   return chat.title || chat.first_question || "New chat";
+}
+
+// ---------------------------------------------------------------------------
+// Agent confidence that survives a reload.
+//
+// The strip gets its confidence from `turn.spans`, which are built from the
+// `agent_span` events as the answer streams. Two things used to leave a
+// reopened chat without any:
+//
+//   1. A query-cache hit streams NO agent_span events at all — only the final
+//      answer — so the turn is saved with `spans: []`. ChatTurn papers over it
+//      live by falling back to `answer.agent_confidence`, but the stored turn
+//      still has nothing, and the fallback's own last resort is ten grey pills
+//      with no confidence on them.
+//   2. Turns saved before spans carried `confidence_tier` at all.
+//
+// `answer.agent_confidence` carries the same per-agent tiers and HAS been
+// stored all along, so both cases are repairable from data already on disk.
+// This runs on save (so new turns never depend on the fallback) and on load
+// (so chats already saved are repaired the next time they are opened).
+//
+// Unrepairable: a turn saved with an empty `spans` AND no `agent_confidence`.
+// That confidence was never written down and cannot be recovered — the strip
+// falls back to plain ticks for it, as before.
+
+// Spans and agent_confidence spell the same agent differently
+// ("distress_check" vs "distress"), so they are matched on the registry's
+// resolved label rather than the raw string.
+function agentKey(raw: string): string {
+  return getAgentMeta(raw)?.shortLabel ?? raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// The repair for chats saved before spans carried confidence at all — which
+// is most chats older than the confidence-scoring commit. Their spans exist
+// but read `{agent_name, status}` with no tier, and their answers have no
+// `agent_confidence` either, so there is nothing local to fill from.
+//
+// It is not lost, though: `_persist_audit_trace_log` has been writing every
+// agent's scored confidence to Postgres all along, keyed by the same
+// `query_id` the turn already stores. So the tiers come back from
+// /trace/{query_id} — the same rows /reasoning draws its inspector from.
+//
+// Best-effort and one-shot per turn: a pruned or missing trace just leaves the
+// strip as it was. The caller saves the repaired turn, so this costs one fetch
+// the first time an old chat is opened and nothing on every open after that.
+export async function confidenceFromTrace(turn: Turn): Promise<AgentSpan[] | null> {
+  const queryId = turn.answer?.query_id;
+  if (!queryId || !turn.spans.length) return null;
+  try {
+    const res = await fetch(`${API_BASE}/trace/${encodeURIComponent(queryId)}`);
+    if (!res.ok) return null;
+    const graph = (await res.json()) as { nodes?: { agent_name?: string; confidence_tier?: string }[] };
+    const byKey = new Map<string, string>();
+    for (const node of graph.nodes ?? []) {
+      if (node.agent_name && node.confidence_tier) byKey.set(agentKey(node.agent_name), node.confidence_tier);
+    }
+    if (!byKey.size) return null;
+    let repaired = false;
+    const spans = turn.spans.map((span) => {
+      if (span.confidence_tier) return span;
+      const tier = byKey.get(agentKey(span.agent_name));
+      if (!tier) return span;
+      repaired = true;
+      return { ...span, confidence_tier: tier as AgentSpan["confidence_tier"] };
+    });
+    return repaired ? spans : null;
+  } catch {
+    return null; // the strip keeps its plain ticks; nothing else depends on this
+  }
+}
+
+export function withCachedConfidence(turn: Turn): Turn {
+  const fromAnswer = turn.answer?.agent_confidence ?? [];
+  if (!fromAnswer.length) return turn;
+  if (!turn.spans.length) return { ...turn, spans: fromAnswer };
+  if (turn.spans.every((s) => s.confidence_tier)) return turn;
+
+  const byKey = new Map(fromAnswer.map((s) => [agentKey(s.agent_name), s]));
+  return {
+    ...turn,
+    spans: turn.spans.map((s) =>
+      s.confidence_tier ? s : { ...s, confidence_tier: byKey.get(agentKey(s.agent_name))?.confidence_tier },
+    ),
+  };
 }
 
 // The answer fields the card never reads but that dominate its size — the
@@ -252,7 +337,11 @@ export const accountStore: ChatStore = {
   async saveTurn(chatId, turn, persona) {
     if (!turn.answer || turn.streaming) return;
     await ok(
-      await authFetch(`/api/chats/${chatId}/turns/${turn.answer.query_id ?? turn.id}`, {
+      // Keyed on the TURN's id, not the answer's query_id. Every re-run mints
+      // a new query_id, so keying on that filed the re-run as a second turn
+      // and the chat showed the same question twice. `turn.id` is stable: a
+      // new turn's own uuid, and for a loaded turn the id it was stored under.
+      await authFetch(`/api/chats/${chatId}/turns/${turn.id}`, {
         method: "PUT",
         body: JSON.stringify({
           asked_query: turn.askedQuery,

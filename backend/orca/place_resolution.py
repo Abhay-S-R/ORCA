@@ -202,16 +202,16 @@ def resolve_or_ask(text: str, session: dict | None = None) -> PlaceResolution:
     # under a Gujarat question. Offered as a question, never resolved silently.
     near = near_miss_place_names(text)
     if near:
-        candidates: list[ResolvedPlace] = []
+        suggested: list[ResolvedPlace] = []
         for name in near:
-            candidates.extend(
+            suggested.extend(
                 places_within_region(name) if is_region_name(name)
                 else resolve_all_places_from_text(name)
             )
-        if candidates:
+        if suggested:
             spelled = ", ".join(n.title() for n in near)
             return PlaceResolution(
-                "ambiguous", None, candidates[:6],
+                "ambiguous", None, suggested[:6],
                 f"No place in that question matches anything I hold — did you mean {spelled}? "
                 f"Pick one of these and I will answer for it.",
             )
@@ -328,7 +328,7 @@ def position_guard(lat: float, lon: float) -> str | None:
         from orca.agents.geospatial import depth_at_point
 
         depth = depth_at_point(lat, lon)
-    except Exception:  # noqa: BLE001 — a missing/unreadable grid is "unknown", not "land"
+    except Exception:
         return None
     if getattr(depth, "on_land", False):
         return (

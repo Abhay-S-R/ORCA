@@ -11,19 +11,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from orca.tiles import (
-    _fix_proj_env,
-    _sanitize_frame_dirname,
-    _colorize_tile,
     COLOR_RAMPS,
     TILE_SIZE,
+    _colorize_tile,
+    _fix_proj_env,
+    _sanitize_frame_dirname,
 )
+
 _fix_proj_env()
 
 import morecantile
 import numpy as np
+import xarray as xr
 from PIL import Image
 from rio_tiler.io.xarray import XarrayReader
-import xarray as xr
 
 DATA_ROOT = Path(__file__).resolve().parents[2] / "data"
 TILES_ROOT = DATA_ROOT / "tier1" / "tiles"

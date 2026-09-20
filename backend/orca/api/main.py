@@ -11,7 +11,7 @@ import logging
 import math
 import os
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -21,10 +21,12 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from orca import intent_actions
+from orca import session as session_memory
 from orca.agents import distress as distress_agent
+from orca.agents import reporting
 from orca.agents.geospatial import DATA_ROOT, depth_at_point
 from orca.agents.language import IndicTrans2Backend, register_translation_backend
-from orca.agents import reporting
+from orca.agents.planning import carry_intent, classify_intent
 from orca.api.analytics_routes import router as analytics_router
 from orca.api.auth_routes import router as auth_router
 from orca.api.chats_routes import router as chats_router
@@ -32,14 +34,16 @@ from orca.api.discovery_routes import router as discovery_router
 from orca.api.feedback_routes import router as feedback_router
 from orca.api.geospatial_routes import router as geospatial_router
 from orca.api.notifications_routes import router as notifications_router
-from orca.api.params import OptLat, OptLon
 from orca.api.ops_routes import router as ops_router
+from orca.api.params import OptLat, OptLon
 from orca.api.replay_routes import router as replay_router
 from orca.api.system_status_routes import router as system_status_router
 from orca.api.trace_routes import (
     _LLM_AGENTS,
     _reasoning_summary,
     record_recent_trace,
+)
+from orca.api.trace_routes import (
     router as trace_router,
 )
 from orca.api.voice_routes import router as voice_router
@@ -47,15 +51,13 @@ from orca.api.voyage_routes import router as voyage_router
 from orca.api.watches_routes import router as watches_router
 from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
 from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
-from orca.place_resolution import resolve_or_ask
 from orca.graph.graph import build_graph
-from orca.agents.planning import carry_intent, classify_intent
 from orca.logging_utils import configure_logging
+from orca.place_resolution import resolve_or_ask
 from orca.query_cache import get as query_cache_get
 from orca.query_cache import resolved_key
 from orca.query_cache import store as query_cache_store
 from orca.query_coalescing import coalesce
-from orca import session as session_memory
 from orca.state import ORCAState
 
 
@@ -457,7 +459,8 @@ async def _query_stream(
         }
         _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []))
         if final_state.get("distress_flag"):
-            _record_distress_event(final_state, final.get("mrcc_contact"))
+            _mrcc = final.get("mrcc_contact")
+            _record_distress_event(final_state, _mrcc if isinstance(_mrcc, dict) else None)
         # The turn itself is remembered by _remember_turns in query(), not
         # here: a query-cache hit or a coalesced follower never runs this
         # generator, and remembering only here left those turns out of the
@@ -473,8 +476,8 @@ async def _query_stream(
                 confidence_tier=final_state.get("confidence_tier", "LOW_DATA"),
                 rows=final_state.get("audit_trace_log", []),
             )
-        except Exception:
-            pass
+        except Exception:  # the reasoning ribbon is a convenience; the answer still ships
+            logging.getLogger("orca.trace").warning("recent trace not recorded", exc_info=True)
         yield _sse(final)
 
 
@@ -495,7 +498,7 @@ async def _remember_turns(session_id: str | None, query: str, stream: AsyncItera
         yield line
 
 
-def _record_distress_event(final_state: dict, mrcc_contact: dict | None) -> None:
+def _record_distress_event(final_state: Mapping[str, Any], mrcc_contact: dict | None) -> None:
     """Puts the distress query on the authority queue (P4.16). Best-effort for
     the same reason as the audit write below: the caller's MRCC contacts are
     in the answer already, and a DB outage must not fail that answer."""
@@ -505,10 +508,10 @@ def _record_distress_event(final_state: dict, mrcc_contact: dict | None) -> None
 
         db = get_sessionmaker()()
         try:
-            record_event(db, final_state, mrcc_contact)
+            record_event(db, dict(final_state), mrcc_contact)
         finally:
             db.close()
-    except Exception:  # noqa: BLE001 — see _persist_audit_trace_log
+    except Exception:
         logging.getLogger("orca.distress").warning("distress event not queued", exc_info=True)
 
 
@@ -529,14 +532,14 @@ def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
             persist_trace_entries(db, query_id=query_id, session_id=None, entries=entries)
         finally:
             db.close()
-    except Exception:  # noqa: BLE001, S110 — same exception-boundary rule as trace.py; a DB
+    except Exception:
         # outage here must never fail the request, and there is nothing more to do
         # than degrade to Phase-1 behaviour (the trace already shipped in the SSE body).
         pass
 
 
-def _usable_fix(fix_lat: float | None, fix_lon: float | None) -> bool:
-    """Whether the browser's GPS fix is a position ORCA can answer at.
+def _usable_fix(fix_lat: float | None, fix_lon: float | None) -> tuple[float, float] | None:
+    """The browser's GPS fix as a position ORCA can answer at, or None.
 
     A fix is only a position if there is sea at it. A phone indoors in
     Bengaluru is a perfectly valid GPS reading and a useless marine one: taken
@@ -547,17 +550,31 @@ def _usable_fix(fix_lat: float | None, fix_lon: float | None) -> bool:
     before the frontend ever sent a fix.
     """
     if fix_lat is None or fix_lon is None:
-        return False
-    return not depth_at_point(float(fix_lat), float(fix_lon)).on_land
+        return None
+    lat, lon = float(fix_lat), float(fix_lon)
+    return None if depth_at_point(lat, lon).on_land else (lat, lon)
 
 
 @app.get("/query")
 async def query(
     q: str = "", lat: OptLat = None, lon: OptLon = None, vessel_class: str | None = None,
     distress: bool = False, persona: str | None = None, depth: str | None = None,
-    session_id: str | None = None,
+    session_id: str | None = None, fresh: bool = False,
     fix_lat: OptLat = None, fix_lon: OptLon = None,
 ) -> StreamingResponse:
+    """`fresh=1` is the answer card's "try again": run every agent again for a
+    question that has already been answered, rather than replaying the cached
+    answer. It skips the cache *read* and the coalescer, but still writes what
+    it produces back to the cache — a re-run is the newest answer, so the next
+    ordinary asker should get it rather than the one it replaced.
+
+    It deliberately does NOT remember the turn (see `_remember_turns`): the
+    question is already in this chat's context window with its previous answer,
+    and appending it again would make the window read as if it had been asked
+    twice. The client re-pushes the window through
+    PUT /api/session/{id}/context once the re-run lands, which replaces it
+    wholesale with the new answer in place.
+    """
     # An explicit lat/lon from the caller always wins — a resolved GPS fix or
     # a registered home port (Phase 2 D1) is real; a place name in free text is
     # a fallback for the caller that has no location at all yet. Only when
@@ -600,12 +617,12 @@ async def query(
         carried = session_memory.last_place(history)
         resolved = resolve_or_ask(q, {"last_place": carried} if carried else None)
         resolution = resolved.as_dict()
-        has_fix = _usable_fix(fix_lat, fix_lon)
+        usable = _usable_fix(fix_lat, fix_lon)
         # Sent a position, and it was dropped for being inland — a different
         # situation from never having one, and Agent 9 has to be told which.
-        fix_on_land = fix_lat is not None and fix_lon is not None and not has_fix
+        fix_on_land = fix_lat is not None and fix_lon is not None and usable is None
         if resolved.place is not None and not (
-            has_fix and resolved.place.source == "regional_default"
+            usable is not None and resolved.place.source == "regional_default"
         ):
             lat, lon = resolved.place.lat, resolved.place.lon
             place_source = resolved.place.source
@@ -615,7 +632,7 @@ async def query(
             # came from the previous turn rather than this one, which is what
             # place_source and the disclosure say.
             place_name = None if place_source == "regional_default" else resolved.place.name
-        elif has_fix and resolved.status != "ambiguous":
+        elif usable is not None and resolved.status != "ambiguous":
             # The text named nothing we hold (or nothing at all) but the browser
             # gave us a real fix — that beats the pilot default outright, and is
             # what `resolve_or_ask`'s own fallback disclosure asks the caller for
@@ -626,7 +643,7 @@ async def query(
             # Ambiguity is excluded on purpose: "Gujarat" has to keep asking
             # which port was meant. Silently answering it at the caller's own
             # position would resolve the ambiguity by ignoring the question.
-            lat, lon, place_source = float(fix_lat), float(fix_lon), "gps_fix"
+            (lat, lon), place_source = usable, "gps_fix"
             place_name = None
             resolution = {**(resolution or {}), "status": "resolved", "place_source": "gps_fix"}
         else:
@@ -648,6 +665,20 @@ async def query(
                 fix_on_land=fix_on_land,
             )),
             media_type="text/event-stream"
+        )
+
+    if fresh:
+        # A follow-up's answer depends on its conversation, so it is never
+        # written to the shared cache — the same rule the ordinary path below
+        # applies, and the reason this is not simply `on_final=store`.
+        shared_key = None if history else resolved_key(q, lat, lon, vessel_class, persona, depth)
+        return StreamingResponse(
+            _query_stream(
+                q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
+                on_final=None if shared_key is None else (lambda final: query_cache_store(shared_key, final)),
+                session_id=session_id, session_history=history, resolution=resolution,
+            ),
+            media_type="text/event-stream",
         )
 
     cache_key = resolved_key(q, lat, lon, vessel_class, persona, depth)

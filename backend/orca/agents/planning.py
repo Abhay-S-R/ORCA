@@ -249,7 +249,7 @@ def _tier3_llm_fallback(normalized_query: str, session_history: list[dict] | Non
     try:
         from orca.llm.tiers import llm
         client = llm("cheap")
-    except Exception:  # noqa: BLE001 — no LLM configured is a normal no-match path here
+    except Exception:
         return []
 
     row_names = ", ".join(row.name for row in ROUTING_TABLE)
@@ -274,7 +274,7 @@ def _tier3_llm_fallback(normalized_query: str, session_history: list[dict] | Non
     )
     try:
         raw = client.complete([{"role": "user", "content": prompt}]).strip().upper()
-    except Exception:  # noqa: BLE001 — an LLM failure is a no-match, not a crash
+    except Exception:
         return []
 
     valid_names = {row.name for row in ROUTING_TABLE}
