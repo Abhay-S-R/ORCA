@@ -9,6 +9,7 @@ import {
   ArrowRight,
   Compass,
   Fish,
+  LogOut,
   Navigation,
   Shield,
   Workflow,
@@ -16,11 +17,12 @@ import {
 import { OrcaMark } from "./nav";
 import { type Persona } from "./persona/config";
 import { usePersona } from "./persona/context";
+import { signOut, useAuth } from "./lib/auth";
 
 const STATS = [
   { label: "Agents in the crew", value: "10" },
   { label: "Command stations", value: "4" },
-  { label: "Languages", value: "English + தமிழ்" },
+  { label: "Languages", value: "10" },
   { label: "Coastline covered", value: "7,516 km" },
   { label: "Data edition", value: "Live" },
 ];
@@ -63,6 +65,13 @@ const HOW_IT_DECIDES = [
   { title: "Explain", body: "Plain words, in your language, every figure carrying the dataset it came from." },
 ];
 
+// First one or two letters worth showing in the transponder chip — a bare
+// email/phone identifier still yields something (its first character).
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return parts.length > 1 ? (parts[0][0] + parts[1][0]).toUpperCase() : name.slice(0, 2).toUpperCase();
+}
+
 const TRY_QUERIES = [
   "Is it safe to go out tomorrow morning?",
   "Where are the fishing zones closest to my port?",
@@ -71,6 +80,7 @@ const TRY_QUERIES = [
 
 export default function LandingPage() {
   const { setPersona } = usePersona();
+  const auth = useAuth();
   const reduce = useReducedMotion();
   const stationSectionRef = useRef<HTMLDivElement>(null);
   const [openStation, setOpenStation] = useState<Persona | null>(null);
@@ -89,16 +99,46 @@ export default function LandingPage() {
             </span>
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/login" className="text-sm font-medium text-ink-muted hover:text-ink">
-              Sign in
-            </Link>
-            <Link
-              href="/ask"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-ink bg-ink px-4 py-2 text-sm font-bold text-on-accent transition-transform hover:scale-[1.02] active:scale-[0.98]"
-            >
-              Open ORCA
-              <ArrowRight className="size-3.5" />
-            </Link>
+            {auth.status === "signed_in" ? (
+              <>
+                {/* AIS-transponder styling — a signed-in visitor reads as a
+                    tracked vessel on the chart, not a generic account pill. */}
+                <div className="hidden items-center gap-2 rounded-full border border-go/40 bg-shelf-1 py-1 pr-3 pl-1 sm:flex">
+                  <span className="relative grid size-6 shrink-0 place-items-center rounded-full border border-go/40 bg-go/10 text-[10px] font-bold text-go">
+                    {initialsOf(auth.profile?.display_name || auth.profile?.identifier || "U")}
+                    <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-go ring-2 ring-shelf-1">
+                      <span className="absolute inset-0 animate-ping rounded-full bg-go opacity-75" />
+                    </span>
+                  </span>
+                  <span className="font-mono text-[11px] font-semibold tracking-wide text-ink-muted">
+                    ONLINE{auth.profile?.display_name ? ` · ${auth.profile.display_name}` : ""}
+                  </span>
+                </div>
+                <Link
+                  href="/ask"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-ink bg-ink px-4 py-2 text-sm font-bold text-on-accent transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  Open ORCA
+                  <ArrowRight className="size-3.5" />
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => signOut()}
+                  title="Log out"
+                  className="grid size-9 shrink-0 place-items-center rounded-lg border border-hairline-strong bg-shelf-1 text-ink-muted transition-colors hover:border-no-go/40 hover:text-no-go cursor-pointer"
+                >
+                  <LogOut className="size-4" />
+                </button>
+              </>
+            ) : (
+              <Link
+                href="/login"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-ink bg-ink px-4 py-2 text-sm font-bold text-on-accent transition-transform hover:scale-[1.02] active:scale-[0.98]"
+              >
+                Log in
+                <ArrowRight className="size-3.5" />
+              </Link>
+            )}
           </div>
         </header>
 
@@ -130,11 +170,11 @@ export default function LandingPage() {
 
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <Link
-                href="/ask"
+                href="/login"
                 onClick={() => setPersona("fisherman")}
                 className="inline-flex items-center gap-2 rounded-lg border border-ink bg-ink px-5 py-2.5 text-sm font-bold text-on-accent transition-transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
               >
-                Open ORCA
+                Log in to ORCA
                 <ArrowRight className="size-4" />
               </Link>
               <button
@@ -153,7 +193,7 @@ export default function LandingPage() {
               {TRY_QUERIES.map((q) => (
                 <Link
                   key={q}
-                  href={`/ask?q=${encodeURIComponent(q)}`}
+                  href={`/login?next=${encodeURIComponent(`/ask?q=${q}`)}`}
                   className="rounded-full border border-hairline bg-shelf-1 px-3 py-1 text-xs text-ink-muted underline decoration-hairline-strong decoration-dotted underline-offset-4 transition-colors hover:border-ocean-cyan/50 hover:text-ink"
                 >
                   {q}
@@ -228,11 +268,11 @@ export default function LandingPage() {
                     </ul>
                   </div>
                   <Link
-                    href="/ask"
+                    href="/login?next=%2Fask"
                     onClick={() => setPersona(station.id)}
                     className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-hairline-strong bg-shelf-2 py-2 text-xs font-bold text-ink transition-colors hover:bg-ink hover:text-on-accent cursor-pointer"
                   >
-                    Open
+                    Log in
                     <ArrowRight className="size-3.5" />
                   </Link>
                 </div>
