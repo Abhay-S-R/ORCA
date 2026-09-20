@@ -111,6 +111,12 @@ def distress_check_node(state: ORCAState) -> dict:
         # Bypasses Reporting entirely (Architecture §3.2 step 1) — surfaces
         # MRCC contact directly, never synthesized/persona-rendered.
         mrcc = result.outputs["mrcc_contact"]
+        # The wire field a client branches on, set HERE and not only in
+        # main.py's _initial_state: that one is seeded from the `distress=`
+        # query parameter (the SOS button), so a distress call detected from
+        # the TEXT left `query_outcome` reading "ANSWERED" while the body said
+        # DISTRESS DETECTED. The one outcome that must never be mislabelled.
+        update["query_outcome"] = "DISTRESS"
         update["final_english_response"] = (
             f"DISTRESS DETECTED. Coast Guard MRCC: {mrcc['primary']['phone']} "
             f"(nationwide: {mrcc['nationwide_fallback']['phone']}), VHF channel {mrcc['primary']['vhf_channel']}. "

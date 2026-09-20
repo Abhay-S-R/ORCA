@@ -328,3 +328,26 @@ def test_a_word_that_merely_contains_a_medical_phrase_is_not_distress():
         "what is the wave height near Veraval",
     ]:
         assert distress.detect_distress_signal(text)["is_distress"] is False, text
+
+
+def test_a_text_detected_distress_call_is_labelled_DISTRESS_on_the_wire():
+    """`query_outcome` is seeded from the `distress=` query parameter (the SOS
+    button). A distress call detected from the TEXT alone must set it too, or
+    the field a client branches on reads "ANSWERED" while the body reads
+    "DISTRESS DETECTED" — the one outcome that must never be mislabelled."""
+    from orca.graph.graph import distress_check_node
+
+    state = {
+        "query_id": "q-wire",
+        "raw_user_query": "our boat is sinking help",
+        "normalized_english_query": "our boat is sinking help",
+        "reasoning_depth": "SHALLOW",
+        "user_location": {"lat": 9.28, "lon": 79.2, "place_source": "gazetteer"},
+        "distress_flag": False,
+    }
+    update = distress_check_node(state)  # type: ignore[arg-type]
+    assert update["distress_flag"] is True
+    assert update["query_outcome"] == "DISTRESS"
+
+    calm = {**state, "raw_user_query": "is it safe tomorrow", "normalized_english_query": "is it safe tomorrow"}
+    assert "query_outcome" not in distress_check_node(calm)  # type: ignore[arg-type]
