@@ -48,6 +48,18 @@ class ORCAState(TypedDict):
     distress_flag: bool  # set by Agent 12's detection, checked before any other node executes
     sentinel_subscription: dict[str, Any] | None  # set on ALERT_SUBSCRIPTION intent
 
+    # Phase 1. `query_outcome` is one of contracts.QueryOutcome — set by the
+    # graph's own guards, never by an agent. `place_resolution` is
+    # place_resolution.PlaceResolution.as_dict(): which position every number
+    # below was computed at, whether that position was the user's choice, and
+    # the candidates to offer when it was not. `disclosures` is additive
+    # because more than one node has something to disclose about the same
+    # answer (a carried-over place AND a fallback sector), and dropping one of
+    # them is the "a fallback that is not disclosed is a lie" failure.
+    query_outcome: str
+    place_resolution: dict[str, Any] | None
+    disclosures: Annotated[list[str], operator.add]
+
     final_english_response: str
     final_vernacular_response: str
     evidence_citations: list[dict[str, Any]]

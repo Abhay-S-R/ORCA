@@ -23,6 +23,7 @@ import { INTENT_LABEL, type QueryIntent } from "../lib/queryIntent";
 import { type Persona } from "../persona/config";
 import type { Turn } from "./useAskThread";
 import { IntentActions } from "./IntentActions";
+import { DisclosureBanner, RefusalCard } from "./Disclosures";
 
 const FOLLOW_UPS: Record<QueryIntent, string[]> = {
   safety: ["What are the wind and wave timings for the next 24 hours?", "Where is the nearest fishing zone right now?"],
@@ -119,8 +120,18 @@ export function ChatTurn({
         </Panel>
       )}
 
-      {answer && (
+      {/* Phase 1 (P1.2/P1.3 render). A refused or unplaceable question is the
+          WHOLE response — no verdict badge, no gauges, no weather panel, so
+          there is nothing on screen to mistake for an answer. Answers cached
+          before `outcome` existed have no field and render as before. */}
+      {answer && answer.outcome != null && answer.outcome !== "ANSWERED" && answer.outcome !== "DISTRESS" && (
+        <RefusalCard answer={answer} onFollowUp={onFollowUp} />
+      )}
+
+      {answer && (answer.outcome == null || answer.outcome === "ANSWERED" || answer.outcome === "DISTRESS") && (
         <>
+          {/* Above the answer, never below it — see Disclosures.tsx. */}
+          <DisclosureBanner disclosures={answer.disclosures} />
           <Panel title="Answer">
             <div className="flex flex-col gap-4">
               {/* Architecture §2.6 rendering matrix — same facts, structure

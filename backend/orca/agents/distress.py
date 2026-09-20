@@ -16,10 +16,15 @@ included. Treat MAX_ITERATIONS of testing against this list as a false sense
 of security until that review happens. This is the single highest-consequence
 piece of unverified content in the whole build — flag it accordingly, don't
 quietly ship it as done.
+
+The injury/medical list added alongside it (P1.10, `_MEDICAL_PATTERNS`) is
+held to exactly the same standard and carries exactly the same gap — read its
+own comment block, and put it in front of the same reviewers.
 """
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -60,6 +65,69 @@ _DISTRESS_PATTERNS: dict[str, list[str]] = {
     ],
 }
 
+# P1.10 (orca_final §13.1, PS-Q8) — injury and medical emergencies.
+#
+# "My crewmate is injured, what do I do?" reached Planning, matched no routing
+# row, and came back with a weather answer. A medical emergency at sea is an
+# MRCC case exactly like a sinking is: the coordinating centre is who tasks the
+# helicopter, and the answer the asker needs is a number, not a wave height.
+#
+# Matched with word boundaries (Latin phrases only — see _matches below), which
+# `_DISTRESS_PATTERNS` deliberately is not: a substring false positive there
+# costs an unnecessary SOS, and the list above is thin enough that the
+# false-negative direction is the one to protect. Here the phrases are ordinary
+# words a non-emergency sentence can contain, so the boundary earns its keep.
+#
+# SAME HONEST GAP AS THE LIST ABOVE, and it must be read the same way: every
+# phrase was checked against a real dictionary source while writing this, none
+# is guessed transliteration, and NOBODY WITH NATIVE FLUENCY HAS REVIEWED ANY
+# OF THEM. These go into P3.7's native review with `_DISTRESS_PATTERNS` — same
+# reviewers, same standard, and until then treat passing tests against this
+# list as a false sense of security.
+_MEDICAL_PATTERNS: dict[str, list[str]] = {
+    "en": [
+        "injured", "injury", "bleeding", "unconscious", "not breathing",
+        "heart attack", "broken leg", "broken arm", "severe pain", "chest pain",
+        "snake bite", "medical emergency", "need a doctor", "badly hurt",
+        "lost a lot of blood", "burnt", "burned",
+    ],
+    "ta": [
+        "காயம்",              # injury / wound
+        "காயம் பட்டார்",       # he/she is injured
+        "ரத்தம் வருகிறது",     # bleeding
+        "மயக்கம்",             # faint / unconscious
+        "மூச்சு விட முடியவில்லை",  # cannot breathe
+        "நெஞ்சு வலி",          # chest pain
+        "மருத்துவர் வேண்டும்",   # need a doctor
+    ],
+    "hi": [
+        "घायल",               # injured
+        "खून बह रहा",          # bleeding
+        "बेहोश",               # unconscious
+        "दिल का दौरा",         # heart attack
+        "साँस नहीं आ रही",      # cannot breathe
+        "डॉक्टर चाहिए",         # need a doctor
+    ],
+    "ml": [
+        "പരിക്ക്",            # injury
+        "പരിക്കേറ്റു",          # has been injured
+        "രക്തം വരുന്നു",        # bleeding
+        "ബോധം കെട്ടു",         # lost consciousness
+        "ശ്വാസം കിട്ടുന്നില്ല",   # cannot breathe
+        "ഡോക്ടറെ വേണം",       # need a doctor
+    ],
+    "te": [
+        "గాయం",               # injury
+        "గాయపడ్డాడు",          # he is injured
+        "రక్తం కారుతోంది",       # bleeding
+        "స్పృహ తప్పింది",        # lost consciousness
+        "గుండెపోటు",           # heart attack
+        "ఊపిరి ఆడటం లేదు",     # cannot breathe
+        "డాక్టర్ కావాలి",        # need a doctor
+    ],
+}
+
+
 # Verified 2026-09-02: 1554 is the Indian Coast Guard's official nationwide
 # toll-free MRCC distress helpline (confirmed via a live news/coast-guard
 # source, not assumed). MRCC Chennai covers the Tamil Nadu pilot region.
@@ -67,13 +135,40 @@ _DISTRESS_PATTERNS: dict[str, list[str]] = {
 # (ITU/IMO standard, not India-specific). PHONE NUMBERS CAN CHANGE — verify
 # again before a real demo or deployment; this is sourced, not guaranteed current.
 #
-# These two are the ONLY numbers in this file. The station roster added
-# alongside (`data/tier1/sar/icg_sar_stations.json`, runbook §C4) names all
-# 39 MRCCs/MRSCs and where they are, but the ICG publishes no per-station
-# telephone number and none is invented here: the roster tells a caller WHO
-# covers them and how far away, 1554 and VHF 16 are what they dial.
+# P1.7 (`R-INDIA-7`) — the three MRCC numbers, hand-checked 2026-09-20.
+#
+# The station roster (`data/tier1/sar/icg_sar_stations.json`, runbook §C4)
+# names all 39 MRCCs/MRSCs and where they are, but every station's `phone` is
+# null: the ICG publishes no per-MRSC telephone number, and none is invented
+# here. India's SRR has exactly three MRCCs, though, and those three ARE
+# published — so the roster answers "who covers you and how far away", and the
+# entry below answers "and this is the number for them".
+#
+# Each number was read off two independent sources that agree, not one:
+#   Mumbai      022-2438-8065   — sarcontacts.info/countries/india ("91 22
+#                                 243-88065") and the ICG West RHQ listing.
+#   Chennai     044-2539-5018   — sarcontacts.info ("91 44 253 95018") and
+#                                 dgshipping.gov.in's Annex-2 contact list;
+#                                 this is also the number already in this file
+#                                 since 2026-09-02, which it corroborates.
+#   Sri Vijaya  03192-245530    — sarcontacts.info ("+91 3192 245530") and the
+#   Puram                         ICG A&N RHQ listing. Port Blair was renamed
+#                                 Sri Vijaya Puram in 2024; the roster uses the
+#                                 new name, so the key does too.
+#
+# Keys match the roster's own `mrcc` values exactly, so the lookup in
+# surface_mrcc_contact is a dict hit and cannot silently miss.
+#
+# PHONE NUMBERS CAN CHANGE — re-verify before a real demo or deployment. These
+# are sourced, not guaranteed current. 1554 and VHF 16 are ALWAYS surfaced
+# alongside them and never replaced by them: an MRCC line that has moved must
+# degrade to the nationwide number, never to nothing.
 MRCC_CONTACTS: dict[str, dict[str, str]] = {
     "default": {"name": "Indian Coast Guard MRCC (nationwide)", "phone": "1554", "vhf_channel": "16"},
+    "MRCC Mumbai": {"name": "MRCC Mumbai", "phone": "+91-22-2438-8065", "vhf_channel": "16"},
+    "MRCC Chennai": {"name": "MRCC Chennai", "phone": "+91-44-2539-5018", "vhf_channel": "16"},
+    "MRCC Sri Vijaya Puram": {"name": "MRCC Sri Vijaya Puram (Port Blair)", "phone": "+91-3192-245530", "vhf_channel": "16"},
+    # Kept so an older caller passing the pre-2024 name still resolves.
     "chennai": {"name": "MRCC Chennai", "phone": "+91-44-2539-5018", "vhf_channel": "16"},
 }
 
@@ -124,7 +219,28 @@ def detect_distress_signal(text: str, ui_control_triggered: bool = False) -> dic
             if needle in (text if lang != "en" else text_lower):
                 return {"is_distress": True, "distress_type": "text_pattern", "matched_language": lang, "matched_phrase": phrase}
 
+    # P1.10 — checked second, so a sinking is still reported as a sinking when
+    # a message says both. Same short-circuit either way; only the type differs,
+    # so the trace records which list fired.
+    for lang, phrases in _MEDICAL_PATTERNS.items():
+        for phrase in phrases:
+            if _matches(text, phrase):
+                return {"is_distress": True, "distress_type": "medical_pattern", "matched_language": lang, "matched_phrase": phrase}
+
     return {"is_distress": False, "distress_type": None, "matched_language": None, "matched_phrase": None}
+
+
+def _matches(text: str, phrase: str) -> bool:
+    """Whole-word for a Latin-script phrase, plain containment otherwise.
+
+    "injured" must not fire on a word that merely contains it, which is what
+    P1.10's own acceptance test checks. Indic scripts take their case endings
+    as suffixes, so a trailing boundary there would miss the inflected forms
+    that are how the phrase is actually written — the same asymmetry
+    loaders._name_pattern documents for place names."""
+    if phrase.isascii():
+        return re.search(rf"\b{re.escape(phrase)}\b", text.lower()) is not None
+    return phrase in text
 
 
 def surface_mrcc_contact(user_location: dict[str, Any] | None, language: str = "en") -> dict[str, Any]:
@@ -147,18 +263,31 @@ def surface_mrcc_contact(user_location: dict[str, Any] | None, language: str = "
             "note": "no position on the query" if lat is None else "ICG station roster unavailable",
             "language": language,
         }
+    # P1.7 — the number the caller actually dials is now the COORDINATING
+    # MRCC's, not the nationwide line: the MRSC nearest a boat off Veraval is
+    # a Gujarat station, and its case is run by Mumbai, so routing that caller
+    # to Chennai (what this did before the roster existed) or to a generic
+    # queue costs minutes that matter. An MRCC we hold no number for falls back
+    # to 1554 rather than to nothing.
+    coordinating = MRCC_CONTACTS.get(nearest["coordinating_mrcc"], MRCC_CONTACTS["default"])
+    station_line = (
+        f"{nearest['station']} is the nearest rescue centre "
+        f"({nearest['straight_line_distance_km']} km, straight line); "
+        f"{nearest['coordinating_mrcc']} coordinates the case"
+    )
+    note = (
+        f"{station_line} — dial {coordinating['phone']}. "
+        "If that does not connect, dial 1554 (nationwide, toll free) or call on VHF channel 16."
+        if coordinating is not MRCC_CONTACTS["default"]
+        else f"{station_line}. No number is published for it — dial 1554 or call on VHF 16."
+    )
     return {
-        # The dialable contact is still the nationwide line — the roster
-        # carries no station phone number, and a distress reply must never
-        # surface a "primary" a caller cannot actually ring.
-        "primary": MRCC_CONTACTS["default"],
+        "primary": coordinating,
         "nearest_station": nearest,
+        # Always present and always dialable, whatever happened above.
         "nationwide_fallback": MRCC_CONTACTS["default"],
         "vhf_channel": "16",
-        "note": f"{nearest['station']} is the nearest rescue centre "
-                f"({nearest['straight_line_distance_km']} km, straight line); "
-                f"{nearest['coordinating_mrcc']} coordinates. No station-level number is "
-                f"published — dial 1554 or call on VHF 16.",
+        "note": note,
         "language": language,
     }
 
@@ -199,6 +328,38 @@ def emit_datsg_handoff(
     }
 
 
+# Character budget for one Nabhmitra / VCSS message. ISRO's transceivers are
+# short-message devices, not a data link; this is the conservative working
+# figure used to keep the rendered line copy-pasteable into one, NOT a figure
+# read off a published spec. If a real integration ever happens, check it.
+NABHMITRA_MAX_CHARS = 160
+
+
+def render_nabhmitra_text(handoff: dict[str, Any], vessel_name: str | None = None) -> str:
+    """The existing CAP-fallback payload as one line of ASCII, for keying into
+    a Nabhmitra or VCSS terminal (orca_final §13.2).
+
+    A renderer and nothing more: there is no transport here, no gateway, and
+    no delivery. It exists because the payload above is JSON, and the device a
+    fisherman actually has in the wheelhouse takes a typed message. `SIM` is
+    in the body, not a wrapper around it, so it cannot be stripped by copying
+    the line out — a message that looks like a real alert must never leave
+    this system without saying it is not one."""
+    pos = handoff.get("position") or {}
+    lat, lon = pos.get("lat"), pos.get("lon")
+    where = f"{lat:.4f}N {lon:.4f}E" if lat is not None and lon is not None else "POS UNKNOWN"
+    parts = [
+        "ORCA SOS",
+        where,
+        (handoff.get("distress_type") or "unspecified").upper(),
+        handoff.get("timestamp", ""),
+        vessel_name or handoff.get("vessel_id") or "VESSEL UNKNOWN",
+        "SIM-NOT-A-LIVE-ALERT",
+    ]
+    line = " | ".join(p for p in parts if p)
+    return line if len(line) <= NABHMITRA_MAX_CHARS else line[: NABHMITRA_MAX_CHARS - 1] + "…"
+
+
 def run(state: ORCAState) -> AgentResult:
     """(ORCAState) -> AgentResult. Bypasses normal persona-rendering (Agent
     9's job) entirely — this agent's output is surfaced directly per
@@ -229,7 +390,13 @@ def run(state: ORCAState) -> AgentResult:
         query_id=state.get("query_id", ""),
         reasoning_depth=coerce_reasoning_depth(state.get("reasoning_depth", "SHALLOW")),
         inputs_consumed={"text": combined_text.strip(), "ui_control_triggered": state.get("distress_flag", False)},
-        outputs={"detection": detection, "mrcc_contact": mrcc, "handoff": handoff},
+        outputs={
+            "detection": detection,
+            "mrcc_contact": mrcc,
+            "handoff": handoff,
+            # P1.7 — the same payload in the form a Nabhmitra/VCSS terminal takes.
+            "nabhmitra_text": render_nabhmitra_text(handoff),
+        },
         source_provenance=SourceProvenance(
             dataset="Deterministic multilingual pattern match (starter set — see module docstring)",
             acquisition_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),

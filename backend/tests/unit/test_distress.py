@@ -186,19 +186,145 @@ def test_mrcc_contact_routes_to_the_nearest_station_not_always_chennai():
     assert gujarat["nearest_station"]["straight_line_distance_km"] < 200
 
 
-def test_every_surfaced_number_is_one_of_the_two_verified_ones():
-    """No station-level phone number is published, so none may be invented —
-    a distress reply that offers an unreachable number is worse than one that
-    offers only 1554."""
+def test_every_surfaced_number_is_one_of_the_verified_ones():
+    """P1.7. No station-level phone number is published, so none may be
+    invented — a distress reply that offers an unreachable number is worse
+    than one that offers only 1554. What IS published is the three MRCCs, and
+    those are the only numbers this may ever surface."""
+    verified = {c["phone"] for c in distress.MRCC_CONTACTS.values()}
     reply = distress.surface_mrcc_contact({"lat": 23.1, "lon": 68.5})
-    assert reply["primary"]["phone"] == "1554"
+    assert reply["primary"]["phone"] in verified
     assert reply["nationwide_fallback"]["phone"] == "1554"
     assert reply["vhf_channel"] == "16"
     if reply["nearest_station"] is not None:
         assert reply["nearest_station"]["phone"] is None
 
 
+def test_the_number_surfaced_is_the_coordinating_mrccs_own():
+    """P1.7's whole point: a boat off Gujarat used to be handed MRCC Chennai's
+    queue (or a generic one). Its case is run from Mumbai, so Mumbai's number
+    is the one to dial, with 1554 still on the card behind it."""
+    gujarat = distress.surface_mrcc_contact({"lat": 20.9, "lon": 70.37})
+    if gujarat["nearest_station"] is None:
+        return  # roster absent in this environment — covered by the test above
+    assert gujarat["primary"] == distress.MRCC_CONTACTS["MRCC Mumbai"]
+    assert "1554" in gujarat["note"]
+
+    andaman = distress.surface_mrcc_contact({"lat": 11.67, "lon": 92.75})
+    assert andaman["primary"] == distress.MRCC_CONTACTS["MRCC Sri Vijaya Puram"]
+
+
+def test_the_nabhmitra_line_says_it_is_not_a_live_alert_and_fits_one_message():
+    """P1.7 / orca_final §13.2 — a renderer, no transport. The simulated
+    marker is inside the body, so copying the line out of ORCA cannot strip
+    it into something that reads like a real distress alert."""
+    handoff = distress.emit_datsg_handoff(
+        {"lat": 20.9, "lon": 70.37}, "IND-GJ-1234", "text_pattern", "2026-09-20T10:00:00Z"
+    )
+    line = distress.render_nabhmitra_text(handoff)
+    assert "SIM" in line and line.isascii()
+    assert "20.9000N" in line and "70.3700E" in line
+    assert len(line) <= distress.NABHMITRA_MAX_CHARS
+
+    no_fix = distress.render_nabhmitra_text(distress.emit_datsg_handoff(None, None, None, "2026-09-20T10:00:00Z"))
+    assert "POS UNKNOWN" in no_fix and "SIM" in no_fix
+
+
 def test_missing_position_still_yields_a_dialable_number():
     reply = distress.surface_mrcc_contact(None)
     assert reply["primary"]["phone"] == "1554"
     assert reply["nearest_station"] is None
+
+
+# P1.10 (orca_final §13.1, PS-Q8) — five injury phrasings per core language.
+# Before this, every one of these matched no routing row and came back with a
+# weather answer.
+_INJURY_PHRASINGS: dict[str, list[str]] = {
+    "en": [
+        "my crewmate is injured, what do I do",
+        "he is bleeding badly on the boat",
+        "one of the crew is unconscious",
+        "chest pain, we need a doctor out here",
+        "his leg is broken, broken leg, we are 20 km out",
+    ],
+    "ta": [
+        "நண்பருக்கு காயம் பட்டது என்ன செய்வது",
+        "காயம் பட்டார் மிகவும் மோசம்",
+        "ரத்தம் வருகிறது நிற்கவில்லை",
+        "மயக்கம் அடைந்துவிட்டார்",
+        "நெஞ்சு வலி மிகவும் அதிகம்",
+    ],
+    "hi": [
+        "मेरा साथी घायल है",
+        "खून बह रहा है बहुत",
+        "वह बेहोश हो गया है",
+        "लगता है दिल का दौरा पड़ा है",
+        "उसे डॉक्टर चाहिए तुरंत",
+    ],
+    "ml": [
+        "കൂടെയുള്ളയാൾക്ക് പരിക്ക് പറ്റി",
+        "പരിക്കേറ്റു ഉടനെ സഹായം വേണം",
+        "രക്തം വരുന്നു നിൽക്കുന്നില്ല",
+        "അവന് ബോധം കെട്ടു",
+        "ഡോക്ടറെ വേണം ഇപ്പോൾ",
+    ],
+    "te": [
+        "మా వాడికి గాయం అయ్యింది",
+        "గాయపడ్డాడు సహాయం కావాలి",
+        "రక్తం కారుతోంది ఆగడం లేదు",
+        "స్పృహ తప్పింది ఇప్పుడే",
+        "గుండెపోటు వచ్చినట్టు ఉంది",
+    ],
+}
+
+
+def test_five_injury_phrasings_per_core_language_reach_the_distress_path():
+    """Reaching the path is the requirement. A phrasing that also contains a
+    plain distress word ("help", "உதவி", "సహాయం") is reported as
+    `text_pattern` rather than `medical_pattern`, which is the intended
+    precedence — a sinking is still a sinking — and is equally a pass here."""
+    for lang, phrasings in _INJURY_PHRASINGS.items():
+        assert len(phrasings) >= 5, lang
+        for text in phrasings:
+            detection = distress.detect_distress_signal(text)
+            assert detection["is_distress"] is True, (lang, text)
+            assert detection["distress_type"] in ("medical_pattern", "text_pattern"), (lang, text)
+
+
+def test_every_medical_phrase_in_every_language_fires_on_its_own():
+    """The list itself, phrase by phrase — so a language whose entries are all
+    shadowed by a distress word above cannot pass the test above while
+    contributing nothing of its own."""
+    for lang, phrases in distress._MEDICAL_PATTERNS.items():
+        for phrase in phrases:
+            detection = distress.detect_distress_signal(phrase)
+            assert detection["distress_type"] == "medical_pattern", (lang, phrase)
+
+
+def test_an_injury_query_gets_the_mrcc_short_circuit_not_a_weather_answer():
+    """The routing half of P1.10 — detection alone is not the point, reaching
+    the MRCC contact is."""
+    state = {
+        "query_id": "q-injury",
+        "raw_user_query": "my crewmate is injured, what do I do",
+        "normalized_english_query": "my crewmate is injured, what do I do",
+        "reasoning_depth": "SHALLOW",
+        "user_location": {"lat": 20.9, "lon": 70.37, "place_source": "gazetteer"},
+        "distress_flag": False,
+    }
+    result = distress.run(state)  # type: ignore[arg-type]
+    assert result.outputs["detection"]["is_distress"] is True
+    assert result.outputs["mrcc_contact"]["nationwide_fallback"]["phone"] == "1554"
+
+
+def test_a_word_that_merely_contains_a_medical_phrase_is_not_distress():
+    """P1.10's own acceptance criterion: "injury" inside a non-distress word
+    must not fire. `_MEDICAL_PATTERNS` are ordinary words that occur inside
+    ordinary sentences, so unlike `_DISTRESS_PATTERNS` they are matched on
+    word boundaries."""
+    for text in [
+        "the uninjured fish were returned to the sea",
+        "is it safe to go to sea tomorrow morning",
+        "what is the wave height near Veraval",
+    ]:
+        assert distress.detect_distress_signal(text)["is_distress"] is False, text

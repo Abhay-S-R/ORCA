@@ -132,6 +132,11 @@ def describe_location(user_location: dict[str, Any] | None) -> str:
             "because the query named no location that could be resolved and no GPS fix was supplied."
         )
     name = loc.get("place_name")
+    if loc.get("place_source") == "session_carried" and name:
+        return (
+            f"The telemetry below was measured at {name} ({position}) — the place named EARLIER in "
+            "this conversation, not in this question. Say so if it matters to the answer."
+        )
     return f"The telemetry below was measured at {name} ({position})." if name else (
         f"The telemetry below was measured at the position supplied with the query ({position})."
     )

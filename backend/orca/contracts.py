@@ -150,11 +150,34 @@ class VoyagePlan:
     # `rerouted=True` means `segments`/`verdict` above already ARE the chosen
     # alternate, not the blocked direct line — Agent 8/9 render one plan
     # either way, never a blocked one next to an unrelated clear one.
+    # P1.2 (`R-NEW-8`) — the draft every under-keel clearance on this plan was
+    # computed against, and whether the caller chose it. A plan whose
+    # `draft_source` is not "supplied" carries `draft_disclosure`, and the
+    # surface rendering it must show that sentence: an assumed draft that is
+    # not disclosed is the same silent substitution as an assumed position.
+    draft_m: float = 0.0
+    draft_source: Literal["supplied", "assumed_deepest_of_class"] = "supplied"
+    draft_disclosure: str | None = None
     rerouted: bool = False
     # Every candidate this pass tried, kept even when none cleared — "here is
     # what we checked and rejected" is the honest answer the checklist asks
     # for over silently picking the least-bad NO_GO.
     alternatives_tried: tuple[dict[str, Any], ...] = ()
+
+
+# What /query decided to do with a question, before any marine content exists.
+# "ANSWERED" is every ordinary query; the other three are the Phase 1 outcomes
+# that must render as a short refusal or a question, never as an answer with a
+# position attached (P1.2/P1.3, `R-EDGE-1`/`R-NEW-1`).
+#
+# OUT_OF_SCOPE — not a marine question at all (chit-chat, prompt injection,
+#   nonsense). NEEDS_PLACE — the question IS about a place and we cannot place
+#   it, or it names more than one. OUT_OF_RANGE — a real marine question
+#   about a time or a position we hold no data for, which says which limit it
+#   crossed. DISTRESS — Agent 12 short-circuited; it
+#   outranks both, and is decided before either is even evaluated.
+QueryOutcome = Literal["ANSWERED", "OUT_OF_SCOPE", "NEEDS_PLACE", "OUT_OF_RANGE", "DISTRESS"]
+OUT_OF_SCOPE: QueryOutcome = "OUT_OF_SCOPE"
 
 
 _VALID_REASONING_DEPTHS = ("SHALLOW", "STANDARD", "DEEP")

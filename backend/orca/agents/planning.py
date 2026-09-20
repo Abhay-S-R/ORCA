@@ -98,6 +98,88 @@ ROUTING_TABLE: tuple[RoutingRow, ...] = (
 NO_MATCH_FALLBACK_AGENTS = ("marine_data_discovery", "weather_intelligence", "ocean_analytics")
 
 
+# P1.3 (`R-EDGE-1`) — the out-of-scope test, ahead of every routing tier.
+#
+# The bias is deliberate and one-directional: **refusing a real marine
+# question is far worse than answering a junk one.** So this says "out of
+# scope" only when the query contains no marine or going-to-sea word at all,
+# names no place we know, and is not one of the named non-marine tasks below.
+# Anything it is unsure about stays in scope and gets the §4.2 fallback path.
+#
+# It never sees a distress call: distress_check is the graph's first node and
+# ENDs the run before planning is reached (graph.py). That ordering is what
+# makes this safe to have at all — "a profane, garbled message is exactly what
+# someone in trouble sends", and garbled text is precisely what this
+# classifier would otherwise refuse.
+_MARINE_VOCAB: frozenset[str] = frozenset(
+    # A wrapped block of words, split once at import, rather than 120 quoted
+    # list items nobody would read or keep in order.
+    """
+sea seas ocean oceanic marine maritime coast coastal shore offshore inshore
+fish fishing fisherman fishermen fisheries catch catches net nets trawl trawler
+boat boats vessel vessels craft canoe catamaran ship ships sail sailing voyage
+route routes navigate navigation passage anchor anchorage harbour harbor port
+ports jetty landing wharf quay
+wave waves swell surf sea-state tide tides tidal current currents ebb flood
+wind winds gale storm storms squall cyclone cyclonic depression monsoon
+weather forecast rain rainfall lightning thunder thunderstorm visibility fog
+depth bathymetry shallow shallows reef reefs shoal sandbar draft draught
+safe safety danger dangerous risk hazard warning alert advisory rescue
+zone zones pfz boundary boundaries imbl eez geofence border maritime-boundary
+mpa park sanctuary ban banned closed season permit licence license
+sst salinity chlorophyll plankton productivity upwelling thermocline eddy
+go going out venture sortie trip
+""".split()  # noqa: SIM905
+)
+
+# Tasks that are not marine-advice questions however many sea words they
+# contain — a recipe naming fish is still a recipe. These win over the
+# vocabulary test above.
+_NON_MARINE_TASKS: tuple[str, ...] = (
+    "recipe", "cook", "cooking", "poem", "joke", "song", "lyrics", "essay",
+    "story", "translate this", "write me", "write a", "homework", "cricket",
+    "football", "movie", "election", "stock price", "bitcoin", "capital of",
+)
+
+# Prompt injection. Refused as out of scope rather than obeyed or silently
+# answered — the honest outcome for "ignore your instructions" is the same
+# short refusal every other non-marine question gets.
+_INJECTION_PATTERNS: tuple[str, ...] = (
+    "ignore previous", "ignore all previous", "ignore your instructions",
+    "disregard the above", "disregard your", "system prompt", "you are now",
+    "act as if", "pretend you are", "reveal your", "print your instructions",
+    "repeat the text above", "jailbreak", "developer mode",
+)
+
+OUT_OF_SCOPE_ROW = "OUT_OF_SCOPE"
+
+
+def is_out_of_scope(normalized_query: str) -> bool:
+    """True when this is not a question ORCA can honestly take marine data to.
+
+    Deterministic, no LLM: a refusal decided by a model is a refusal that
+    cannot be explained to a judge, and the failure mode (refusing a real
+    safety question) is the one this whole phase exists to prevent.
+    """
+    lowered = (normalized_query or "").strip().lower()
+    if not lowered:
+        return True
+    if any(p in lowered for p in _INJECTION_PATTERNS):
+        return True
+    if any(p in lowered for p in _NON_MARINE_TASKS):
+        return True
+    if _significant_words(lowered) & _MARINE_VOCAB:
+        return False
+    # Text still carrying non-Latin script has not been through a successful
+    # translation pass, so an English vocabulary test says nothing about it.
+    # Never refuse on that basis.
+    if any(ord(ch) > 127 for ch in lowered):
+        return False
+    from orca.data.loaders import resolve_all_places_from_text
+
+    return not resolve_all_places_from_text(lowered)
+
+
 def _tier1_rules(normalized_query: str) -> list[tuple[str, float]]:
     """Tier 1 — deterministic keyword match. Confidence is 1.0 on any match
     (a rules tier has no partial credit) or absent from the list entirely
@@ -207,11 +289,21 @@ def classify_intent(normalized_query: str, session_history: list[dict] | None = 
     order, returning the first tier's matches — a higher tier only runs when
     every tier before it found nothing (plan §5 D1 Day 11). Only Tier 3 reads
     `session_history`: the deterministic tiers match this query's own words."""
+    return classify_intent_deterministic(normalized_query) or _tier3_llm_fallback(
+        normalized_query, session_history
+    )
+
+
+def classify_intent_deterministic(normalized_query: str) -> list[tuple[str, float]]:
+    """Tiers 1 and 2 only — the part of the routing decision that needs no
+    model, no key and no network. Split out so a test (or any caller that must
+    not spend a token) can ask "would this route on its own words?" and get
+    the same answer the real classifier would, minus the LLM guess."""
     for tier in (_tier1_rules, _tier2_embedding_similarity):
         matches = tier(normalized_query)
         if matches:
             return matches
-    return _tier3_llm_fallback(normalized_query, session_history)
+    return []
 
 
 # Below Tier 1's certain 1.0 and Tier 3's 0.7: inherited from the conversation,
@@ -264,10 +356,25 @@ def run(state: ORCAState) -> AgentResult:
     if not matches:
         matches = carry_intent(state.get("session_history"))
         carried = bool(matches)
-    matched_rows = [name for name, _ in matches]
-    execution_plan = generate_execution_plan(matched_rows, state.get("reasoning_depth", "SHALLOW"))
+    # Checked last, and only when nothing matched: a query that reached any
+    # routing row is a marine query by definition, and a follow-up carrying
+    # its predecessor's intent ("what about tomorrow?") reads as contentless
+    # on its own and must never be refused for it.
+    out_of_scope = not matches and is_out_of_scope(query)
+    if out_of_scope:
+        matched_rows, execution_plan = [OUT_OF_SCOPE_ROW], []
+    else:
+        matched_rows = [name for name, _ in matches]
+        execution_plan = generate_execution_plan(matched_rows, state.get("reasoning_depth", "SHALLOW"))
 
-    if matched_rows:
+    if out_of_scope:
+        confidence = Confidence(
+            score="HIGH",
+            rationale="Deterministically out of scope — no marine vocabulary, no known place, "
+            "or an explicit non-marine task/injection pattern. No agent was run and no marine "
+            "content was produced.",
+        )
+    elif matched_rows:
         # Tier 1 always scores every match 1.0; a Tier 2/3 match brings the
         # average below that, which is why HIGH is gated on avg >= 0.95
         # rather than "any match" — a Tier 3 LLM guess is real confidence

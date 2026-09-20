@@ -15,7 +15,7 @@
 | **Audit** | `docs/DLC_verification_report.md` — DLC vs `orca_final.md` vs the tree, 2026-09-18 |
 | **Requirements** | `docs/ORCA_DLC_Extension_Pack.md` — historical origin of the `R-*` IDs; superseded by the plan 2026-09-19 |
 | **Canonical PS** | `docs/ORCA_PS_SIH26176_Problem_Statement.md` |
-| **Current phase** | Phase 0 — **all 15 points DONE** (2026-09-20); Phase 1 next |
+| **Current phase** | Phase 1 — **all 10 points DONE** (2026-09-20), exit gate run; Phase 2 next |
 
 ---
 
@@ -97,16 +97,16 @@ record.
 
 | Point | Requirement | Status |
 |---|---|---|
-| P1.1 | R-INDIA-1 | Not started · **code found in tree** (`_GAZETTEER`, ~121 entries) — run Done-when and log |
-| P1.2 | R-NEW-1, R-NEW-8 | Not started |
-| P1.3 | R-EDGE-1 | Not started |
-| P1.4 | R-EDGE-3 | Not started |
-| P1.5 | R-EDGE-4 | Not started |
-| P1.6 | R-INDIA-2 | Not started |
-| P1.7 | R-INDIA-7 | Not started · nearest-station half found in tree; MRCC numbers missing |
-| P1.8 | R-INDIA-8 | Not started |
-| P1.9 | R-EDGE-5 | Not started |
-| P1.10 | injury / medical → distress | Not started |
+| P1.1 | R-INDIA-1 | **DONE** (2026-09-20) — code was already in tree; exit-gate test written and run, ten places / five states |
+| P1.2 | R-NEW-1, R-NEW-8 | **DONE** (2026-09-20) — `orca/place_resolution.py`, four outcomes; voyage draft no longer a silent 1.2 m |
+| P1.3 | R-EDGE-1 | **DONE** (2026-09-20) — `OUT_OF_SCOPE` row + `out_of_scope` graph node, after distress, never before |
+| P1.4 | R-EDGE-3 | **DONE** (2026-09-20) — seven clauses in `query_guard_node`; the eighth was already P0.5's, now disclosed |
+| P1.5 | R-EDGE-4 | **DONE** (2026-09-20) — 23 Tamil keys, suffix-tolerant matching. **Not native-reviewed** — goes to P3.7 |
+| P1.6 | R-INDIA-2 | **DONE** (2026-09-20) — `sector_for_point_disclosed`; SEC006 survives only as a disclosed fallback |
+| P1.7 | R-INDIA-7 | **DONE** (2026-09-20) — 3 MRCC numbers, two sources each; Nabhmitra/VCSS text renderer |
+| P1.8 | R-INDIA-8 | **DONE** (2026-09-20) — README says national resolution + national sectors, deep validation in the pilot |
+| P1.9 | R-EDGE-5 | **DONE** (2026-09-20) — `tests/unit/test_query_coverage.py`, 72 queries, 75 tests, shape-only |
+| P1.10 | injury / medical → distress | **DONE** (2026-09-20) — `_MEDICAL_PATTERNS`, 5 languages. **Not native-reviewed** — goes to P3.7 |
 
 ### Phase 2 — The conversation that visibly reasons
 
@@ -1339,3 +1339,111 @@ Remarks:
 - **Commit:** — (uncommitted; no branch/PR convention on this project per rule 6 above)
 - **Done-when test:** Full backend suite: `cd backend && source .venv/bin/activate && python -m pytest -q` → **470 passed, 2 skipped**, no failures, no regressions. `ruff check .` → 45 pre-existing errors, all in files this pass never touched (confirmed against `git stash`/`ruff check` on the clean tree — identical count and file list). `mypy orca` → 15 pre-existing errors in 10 files, none in `planning.py`/`risk_assessment.py`/`sentinel.py`/`voice.py`/`generate_tiles.py`/`verify_ci_guards.py` (confirmed the same way — identical 15 errors before and after this session's changes).
 - **Remarks:** Every one of the 15 Phase 0 points is now `DONE`. Three were pure verification (P0.4, P0.9, and P0.7's already-run first half) — already correctly implemented by a prior session but never logged, closed per rule 5 rather than redundantly rebuilt. One deliberate scope boundary is carried forward and should not be mistaken for complete elsewhere: P0.8's "10 agents" fix only touched README, not the frontend UI strings that still say it (landing hero, stats bar, reasoning graph header) — those aren't Phase 0's stated scope. P0.7's tide window still expires 2026-09-29 (Stormglass's own forecast-horizon cap, not a bug) and needs the P5.12 wiring, or a manual re-run, before any later recording.
+
+### [2026-09-20] P1.1 — All-India gazetteer — DONE
+
+- **Implements:** `R-INDIA-1`
+- **By:** Claude (Opus 5)
+- **Files:** `backend/tests/unit/test_loaders.py`
+- **Commit:** —
+- **Done-when test:** The plan's own exit-gate test, written as `test_ten_coastal_places_across_five_states_each_resolve_within_their_own_state`: Veraval and Porbandar (Gujarat), Kozhikode and Kollam (Kerala), Kakinada and Machilipatnam (Andhra Pradesh), Paradip and Gopalpur (Odisha), Digha and Haldia (West Bengal). Each asserts the resolved name, that the coordinates fall inside a hand-checked, deliberately **non-overlapping** box for that state, and that they are more than 1° from `DEFAULT_LAT/LON`. `pytest -q tests/unit/test_loaders.py` — 7 passed.
+- **Remarks:** No production code changed; the gazetteer was already national, as the plan's audit note said. The boxes are non-overlapping on purpose — with overlapping boxes "resolved in its own state" is not actually an assertion, since one state's box could quietly contain another's answer. Odisha stops at 87.0 E and West Bengal starts at 87.1 E for exactly that reason.
+
+### [2026-09-20] P1.2 — One shared place-resolution guard, and no silent default draft — DONE
+
+- **Implements:** `R-NEW-1`, `R-NEW-8`
+- **By:** Claude (Opus 5)
+- **Files:** `backend/orca/place_resolution.py` (new), `backend/orca/data/loaders.py`, `backend/orca/contracts.py`, `backend/orca/state.py`, `backend/orca/api/main.py`, `backend/orca/graph/graph.py`, `backend/orca/agents/voyage.py`, `backend/orca/agents/reporting.py`, `backend/tests/unit/test_place_resolution.py` (new), `backend/tests/unit/test_voyage.py`, `frontend/app/ask/Disclosures.tsx` (new), `frontend/app/ask/ChatTurn.tsx`, `frontend/app/ask/useAskThread.ts`, `frontend/app/voyage/page.tsx`, `docs/ORCA_Agentic_Architecture_final.md`
+- **Commit:** —
+- **Done-when test:** `resolve_or_ask()` returns one of four statuses and `/query` renders all four differently. Checked end to end against a live `TestClient`: "is it safe near my village" produced `outcome: NEEDS_PLACE` and "I don't know where that is…"; "is it safe in Kerala" produced `NEEDS_PLACE` with four candidate ports and their coordinates; "is it safe to go to sea tomorrow" produced `ANSWERED` with the Gulf of Mannar default disclosed on `disclosures[]`; "is it safe near Veraval" produced `ANSWERED` with no disclosure. `pytest -q tests/unit/test_place_resolution.py` — 11 passed. Vessel half: `pytest -q tests/unit/test_voyage.py` — 12 passed, including that an unsupplied draft is `assumed_deepest_of_class`, is deeper than the old 1.2 m, and carries a `draft_disclosure` naming the metre figure.
+- **Remarks:** Three things worth the next person's time. **(1)** The module's own idea of "ambiguous" turned out to include something the plan did not name: a *region* key. "Is it safe in Kerala?" resolved to the state centroid (10.50, 76.00), which is **inland**, and was answered confidently there. Region keys now return candidates instead, derived from the gazetteer by proximity rather than hand-grouped, so adding a port cannot leave a second list out of step. **(2)** A passage ("safest route from Thoothukudi to Pamban") names two places on purpose, so the multi-place guard would have refused every ROUTE query. It is now detected on the sentence shape (`from … to`, `between … and`) at the route layer rather than by asking Agent 2, because this runs before Planning and the two must not be able to disagree about a question's own grammar; the answer is given at the origin and says so. **(3)** The draft figures (1.8 / 3.5 / 9.0 m) are *deepest-of-class assumptions*, chosen so the under-keel check errs toward BLOCKED. They are labelled as assumptions everywhere they surface and are **not** measurements of anyone's vessel — do not let them become a table someone cites.
+
+### [2026-09-20] P1.3 — A first-class "I can't answer that" — DONE
+
+- **Implements:** `R-EDGE-1`
+- **By:** Claude (Opus 5)
+- **Files:** `backend/orca/agents/planning.py`, `backend/orca/graph/graph.py`, `backend/orca/contracts.py`, `backend/tests/unit/test_planning.py`, `frontend/app/ask/Disclosures.tsx`
+- **Commit:** —
+- **Done-when test:** `is_out_of_scope()` plus an `OUT_OF_SCOPE` routing row plus an `out_of_scope` graph node that ENDs with a refusal and a redirect, no agent below Planning having run. Live check: "who won the cricket match yesterday" produced `outcome: OUT_OF_SCOPE`, "I can't answer that. I only answer questions about conditions at sea off India…", `risk_assessment: null`, no weather panel. `pytest -q tests/unit/test_planning.py` — 9 passed. The ten-junk-query half of the phase exit gate lives in `test_query_coverage.py` (P1.9) and passes.
+- **Remarks:** **The ordering is the safety property, not the classifier.** `distress_check` is still the graph's first node and `out_of_scope` hangs off Planning, which is three nodes downstream — so "sinking help", which `is_out_of_scope()` on its own calls out of scope, never reaches it. `test_the_graph_applies_these_guards_in_this_order` asserts that wiring directly and will go red if anyone reorders it. The classifier itself is deliberately biased one way: it refuses only when the query has no marine word, names no known place, and is not a named non-marine task or injection pattern. It will answer some junk; it will not refuse a real safety question, which is the only direction that matters. One existing test changed meaning rather than breaking: `test_run_degrades_to_medium_confidence_on_no_match` used "tell me a joke" as its no-match example, and that now correctly refuses — it was re-pointed at an in-scope no-match query and the old case kept as its own assertion.
+
+### [2026-09-20] P1.4 — Position and time edge cases, eight guard clauses — DONE
+
+- **Implements:** `R-EDGE-3`
+- **By:** Claude (Opus 5)
+- **Files:** `backend/orca/place_resolution.py`, `backend/orca/graph/graph.py`, `backend/orca/contracts.py`, `backend/tests/unit/test_place_resolution.py`
+- **Commit:** —
+- **Done-when test:** Seven clauses in `query_guard_node`, each naming its actual limit. Live checks: "was it rough off Veraval yesterday" produced `OUT_OF_RANGE` and "…I can answer from 2026-09-20 to 2026-09-27"; "is it safe off Veraval in 3 weeks" named the 7-day horizon and the date; "is it safe on 2020-01-05 at Pamban" named the past; "conditions at 40.0N 10.0E" named the 5-25N/66-96E extent; "compare Chennai and Pamban" returned both places with coordinates; "conditions at 8.75N 78.25E" was answered, so bare coordinates parse. `pytest -q tests/unit/test_place_resolution.py` — 11 passed.
+- **Remarks:** Two deviations from the point's literal text, both logged deliberately. **(1) The eighth clause, expired cache, was not built here.** P0.5 already owns it — `freshness.past_staleness_ceiling` decides it, `risk_assessment` floors the verdict to `CAUTION_STALE_DATA` and names the age in the reason, `confidence_score` bands it. A second implementation could only disagree with that one, so what Phase 1 added instead is surfacing the same fact as a disclosure above the answer. **(2) A REAL DEFECT THE INLAND GUARD EXPOSED, and it is not fixed: 47 of the 83 distinct gazetteer places are on land by GEBCO** (audited 2026-09-20: alappuzha, digha, haldia, kanyakumari, kozhikode, mandapam, nagapattinam, paradeep, rameswaram, thiruvananthapuram… the full list is reproducible by running `depth_at_point` over `_GAZETTEER`). The table's own comment claims the entries are offshore positions ~10-20 nm out; for most of them that is not true, they are town centres. The guard therefore refuses an inland position only when the **caller supplied it** (explicit lat/lon, or coordinates typed into the question) and merely **discloses** it for a named place — refusing "wave height at Kanyakumari" would blame the user for our table. The real repair is snapping each entry to its nearest wet cell (`scripts/orca_grid_utils.py` already has the machinery); that is a data pass, not a guard clause, and it needs its own point. **Do not read the disclosure as a fix.**
+
+### [2026-09-20] P1.5 — Tamil-script place names resolve — DONE
+
+- **Implements:** `R-EDGE-4`
+- **By:** Claude (Opus 5)
+- **Files:** `backend/orca/data/loaders.py`
+- **Commit:** —
+- **Done-when test:** 23 Tamil keys folded into `_GAZETTEER` (and into `_PORT_ALIASES` for the four places that have only a weather fixture), mapped onto the **same coordinates** as their Latin keys so a Tamil query and its English translation can never resolve to two different positions. `resolve_place_from_text("தூத்துக்குடியில் கடல் எப்படி இருக்கும்?")` returns `('தூத்துக்குடி', 8.77, 78.23)`; the same holds for `பாம்பன்`, `நாகப்பட்டினத்தில்`, `மண்டபத்தில்`, `ராமேஸ்வரத்தில்` and `சென்னையில்`. A full `/query` run on "தூத்துக்குடியில் கடல் பாதுகாப்பானதா" answers `ANSWERED`, in Tamil, at Thoothukudi. `pytest -q tests/unit/test_loaders.py tests/unit/test_language.py` — 28 passed.
+- **Remarks:** **Whole-word matching is wrong for Tamil and this is the interesting part.** `_name_pattern` used `\bNAME\b` for everything, which English needs (the all-India table is full of short names that sit inside ordinary words — "goa" in "goal"). Tamil takes its case endings as *suffixes*: "தூத்துக்குடியில்" is the normal way to say "in Thoothukudi" and has no word boundary after the place name at all, so a trailing `\b` misses every inflected form, which is most real queries. Non-ASCII names are now prefix-anchored. A second, subtler case: a Tamil noun ending in ம் drops it in every oblique form, so "நாகப்பட்டினம்" appears as "நாகப்பட்டினத்தில்" — the pattern matches the stem with the ம் optional. **The spellings have NOT been reviewed by a native speaker.** They are standard written forms of places already in the table, with no colloquial or dialect variants, and they belong in P3.7's native review alongside `distress.py`'s phrase lists. Do not treat the passing tests as validation of the Tamil.
+
+### [2026-09-20] P1.6 — Sector by position, not by constant — DONE
+
+- **Implements:** `R-INDIA-2`
+- **By:** Claude (Opus 5)
+- **Files:** `backend/orca/agents/ocean_analytics.py`, `backend/orca/graph/graph.py`
+- **Commit:** —
+- **Done-when test:** `sector_for_point_disclosed(lat, lon, place_source)` returns the sector **and** the sentence saying when it is not really the user's. Checked: (20.9, 70.37) gives SEC001 Gujarat, (9.28, 79.2) gives SEC006, (11.67, 92.75) gives SEC012 Andaman, (10.57, 72.64) gives SEC014 Lakshadweep, all with no disclosure; the pilot default position with `place_source="regional_default"` gives SEC006 **plus** "derived from the pilot default position, not from yours"; (20.0, 60.0) gives SEC006 plus "outside every INCOIS PFZ sector (5-25N, 66-96E) … not a statement about this position". `pytest -q tests/unit/test_ocean_analytics.py` — 24 passed.
+- **Remarks:** The position-based lookup itself was **already in the tree** (`sector_for_point`, latitude bands per coast) — the plan's `Now:` line describing `_PILOT_SECTOR` as "every user's sector today" was already out of date, the same way it was for P1.1 and P1.7. Two real gaps remained and those are what this closed. **(1)** The bands have no outer edge by design (the southernmost entry on each coast is open-ended so no Indian coastal position falls through), which also meant a position in the middle of the Arabian Sea off Oman was handed SEC001 Gujarat with a straight face; the lookup is now bounded first. **(2)** A caller got a bare `"SEC006"` whether it was derived from a real position or was the pilot sector standing in for one — indistinguishable, which is exactly what the point objects to. `_PILOT_SECTOR` as the band fall-through is in fact unreachable for any in-extent position; the fallback that actually fires is the out-of-extent one.
+
+### [2026-09-20] P1.7 — National MRCC/MRSC routing — DONE
+
+- **Implements:** `R-INDIA-7`
+- **By:** Claude (Opus 5)
+- **Files:** `backend/orca/agents/distress.py`, `backend/tests/unit/test_distress.py`
+- **Commit:** —
+- **Done-when test:** The number surfaced is now the **coordinating MRCC's own**, not the nationwide line. Checked: off Veraval gives nearest MRSC Veraval (0.9 km), MRCC Mumbai coordinating, dial +91-22-2438-8065; off Pamban gives MRSC Mandapam (8.4 km), MRCC Chennai, +91-44-2539-5018; off Port Blair gives MRCC Sri Vijaya Puram, +91-3192-245530; no position gives 1554. 1554 and VHF 16 are present in every one of those replies. `render_nabhmitra_text()` emits `ORCA SOS | 20.9000N 70.3700E | MEDICAL_PATTERN | 2026-09-20T10:00:00Z | IND-GJ-1234 | SIM-NOT-A-LIVE-ALERT` — 106 characters, ASCII. `pytest -q tests/unit/test_distress.py` — 30 passed.
+- **Remarks:** **Each number was read off two independent sources that agree, and the sourcing is in the code comment so the next person can re-check rather than re-search.** Mumbai and Port Blair came from `sarcontacts.info/countries/india`, corroborated by the ICG regional listings; Chennai from `sarcontacts.info` and `dgshipping.gov.in`'s Annex-2 contact list, which also corroborates the number that has been in this file since 2026-09-02. `indiancoastguard.gov.in` itself could not be fetched (TLS chain error) — worth retrying before a real demo. Note the A&N MRCC is **Sri Vijaya Puram**, not Port Blair: the city was renamed in 2024 and the station roster already uses the new name, so the dict key does too. Station-level `phone` stays `null` everywhere and nothing was invented — the roster answers *who covers you and how far*, these three entries answer *and this is their number*. The Nabhmitra/VCSS renderer puts `SIM-NOT-A-LIVE-ALERT` inside the body rather than around it, so copying the line out of ORCA cannot strip it into something that reads like a real alert. `NABHMITRA_MAX_CHARS = 160` is a conservative working figure, **not** read off a published spec — say so if anyone asks.
+
+### [2026-09-20] P1.8 — Claim coverage honestly — DONE
+
+- **Implements:** `R-INDIA-8`
+- **By:** Claude (Opus 5)
+- **Files:** `README.md`
+- **Commit:** —
+- **Done-when test:** README now leads with the post-P1.1/P1.6 claim in the plan's own words — "national place resolution and national PFZ sectors, deep validation in the Gulf of Mannar pilot" — names the places that prove it (Veraval, Kakinada, Paradip, Digha, Port Blair, Kavaratti), and says that what the pilot adds is *depth, not reach*. The "Pilot Region" section now opens by stating that pilot is not the same as coverage, so a reader who lands there first is not left with the old impression.
+- **Remarks:** Deliberately narrow, the same boundary P0.8 drew: README only. The frontend UI strings are a separate copy pass and were not touched.
+
+### [2026-09-20] P1.9 — The unrehearsed-query gate — DONE
+
+- **Implements:** `R-EDGE-5`
+- **By:** Claude (Opus 5)
+- **Files:** `backend/tests/unit/test_query_coverage.py` (new), `backend/orca/agents/planning.py`
+- **Commit:** —
+- **Done-when test:** `pytest -q tests/unit/test_query_coverage.py` — **75 passed in 4.3 s**. 72 queries across six shapes: 26 ordinary marine questions (including four in Tamil script and two bare coordinate pairs), 4 naming no place at all, 11 that cannot be placed, 7 about a time or position we hold nothing for, 12 junk, 11 distress. Every assertion is on the *shape* of the outcome; no wave height, verdict or distance appears anywhere in the file.
+- **Remarks:** **It runs against the deterministic layer, not `/query`.** Sixty queries through the live graph would need an LLM key, a network and four minutes, which is how a coverage gate ends up skipped in CI. The cost is that the file mirrors the graph's precedence rather than calling it, so `test_the_graph_applies_these_guards_in_this_order` asserts the real wiring (START to distress_check to query_guard to language_ingress to planning to out_of_scope) and goes red if anyone reorders it — which they must not, because that reordering is what would turn a garbled SOS into a refusal. One helper was extracted to make this possible without spending tokens: `planning.classify_intent_deterministic()` (tiers 1 and 2 only), which `classify_intent` now calls, so it is a split rather than a second copy. Two queries had to change while writing it, and both cases were *the gate finding real bugs*: "safest route from Thoothukudi to Pamban" was being refused as ambiguous (see P1.2 remark 2), and eleven ordinary questions were being refused as inland (see P1.4 remark 2).
+
+### [2026-09-20] P1.10 — Injury and medical questions reach the distress path — DONE
+
+- **Implements:** orca_final §13.1, PS-Q8
+- **By:** Claude (Opus 5)
+- **Files:** `backend/orca/agents/distress.py`, `backend/tests/unit/test_distress.py`
+- **Commit:** —
+- **Done-when test:** The point's own criterion, both halves. Five injury phrasings per core language (en, ta, hi, ml, te) all reach `is_distress: True` — `test_five_injury_phrasings_per_core_language_reach_the_distress_path`. Every phrase in `_MEDICAL_PATTERNS` fires on its own as `medical_pattern` — `test_every_medical_phrase_in_every_language_fires_on_its_own`. "injury" inside a non-distress word does not: "the uninjured fish were returned to the sea" gives `is_distress: False`. `distress.run()` on "my crewmate is injured, what do I do" returns the MRCC contact, not a weather answer. `pytest -q tests/unit/test_distress.py` — 30 passed.
+- **Remarks:** **The medical list is matched on word boundaries and `_DISTRESS_PATTERNS` deliberately is not.** That asymmetry is the point: a substring false positive on "help" costs an unnecessary SOS and the sinking list is thin enough that the false-negative direction is the one to protect, whereas the medical phrases are ordinary words ("injured", "burned", "severe pain") that occur inside ordinary sentences. Indic phrases stay on plain containment, for the same suffix reason P1.5 documents for place names. Precedence: `_DISTRESS_PATTERNS` is checked first, so a message reporting both a sinking and an injury is reported as the sinking — which is why the per-language acceptance test accepts either type and a second test exercises every phrase on its own, so a language whose entries are all shadowed by a distress word cannot pass while contributing nothing. **Same honest gap as the sinking lists, and it must not be softened: nobody with native fluency has reviewed any of these five lists.** They go to P3.7's reviewers together. Treat a green test run here as evidence the wiring works, not that the phrases are right.
+
+### [2026-09-20] Phase 1 — exit gate — DONE
+
+- **Implements:** all of Phase 1, P1.1–P1.10
+- **By:** Claude (Opus 5), Dev's request: "do whole phase 1 step by step without issues and clearly implement each part run tests"
+- **Files:** see the ten entries above.
+- **Commit:** — (uncommitted; no branch/PR convention on this project)
+- **Done-when test:** The plan's own exit gate, clause by clause. **Ten coastal places across five states, all ten resolving within their own state** — `test_ten_coastal_places_across_five_states_each_resolve_within_their_own_state`, passes. **"Near my village" produces an explicit "I don't know where that is", not a Gulf of Mannar answer** — `test_near_my_village_is_an_explicit_i_dont_know_not_a_gulf_of_mannar_answer`, passes, and confirmed end to end through `/query` (`outcome: NEEDS_PLACE`). **Ten junk queries produce ten refusals with zero fabricated marine content** — `test_ten_junk_queries_produce_ten_refusals`, passes over 12 junk queries; the refusal path runs no agent below Planning, so there is no marine number in the payload to fabricate. **A profane distress phrase still triggers SOS** — "shit the fucking boat is sinking help us" gives `distress`, in `test_a_distress_call_short_circuits_whatever_else_it_looks_like`, alongside "we are sinking near my village", which must not be refused for naming no place. **`test_query_coverage.py` is green** — 75 passed. Whole tree: `pytest -q tests/unit --ignore=tests/unit/test_distress_queue.py` gives **550 passed, 1 skipped**; `pytest -q tests/e2e` gives 12 passed, 1 skipped; `python scripts/verify_ci_guards.py` gives all 4 guards green; `npx tsc --noEmit` on the frontend is clean; `ruff check .` gives 44 errors, **one fewer than the 45 on the clean tree** (verified by `git stash`), none in files this pass touched; `mypy orca` gives 15 errors, identical to the pre-existing baseline.
+- **Remarks:** Worked as one developer, so `docs/DLC_Phase1_parallel_split.md`'s lane split and seam commit were not needed as written; the seam's *structure* was kept anyway (place_resolution.py as its own module, the contracts/state additions made once, up front) because it is the right shape regardless of headcount. Five things the next person should not have to rediscover. **(1) `tests/unit/test_distress_queue.py` fails on this machine for an unrelated, pre-existing reason** — it needs a live PostGIS; 5 failed / 5 errored before this session's first edit and still does, unchanged. **(2) 47 of 83 gazetteer places are on land by GEBCO** — the single most important finding of this phase, and it is NOT fixed; see the P1.4 remarks, it needs its own point. **(3) Two unreviewed language lists went in** — the Tamil place names (P1.5) and the injury phrases (P1.10). Both are flagged in their own comments and both belong in P3.7's native review; neither should be described as done to a judge. **(4) The graph gained two guard nodes that emit no trace entry** — `query_guard` and `out_of_scope`. That is deliberate (main.py pairs `completed_nodes` and `audit_trace_log` index-for-index, and a guard is not an agent), but anyone adding a node between them must add either both entries or neither. **(5) Three of the ten points were already implemented in the tree and only needed their Done-when run** — P1.1, and the substantive halves of P1.6 and P1.7. The plan's `Now:` lines for P1.6 and P1.7 are stale in the same way the audit already flagged for P1.1.
+
+### [2026-09-20] Phase 0 carry-over — still open after Phase 1 — NOTE
+
+- **Implements:** nothing; this is a pointer so three known items are not lost
+- **By:** Claude (Opus 5)
+- **Files:** none
+- **Commit:** —
+- **Done-when test:** n/a
+- **Remarks:** `docs/DLC_Phase1_parallel_split.md` §8 carried three Phase 0 items forward that belong to **neither** Phase 1 lane and were therefore **not** done in this pass. They still need an owner. **(1)** The tide window is short — `data/tier1/tides/soi_tide_tables_2026.csv` covers 2026-09-16 to 09-22 on disk despite P0.7's entry claiming 09-20 to 09-29; re-run `scripts/refresh_tide_tables.py` before any recording and check the file's actual range afterwards, not the script's output. **(2)** The landing page still says "Ten agents read the sea" (`frontend/app/page.tsx:121`) — P0.8 corrected only the README, and this is the first line a judge reads. **(3)** P0.5's staleness ceiling is weather-only; ocean, PFZ and tide age still ride on P5.13.

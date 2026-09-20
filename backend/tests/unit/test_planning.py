@@ -1,3 +1,4 @@
+from orca.agents import planning
 from orca.agents.planning import (
     NO_MATCH_FALLBACK_AGENTS,
     classify_intent,
@@ -56,11 +57,30 @@ def test_run_produces_execution_plan_for_safety_query():
     assert not hasattr(result, "persona")
 
 
-def test_run_degrades_to_medium_confidence_on_no_match():
+def test_run_degrades_to_medium_confidence_on_no_match(monkeypatch):
+    """An in-scope question that matches no routing row still gets the §4.2
+    fallback path. Tier 3 is stubbed out because an LLM that happens to guess
+    a row would make this assert nothing."""
+    monkeypatch.setattr(planning, "_tier3_llm_fallback", lambda q, history=None: [])
     state: ORCAState = {  # type: ignore[typeddict-item]
         "query_id": "q-2", "reasoning_depth": "SHALLOW",
+        "normalized_english_query": "what colour is the sea near Pamban",
+    }
+    result = run(state)
+    assert result.outputs["matched_intent_rows"] == []
+    assert result.outputs["execution_plan"] == list(NO_MATCH_FALLBACK_AGENTS)
+    assert result.confidence.score == "MEDIUM"
+
+
+def test_a_non_marine_question_is_refused_rather_than_answered_about_the_sea(monkeypatch):
+    """P1.3 (`R-EDGE-1`). "tell me a joke" used to take the §4.2 no-match path
+    and come back with a general-conditions answer — marine content produced
+    for a question that asked for none."""
+    monkeypatch.setattr(planning, "_tier3_llm_fallback", lambda q, history=None: [])
+    state: ORCAState = {  # type: ignore[typeddict-item]
+        "query_id": "q-3", "reasoning_depth": "SHALLOW",
         "normalized_english_query": "tell me a joke",
     }
     result = run(state)
-    assert result.outputs["execution_plan"] == list(NO_MATCH_FALLBACK_AGENTS)
-    assert result.confidence.score == "MEDIUM"
+    assert result.outputs["matched_intent_rows"] == [planning.OUT_OF_SCOPE_ROW]
+    assert result.outputs["execution_plan"] == []

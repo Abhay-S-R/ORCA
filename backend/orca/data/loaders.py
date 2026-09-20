@@ -316,6 +316,59 @@ _GAZETTEER: dict[str, tuple[float, float]] = {
     "laccadive sea": (10.00, 74.00),
 }
 
+# ── P1.5 (`R-EDGE-4`) — Tamil-script keys ──────────────────────────────────
+#
+# A fully-Tamil query resolved NOTHING before this: only the Latin keys above
+# matched, so "தூத்துக்குடியில் கடல் எப்படி இருக்கும்?" fell through to
+# DEFAULT_LAT/LON and was answered at the Gulf of Mannar default. This will
+# happen in the Tamil demo, which is why it is a Phase 1 point.
+#
+# HONEST GAP, the same standard distress.py holds its phrase lists to: these
+# are the standard Tamil spellings of places whose English names are already
+# in the table above, mapped onto the SAME coordinates — so a Tamil query and
+# its English translation can never resolve to two different positions. They
+# have NOT been reviewed by a native speaker; that review is P3.7's and these
+# belong in it. Colloquial and dialect spellings are not covered.
+_TAMIL_ALIASES: dict[str, str] = {
+    "தூத்துக்குடி": "thoothukudi",
+    "பாம்பன்": "pamban",
+    "இராமேஸ்வரம்": "rameswaram",
+    "ராமேஸ்வரம்": "rameswaram",
+    "மண்டபம்": "mandapam",
+    "தனுஷ்கோடி": "dhanushkodi",
+    "திருச்செந்தூர்": "tiruchendur",
+    "கன்னியாகுமரி": "kanyakumari",
+    "குலசேகரப்பட்டினம்": "kulasekarapattinam",
+    "கிளாக்கரை": "kilakarai",
+    "வேம்பார்": "vembar",
+    "நாகப்பட்டினம்": "nagapattinam",
+    "கடலூர்": "cuddalore",
+    "சென்னை": "chennai",
+    "புதுச்சேரி": "puducherry",
+    "காரைக்கால்": "karaikal",
+    "வேளாங்கண்ணி": "velankanni",
+    "எண்ணூர்": "ennore",
+    "மாமல்லபுரம்": "mahabalipuram",
+    "மன்னார் வளைகுடா": "gulf of mannar",
+    "பாக் விரிகுடா": "palk bay",
+    "பாக் ஜலசந்தி": "palk strait",
+    "தமிழ்நாடு": "tamil nadu",
+}
+
+# Folded into the gazetteer rather than kept as a second lookup, so every
+# consumer — resolve_place_from_text, resolve_all_places_from_text,
+# places_within_region, the cache-refresh script that fetches every gazetteer
+# coordinate — sees the Tamil keys without a second edit each.
+_GAZETTEER.update(
+    {tamil: _GAZETTEER[latin] for tamil, latin in _TAMIL_ALIASES.items() if latin in _GAZETTEER}
+)
+# Chennai, Kochi, Mumbai and Visakhapatnam have no gazetteer row — they are
+# resolved from their own cached weather fixture instead — so their Tamil keys
+# go where the Latin aliases already live, not into the table above.
+_PORT_ALIASES.update(
+    {tamil: latin for tamil, latin in _TAMIL_ALIASES.items() if latin not in _GAZETTEER}
+)
+
 
 def resolve_place_from_text(text: str) -> ResolvedPlace | None:
     """First pilot-region place named in free text, or None if the text names
@@ -371,4 +424,106 @@ def _names_place(lowered: str, name: str) -> bool:
 
 @lru_cache(maxsize=512)
 def _name_pattern(name: str) -> re.Pattern[str]:
-    return re.compile(rf"\b{re.escape(name)}\b")
+    """Whole-word for Latin names, prefix-anchored for everything else.
+
+    English needs the trailing boundary: the all-India table is full of short
+    names that are substrings of ordinary English ("goa" in "goal"). Tamil —
+    and every other Indic script here — needs the opposite, because case is a
+    suffix glued onto the noun: "தூத்துக்குடியில்" ("in Thoothukudi") is the
+    normal way to say it and has no word boundary after the place name at all,
+    so a trailing \\b would miss every inflected form, which is most of them."""
+    if name.isascii():
+        return re.compile(rf"\b{re.escape(name)}\b")
+    # A Tamil noun ending in ம் drops it in every oblique form — Nagapattinam
+    # is "நாகப்பட்டினம்" on its own and "நாகப்பட்டினத்தில்" in "at
+    # Nagapattinam", which is how it is actually asked. Matching the stem with
+    # the ம் optional catches both; the stem is long enough that nothing else
+    # in the table can collide with it.
+    stem = name.removesuffix("ம்")
+    tail = "(?:ம்)?" if stem != name else ""
+    return re.compile(rf"(?<!\w){re.escape(stem)}{tail}")
+
+
+# Gazetteer keys that name a *region*, not a position. A state's coastline is
+# 300-600 km long and the entry below is its centroid, so answering "is it safe
+# in Kerala?" at one of these is the same confidently-wrong failure the
+# all-India table was added to fix, one level up: the numbers would be real,
+# they would just belong to a stretch of sea the asker may be 400 km from.
+# Several are not even wet — Kerala's (10.50, 76.00) is inland.
+#
+# The named gulfs, bays and straits are deliberately NOT here: Palk Bay and the
+# Gulf of Mannar are fishing grounds small enough that one position genuinely
+# represents them, which is why the pilot region answers at them.
+_REGION_KEYS: frozenset[str] = frozenset(
+    {
+        "tamil nadu", "kerala", "karnataka", "goa", "maharashtra", "gujarat",
+        "andhra pradesh", "odisha", "west bengal", "andaman", "nicobar",
+        "lakshadweep", "bay of bengal", "arabian sea", "indian ocean",
+        "laccadive sea", "andaman sea",
+    }
+    | {f"{s} coast" for s in ("tamil nadu", "kerala", "karnataka", "goa", "maharashtra", "gujarat", "odisha", "west bengal", "andaman")}
+    | {"andhra coast", "தமிழ்நாடு"}  # the Tamil key for the state is a region too (P1.5)
+)
+
+
+def is_region_name(name: str) -> bool:
+    """True when `name` is a whole coastline or ocean basin rather than a place
+    a vessel can be at. `resolve_or_ask` turns these into a "which of these?"
+    instead of an answer (P1.2/P1.4)."""
+    return name.lower() in _REGION_KEYS
+
+
+def places_within_region(name: str, limit: int = 4) -> list[ResolvedPlace]:
+    """The specific gazetteer places closest to a region's own centroid — the
+    candidate list a region query is answered with. Derived from the table
+    rather than hand-grouped, so adding a port to `_GAZETTEER` cannot leave a
+    second list out of step with it."""
+    here = _GAZETTEER.get(name.lower())
+    if here is None:
+        return []
+    # First name per coordinate only — the table carries aliases ("kozhikode"
+    # and "calicut" are one port), and offering both as separate choices is
+    # not a choice.
+    by_coord: dict[tuple[float, float], ResolvedPlace] = {}
+    for n, (la, lo) in _GAZETTEER.items():
+        if not is_region_name(n):
+            by_coord.setdefault((la, lo), ResolvedPlace(n, la, lo, "gazetteer"))
+    specific = sorted(by_coord.values(), key=lambda p: (p.lat - here[0]) ** 2 + (p.lon - here[1]) ** 2)
+    return specific[:limit]
+
+
+def resolve_all_places_from_text(text: str) -> list[ResolvedPlace]:
+    """Every distinct place the text names, most-specific first — the input to
+    the "you named two places, which did you mean?" guard (P1.4).
+
+    Matches are claimed by span so a longer name swallows the shorter names
+    inside it: "tamil nadu coast" is one place, not also "tamil nadu", and
+    "gulf of mannar" is never additionally reported as some other row that
+    happens to sit inside the same words.
+    """
+    lowered = text.lower()
+    claimed: list[tuple[int, int]] = []
+    found: list[ResolvedPlace] = []
+    seen: set[tuple[float, float]] = set()
+
+    def _take(name: str, lat: float, lon: float, source: str) -> None:
+        m = _name_pattern(name).search(lowered)
+        if m is None or any(m.start() < e and s < m.end() for s, e in claimed):
+            return
+        claimed.append((m.start(), m.end()))
+        if (lat, lon) not in seen:
+            seen.add((lat, lon))
+            found.append(ResolvedPlace(name, lat, lon, source))
+
+    for source, table in (("gazetteer", _GAZETTEER), ("tide_station", tide_station_coordinates())):
+        for name, (lat, lon) in sorted(table.items(), key=lambda kv: -len(kv[0])):
+            _take(name, lat, lon, source)
+
+    coords = port_coordinates()
+    for alias, port in sorted(_PORT_ALIASES.items(), key=lambda kv: -len(kv[0])):
+        if port in coords:
+            _take(alias, *coords[port], "port_fixture")
+    for port, (lat, lon) in sorted(coords.items(), key=lambda kv: -len(kv[0])):
+        _take(port, lat, lon, "port_fixture")
+
+    return found

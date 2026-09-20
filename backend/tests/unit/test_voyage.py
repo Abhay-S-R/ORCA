@@ -161,3 +161,35 @@ def test_wave_height_falls_back_to_extracted_points_when_grid_missing(monkeypatc
     # Outside the extraction footprint it must still return None rather than
     # reach for the nearest point at any distance.
     assert voyage.wave_height_at(21.6, 88.0, datetime(2026, 8, 30, tzinfo=timezone.utc)) is None
+
+
+# --- P1.2 (`R-NEW-8`) — no silent default draft ----------------------------
+
+def test_an_unsupplied_draft_is_the_deepest_of_the_class_and_says_so():
+    """`voyage.py` used to fall back to 1.2 m for small_fishing silently, so a
+    deeper boat got a clearance answer computed for a shallower one and was
+    never told. Conservative and disclosed, or it is not a safety answer."""
+    from orca.agents.voyage import _ASSUMED_DRAFT_M, plan_voyage
+
+    plan = plan_voyage((8.75, 78.20), (9.05, 78.95), vessel_class="small_fishing")
+    assert plan.draft_source == "assumed_deepest_of_class"
+    assert plan.draft_m == _ASSUMED_DRAFT_M["small_fishing"]
+    assert plan.draft_disclosure and f"{plan.draft_m:.1f} m" in plan.draft_disclosure
+    # Conservative means deeper than the old typical value, never shallower.
+    assert plan.draft_m > 1.2
+
+
+def test_a_supplied_draft_is_used_as_given_with_nothing_to_disclose():
+    from orca.agents.voyage import plan_voyage
+
+    plan = plan_voyage((8.75, 78.20), (9.05, 78.95), vessel_class="small_fishing", draft_m=0.9)
+    assert (plan.draft_m, plan.draft_source, plan.draft_disclosure) == (0.9, "supplied", None)
+
+
+def test_every_vessel_class_has_an_assumed_draft_and_the_deepest_is_the_fallback():
+    from orca.agents.risk_assessment import VesselClass
+    from orca.agents.voyage import _ASSUMED_DRAFT_M, _MOST_CONSERVATIVE_CLASS
+
+    classes = set(VesselClass.__args__)  # type: ignore[attr-defined]
+    assert set(_ASSUMED_DRAFT_M) == classes
+    assert _ASSUMED_DRAFT_M[_MOST_CONSERVATIVE_CLASS] == max(_ASSUMED_DRAFT_M.values())

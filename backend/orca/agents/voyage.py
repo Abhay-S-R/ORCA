@@ -35,14 +35,27 @@ WW3_DIR = DATA_ROOT / "incois_osf_pfz" / "osf_ww3"
 _IMBL_PROXY_BOUNDARY = "Sri Lankan Exclusive Economic Zone"  # same stand-in graph.py uses — no dedicated IMBL line in the pilot data
 _MPA_SOURCE_FILE = "india_marine_mpas.geojson"  # any geofence-usable hit loaded from this file is an MPA, regardless of which park
 
-# Draft-by-vessel-class defaults (m), used only when the caller doesn't supply
-# a real one — a different physical quantity from risk_assessment's wind/wave
-# deltas, so its own table rather than reusing that one.
-_DEFAULT_DRAFT_M: dict[VesselClass, float] = {
-    "small_fishing": 1.2,
-    "mechanized_trawler": 2.5,
-    "cargo_vessel": 6.0,
+# P1.2 (`R-NEW-8`) — what to assume when the caller supplies no draft.
+#
+# These are the DEEPEST draft in each class, not a typical one, and that is
+# the whole point. A draft is only ever used here to subtract from a sounding:
+# assume too little and a route reads CLEAR over water the vessel would ground
+# in. The old table held typical values (1.2 m for small_fishing) and applied
+# them SILENTLY, so a 1.8 m-draft trawler-tender got a clearance answer
+# computed for a boat 0.6 m shallower and was never told.
+#
+# They are assumptions, labelled as assumptions everywhere they reach a user
+# (`VoyagePlan.draft_source`, `draft_disclosure`), and one supplied `draft_m`
+# replaces them entirely. They are NOT measurements of anyone's vessel and
+# must never be presented as one.
+_ASSUMED_DRAFT_M: dict[VesselClass, float] = {
+    "small_fishing": 1.8,
+    "mechanized_trawler": 3.5,
+    "cargo_vessel": 9.0,
 }
+# When the class itself is unknown, assume the most conservative class rather
+# than the most common one — same direction, one level up.
+_MOST_CONSERVATIVE_CLASS: VesselClass = "cargo_vessel"
 _DRAFT_SAFETY_MARGIN_M = 2.0  # under-keel clearance a route must keep, not just "afloat"
 CORRIDOR_BUFFER_NM = 2.0
 STEP_NM = 2.0  # densification spacing — coarse enough to keep segment count sane over a multi-day route, fine enough a hazard can't hide between points
@@ -326,7 +339,18 @@ def plan_voyage(
     departure = datetime.fromisoformat(departure_time.replace("Z", "+00:00")) if departure_time else now
     if departure.tzinfo is None:
         departure = departure.replace(tzinfo=timezone.utc)
-    draft = draft_m if draft_m is not None else _DEFAULT_DRAFT_M.get(vessel_class, 1.2)
+    draft_source: Literal["supplied", "assumed_deepest_of_class"]
+    if draft_m is not None:
+        draft, draft_source = draft_m, "supplied"
+        draft_disclosure = None
+    else:
+        draft = _ASSUMED_DRAFT_M.get(vessel_class) or _ASSUMED_DRAFT_M[_MOST_CONSERVATIVE_CLASS]
+        draft_source = "assumed_deepest_of_class"
+        draft_disclosure = (
+            f"No draft was given, so this plan assumes {draft:.1f} m — the deepest draft in the "
+            f"{vessel_class.replace('_', ' ')} class, not a measurement of your vessel. "
+            "Enter your real draft to re-check the shallow legs against it."
+        )
 
     points = densify_route(origin, destination)
     segments, confidences, verdict, reason = _classify_route(points, departure, now, vessel_class, draft, speed_kn)
@@ -369,6 +393,7 @@ def plan_voyage(
         departure_time=departure.isoformat().replace("+00:00", "Z"), segments=tuple(segments),
         verdict=verdict, verdict_reason=reason, corridor_geojson=corridor,
         confidence=compute_confidence(confidences), rerouted=rerouted, alternatives_tried=tuple(alternatives_tried),
+        draft_m=draft, draft_source=draft_source, draft_disclosure=draft_disclosure,
     )
 
 

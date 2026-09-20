@@ -47,7 +47,7 @@ from orca.api.voyage_routes import router as voyage_router
 from orca.api.watches_routes import router as watches_router
 from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
 from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
-from orca.data.loaders import resolve_place_from_text
+from orca.place_resolution import resolve_or_ask
 from orca.graph.graph import build_graph
 from orca.agents.planning import carry_intent, classify_intent
 from orca.logging_utils import configure_logging
@@ -173,6 +173,7 @@ def _initial_state(
     place: tuple[str | None, str] = (None, "explicit"),
     session_id: str | None = None,
     session_history: list[dict] | None = None,
+    resolution: dict | None = None,
 ) -> ORCAState:
     return {  # type: ignore[typeddict-item]
         "session_id": session_id or "",
@@ -210,6 +211,14 @@ def _initial_state(
         # control as sufficient on its own, with no text needed, and the
         # graph then routes straight to END (Architecture §3.2 step 1).
         "distress_flag": distress,
+        # P1.2 — how that position was arrived at, in full: status, candidates
+        # and the sentence the card has to show before the answer. The graph's
+        # place_guard reads it; nothing downstream may quietly ignore it.
+        "place_resolution": resolution,
+        "query_outcome": "DISTRESS" if distress else "ANSWERED",
+        # Seeded with the place disclosure when there is one, appended to by
+        # any node with something else to disclose (operator.add in ORCAState).
+        "disclosures": [d] if (d := (resolution or {}).get("disclosure")) and (resolution or {}).get("status") == "fallback" else [],
     }
 
 
@@ -250,6 +259,7 @@ async def _query_stream(
     on_final: Callable[[dict], None] | None = None,
     session_id: str | None = None,
     session_history: list[dict] | None = None,
+    resolution: dict | None = None,
 ) -> AsyncIterator[str]:
     """`on_final`, when given, is called once with the same dict that gets
     JSON-serialized into the `final_response` SSE frame — the query-cache
@@ -257,6 +267,7 @@ async def _query_stream(
     value so this stays a plain generator callers can iterate directly."""
     state = _initial_state(
         query, lat, lon, vessel_class, distress, persona, depth, place, session_id, session_history,
+        resolution,
     )
     emitted = 0  # every graph node appends exactly one completed_nodes entry
     # AND exactly one audit_trace_log entry in the same call (see graph.py) —
@@ -357,6 +368,20 @@ async def _query_stream(
             ),
             "citations": final_state.get("evidence_citations", []),
             "distress_flag": final_state.get("distress_flag", False),
+            # Phase 1. `outcome` is contracts.QueryOutcome — the UI renders a
+            # refusal or a "which place?" card for anything but "ANSWERED",
+            # and must not draw a verdict badge on one. `place_resolution`
+            # carries the candidates that question needs to be answerable, and
+            # `disclosures` are the sentences that go ABOVE the answer, not
+            # below it: a fallback that is not disclosed is a lie (principle 3).
+            "outcome": final_state.get("query_outcome") or ("DISTRESS" if final_state.get("distress_flag") else "ANSWERED"),
+            "place_resolution": final_state.get("place_resolution"),
+            # A refused question was never answered at a position, so the place
+            # disclosure seeded before routing has nothing left to disclose —
+            # showing it would read as "here is where we answered", next to a
+            # card that says we did not. `disclosures` is an additive channel
+            # (ORCAState), so the node that refuses cannot clear it; here can.
+            "disclosures": [] if final_state.get("query_outcome") == "OUT_OF_SCOPE" else final_state.get("disclosures", []),
             # Which position every number in this response was computed at,
             # and how it was arrived at. The UI has to be able to show this:
             # a "GO" that silently belongs to the regional default rather
@@ -529,14 +554,29 @@ async def query(
 
     place_name: str | None = None
     place_source = "explicit"
+    resolution: dict | None = None
     if lat is None or lon is None:
-        place = resolve_place_from_text(q)
-        if place is not None:
-            lat, lon, place_name, place_source = place.lat, place.lon, place.name, place.source
-        elif (carried := session_memory.last_place(history)) is not None:
-            lat, lon, place_name = carried
-            place_source = "session_carried"
+        # P1.2 — one shared guard, not a second copy of the old inline
+        # if-ladder. It returns four outcomes, and the two that cannot be
+        # answered at a position (`ambiguous`, `unresolvable`) are stopped by
+        # the graph's place_guard node, *after* Agent 12 has had the query —
+        # never here, where a distress call would be refused for naming no port.
+        carried = session_memory.last_place(history)
+        resolved = resolve_or_ask(q, {"last_place": carried} if carried else None)
+        resolution = resolved.as_dict()
+        if resolved.place is not None:
+            lat, lon = resolved.place.lat, resolved.place.lon
+            place_source = resolved.place.source
+            # The regional default is nobody's place name. Leaving place_name
+            # None there is what stops Agent 9 putting the user's words on the
+            # default's numbers. A carried-over place IS a real name — it just
+            # came from the previous turn rather than this one, which is what
+            # place_source and the disclosure say.
+            place_name = None if place_source == "regional_default" else resolved.place.name
         else:
+            # Unresolvable or ambiguous: the graph will stop before any agent
+            # reads this, and "regional_default" is what tells Agent 12 in the
+            # meantime that it has no position for this caller (P4.16).
             lat, lon, place_source = _DEFAULT_LAT, _DEFAULT_LON, "regional_default"
 
     # A distress query is never cached or coalesced onto another in-flight
@@ -548,7 +588,7 @@ async def query(
         return StreamingResponse(
             _remember_turns(session_id, q, _query_stream(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
-                session_id=session_id, session_history=history,
+                session_id=session_id, session_history=history, resolution=resolution,
             )),
             media_type="text/event-stream"
         )
@@ -574,7 +614,7 @@ async def query(
             async for line in _query_stream(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
                 on_final=None if follow_up else (lambda final: query_cache_store(cache_key, final)),
-                session_id=session_id, session_history=history,
+                session_id=session_id, session_history=history, resolution=resolution,
             ):
                 yield line
 

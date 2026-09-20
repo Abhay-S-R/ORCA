@@ -39,7 +39,9 @@
 
 ORCA is a **conversational, multi-agent decision-support system** that sits on top of India's fragmented marine data ecosystem — INCOIS, MOSDAC, IMD, Bhuvan, Copernicus, NASA — and turns a fisherman's question into a synthesized, evidence-backed, multi-source answer, in their own language, with a map and a clear verdict.
 
-The platform is purpose-built for the **South Tamil Nadu coast** — Thoothukudi, Rameswaram, Kanyakumari, Palk Bay, and the Gulf of Mannar:
+**Coverage, stated exactly.** ORCA does **national place resolution and national PFZ sectors**, with **deep validation in the Gulf of Mannar pilot**. A question naming Veraval, Kakinada, Paradip, Digha, Port Blair or Kavaratti resolves to that place, on that coast, in its own INCOIS sector — it is not answered with Tamil Nadu's numbers. What the pilot region adds is depth, not reach: surveyed positions, a hand-checked MPA polygon, a tide-gauge station and published catch validation, none of which exist yet for every coast. Where a position or a sector is a fallback rather than the one you asked about, ORCA says so on the card before it answers.
+
+The pilot region itself is the **South Tamil Nadu coast** — Thoothukudi, Rameswaram, Kanyakumari, Palk Bay, and the Gulf of Mannar:
 
 > 🚨 Fishermen in this region are regularly detained for accidental IMBL crossings into Sri Lankan waters.
 > The Gulf of Mannar Marine National Park creates an active MPA boundary.
@@ -453,6 +455,8 @@ These ten principles are non-negotiable. Every agent, every API response, and ev
 ---
 
 ## 🗺️ Pilot Region — South Tamil Nadu
+
+**Pilot is not the same as coverage.** Place resolution and PFZ sectors are national (see "What is ORCA?" above): every coastal state and both island territories resolve to their own positions and their own INCOIS sector. This section is about where ORCA has been *validated deeply*, which is a smaller claim and a different one.
 
 ORCA's pilot region is the **South Tamil Nadu coast** — Thoothukudi, Rameswaram, Kanyakumari, Palk Bay, and the Gulf of Mannar. This is the only region in India where all five stakeholder groups named in the problem statement have a **current, non-hypothetical** reason to use the platform simultaneously:
 

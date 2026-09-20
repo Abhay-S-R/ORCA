@@ -104,11 +104,59 @@ def sector_for_point(lat: float, lon: float) -> str:
     for sector_id, lat0, lat1, lon0, lon1 in _ISLAND_SECTORS:
         if lat0 <= lat < lat1 and lon0 <= lon <= lon1:
             return sector_id
+    return sector_for_point_disclosed(lat, lon)[0]
+
+
+# The bands below have no outer edge by design — the southernmost entry on each
+# coast is open-ended so no Indian coastal position can fall through them. That
+# also means a position in the middle of the Arabian Sea off Oman would be
+# handed SEC001 Gujarat with a straight face, so the lookup is bounded here
+# first. Matches place_resolution.DATA_EXTENT, widened by nothing.
+_SECTOR_EXTENT = (5.0, 25.0, 66.0, 96.0)  # (lat_min, lat_max, lon_min, lon_max)
+
+
+def sector_for_point_disclosed(
+    lat: float, lon: float, place_source: str | None = None
+) -> tuple[str, str | None]:
+    """P1.6 (`R-INDIA-2`) — the sector AND, when it is not really the user's,
+    the sentence saying so.
+
+    `sector_for_point` answers the first half and always has. The half that
+    was missing is that its answer is indistinguishable from a fallback: a
+    caller got a bare "SEC006" whether that was derived from a real position
+    or was the pilot sector standing in for one. SEC006 survives here only as
+    a *disclosed* fallback, which is what the point asks for.
+    """
+    lat0, lat1, lon0, lon1 = _SECTOR_EXTENT
+    if not (lat0 <= lat <= lat1 and lon0 <= lon <= lon1):
+        return _PILOT_SECTOR, (
+            f"{lat:.2f}N {lon:.2f}E is outside every INCOIS PFZ sector "
+            f"({lat0:g}-{lat1:g}N, {lon0:g}-{lon1:g}E). The sector status shown is the pilot "
+            "sector's, as a placeholder — it is not a statement about this position."
+        )
+    for sector_id, la0, la1, lo0, lo1 in _ISLAND_SECTORS:
+        if la0 <= lat < la1 and lo0 <= lon <= lo1:
+            return sector_id, _default_position_note(sector_id, place_source)
     bands = _WEST_COAST_BANDS if lon < _PENINSULA_TIP_LON else _EAST_COAST_BANDS
     for sector_id, min_lat in bands:
         if lat >= min_lat:
-            return sector_id
-    return _PILOT_SECTOR
+            return sector_id, _default_position_note(sector_id, place_source)
+    return _PILOT_SECTOR, (
+        f"No INCOIS sector band covers {lat:.2f}N {lon:.2f}E; the pilot sector "
+        f"{_PILOT_SECTOR} is shown as a fallback."
+    )
+
+
+def _default_position_note(sector_id: str, place_source: str | None) -> str | None:
+    """A sector derived from the pilot default position is the pilot's sector
+    however it was arrived at. Saying "your sector is SEC006" to someone whose
+    position we never learned is the exact claim P1.6 exists to stop."""
+    if place_source != "regional_default":
+        return None
+    return (
+        f"Sector {sector_id} was derived from the pilot default position, not from yours — "
+        "this question named no place. Name one, or send your position, for your own sector."
+    )
 
 
 def _compass(bearing_deg: float) -> str:
@@ -1247,7 +1295,7 @@ def run(state: ORCAState) -> AgentResult:
 
     # The user's own sector governs the status they see — resolved from their
     # actual position, not assumed to be the pilot's.
-    user_sector = sector_for_point(lat, lon)
+    user_sector, sector_disclosure = sector_for_point_disclosed(lat, lon, loc.get("place_source"))
     persistence = score_pfz_persistence(lat, lon, sector_id=near.sector_id or user_sector)
     sec_status = sector_status(user_sector)
     sec_status["nearest_advisory_out_of_sector"] = bool(
@@ -1292,6 +1340,10 @@ def run(state: ORCAState) -> AgentResult:
         "wind_anomaly": {k: v for k, v in anomaly_wind.items() if k != "confidence"},
         "osf_point_forecast": {k: v for k, v in osf_point.items() if k != "confidence"},
         "source_selections": source_selections,
+        # P1.6 — None when the sector really is this position's. A sentence
+        # when it is a fallback, which graph.ocean_analytics_node puts on the
+        # card above the answer rather than leaving it to be inferred.
+        "sector_disclosure": sector_disclosure,
     }
 
     # Primary operational confidence: tide + PFZ proximity

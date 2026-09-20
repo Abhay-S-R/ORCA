@@ -1,9 +1,15 @@
 """LangGraph pipeline:
 
     distress_check --[distress_flag]--> END (response built in this node)
-                   --[else]-----------> language_ingress
+                   --[else]-----------> query_guard
+                                            |
+                        --[can't place it / can't reach that time]--> END
+                                            |
+                                     language_ingress
                                             |
                                          planning
+                                            |
+                        --[OUT_OF_SCOPE]--> out_of_scope --> END
                                             |
                         +-------------------+-------------------+
                         v                   v                   v
@@ -32,6 +38,12 @@ ocean_analytics (Agent 5, Phase 2 D2) is a third sibling of weather/geospatial
 — tide, PFZ proximity/persistence, sector status, and the DEEP catch-decline
 diagnosis; it also carries Agent 3's source-selection narratives out on
 discovery_data for the answer card.
+
+query_guard and out_of_scope (Phase 1, P1.2-P1.4) are guards, not agents: they
+run no model, read no dataset, and emit no trace entry. Both sit downstream of
+distress_check and nowhere else, which is the ordering the phase depends on —
+a garbled, place-less, out-of-scope-looking message is exactly what someone in
+trouble sends, and Agent 12 sees every one of them first.
 """
 from __future__ import annotations
 
@@ -39,6 +51,7 @@ from dataclasses import asdict
 
 from langgraph.graph import END, START, StateGraph
 
+from orca import place_resolution
 from orca.agents import (
     critic,
     distress,
@@ -51,6 +64,7 @@ from orca.agents import (
     visualization,
     weather_intelligence,
 )
+from orca.agents.planning import OUT_OF_SCOPE_ROW
 from orca.contracts import AgentResult, Confidence, coerce_confidence_score
 from orca.state import ORCAState
 from orca.trace import run_traced_node
@@ -110,7 +124,110 @@ def _route_after_distress(state: ORCAState) -> str:
     # END is untyped (a plain interned str, not a Literal) in langgraph's own
     # stubs, so this can't be a Literal return type without mypy complaining
     # about the exact thing that makes END work at all.
-    return END if state.get("distress_flag") else "language_ingress"
+    return END if state.get("distress_flag") else "query_guard"
+
+
+def _candidate_list(candidates: list[dict]) -> str:
+    return ", ".join(f"{c['name'].title()} ({c['lat']:.2f}N {c['lon']:.2f}E)" for c in candidates)
+
+
+def _refusal(outcome: str, body: str) -> dict:
+    """A stop with no marine content in it. Certainty about *not knowing* is
+    still certainty, so the tier is HIGH: no reading was taken, so nothing
+    here can be stale or thin, and a LOW_DATA label would read as "a weak
+    answer" rather than "no answer, and here is what I need"."""
+    return {
+        "query_outcome": outcome,
+        "final_english_response": body,
+        "final_vernacular_response": body,
+        "confidence_tier": "HIGH",
+        "disclosures": [body],
+    }
+
+
+def query_guard_node(state: ORCAState) -> dict:
+    """P1.2 (`R-NEW-1`) and P1.4 (`R-EDGE-3`) — the position-and-time gate, and
+    the second node in the graph for a reason: it sits *after* distress_check
+    and before everything else, so "we are sinking near my village" is an SOS,
+    never a request to name a port.
+
+    Seven of P1.4's eight guard clauses land here, in the order a wrong answer
+    would have been built: which place (unresolvable, ambiguous name, several
+    places at once, bare coordinates), then which time (past dates, beyond the
+    forecast horizon), then whether the place is one any marine reading is
+    valid at (inland, outside the data extent). The eighth, expired cache,
+    belongs to the reading rather than the question — see risk_assessment_node.
+
+    Every clause names the actual limit; "I can't help with that" without the
+    number is the thing this point exists to replace.
+
+    Emits no audit_trace_log/completed_nodes entry: it is a guard, not an
+    agent, and main.py pairs those two lists index-for-index."""
+    resolution = state.get("place_resolution") or {}
+    if resolution.get("status") in ("ambiguous", "unresolvable"):
+        disclosure = resolution.get("disclosure") or "I could not work out where this question is about."
+        candidates = resolution.get("candidates") or []
+        body = disclosure if not candidates else f"{disclosure} Did you mean: {_candidate_list(candidates)}?"
+        return _refusal("NEEDS_PLACE", body)
+
+    # Time before position: "was it rough off Veraval last Tuesday?" has a
+    # perfectly good position and still has no answer here.
+    when = place_resolution.time_guard(state.get("raw_user_query", "") or "")
+    if when is not None:
+        return _refusal("OUT_OF_RANGE", when)
+
+    location = state.get("user_location") or {}
+    lat, lon = location.get("lat"), location.get("lon")
+    if lat is None or lon is None:
+        return {}
+    where = place_resolution.position_guard(float(lat), float(lon))
+    if where is None:
+        return {}
+    # Whose position is it? A fix the caller supplied — an explicit lat/lon or
+    # a coordinate pair typed into the question — that turns out to be inland
+    # or off the data extent is an answerless question, and saying so is the
+    # whole guard. A *named* place is different: "wave height at Kanyakumari"
+    # is a perfectly good question, and the on-land reading is an artefact of
+    # the gazetteer holding the town's coordinates rather than the harbour
+    # approach's. Refusing it would blame the user for our table.
+    #
+    # KNOWN GAP, do not mistake this disclosure for a fix: 47 of the 83
+    # distinct gazetteer places are on land by GEBCO (audited 2026-09-20).
+    # The real repair is snapping each to its nearest wet cell — the machinery
+    # exists in scripts/orca_grid_utils.py — which is a data pass, not a guard
+    # clause, and is not in P1.4's scope. Until it happens, a depth-dependent
+    # answer at those places is thin and now says so.
+    if location.get("place_source") in ("explicit", "coordinates"):
+        return _refusal("OUT_OF_RANGE", where)
+    return {"disclosures": [where + " The position held for this place is the town, not the harbour approach, so depth-dependent readings here may be missing."]}
+
+
+def _route_after_query_guard(state: ORCAState) -> str:
+    return END if state.get("query_outcome") in ("NEEDS_PLACE", "OUT_OF_RANGE") else "language_ingress"
+
+
+def out_of_scope_node(state: ORCAState) -> dict:
+    """P1.3 (`R-EDGE-1`) — a first-class "I can't answer that": a short
+    refusal plus a redirect, and emphatically zero marine content. No agent
+    below Planning has run, so there is no number here to be wrong."""
+    body = (
+        "I can't answer that. I only answer questions about conditions at sea off India — "
+        "whether it is safe to go out, waves, wind, tides, fishing zones, and maritime "
+        "boundaries. Ask me one of those and name a place, or tap SOS if you are in trouble."
+    )
+    return {
+        "query_outcome": "OUT_OF_SCOPE",
+        "final_english_response": body,
+        "final_vernacular_response": body,
+        "confidence_tier": "HIGH",
+        "execution_plan": [],
+    }
+
+
+def _route_after_planning(state: ORCAState) -> list[str] | str:
+    if OUT_OF_SCOPE_ROW in (state.get("matched_intent_rows") or []):
+        return "out_of_scope"
+    return ["weather_intelligence", "geospatial", "ocean_analytics"]
 
 
 def language_ingress_node(state: ORCAState) -> dict:
@@ -192,6 +309,11 @@ def ocean_analytics_node(state: ORCAState) -> dict:
     selections = result.outputs.get("source_selections") if result.outputs else None
     if selections:
         update["discovery_data"] = {"source_selections": selections}
+    # P1.6 — a sector that is a fallback rather than this position's own says
+    # so on the card, not only in the payload.
+    sector_note = result.outputs.get("sector_disclosure") if result.outputs else None
+    if sector_note:
+        update["disclosures"] = [sector_note]
     return update
 
 
@@ -263,12 +385,22 @@ def geospatial_node(state: ORCAState) -> dict:
 
 def risk_assessment_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("risk_assessment", risk_assessment.run, state)
-    return {
+    update = {
         "risk_assessment": result.outputs,
         "confidence_tier": result.confidence.score,
         "audit_trace_log": [entry],
         "completed_nodes": ["risk_assessment"],
     }
+    # P1.4's eighth guard clause, expired cache. The detection is P0.5's and
+    # stays there (freshness.past_staleness_ceiling floors this verdict and
+    # names the age in `reason`); what Phase 1 adds is putting that fact where
+    # the card shows it BEFORE the answer, rather than only inside a verdict
+    # reason the eye skips. `disclosures` is additive, so this sits alongside
+    # any place disclosure rather than replacing it.
+    status = (result.outputs or {}).get("status")
+    if status in ("CAUTION_STALE_DATA", "CAUTION_MISSING_DATA"):
+        update["disclosures"] = [result.outputs.get("reason", status)]
+    return update
 
 
 def visualization_node(state: ORCAState) -> dict:
@@ -461,6 +593,8 @@ def language_egress_node(state: ORCAState) -> dict:
 def build_graph():
     g = StateGraph(ORCAState)
     g.add_node("distress_check", distress_check_node)
+    g.add_node("query_guard", query_guard_node)
+    g.add_node("out_of_scope", out_of_scope_node)
     g.add_node("language_ingress", language_ingress_node)
     g.add_node("planning", planning_node)
     g.add_node("weather_intelligence", weather_node)
@@ -473,11 +607,19 @@ def build_graph():
     g.add_node("language_egress", language_egress_node)
 
     g.add_edge(START, "distress_check")
-    g.add_conditional_edges("distress_check", _route_after_distress, {END: END, "language_ingress": "language_ingress"})
+    g.add_conditional_edges("distress_check", _route_after_distress, {END: END, "query_guard": "query_guard"})
+    g.add_conditional_edges("query_guard", _route_after_query_guard, {END: END, "language_ingress": "language_ingress"})
     g.add_edge("language_ingress", "planning")
-    g.add_edge("planning", "weather_intelligence")
-    g.add_edge("planning", "geospatial")
-    g.add_edge("planning", "ocean_analytics")
+    g.add_conditional_edges(
+        "planning", _route_after_planning,
+        {
+            "out_of_scope": "out_of_scope",
+            "weather_intelligence": "weather_intelligence",
+            "geospatial": "geospatial",
+            "ocean_analytics": "ocean_analytics",
+        },
+    )
+    g.add_edge("out_of_scope", END)
     g.add_edge(["weather_intelligence", "geospatial", "ocean_analytics"], "risk_assessment")
     g.add_edge(["weather_intelligence", "geospatial", "ocean_analytics"], "visualization")
     g.add_edge(["risk_assessment", "visualization"], "reporting")

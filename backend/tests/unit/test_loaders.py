@@ -56,3 +56,46 @@ def test_the_default_position_is_at_sea():
     depth = depth_at_point(DEFAULT_LAT, DEFAULT_LON)
     assert depth.on_land is False, depth
     assert depth.depth_m and depth.depth_m > 10.0, depth
+
+
+# Hand-checked offshore bounding boxes, (lat_min, lat_max, lon_min, lon_max),
+# deliberately non-overlapping so "resolved inside its own state" is a real
+# assertion and not one box quietly containing another state's answer.
+_STATE_BOXES = {
+    "Gujarat": (20.0, 24.0, 68.0, 73.0),
+    "Kerala": (8.0, 13.0, 74.0, 77.5),
+    "Andhra Pradesh": (13.5, 19.5, 79.5, 83.4),
+    "Odisha": (18.5, 22.0, 83.5, 87.0),
+    "West Bengal": (21.0, 22.5, 87.1, 89.0),
+}
+
+# Phase 1 exit gate, P1.1 (`R-INDIA-1`): ten coastal places across five states.
+_TEN_PLACES = [
+    ("is it safe near Veraval", "veraval", "Gujarat"),
+    ("conditions at Porbandar", "porbandar", "Gujarat"),
+    ("waves off Kozhikode", "kozhikode", "Kerala"),
+    ("tide at Kollam", "kollam", "Kerala"),
+    ("fishing near Kakinada", "kakinada", "Andhra Pradesh"),
+    ("sea state at Machilipatnam", "machilipatnam", "Andhra Pradesh"),
+    ("tide at Paradip", "paradip", "Odisha"),
+    ("conditions off Gopalpur", "gopalpur", "Odisha"),
+    ("is it safe at Digha", "digha", "West Bengal"),
+    ("waves near Haldia", "haldia", "West Bengal"),
+]
+
+
+def test_ten_coastal_places_across_five_states_each_resolve_within_their_own_state():
+    """P1.1 / the Phase 1 exit gate itself. The failure this guards is the
+    highest-harm one in the product: a Gujarat question answered with Tamil
+    Nadu numbers because the name resolved to nothing and fell through to
+    DEFAULT_LAT/LON."""
+    assert len({state for _, _, state in _TEN_PLACES}) == 5
+    for text, name, state in _TEN_PLACES:
+        p = resolve_place_from_text(text)
+        assert p is not None, f"{text!r} resolved to nothing — it would be answered at the regional default"
+        assert p.name == name, (text, p.name)
+        lat0, lat1, lon0, lon1 = _STATE_BOXES[state]
+        assert lat0 <= p.lat <= lat1 and lon0 <= p.lon <= lon1, (text, state, p)
+        # And emphatically not the Gulf of Mannar default every one of these
+        # used to land on.
+        assert abs(p.lat - DEFAULT_LAT) + abs(p.lon - DEFAULT_LON) > 1.0, (text, p)

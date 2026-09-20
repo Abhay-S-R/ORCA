@@ -500,6 +500,22 @@ class ORCAState(TypedDict):
                                                # before any other node executes
     sentinel_subscription: Optional[Dict]     # NEW v4 — set on ALERT_SUBSCRIPTION intent
 
+    query_outcome: str                        # NEW Phase 1 (P1.2/P1.3) — contracts.QueryOutcome:
+                                               # ANSWERED | OUT_OF_SCOPE | NEEDS_PLACE |
+                                               # OUT_OF_RANGE | DISTRESS. Set by the graph's own
+                                               # guards, never by an agent.
+    place_resolution: Optional[Dict]          # NEW Phase 1 (P1.2) — which position every number
+                                               # below was computed at, whether that position was
+                                               # the user's own choice, and the candidates to offer
+                                               # back when it was not
+    disclosures: Annotated[List[str], operator.add]
+                                               # NEW Phase 1 (P1.2/P1.4/P1.6) — sentences that must
+                                               # be shown ABOVE the answer. Additive because more
+                                               # than one node has something to disclose about the
+                                               # same answer (a carried-over place AND a fallback
+                                               # sector), and dropping either is the
+                                               # "a fallback that is not disclosed is a lie" failure
+
     final_english_response: str
     final_vernacular_response: str
     evidence_citations: List[Dict[str, Any]]

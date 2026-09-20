@@ -4,7 +4,7 @@
 // chart to drop origin/destination (or type coordinates), and ORCA returns a
 // per-leg classified route: the same hazard cascade `/safety` runs for a
 // single point, walked along the whole passage at each leg's own ETA.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Anchor, AlertTriangle, MapPin, Navigation } from "lucide-react";
 import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
 import { Button } from "../components/Button";
@@ -45,6 +45,14 @@ type VoyagePlanResponse = {
   // ARE the chosen detour, not the blocked direct route.
   rerouted: boolean;
   alternatives_tried: { strategy: string; verdict: Verdict; added_nm: number }[];
+  // P1.2 (`R-NEW-8`) — the draft every under-keel clearance on this plan was
+  // computed against, and whether it was the caller's choice. An assumed one
+  // carries `draft_disclosure` and MUST be shown: a clearance answer computed
+  // for a boat other than yours, unlabelled, is the silent-substitution
+  // failure Phase 1 is named after.
+  draft_m: number;
+  draft_source: "supplied" | "assumed_deepest_of_class";
+  draft_disclosure: string | null;
 };
 type Tide = {
   station_name: string; tidal_state: string; range_m: number | null; spring_neap: string;
@@ -99,6 +107,8 @@ export default function VoyagePage() {
   const [vesselClass, setVesselClass] = useState<VesselClass>("small_fishing");
   const [speedKn, setSpeedKn] = useState(8);
   const [draftM, setDraftM] = useState("");
+  // P1.2 — the "correct it in one tap" target for the assumed-draft banner.
+  const draftRef = useRef<HTMLInputElement>(null);
   const [departure, setDeparture] = useState("");
 
   const [plan, setPlan] = useState<VoyagePlanResponse | null>(null);
@@ -249,9 +259,10 @@ export default function VoyagePage() {
                 </Field>
               </div>
               <div className="grid grid-cols-2 gap-x-3">
-                <Field label="Draft (optional)" hint="By vessel class">
+                <Field label="Draft (optional)" hint="Deepest of class if blank">
                   {(id) => (
                     <input
+                      ref={draftRef}
                       id={id} type="number" min={0.1} step={0.1} value={draftM} placeholder="m"
                       onChange={(e) => setDraftM(e.target.value)} className={inputClass}
                     />
@@ -413,6 +424,24 @@ export default function VoyagePage() {
                   <ConfidenceMeter tier={plan.confidence.score} />
                 </div>
               </VerdictBadge>
+
+              {/* P1.2 — the assumed draft, above the waypoint table, with the
+                  correction one tap away. */}
+              {plan.draft_disclosure && (
+                <div className="flex items-start gap-2 rounded-lg border border-caution/35 bg-caution/5 px-3.5 py-2.5 text-xs text-ink-muted">
+                  <Navigation className="mt-0.5 size-3.5 shrink-0 text-caution" aria-hidden="true" />
+                  <span>
+                    <span className="font-semibold text-ink">Assumed draft.</span> {plan.draft_disclosure}{" "}
+                    <button
+                      type="button"
+                      onClick={() => draftRef.current?.focus()}
+                      className="underline underline-offset-2 transition-colors hover:text-ink"
+                    >
+                      Enter your draft
+                    </button>
+                  </span>
+                </div>
+              )}
 
               {/* Checklist P0 #2's own evidence: the direct line was blocked
                   and ORCA chose an alternate, not just reported the block. */}

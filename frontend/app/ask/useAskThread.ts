@@ -45,6 +45,24 @@ export type FinalResponse = {
   intent_actions?: IntentAction[];
   distress_flag?: boolean;
   user_location?: { lat: number; lon: number; place_name?: string | null; place_source?: string } | null;
+  // Phase 1 (contracts.QueryOutcome). Anything but "ANSWERED"/"DISTRESS" is a
+  // refusal or a question back, and must NOT be drawn as an answer with a
+  // verdict badge. Absent on answers cached before the field existed, which is
+  // why every read defaults to "ANSWERED".
+  outcome?: "ANSWERED" | "OUT_OF_SCOPE" | "NEEDS_PLACE" | "OUT_OF_RANGE" | "DISTRESS";
+  // Sentences that belong ABOVE the answer, not below it: the position was a
+  // fallback, the sector was a fallback, the reading is past its staleness
+  // ceiling. A fallback that is not disclosed is a lie (plan principle 3).
+  disclosures?: string[];
+  // Present when the backend could not settle on one position. `candidates`
+  // are the places to offer back, with coordinates, so the chip can re-ask.
+  place_resolution?: {
+    status: "resolved" | "ambiguous" | "unresolvable" | "fallback";
+    place_name?: string | null;
+    place_source?: string | null;
+    candidates?: { name: string; lat: number; lon: number }[];
+    disclosure?: string | null;
+  } | null;
 };
 
 export type Turn = {
