@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Refresh the NASA CMR granule listing for MODIS-Aqua chlorophyll
 (`nasa_ocean_color`, WEEKLY — freshness contract §3.3).
 

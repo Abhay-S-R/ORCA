@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Write the national PFZ layer (`all_india_pfz_advisories.geojson`) from the
 current INCOIS scrape. DLC R-INDIA-3.
 

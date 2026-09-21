@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Refresh the Copernicus Marine (CMEMS) subsets (`copernicus_cmems`, WEEKLY).
 
 Credentials required — free registration at
@@ -103,7 +102,7 @@ def main() -> int:
         try:
             copernicusmarine.subset(**kwargs)  # type: ignore[arg-type]
             print(f"    OK -> {OUT_DIR / filename}")
-        except Exception as exc:  # noqa: BLE001 — one dead product must not stop the rest
+        except Exception as exc:
             failures += 1
             msg = str(exc)
             print(f"    [FAIL] {msg[:300]}")

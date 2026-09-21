@@ -1,0 +1,11 @@
+# The repo-root scripts/ directory (the data-refresh jobs) had never been
+# linted: CI's backend-lint job runs `ruff check .` with working-directory
+# backend/, so nothing outside backend/ was ever seen. That is how fourteen
+# copies of the same EXE001 shebang problem sat unnoticed until one of them
+# happened to live under backend/.
+#
+# This file exists so `ruff check .` from the repo root applies the SAME rule
+# set CI applies, instead of falling back to ruff's much smaller defaults and
+# quietly disagreeing with the pipeline. The rules themselves stay defined in
+# one place, backend/pyproject.toml.
+extend = "backend/pyproject.toml"

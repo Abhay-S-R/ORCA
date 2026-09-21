@@ -22,23 +22,27 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
-from orca.agents.geospatial import depth_at_point  # noqa: E402
-from orca.data import loaders  # noqa: E402
+from orca.agents.geospatial import depth_at_point
+from orca.data import loaders
 
 # The harbours added in the 2026-09-20 all-India pass. Kept as a name list so
 # --added-only stays meaningful without a second copy of the coordinates.
-ADDED = """
-mangrol jakhau diu jafrabad navabandar sutrapada valsad navsari umbergaon mahuva salaya vanakbara
-malvan vengurla harnai dabhol shrivardhan murud uran satpati arnala versova
-malpe gangolli honnavar belekeri tadri kumta
-beypore ponnani munambam vizhinjam neendakara azhikkal thalassery chavakkad
-colachel thengapattinam muttom kadiapatnam manapad uvari periyathalai chinnamuttom tharuvaikulam punnakayal
-nagore tharangambadi tranquebar poompuhar parangipettai marakkanam pulicat
-nizampatnam kalingapatnam bheemunipatnam narsapur antarvedi uppada gangavaram vadarevu suryalanka ramayapatnam
-astaranga jatadhari talchua chandbali konark dhamara
-shankarpur junput kakdwip namkhana frasergunj "diamond harbour"
-mayabunder rangat diglipur hutbay "campbell bay" kamorta
-""".split()
+# An explicit list, not a whitespace-split block: the block form broke
+# "diamond harbour" and "campbell bay" into four tokens, so --added-only
+# looked for "diamond" and "harbour" and silently checked neither harbour.
+# Lines below keep the original geographic grouping, west coast round to east.
+ADDED = [
+    "mangrol", "jakhau", "diu", "jafrabad", "navabandar", "sutrapada", "valsad", "navsari", "umbergaon", "mahuva", "salaya", "vanakbara",
+    "malvan", "vengurla", "harnai", "dabhol", "shrivardhan", "murud", "uran", "satpati", "arnala", "versova",
+    "malpe", "gangolli", "honnavar", "belekeri", "tadri", "kumta",
+    "beypore", "ponnani", "munambam", "vizhinjam", "neendakara", "azhikkal", "thalassery", "chavakkad",
+    "colachel", "thengapattinam", "muttom", "kadiapatnam", "manapad", "uvari", "periyathalai", "chinnamuttom", "tharuvaikulam", "punnakayal",
+    "nagore", "tharangambadi", "tranquebar", "poompuhar", "parangipettai", "marakkanam", "pulicat",
+    "nizampatnam", "kalingapatnam", "bheemunipatnam", "narsapur", "antarvedi", "uppada", "gangavaram", "vadarevu", "suryalanka", "ramayapatnam",
+    "astaranga", "jatadhari", "talchua", "chandbali", "konark", "dhamara",
+    "shankarpur", "junput", "kakdwip", "namkhana", "frasergunj", "diamond harbour",
+    "mayabunder", "rangat", "diglipur", "hutbay", "campbell bay", "kamorta",
+]
 
 
 def main() -> int:
@@ -48,8 +52,8 @@ def main() -> int:
 
     entries = {k: v for k, v in loaders._GAZETTEER.items() if k.isascii()}
     if args.added_only:
-        entries = {k: v for k, v in entries.items() if k.replace(" ", "") in
-                   {a.replace(" ", "").strip('"') for a in ADDED}}
+        wanted = {a.replace(" ", "") for a in ADDED}
+        entries = {k: v for k, v in entries.items() if k.replace(" ", "") in wanted}
 
     on_land, wet, unknown = [], 0, 0
     for name, (lat, lon) in sorted(entries.items()):

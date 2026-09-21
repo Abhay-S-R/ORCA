@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Refresh the INCOIS Ocean State Forecast grids (WW3 waves, HYCOM currents).
 
 Procurement runbook §A3. The files on disk are the 2026-08-29/08-30 runs — a

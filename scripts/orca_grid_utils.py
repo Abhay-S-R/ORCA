@@ -47,11 +47,11 @@ def snap_to_wet_cell(lats, lons, wet_mask, target_lat, target_lon,
 
     lat_step = abs(float(lats[1] - lats[0]))
     lon_step = abs(float(lons[1] - lons[0]))
-    max_ry = max(1, int(round(max_search_deg / lat_step)))
-    max_rx = max(1, int(round(max_search_deg / lon_step)))
+    max_ry = max(1, round(max_search_deg / lat_step))
+    max_rx = max(1, round(max_search_deg / lon_step))
     max_r = max(max_ry, max_rx)
 
-    for radius in range(0, max_r + 1):
+    for radius in range(max_r + 1):
         y_lo, y_hi = max(0, iy0 - radius), min(len(lats), iy0 + radius + 1)
         x_lo, x_hi = max(0, ix0 - radius), min(len(lons), ix0 + radius + 1)
         window = wet_mask[y_lo:y_hi, x_lo:x_hi]

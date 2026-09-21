@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Keep the seasonal fishing-ban window current, and shout when it is not.
 
 Procurement runbook §C4, the half the guide describes as "dates, not polygons

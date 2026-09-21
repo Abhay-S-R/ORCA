@@ -37,9 +37,8 @@ import os
 import time
 
 import requests
+from pyproj import Geod
 from shapely.geometry import mapping, shape
-from shapely.ops import transform as shapely_transform
-from pyproj import Geod, Transformer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BOUNDARIES = os.path.join(ROOT, "data/tier1/boundaries")
@@ -227,7 +226,6 @@ def _normalise_props(props, source, source_ref, precision, note):
 
 def annotate_geometry(features):
     """Attach vertex count, geodesic area and validity to each feature."""
-    to_m = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True).transform
     for feat in features:
         geom = shape(feat["geometry"])
         props = feat["properties"]

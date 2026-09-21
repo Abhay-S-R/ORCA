@@ -13,14 +13,14 @@ import glob
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pandas as pd
 import xarray as xr
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from orca_grid_utils import build_wet_mask, snap_to_wet_cell  # noqa: E402
+from orca_grid_utils import build_wet_mask, snap_to_wet_cell
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -271,7 +271,11 @@ def write_latest_points(df, path):
     Regenerating this matters more than the CSVs: it is the file the agents read
     at query time, so a fresh grid that never reaches it changes nothing.
     """
-    now = datetime.utcnow()
+    # Deliberately dropped back to naive after being read in UTC: the `_when`
+    # column below is naive (the "Z" is stripped before parsing), and subtracting
+    # an aware datetime from a naive one raises. `utcnow()` said the same thing
+    # without recording which clock it meant.
+    now = datetime.now(UTC).replace(tzinfo=None)
     df = df.copy()
     df["_when"] = pd.to_datetime(df["time"].str.rstrip("Z"))
     step = min(df["_when"].unique(), key=lambda t: abs(pd.Timestamp(t).to_pydatetime() - now))

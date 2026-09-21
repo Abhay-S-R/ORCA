@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Fetch the ERA5 reference period behind PS-Q7's word "anomaly", for every
 port that has a cached forecast.
 
@@ -38,7 +37,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
-from orca.data import loaders  # noqa: E402
+from orca.data import loaders
 
 ARCHIVE = "https://archive-api.open-meteo.com/v1/archive"
 # The five daily variables the existing Thoothukudi baseline carries.

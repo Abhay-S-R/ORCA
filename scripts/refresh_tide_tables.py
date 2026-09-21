@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Refresh the tide predictions behind PS-Q3, for every major Indian port.
 
 Procurement runbook §C1. `data/tier1/tides/soi_tide_tables_2026.csv` is the file

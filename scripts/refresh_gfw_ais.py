@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Refresh the Global Fishing Watch AIS vessel sample (`gfw_ais`, WEEKLY).
 
 API token required — free registration at

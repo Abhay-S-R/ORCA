@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Refresh the Open-Meteo offline caches for every place in the gazetteer.
 
 Procurement runbook §A1. Three files per location — marine, weather, lightning —
@@ -29,17 +28,21 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
-from orca.data import loaders  # noqa: E402
+from orca.data import loaders
 
 MARINE = (
     "https://marine-api.open-meteo.com/v1/marine",
-    "wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_period,"
-    "wind_wave_height,ocean_current_velocity,ocean_current_direction",
+    (
+        "wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_period,"
+        "wind_wave_height,ocean_current_velocity,ocean_current_direction"
+    ),
 )
 WEATHER = (
     "https://api.open-meteo.com/v1/forecast",
-    "wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,"
-    "precipitation,visibility",
+    (
+        "wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,"
+        "precipitation,visibility"
+    ),
 )
 LIGHTNING = ("https://api.open-meteo.com/v1/forecast", "lightning_potential,cape")
 
@@ -50,7 +53,7 @@ def canonical_places() -> dict[str, tuple[float, float]]:
     by_coord: dict[tuple[float, float], list[str]] = {}
     for name, coord in loaders._GAZETTEER.items():
         by_coord.setdefault(coord, []).append(name)
-    places = {sorted(names, key=lambda n: (len(n), n))[0]: c for c, names in by_coord.items()}
+    places = {min(names, key=lambda n: (len(n), n)): c for c, names in by_coord.items()}
     # The pilot caches (chennai, kochi, mumbai, visakhapatnam) predate the
     # gazetteer and sit at their own coordinates, so they are not reachable by
     # any gazetteer name. Left out, the six ports the demo actually names are

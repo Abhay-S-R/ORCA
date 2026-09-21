@@ -23,6 +23,16 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Ruff (all Python files)
         run: ruff check .
+
+      # The repo-root scripts/ directory — the data-refresh jobs — is outside
+      # this job's working-directory, so it was never linted at all. That gap
+      # is how fourteen copies of the same EXE001 shebang problem sat unseen
+      # until one of them happened to live under backend/. The rule set comes
+      # from the root ruff.toml, which extends backend/pyproject.toml, so this
+      # step and a dev's local `ruff check .` agree.
+      - name: Ruff (repo-root scripts/ — the data-refresh jobs)
+        working-directory: .
+        run: ruff check scripts/
       - name: Mypy (type check)
         run: mypy orca --ignore-missing-imports
 

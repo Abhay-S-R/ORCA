@@ -32,16 +32,16 @@ Usage:  python scripts/build_pfz_fallback.py
 """
 
 import json
-import warnings
 import os
+import warnings
 from datetime import datetime, timezone
 
 import numpy as np
 import xarray as xr
+from pyproj import Geod
 from scipy import ndimage
 from shapely.geometry import Point, shape
 from shapely.prepared import prep
-from pyproj import Geod
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HYCOM_NC = os.path.join(ROOT, "data/incois_osf_pfz/osf_hycom/RSMC_hycom_20260830.nc")
@@ -243,13 +243,19 @@ def main():
             "minimum_zone_cells": MIN_ZONE_CELLS,
         },
         "limitations": [
-            "Thermal fronts alone; no chlorophyll term. The available MOSDAC OCM-3 "
-            "chlorophyll files are from March 2026 and at 25 km, too stale and too "
-            "coarse to combine with a current 1/16 deg SST field.",
-            "Front strength is computed from a model forecast, not a satellite "
-            "retrieval, so it does not reproduce INCOIS's operational product.",
-            "Unvalidated against catch data; ranking indicates relative frontal "
-            "structure only, not expected yield.",
+            (
+                "Thermal fronts alone; no chlorophyll term. The available MOSDAC OCM-3 "
+                "chlorophyll files are from March 2026 and at 25 km, too stale and too "
+                "coarse to combine with a current 1/16 deg SST field."
+            ),
+            (
+                "Front strength is computed from a model forecast, not a satellite "
+                "retrieval, so it does not reproduce INCOIS's operational product."
+            ),
+            (
+                "Unvalidated against catch data; ranking indicates relative frontal "
+                "structure only, not expected yield."
+            ),
         ],
         "pilot_ports": {k: {"lat": v[0], "lon": v[1]} for k, v in PILOT_PORTS.items()},
         "zone_count": len(zones),

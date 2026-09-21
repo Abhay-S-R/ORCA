@@ -73,8 +73,8 @@ def make_session():
 
 
 def strip_tags(html):
-    html = re.sub(r"<script.*?</script>", " ", html, flags=re.S | re.I)
-    html = re.sub(r"<style.*?</style>", " ", html, flags=re.S | re.I)
+    html = re.sub(r"<script.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<style.*?</style>", " ", html, flags=re.DOTALL | re.IGNORECASE)
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()
 
 
@@ -91,7 +91,7 @@ def fetch_sector_names(session):
 
 def dms_to_decimal(text):
     """Convert '13 19 10 N' to signed decimal degrees."""
-    m = re.match(r"^\s*(\d+)\s+(\d+)\s+(\d+(?:\.\d+)?)\s*([NSEW])\s*$", text.strip(), re.I)
+    m = re.match(r"^\s*(\d+)\s+(\d+)\s+(\d+(?:\.\d+)?)\s*([NSEW])\s*$", text.strip(), re.IGNORECASE)
     if not m:
         return None
     deg, minutes, seconds, hemi = m.groups()
@@ -104,7 +104,7 @@ def dms_to_decimal(text):
 def parse_validity(text):
     """Pull the advisory's validity date, e.g. '2 SEP 2026'."""
     m = re.search(r"(\d{1,2}\s+(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)"
-                  r"[A-Z]*\s+\d{4})", text, re.I)
+                  r"[A-Z]*\s+\d{4})", text, re.IGNORECASE)
     if not m:
         return None
     raw = re.sub(r"\s+", " ", m.group(1)).strip()
@@ -133,8 +133,8 @@ def classify_empty(plain_text):
     # "no data" phrase when no cause is given. Both patterns run forward from the
     # notice's opening words and are length-bounded, so neither can reach the
     # surrounding site chrome.
-    notice = (re.search(r"(No\s+data\s+available.{0,90}?cloud\s+cover)", plain_text, re.I)
-              or re.search(r"(No\s+data\s+available[^A-Z]{0,90})", plain_text, re.I))
+    notice = (re.search(r"(No\s+data\s+available.{0,90}?cloud\s+cover)", plain_text, re.IGNORECASE)
+              or re.search(r"(No\s+data\s+available[^A-Z]{0,90})", plain_text, re.IGNORECASE))
     message = re.sub(r"\s+", " ", notice.group(1)).strip() if notice else None
 
     if "cloud cover" in low:
@@ -151,9 +151,9 @@ def parse_sector(html, sector_id, sector_name):
     validity = parse_validity(plain)
 
     rows = []
-    for row_html in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S | re.I):
+    for row_html in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL | re.IGNORECASE):
         cells = [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", c)).replace("&nbsp;", " ").strip()
-                 for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row_html, re.S | re.I)]
+                 for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row_html, re.DOTALL | re.IGNORECASE)]
         cells = [c for c in cells if c]
         # A data row is exactly: centre, direction, bearing, distance, depth, lat, lon.
         if len(cells) != 7:
@@ -196,7 +196,6 @@ def fetch_vernacular(session, sector_id, sector_name):
         try:
             session.get(HOME, params={"mfid": 1, "request_locale": lang}, timeout=60)
             r = session.get(SECTOR, params={"secid": sector_id}, timeout=60)
-            plain = strip_tags(r.text)
             status, message, validity, rows = parse_sector(r.text, sector_id, sector_name)
             out[lang] = {"status": status, "message": message,
                          "row_count": len(rows), "valid_for": validity}

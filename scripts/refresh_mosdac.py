@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Refresh the MOSDAC products ORCA reads: INSAT-3DR daily SST, EOS-06 analysed
 chlorophyll, EOS-06 scatterometer wind (contract §3.2 / §3.3).
 

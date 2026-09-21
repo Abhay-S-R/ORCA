@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Endpoint liveness sweep (plan §1.2). Run before Phase 1 agents are coded
 against these — every one has a cached local fallback, so a dead endpoint is
 a degradation to note, not a stoppage.

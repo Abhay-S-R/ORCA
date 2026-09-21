@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Build the Indian Coast Guard MRCC/MRSC station table behind PS-Q8.
 
 Procurement runbook §C4. `distress.surface_mrcc_contact()` shipped with two
@@ -195,13 +194,13 @@ def main() -> int:
 
 def _self_check() -> None:
     """Parsing and hierarchy, without touching the network."""
-    page = "\n".join([
-        "SAR Organisation", "DGICG (NMSARCA)",
-        "MRCC Mumbai", "MRSC Jakhau", "MRSC Okha",
-        "MRCC Chennai", "MRSC Haldia",
-        "MRCC Sri Vijaya Puram", "MRSC Campbell Bay",
-        "MRSC", "- Maritime Rescue Sub Centre",
-    ])
+    page = (
+        "SAR Organisation\nDGICG (NMSARCA)\n"
+        "MRCC Mumbai\nMRSC Jakhau\nMRSC Okha\n"
+        "MRCC Chennai\nMRSC Haldia\n"
+        "MRCC Sri Vijaya Puram\nMRSC Campbell Bay\n"
+        "MRSC\n- Maritime Rescue Sub Centre"
+    )
     names = parse_station_names(page)
     assert [k for k, _ in names].count("MRCC") == 3, names
     assert ("MRSC", "Jakhau") in names

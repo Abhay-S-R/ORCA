@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Fetch a GEBCO 15-arcsecond bathymetry subset for the Indian EEZ.
 
 Procurement runbook §A6. The runbook records GEBCO as "a form, not an API",

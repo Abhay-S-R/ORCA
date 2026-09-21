@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Re-scrape the ISRO Bhuvan / VEDAS portal manifest (`bhuvan_wms`, WEEKLY).
 
 The manifest records which NRSC/SAC portals answered and how big their landing

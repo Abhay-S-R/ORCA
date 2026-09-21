@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Extract CMFRI's state-wise marine fish landings from its own PDF booklet.
 
 Procurement runbook §C2. `datagov_marine_fish_landings.csv` holds four Tamil
@@ -126,7 +125,7 @@ def main() -> int:
         "Coast": COAST[str(r["State"])],
         "Year": REPORT_YEAR,
         # Whole tonnes, to match the data.gov.in district file's units.
-        "Total_Landings_Tonnes": int(round(float(r["Landings_Lakh_Tonnes"]) * LAKH_TONNES)),
+        "Total_Landings_Tonnes": round(float(r["Landings_Lakh_Tonnes"]) * LAKH_TONNES),
         "Landings_Lakh_Tonnes": r["Landings_Lakh_Tonnes"],
         "Source": "CMFRI Marine Fish Landings in India 2024",
         "CMFRI_Note": r["CMFRI_Note"],
@@ -178,7 +177,7 @@ def _self_check() -> None:
     # A percentage in the prose must never be mistaken for a landings figure.
     assert extract_state_landings("Kerala grew 35% in 2024") == []
     # lakh -> tonnes, the unit the district file already uses.
-    assert int(round(2.33 * LAKH_TONNES)) == 233000
+    assert round(2.33 * LAKH_TONNES) == 233000
     assert set(COAST) == set(STATES)
     print("self-check ok: state heading parse, block boundaries, unit conversion")
 
