@@ -3,9 +3,12 @@
 // `AgentNode` and the inspector drawer render live and replayed data identically —
 // exactly the "one-line swap, not a rebuild" the D3 plan called for.
 //
-// Two fields the backend never sends (`model`, `tier` — that's D1's per-node LLM
-// detail, not yet on the wire) are set to `null` here; the inspector drawer
-// already has a null-safe branch for them.
+// `model` and `tier` used to be hardcoded `null` here with a comment saying the
+// backend never sends them. It does, and has since the per-node LLM detail
+// landed — so the inspector's null-safe branch was doing all the work and the
+// drawer showed a default model string instead of the real one. They are now
+// read from the response, alongside P2.1's `engine` (what actually computed the
+// node) and P2.7/P2.12's `skip_reason`.
 import type { AgentStatus } from "../components/AgentPill";
 import type { ConfidenceTier } from "../components/Badge";
 import type { TraceEdge, TraceGraph, TraceGroup, TraceNode } from "./fixture";
@@ -20,6 +23,11 @@ type ApiTraceNode = {
   reasoning_summary: string;
   source_count: number;
   used_llm: boolean;
+  engine?: string;
+  model?: string | null;
+  tier?: string | null;
+  skip_reason?: string | null;
+  run_count?: number;
 };
 
 type ApiTraceEdge = { from: string; to: string; kind: "handoff" | "critic_loop" | "cancelled"; label: string };
@@ -37,6 +45,8 @@ const AGENT_LABEL: Record<string, string> = {
   distress: "Distress Check",
   language_ingress: "Language Ingress",
   planning: "Planning",
+  // Agent 3, promoted to a real node before the fan-out (P2.6).
+  marine_data_discovery: "Marine Data Discovery",
   weather_intelligence: "Weather Intelligence",
   geospatial: "Geospatial",
   ocean_analytics: "Ocean Analytics",
@@ -47,7 +57,13 @@ const AGENT_LABEL: Record<string, string> = {
   language_egress: "Language Egress",
 };
 
-const STATUS_SET = new Set<AgentStatus>(["pending", "running", "ok", "degraded", "failed", "skipped"]);
+const STATUS_SET = new Set<AgentStatus>([
+  "pending", "running", "ok", "degraded", "failed", "skipped",
+  // P2.12 — an early exit is a real status, not an unknown one. Without it
+  // here a cancelled node coerced to "ok" and drew as though it had run.
+  "cancelled",
+]);
+const LLM_TIERS = new Set(["cheap", "mid", "reasoning"]);
 const TIER_SET = new Set<ConfidenceTier>(["HIGH", "MEDIUM", "LOW_DATA"]);
 
 function coerceStatus(s: string): AgentStatus {
@@ -69,8 +85,11 @@ export function adaptTraceGraph(api: ApiTraceGraph): TraceGraph {
     reasoning_summary: n.reasoning_summary,
     source_count: n.source_count,
     used_llm: n.used_llm,
-    model: null,
-    tier: null,
+    model: n.model ?? null,
+    tier: LLM_TIERS.has(n.tier ?? "") ? (n.tier as "cheap" | "mid" | "reasoning") : null,
+    engine: n.engine,
+    skip_reason: n.skip_reason ?? null,
+    run_count: n.run_count ?? 1,
   }));
 
   const edges: TraceEdge[] = api.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label }));

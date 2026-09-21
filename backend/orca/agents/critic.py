@@ -2,10 +2,16 @@
 Reporting narrative, at the `reasoning` tier (orca/llm/tiers.py) — swapping
 providers is an env change, never a code change here (Ground Rule 5).
 
-Triggers on `reasoning_depth == "DEEP"` ONLY, never on who is asking. That is
-the one invariant this file exists to protect: gating the Critic by the
-asker's role would be the v1.0 routing bug (intent decides what fires, the
-asker's role decides how it's said) wearing a quality-control hat.
+Runs on **every** query, never on who is asking (P2.5, `R-AGENT-1`). It was
+gated on `reasoning_depth == "DEEP"` until 2026-09-20, which meant the
+verification loop did not execute at all on an ordinary demo question — the
+one thing DLC §5 says the panel will probe hardest was the one thing a judge
+could not watch happen. Depth still decides how *hard* the pass tries
+(`run_critic_pass` iterates), not whether it happens.
+
+What must never gate it is the asker's role: that would be the v1.0 routing
+bug (intent decides what fires, the asker's role decides how it's said)
+wearing a quality-control hat.
 `scripts/verify_ci_guards.py` enforces this by construction — this module is
 not in the guard's exclusion list (unlike language.py/reporting.py), so
 reading the asker's role anywhere in this file fails CI, not just review.
@@ -24,14 +30,33 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
+from orca import engines
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 
 if TYPE_CHECKING:
     from orca.state import ORCAState
 
 MAX_ITERATIONS = 3
+
+# P2.5 (`R-AGENT-1`) — how many times the Critic may send the answer back to
+# the agent it blames and have the whole thing re-synthesized. One.
+# `orca_final.md` §3.9 asks for up to three at DEEP; this plan deliberately
+# holds it at one (latency on a live demo, and the Gemini free-tier
+# per-minute limit P2.13 budgets against). Raising it is a one-line change
+# here plus the guard in graph._route_after_critic; do not raise it without
+# re-running the budget count that point records.
+MAX_REINVOCATIONS = 1
+
+# How many judge->revise rounds ONE Critic pass may run. Three at DEEP, as it
+# always was; ONE otherwise (P2.13). This is the number the first live run of
+# P2.5 forced: the Critic went from DEEP-only to every query, each pass could
+# still loop three times, and with a re-invocation there are two passes — the
+# UI showed "10 LLM calls" for one ordinary question, which is exactly the
+# per-minute Gemini budget P2.13 exists to protect. One round is a judge call
+# and, only if it found something, one revise call.
+MAX_ITERATIONS_STANDARD = 1
 
 # Architecture §3.2 five-part rubric, verbatim.
 _RUBRIC = (
@@ -63,6 +88,28 @@ _REINVOKE_MAP: dict[str, str] = {
 }
 
 _VERDICT_HEADER_RE = re.compile(r"^(GO|CAUTION|NO_GO):")
+
+# The three specialists a critique can actually send work back to. `reporting`
+# is deliberately not here even though `_REINVOKE_MAP` names it: a factual or
+# citation complaint about the *prose* is what `run_critic_pass`'s own revise
+# step already fixes, so routing the graph back through Reporting for it would
+# spend a second synthesis to redo what just happened. Only a complaint that
+# traces to a *measurement* is worth re-reading the measurement for.
+REINVOCABLE_AGENTS: frozenset[str] = frozenset(
+    {"weather_intelligence", "ocean_analytics", "geospatial"}
+)
+
+
+def reinvocation_target(issues: list[dict[str, Any]] | list[CritiqueIssue]) -> str | None:
+    """Which agent, if any, this critique sends the query back to. The first
+    issue naming a re-invocable specialist wins — deterministic, ordered, and
+    never a free-text guess: the agent comes from `_REINVOKE_MAP`, which is
+    keyed on the rubric item the judge picked from a fixed list of five."""
+    for issue in issues:
+        target = issue.get("reinvoke_agent") if isinstance(issue, dict) else issue.reinvoke_agent
+        if target in REINVOCABLE_AGENTS:
+            return target
+    return None
 
 
 def _is_safety_check(state: ORCAState) -> bool:
@@ -112,6 +159,11 @@ NARRATIVE UNDER REVIEW:
 Judge against exactly these five rubric items, nothing else:
 {rubric_lines}
 
+How to judge — this matters more than the rubric wording:
+- Flag only what the narrative ASSERTS. A rubric item is violated when a claim the narrative actually makes contradicts the measured facts, mixes up time frames, overstates causation, or states something non-trivial with no source.
+- The ABSENCE of a fact is never a defect. The narrative answers the USER QUERY, not the fact list: a fishing-zone answer does not have to mention the maritime boundary, and a safety answer does not have to recite every reading. Never write "fails to mention", "does not include" or "omits" a measured value.
+- Only the facts relevant to the USER QUERY can be contradicted by it.
+
 Respond with STRICT JSON only, no prose: a list of objects
 {{"rubric_item": "<one of the five above>", "description": "<one sentence, what is wrong>"}}.
 Return [] if the narrative passes on all five."""
@@ -134,6 +186,8 @@ Return only the revised text."""
 
 def run_critic_pass(
     query: str, narrative: str, facts_block: str, *, is_safety_check: bool,
+    engine_out: list[str] | None = None,
+    max_iterations: int = MAX_ITERATIONS,
 ) -> tuple[str, bool, int, list[CritiqueIssue]]:
     """Runs up to MAX_ITERATIONS judge->revise loops. Returns
     (final_narrative, critic_pass, iteration_count, issues_found).
@@ -153,10 +207,15 @@ def run_critic_pass(
 
     verdict_header = _verdict_header(narrative)
     client = llm("reasoning")
+    if engine_out is not None:
+        # getattr for the same reason reporting.synthesize_narrative uses it:
+        # a client without `.engine` must not turn a working critic pass into
+        # a degraded one.
+        engine_out.append(getattr(client, "engine", engines.DETERMINISTIC))
     current = narrative
     issues_found: list[CritiqueIssue] = []
 
-    for iteration in range(1, MAX_ITERATIONS + 1):
+    for iteration in range(1, max_iterations + 1):
         # No max_tokens kwarg (Ground Rule 5): _TieredClient forwards **kw
         # straight to whichever provider is configured, and AnthropicProvider
         # / GeminiProvider do not accept the same kwarg name for this —
@@ -182,7 +241,54 @@ def run_critic_pass(
             return current, False, iteration, issues_found
         current = revised
 
-    return current, False, MAX_ITERATIONS, issues_found
+    return current, False, max_iterations, issues_found
+
+
+def build_facts_block(state: ORCAState) -> str:
+    """The ground truth the judge compares the narrative against.
+
+    Two defects lived in the inline version this replaces, both found by
+    reading what the Critic actually complained about once P2.5 made it run on
+    every query. It read `weather_data["wave_height"]`, a key that does not
+    exist (readings live under `hourly[0]`), so wave height never reached the
+    judge. And it listed only the boundary distance and the verdict, so a
+    narrative that said "the nearest fishing zone is 447 km away" was compared
+    with nothing that could confirm it, and the judge flagged it as
+    contradicting the boundary distance. Every field a narrative can quote is
+    here now, with its unit in its name, because "447" against "nautical
+    miles" is how a fishing-zone distance gets confused with a boundary one.
+
+    Only fields with a value are listed: an absent reading is absent, never a
+    placeholder the judge could treat as a measurement."""
+    weather = state.get("weather_data") or {}
+    geo = state.get("geospatial_data") or {}
+    ocean = state.get("ocean_data") or {}
+    verdict = state.get("risk_assessment") or {}
+    hourly = (weather.get("hourly") or [{}])[0]
+    pfz = ocean.get("nearest_pfz") or {}
+    tide = ocean.get("tide") or {}
+    next_high = tide.get("next_high") or {}
+    found = bool(pfz.get("found"))
+
+    facts: dict[str, Any] = {
+        "risk_verdict": verdict.get("go_no_go"),
+        "risk_verdict_reason": verdict.get("reason"),
+        "wave_height_m": hourly.get("wave_height"),
+        "wind_speed_m_per_s": hourly.get("wind_speed_10m"),
+        "lightning_active": weather.get("lightning_active"),
+        "cyclone_alert": weather.get("cyclone_alert"),
+        "distance_to_maritime_boundary_nautical_miles": geo.get("imbl_distance_nm"),
+        "inside_marine_protected_area": geo.get("mpa_violation"),
+        # A fishing zone's distance, NOT the boundary's: named so they cannot be confused.
+        "nearest_fishing_zone_distance_km": pfz.get("distance_km") if found else None,
+        "nearest_fishing_zone_direction": pfz.get("compass") if found else None,
+        "nearest_fishing_zone_depth_m": pfz.get("depth_m") if found else None,
+        "tidal_state": tide.get("tidal_state"),
+        "next_high_tide_height_m": next_high.get("height_m"),
+        "next_high_tide_in_hours": next_high.get("in_hours"),
+        "productivity_diagnosis": ocean.get("productivity_diagnosis"),
+    }
+    return "\n".join(f"- {k}: {v}" for k, v in facts.items() if v is not None) or "No measured facts available."
 
 
 def run(state: ORCAState) -> AgentResult:
@@ -197,20 +303,16 @@ def run(state: ORCAState) -> AgentResult:
     is_safety = _is_safety_check(state)
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-    facts_block = "\n".join(
-        f"- {k}: {v}" for k, v in {
-            "risk_verdict": (state.get("risk_assessment") or {}).get("go_no_go"),
-            "wave_height_m": (state.get("weather_data") or {}).get("wave_height"),
-            "imbl_distance_nm": (state.get("geospatial_data") or {}).get("imbl_distance_nm"),
-            "productivity_diagnosis": (state.get("ocean_data") or {}).get("productivity_diagnosis"),
-        }.items() if v is not None
-    ) or "No measured facts available."
+    facts_block = build_facts_block(state)
 
     verdict_before = _verdict_header(narrative)
+    engine_out: list[str] = []
 
     try:
         revised, critic_pass, iterations, issues = run_critic_pass(
             query, narrative, facts_block, is_safety_check=is_safety,
+            engine_out=engine_out,
+            max_iterations=MAX_ITERATIONS if depth == "DEEP" else MAX_ITERATIONS_STANDARD,
         )
         status: Literal["ok", "degraded"] = "ok"
         confidence = Confidence(
@@ -220,9 +322,13 @@ def run(state: ORCAState) -> AgentResult:
         error_detail = None
     except Exception as exc:  # noqa: BLE001 — a Critic failure degrades to the
         # unreviewed narrative, it never blocks the response (plan §4 D1 Day 18).
+        # P2.11/P2.13: the switch being off and the provider returning 429 both
+        # land here as LLMUnavailable, and both are ordinary degraded runs, not
+        # errors — which is exactly what the demo toggle has to demonstrate.
         revised, critic_pass, iterations, issues = narrative, False, 0, []
         status, confidence = "degraded", Confidence(score="LOW_DATA", rationale=f"Critic unavailable: {exc}")
         error_detail = str(exc)
+        engine_out = [engines.deterministic(getattr(exc, "reason", "critic unavailable"))]
 
     # Assert-by-construction: whatever happened above, the verdict header
     # text must be byte-identical to what Reporting emitted. If a bug ever
@@ -230,6 +336,18 @@ def run(state: ORCAState) -> AgentResult:
     # an altered verdict.
     if verdict_before and _verdict_header(revised) != verdict_before:
         revised = narrative
+
+    issue_dicts = [
+        {"rubric_item": i.rubric_item, "description": i.description, "reinvoke_agent": i.reinvoke_agent}
+        for i in issues
+    ]
+    # Only ask for a re-invocation the graph is still allowed to grant. The
+    # budget is read here as well as enforced in the graph so the Critic's own
+    # trace row is honest about what it asked for on a second pass: "I found
+    # something and the budget was already spent" is a different fact from
+    # "I found nothing".
+    spent = int(state.get("critic_reinvocations") or 0)
+    reinvoke_agent = reinvocation_target(issue_dicts) if spent < MAX_REINVOCATIONS else None
 
     return AgentResult(
         agent_name="critic",
@@ -240,7 +358,15 @@ def run(state: ORCAState) -> AgentResult:
             "final_english_response": revised,
             "critic_pass": critic_pass,
             "critic_iteration_count": iterations,
-            "issues": [{"rubric_item": i.rubric_item, "description": i.description, "reinvoke_agent": i.reinvoke_agent} for i in issues],
+            "issues": issue_dicts,
+            # P2.5 — the agent this critique sends the query back to, or None.
+            # Named here rather than re-derived in the graph so the decision
+            # lives with the rubric that produced it, and so the trace row
+            # records what the Critic asked for even when the budget refused it.
+            "reinvoke_agent": reinvoke_agent,
+            # The sentence(s) that agent is re-invoked *with*. A re-invocation
+            # that does not carry the critique is just a re-run.
+            "critique": "; ".join(f"[{i['rubric_item']}] {i['description']}" for i in issue_dicts) or None,
         },
         source_provenance=SourceProvenance(
             dataset="ORCA Critic (Agent 10) — LLM-as-judge, reasoning tier",
@@ -249,6 +375,7 @@ def run(state: ORCAState) -> AgentResult:
         confidence=confidence,
         status=status,
         error_detail=error_detail,
+        engine=engine_out[0] if engine_out else None,
     )
 
 

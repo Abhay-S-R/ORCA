@@ -4,7 +4,12 @@
     "rationale": "primary source available",
     "score": "HIGH"
   },
+  "coverage": null,
+  "data_age_minutes": null,
+  "engine": null,
   "error_detail": null,
+  "fallback_depth": null,
+  "freshness_class": null,
   "inputs_consumed": {
     "data_type": "chlorophyll",
     "down": []

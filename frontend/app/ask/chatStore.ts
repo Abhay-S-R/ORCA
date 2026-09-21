@@ -315,7 +315,14 @@ export async function importBrowserChats(): Promise<number> {
 // Context window restore — a reopened chat's follow-ups continue it.
 
 export async function restoreContext(chatId: string, turns: Turn[]): Promise<void> {
-  const answered = turns.filter((t) => t.answer).slice(-5);
+  // P2.14 — a reopened chat must not resurrect context the user deliberately
+  // told ORCA to forget. Only turns after the last "forget that, start fresh"
+  // go back into the backend's window; the reset turn itself is not context.
+  const lastReset = turns.map((t) => t.answer?.outcome).lastIndexOf("RESET");
+  const answered = turns
+    .slice(lastReset + 1)
+    .filter((t) => t.answer && t.answer.outcome !== "RESET")
+    .slice(-5);
   if (!answered.length) return;
   await fetch(`${API_BASE}/api/session/${chatId}/context`, {
     method: "PUT",

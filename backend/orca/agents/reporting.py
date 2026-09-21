@@ -16,6 +16,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from orca import engines
 from orca.contracts import AgentResult
 
 _CONFIDENCE_RANK = {"HIGH": 0, "MEDIUM": 1, "LOW_DATA": 2}
@@ -174,6 +175,8 @@ def synthesize_narrative(
     user_location: dict[str, Any] | None = None,
     lead_with_verdict: bool = True,
     session_history: list[dict[str, Any]] | None = None,
+    engine_out: list[str] | None = None,
+    critique: str | None = None,
 ) -> str:
     """Synthesizes a persona-tailored narrative using the mid-tier LLM.
 
@@ -188,7 +191,18 @@ def synthesize_narrative(
     5. `lead_with_verdict=False` suppresses the verdict *header* on an answer
        to a question that was not about safety — it never suppresses the
        verdict itself. See `should_lead_with_verdict`.
+
+    `engine_out`, when given, receives one string: what actually produced the
+    text (P2.1). This function has four exits and three of them are the
+    deterministic verdict line, so the caller cannot infer it from the return
+    value — and a span reading `gemini · …` over a sentence no model wrote is
+    the precise dishonesty the engine field exists to remove. Same out-param
+    idiom `resilience.conservative_or` uses for `missing`.
     """
+    def _record(engine: str) -> None:
+        if engine_out is not None:
+            engine_out.append(engine)
+
     verdict_str = verdict.get("go_no_go", "UNKNOWN")
     reason_str = verdict.get("reason", "no verdict computed")
     fallback_line = f"{verdict_str}: {reason_str}"
@@ -199,7 +213,8 @@ def synthesize_narrative(
     try:
         from orca.llm.tiers import llm
         client = llm("mid")
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _record(engines.deterministic(getattr(exc, "reason", "no LLM configured")))
         return fallback_line
 
     facts = []
@@ -223,6 +238,23 @@ def synthesize_narrative(
         )
     )
 
+    # P2.5 — the second pass of a Critic loop. Present only when Agent 10
+    # found something and the graph routed the query back through a
+    # specialist; the re-synthesis has to answer it, and rule 8 below says so
+    # in the same breath as the rules that stop it answering it by softening a
+    # verdict or inventing a number.
+    critique_block = (
+        f"\nA REVIEWER FOUND THESE PROBLEMS WITH YOUR PREVIOUS ANSWER, and the relevant "
+        f"measurements above have been re-read since:\n{critique}\n"
+        if critique else ""
+    )
+    critique_rule = (
+        "\n8. Fix every problem the reviewer listed. Do it by writing more precisely about the "
+        "measurements above — never by softening the verdict, dropping a citation, or "
+        "introducing a figure that is not in MEASURED TELEMETRY."
+        if critique else ""
+    )
+
     recent_turns = _describe_recent_turns(session_history)
     conversation_block = (
         f"\nEARLIER IN THIS CONVERSATION (for continuity only — recompute everything above from scratch, "
@@ -243,7 +275,7 @@ DETERMINISTIC SAFETY ASSESSMENT (ALREADY COMPUTED BY SAFETY RULES):
 
 MEASURED TELEMETRY & FACTS:
 {facts_block}
-
+{critique_block}
 CRITICAL RULES:
 1. {header_rule}
 2. You MUST NOT alter, contradict, soften, or question the verdict. The arithmetic is final.
@@ -259,10 +291,17 @@ CRITICAL RULES:
    zone far?" against it, and don't repeat what was already said unless asked. You may
    refer back to it naturally (e.g. "unlike this morning's caution...") — but never let
    it override today's deterministic verdict or the location stated above, and never
-   re-use a number from it: every figure you give comes from MEASURED TELEMETRY above."""
+   re-use a number from it: every figure you give comes from MEASURED TELEMETRY above.{critique_rule}"""
 
     try:
         narrative = client.complete([{"role": "user", "content": prompt}]).strip()
+        # getattr, not client.engine: the narration must not depend on the
+        # client object having an attribute this function added. A test double
+        # or any other Provider-shaped object without `.engine` raised here,
+        # was swallowed by the except below, and silently degraded a perfectly
+        # good narrative to the bare verdict line — a labelling feature
+        # breaking the thing it labels.
+        _record(getattr(client, "engine", engines.DETERMINISTIC))
         # The header is re-asserted only when it was required. Prepending it to
         # an answer that was never supposed to carry one is how "where are the
         # nearest fishing zones?" ended up opening with
@@ -270,7 +309,8 @@ CRITICAL RULES:
         if lead_with_verdict and verdict_str not in narrative:
             return f"{fallback_line}\n\n{narrative}"
         return narrative
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _record(engines.deterministic(getattr(exc, "reason", "narration failed")))
         return fallback_line
 
 

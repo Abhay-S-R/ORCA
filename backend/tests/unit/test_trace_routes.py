@@ -216,3 +216,31 @@ def test_recent_summary_from_stored_rows_never_invents_a_value():
     sos = recent_summary_from_row({"query_id": "q3", "node_count": 1, "is_distress": True, "go_no_go": None,
                                    "distress_text": "boat sinking boat sinking"})
     assert sos["verdict"] == "DISTRESS" and sos["query_text"] == "boat sinking"
+
+
+def test_a_reinvoked_agent_is_one_node_with_a_run_count_and_summed_time():
+    """P2.5: a Critic critique runs the named specialist, Reporting and the Critic a second
+    time. The replay used to drop every later run without a trace, so the loop was invisible on
+    /reasoning. It draws one node per agent and says how many times it ran."""
+    from orca.api.trace_routes import build_trace_graph
+
+    def row(name, ms, **outputs):
+        return {"agent_name": name, "status": "ok", "confidence": "HIGH", "latency_ms": ms,
+                "outputs": outputs, "inputs_consumed": {}, "source_provenance": None}
+
+    rows = [
+        row("planning", 1), row("marine_data_discovery", 5), row("geospatial", 10),
+        row("reporting", 100),
+        row("critic", 200, issues=[{"rubric_item": "spatial_accuracy", "description": "x", "reinvoke_agent": "geospatial"}]),
+        row("geospatial", 12), row("reporting", 90), row("critic", 150, issues=[]),
+        row("language_egress", 1),
+    ]
+    graph = build_trace_graph("q", rows)
+    nodes = {n.id: n for n in graph.nodes}
+    assert len(graph.nodes) == 6, "one node per agent, not one per span"
+    assert nodes["critic"].run_count == 2 and nodes["critic"].latency_ms == 350.0
+    assert nodes["reporting"].run_count == 2 and nodes["geospatial"].run_count == 2
+    assert nodes["planning"].run_count == 1
+    # The first Critic pass is the one that named the issue, so the loop edge survives.
+    assert any(e.kind == "critic_loop" and e.to == "geospatial" for e in graph.edges)
+    assert any(e.from_ == "reporting" and e.to == "critic" for e in graph.edges)

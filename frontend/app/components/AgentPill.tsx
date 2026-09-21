@@ -22,7 +22,13 @@ const CONFIDENCE_FILL: Record<ConfidenceTier, string> = {
   LOW_DATA: "bg-[color-mix(in_oklab,var(--color-confidence-low)_85%,black)]",
 };
 
-export type AgentStatus = "pending" | "running" | "ok" | "degraded" | "failed" | "skipped";
+// Mirrors orca/contracts.py's AgentResult.status, plus the frontend-only
+// "pending"/"running" the strip infers. "cancelled" (P2.12) is distinct from
+// "skipped" (P2.7) on purpose: skipped is "the plan never asked for this",
+// decided before anything ran; cancelled is "this was pending and a hard
+// constraint made it pointless", decided mid-flight.
+export type AgentStatus =
+  | "pending" | "running" | "ok" | "degraded" | "failed" | "skipped" | "cancelled";
 
 export const AGENT_REGISTRY: Record<string, { label: string; shortLabel: string }> = {
   distress: { label: "Distress Check", shortLabel: "Distress" },
@@ -31,6 +37,11 @@ export const AGENT_REGISTRY: Record<string, { label: string; shortLabel: string 
   languageingress: { label: "Language Ingress", shortLabel: "Ingress" },
   language_ingress: { label: "Language Ingress", shortLabel: "Ingress" },
   planning: { label: "Planning", shortLabel: "Planning" },
+  // Agent 3, a real node since P2.6 rather than a field smuggled out on
+  // Ocean Analytics' output.
+  marinedatadiscovery: { label: "Marine Data Discovery", shortLabel: "Discovery" },
+  marine_data_discovery: { label: "Marine Data Discovery", shortLabel: "Discovery" },
+  discovery: { label: "Marine Data Discovery", shortLabel: "Discovery" },
   weatherintelligence: { label: "Weather Intel", shortLabel: "Weather" },
   weather_intelligence: { label: "Weather Intel", shortLabel: "Weather" },
   weather: { label: "Weather Intel", shortLabel: "Weather" },
@@ -52,19 +63,26 @@ export const AGENT_REGISTRY: Record<string, { label: string; shortLabel: string 
 // a span once an agent *finishes* — it never announces one starting — so
 // the strip has no real name for whichever agent is currently running
 // unless it infers one: the first agent in this order that hasn't reported
-// in yet. Critic is conditional (DEEP depth only) and left out on purpose;
-// it's rare enough that guessing it would be wrong more often than right,
-// and any wrong guess self-corrects the moment the next real span arrives.
+// in yet.
+//
+// Two changes in Phase 2. `marinedatadiscovery` is Agent 3, promoted to a
+// real node that runs before the fan-out (P2.6). And the Critic is now here
+// at all: it was left out because it only ran at DEEP, which made guessing it
+// wrong more often than right — P2.5 runs it on every query, so the opposite
+// is now true. Any wrong guess still self-corrects the moment the next real
+// span arrives.
 export const AGENT_ORDER = [
   "distress",
   "languageingress",
   "planning",
+  "marinedatadiscovery",
   "geospatial",
   "oceananalytics",
   "weatherintelligence",
   "riskassessment",
   "visualization",
   "reporting",
+  "critic",
   "languageegress",
 ];
 
@@ -99,6 +117,7 @@ const STATUS_TEXT: Record<AgentStatus, string> = {
   failed: "failed",
   pending: "queued",
   skipped: "skipped",
+  cancelled: "cancelled",
 };
 
 const STATUS_STYLE: Record<AgentStatus, string> = {
@@ -108,19 +127,52 @@ const STATUS_STYLE: Record<AgentStatus, string> = {
   failed: "border-no-go/50 bg-no-go/10 text-no-go shadow-2xs hover:shadow-xs",
   pending: "border-hairline/50 bg-shelf-1/60 text-ink-dim/80 opacity-75",
   skipped: "border-hairline/40 bg-shelf-1/40 text-ink-dim/60 opacity-60",
+  // P2.12 — dashed, so an early exit reads as "deliberately stopped" rather
+  // than the faded "never asked for" a skip gets.
+  cancelled: "border-dashed border-caution/50 bg-shelf-1/40 text-caution/70 opacity-75",
 };
+
+// P2.1 (`R-JUDGE-1`) — an engine label, shortened for a 12px badge.
+//
+// The distinction the badge has to carry is "was this arithmetic or a model",
+// because that is the judge's actual question and the one ORCA's whole safety
+// argument rests on. "DET" for deterministic, "MT" for the local IndicTrans2
+// translation weights, "AI" for a span that genuinely reached a provider. The
+// full string is in the title and the sr-only text, so the abbreviation is
+// never the only carrier.
+function engineBadge(engine: string | undefined): { short: string; cls: string } | null {
+  if (!engine) return null;
+  if (engine.startsWith("Deterministic")) {
+    return { short: "DET", cls: "border-go/40 bg-go/10 text-go" };
+  }
+  if (engine.startsWith("IndicTrans2")) {
+    return { short: "MT", cls: "border-ocean-cyan/40 bg-ocean-cyan/10 text-ocean-cyan" };
+  }
+  return { short: "AI", cls: "border-caution/40 bg-caution/10 text-caution" };
+}
 
 export function AgentPill({
   name,
   status,
   latencyMs,
   confidence,
+  engine,
+  skipReason,
+  runs = 1,
   className = "",
 }: {
   name: string;
   status: AgentStatus;
   latencyMs?: number;
   confidence?: ConfidenceTier;
+  // What computed this span (orca/engines.py). Absent on a pill the frontend
+  // inferred rather than received — e.g. the "currently running" guess.
+  engine?: string;
+  // P2.7/P2.12 — why it did not run, when it did not.
+  skipReason?: string | null;
+  // How many times this agent ran. A Critic-driven re-invocation runs a specialist, Reporting and
+  // the Critic again; the strip shows one pill per agent with a x2 marker, not the same agent twice.
+  runs?: number;
   className?: string;
 }) {
   const reduce = useReducedMotion();
@@ -130,11 +182,23 @@ export function AgentPill({
   const pulse = status === "running" && !reduce;
   // Only a finished agent has a confidence; failed already reads as failed.
   const showConfidence = confidence && (status === "ok" || status === "degraded");
+  // A span that did not run computed nothing, so it has no engine to report —
+  // labelling a skipped node "Deterministic" would claim work that never
+  // happened. The skip reason takes that slot instead.
+  const didNotRun = status === "skipped" || status === "cancelled";
+  const badge = didNotRun ? null : engineBadge(engine);
+  const engineNote = didNotRun
+    ? skipReason
+      ? ` — ${status}: ${skipReason}`
+      : ` — ${status}`
+    : engine
+    ? ` — engine: ${engine}`
+    : "";
 
   return (
     <span
       className={`relative inline-flex w-full min-w-0 h-7 shrink-0 items-center justify-center gap-1 sm:gap-1.5 rounded-md border px-1.5 sm:px-2 text-[11px] sm:text-xs font-medium tracking-tight whitespace-nowrap select-none transition-colors duration-150 ${STATUS_STYLE[status]} ${pulse ? "animate-pulse" : ""} ${className}`}
-      title={`${fullLabel} — ${STATUS_TEXT[status]}${showConfidence ? `, ${confidenceLabel(confidence)} confidence` : ""}${latencyMs ? ` (${latencyMs}ms)` : ""}`}
+      title={`${fullLabel} — ${STATUS_TEXT[status]}${showConfidence ? `, ${confidenceLabel(confidence)} confidence` : ""}${latencyMs ? ` (${latencyMs}ms)` : ""}${runs > 1 ? ` — ran ${runs}×` : ""}${engineNote}`}
     >
       {/* A confidence token already says "finished" — dropping the tick keeps
           the agent name from truncating in the 5-across strip. */}
@@ -151,7 +215,24 @@ export function AgentPill({
         <X className="size-3 sm:size-3.5 shrink-0 text-no-go" aria-hidden="true" />
       )}
       <span className="truncate">{shortLabel}</span>
-      <span className="sr-only">({STATUS_TEXT[status]}{showConfidence ? `, ${confidenceLabel(confidence)} confidence` : ""})</span>
+      <span className="sr-only">
+        ({STATUS_TEXT[status]}
+        {showConfidence ? `, ${confidenceLabel(confidence)} confidence` : ""}
+        {runs > 1 ? `, ran ${runs} times` : ""}
+        {engineNote})
+      </span>
+      {/* P2.1 — the engine, pinned bottom-left so it costs the agent name no
+          width (the same constraint the confidence letter solves top-right).
+          Text, not colour alone: "DET" / "MT" / "AI" read without hue, and
+          the full engine string is in the title and the sr-only text above. */}
+      {badge && (
+        <span
+          aria-hidden="true"
+          className={`absolute -bottom-1.5 -left-1.5 hidden rounded-[3px] border px-1 font-mono text-[8px] font-bold leading-[1.4] ring-2 ring-shelf-1 sm:inline ${badge.cls}`}
+        >
+          {badge.short}
+        </span>
+      )}
       {showConfidence && (
         // One boxed letter pinned to the pill's top-right corner, so it takes
         // no width from the name (which otherwise truncated at ~1366 px).
@@ -163,6 +244,15 @@ export function AgentPill({
           className={`absolute -right-1.5 -top-1.5 grid size-3.5 place-items-center rounded-[3px] font-mono text-[9px] font-bold leading-none text-white ring-2 ring-shelf-1 ${CONFIDENCE_FILL[confidence]}`}
         >
           {confidence === "LOW_DATA" ? "L" : confidence === "MEDIUM" ? "M" : "H"}
+        </span>
+      )}
+      {runs > 1 && (
+        <span
+          aria-hidden="true"
+          title={`Ran ${runs} times, re-invoked after a Critic critique. Time is the sum.`}
+          className="absolute -bottom-1.5 -right-1.5 rounded-[3px] border border-hairline bg-shelf-3 px-1 font-mono text-[8px] font-bold leading-[1.4] text-ink-muted ring-2 ring-shelf-1"
+        >
+          ×{runs}
         </span>
       )}
       {latencyMs != null && status === "ok" && (
@@ -229,8 +319,15 @@ export function AgentStrip({
 }) {
   const items = React.Children.toArray(children).filter(Boolean) as React.ReactElement<{ status: AgentStatus }>[];
 
-  const row1 = items.slice(0, 5);
-  const row2 = items.slice(5, 10);
+  // Rows of five, as many as there are spans — never a fixed two. The strip
+  // used to slice(0, 10), which was the whole pipeline until Phase 2. Agent 3
+  // (P2.6), the Critic on every query (P2.5) and its re-invocation add up to
+  // five more spans, and a hard slice silently dropped exactly those: the
+  // Critic, the headline of the phase, was the pill nobody could see. A
+  // minimum of two rows keeps the empty-state placeholders the strip has
+  // always drawn while the first spans stream in.
+  const rows: React.ReactElement<{ status: AgentStatus }>[][] = [];
+  for (let i = 0; i < Math.max(items.length, 10); i += 5) rows.push(items.slice(i, i + 5));
 
   const renderRow = (rowItems: React.ReactElement<{ status: AgentStatus }>[]) => (
     <div className="flex items-center w-full justify-between gap-1 sm:gap-1.5">
@@ -257,8 +354,9 @@ export function AgentStrip({
       className={`w-full rounded-xl border border-hairline/60 bg-shelf-1/40 p-2 sm:p-2.5 shadow-2xs ${className}`}
     >
       <div className="flex flex-col gap-1.5 sm:gap-2">
-        {renderRow(row1)}
-        {renderRow(row2)}
+        {rows.map((row, i) => (
+          <React.Fragment key={i}>{renderRow(row)}</React.Fragment>
+        ))}
       </div>
     </div>
   );

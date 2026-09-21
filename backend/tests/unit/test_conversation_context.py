@@ -178,8 +178,14 @@ def api(monkeypatch):
 
     async def fake_stream(q, lat, lon, vessel_class, distress=False, persona=None, depth=None,
                           place=(None, "explicit"), on_final=None, session_id=None, session_history=None,
-                          resolution=None):
-        seen.append({"q": q, "place": place, "history": list(session_history or []), "on_final": on_final})
+                          resolution=None, **kwargs):
+        # **kwargs, not a growing parameter list: this double stands in for
+        # the graph so the *route's* cache / coalescing / memory wiring can be
+        # tested, and it has no opinion about arguments that only the real
+        # stream reads (P2.11's `llm=`, and whatever comes after it). Captured
+        # rather than dropped, so a test that does care can assert on them.
+        seen.append({"q": q, "place": place, "history": list(session_history or []), "on_final": on_final,
+                     "vessel_class": vessel_class, **kwargs})
         # Echo the position the route really resolved, as the graph does. A
         # hardcoded place_source here is how the allowlist's "pilot_gazetteer"
         # — a source the resolver never produces — went unnoticed.
@@ -235,3 +241,52 @@ def test_callers_without_a_session_are_unchanged(api):
     assert _frames(response)[-1]["type"] == "final_response"
     assert seen[0]["history"] == []
     assert session._local == {}
+
+
+# --- P2.9: the ✕ on a "Carried over" chip ------------------------------------
+
+def test_drop_place_refuses_to_inherit_the_chats_place(api):
+    """The first version of the chip's ✕ re-asked "(not Kannur — I have not said
+    where yet)", which put the name back into the text and resolved Kannur again;
+    without the name, the session handed it back anyway. Only a parameter that
+    reaches `session.last_place` can refuse the carry-over."""
+    client, seen, _ = api
+    client.get("/query", params={"q": "is it safe to go to sea near Pamban", "session_id": "chip-1"})
+    client.get("/query", params={"q": "what about tomorrow evening?", "session_id": "chip-1"})
+    client.get("/query", params={"q": "what about tomorrow evening?", "session_id": "chip-1", "drop": "place"})
+    assert seen[1]["place"][1] == "session_carried", "control: without drop it IS inherited"
+    assert seen[2]["place"][1] != "session_carried"
+    assert seen[2]["place"][0] is None, "the place is not silently kept under another source name"
+
+
+def test_drop_intent_withholds_the_previous_intent_from_planning(api):
+    client, seen, _ = api
+    client.get("/query", params={"q": "is it safe to go to sea near Pamban", "session_id": "chip-2"})
+    client.get("/query", params={"q": "what about tomorrow evening?", "session_id": "chip-2"})
+    client.get("/query", params={"q": "what about tomorrow evening?", "session_id": "chip-2", "drop": "intent"})
+    assert any(t.get("intent_rows") for t in seen[1]["history"]), "control: the intent is carried"
+    assert all(not t.get("intent_rows") for t in seen[2]["history"])
+    # The conversation itself is still there for Agent 9 to read.
+    # ... and by the third request the chat legitimately holds BOTH earlier turns.
+    assert len(seen[2]["history"]) == 2
+
+
+def test_drop_vessel_class_refuses_to_inherit_the_chats_vessel(api):
+    from orca import session as session_memory
+
+    client, seen, _ = api
+    session_memory.append_turn("chip-3", {
+        "query": "is it safe near Pamban", "english_query": "is it safe near Pamban",
+        "user_location": {"lat": 9.27, "lon": 79.2, "place_name": "pamban", "place_source": "gazetteer"},
+        "vessel_class": "mechanized_trawler", "intent_rows": ["SAFETY_CHECK"],
+    })
+    client.get("/query", params={"q": "what about tomorrow evening?", "session_id": "chip-3"})
+    client.get("/query", params={"q": "what about tomorrow evening?", "session_id": "chip-3", "drop": "vessel_class"})
+    assert seen[0]["vessel_class"] == "mechanized_trawler", "control: inherited without drop"
+    assert seen[1]["vessel_class"] is None
+
+
+def test_an_unknown_drop_value_is_ignored_not_an_error(api):
+    client, seen, _ = api
+    response = client.get("/query", params={"q": "is it safe to go to sea near Pamban", "drop": "bogus,,"})
+    assert response.status_code == 200 and seen

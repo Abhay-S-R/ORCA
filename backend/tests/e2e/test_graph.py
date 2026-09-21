@@ -17,12 +17,20 @@ from orca.agents import weather_intelligence as wia
 from orca.graph.graph import build_graph
 from orca.state import ORCAState
 
+# Phase 2 changed the node set twice, and this is the contract it changed:
+#   P2.6 — Agent 3 is a real node, "marine_data_discovery", between planning
+#          and the fan-out (it used to run inside Ocean Analytics).
+#   P2.5 — the Critic runs on EVERY query, not only at DEEP.
+# DEEP_NODES is kept as its own name because a DEEP query still means the
+# same node set — it now differs only in how many judge rounds the Critic
+# may run (critic.MAX_ITERATIONS vs MAX_ITERATIONS_STANDARD), not in which
+# nodes exist.
 ALL_NODES = {
-    "distress_check", "language_ingress", "planning", "weather_intelligence",
-    "geospatial", "ocean_analytics", "risk_assessment", "visualization",
-    "reporting", "language_egress",
+    "distress_check", "language_ingress", "planning", "marine_data_discovery",
+    "weather_intelligence", "geospatial", "ocean_analytics", "risk_assessment",
+    "visualization", "reporting", "critic", "language_egress",
 }
-DEEP_NODES = ALL_NODES | {"critic"}
+DEEP_NODES = ALL_NODES
 
 import importlib.util
 
@@ -112,7 +120,14 @@ def test_safety_query_end_to_end_produces_a_go_verdict(monkeypatch):
     assert result["completed_nodes"][0] == "distress_check"
     assert result["completed_nodes"][1] == "language_ingress"
     assert result["completed_nodes"][-1] == "language_egress"
-    assert len(result["audit_trace_log"]) == len(ALL_NODES)  # one entry per node visited
+    # One trace entry per node VISITED. Not `== len(ALL_NODES)`: the Critic (P2.5)
+    # may send the query back through one specialist and Reporting once, which
+    # legitimately visits more nodes than there are distinct ones — and whether
+    # a live judge finds anything is not something a test can promise. What is
+    # invariant, and what api/main.py depends on, is that the two lists stay in
+    # lockstep.
+    assert len(result["audit_trace_log"]) == len(result["completed_nodes"])
+    assert len(result["completed_nodes"]) >= len(ALL_NODES)
     assert "GO" in result["final_english_response"]
     # Real geospatial ran (not a stub) — a real distance came back for a
     # known-far-from-the-boundary coordinate.
@@ -378,8 +393,13 @@ def test_the_critic_cannot_alter_the_verdict_on_a_non_safety_query(monkeypatch):
     assert not result["final_english_response"].startswith("GO:")
 
 
-def test_shallow_query_never_invokes_the_critic():
+def test_shallow_query_also_invokes_the_critic():
+    """P2.5 (`R-AGENT-1`) reversed this test's original claim. It asserted the
+    Critic NEVER ran on a shallow query, which is exactly the behaviour DLC §5
+    calls out: on an ordinary demo question the verification loop did not
+    execute at all. It now runs on every query; a shallow one is held to a
+    single judge round by critic.MAX_ITERATIONS_STANDARD."""
     graph = build_graph()
     result = graph.invoke(_base_state("is it safe to go to sea"))
-    assert "critic" not in result["completed_nodes"]
+    assert "critic" in result["completed_nodes"]
     assert set(result["completed_nodes"]) == ALL_NODES

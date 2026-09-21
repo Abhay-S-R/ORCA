@@ -31,6 +31,7 @@ export type AgentFlowNode = Node<AgentNodeData, "agent">;
 
 const ICON: Record<string, ComponentType<{ className?: string }>> = {
   distress: ShieldAlert,
+  marine_data_discovery: Database,
   distress_check: ShieldAlert,
   language_ingress: Languages,
   planning: ListChecks,
@@ -83,6 +84,17 @@ const STATUS_CONFIG: Record<
     bg: "bg-shelf-1/20 opacity-40",
     glow: "",
     label: "Skipped",
+  },
+  // P2.12 (orca_final §4.1, §24) — drawn dotted and in the caution hue, not
+  // faded away like a skip. The two mean different things: a skip is work the
+  // plan never asked for, a cancellation is work that was pending when a hard
+  // constraint (a red/orange cyclone, lightning, an IMBL or MPA breach) made
+  // it pointless. A judge should be able to see that decision being made.
+  cancelled: {
+    border: "border-dotted border-caution/60",
+    bg: "bg-caution/5 opacity-70",
+    glow: "",
+    label: "Cancelled",
   },
 };
 
@@ -199,20 +211,37 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
             >
               <Clock className="size-2.5" />
               {node.latency_ms}ms
+              {(node.run_count ?? 1) > 1 && (
+                <span
+                  className="ml-1 rounded bg-shelf-3 px-1 text-[9px] font-semibold text-ink-muted"
+                  title={`Ran ${node.run_count} times, re-invoked after a Critic critique. Time is the sum.`}
+                >
+                  ×{node.run_count}
+                </span>
+              )}
             </span>
           )}
         </div>
 
-        {/* Execution method is engineering provenance, not a category to
-            color-code — quiet, monospace, same treatment either way. */}
+        {/* P2.1 (`R-JUDGE-1`) — execution method is engineering provenance,
+            not a category to colour-code: quiet, monospace, same treatment
+            either way. What changed is that it is now read from the backend's
+            own `engine` rather than reconstructed from `used_llm` plus a
+            hardcoded default model. The old version printed
+            "gemini-3.5-flash-lite" for any LLM node whose model was unknown,
+            which is a specific factual claim about a call nobody verified —
+            and printed a bare "Deterministic" for the rest, with no way to
+            tell "arithmetic by design" from "the model was unavailable". */}
         <div className="flex items-center gap-1 text-[9px] text-ink-dim font-mono">
-          {node.used_llm ? (
-            <span
-              className="inline-flex items-center gap-1"
-              title={`LLM Model: ${node.model || "gemini-3.5-flash-lite"} (${node.tier || "mid"} tier)`}
-            >
+          {node.engine ? (
+            <span className="inline-flex min-w-0 items-center gap-1" title={`Engine: ${node.engine}`}>
+              {node.used_llm && <Cpu className="size-2.5 shrink-0" />}
+              <span className="truncate">{node.engine}</span>
+            </span>
+          ) : node.used_llm && node.model ? (
+            <span className="inline-flex items-center gap-1" title={`LLM Model: ${node.model} (${node.tier ?? "mid"} tier)`}>
               <Cpu className="size-2.5 shrink-0" />
-              <span>{node.model || "gemini-3.5-flash-lite"}</span>
+              <span>{node.model}</span>
             </span>
           ) : (
             <span>Deterministic</span>

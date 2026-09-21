@@ -20,6 +20,7 @@ from opentelemetry.sdk.trace import TracerProvider
 
 from orca.confidence_score import score_agent
 from orca.contracts import AgentResult, Confidence, SourceProvenance
+from orca.engines import engine_for
 from orca.state import ORCAState
 
 
@@ -99,6 +100,16 @@ def run_traced_node(
         "confidence": scored["label"],
         "confidence_score": scored["score"],
         "confidence_detail": scored,
+        # P2.3 (`R-JUDGE-4`) — WHY this tier. Every Confidence object has
+        # carried this string since Phase 1 and it stopped at this boundary,
+        # so the derivation existed everywhere except on screen. It is the
+        # agent's own rule label rationale ("Worst of 4 upstream inputs: ...").
+        "confidence_rationale": result.confidence.rationale,
+        # P2.1 — resolved here, once, so every consumer (the SSE span, the
+        # /reasoning replay, a row read back from Postgres) shows the same
+        # label without each re-deriving it. `result.engine` is what the agent
+        # recorded; engine_for falls back to the static table.
+        "engine": engine_for(result.agent_name, result.engine),
         "started_at": _utc_iso(started),
         "ended_at": _utc_iso(ended),
         "latency_ms": round((ended - started) * 1000, 1),

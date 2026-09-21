@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from orca import engines
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.state import ORCAState
 
@@ -34,42 +35,42 @@ ROUTING_TABLE: tuple[RoutingRow, ...] = (
     RoutingRow(
         "SAFETY_CHECK",
         ("safe to go to sea", "safe to fish", "venture into sea", "is it safe", "go to sea today", "go to sea tomorrow"),
-        ("marine_data_discovery", "weather_intelligence", "ocean_analytics", "risk_assessment"),
+        ("marine_data_discovery", "weather_intelligence", "ocean_analytics", "risk_assessment", "visualization"),
     ),
     RoutingRow(
         "PFZ_NEAREST",
         ("nearest pfz", "fishing zone", "persistent fishing zone", "where to fish", "potential fishing"),
-        ("marine_data_discovery", "ocean_analytics", "geospatial"),
+        ("marine_data_discovery", "ocean_analytics", "geospatial", "visualization"),
     ),
     RoutingRow(
         "CONDITIONS",
         ("tide", "sea conditions", "current conditions", "wave height", "wind speed"),
-        ("marine_data_discovery", "weather_intelligence", "ocean_analytics"),
+        ("marine_data_discovery", "weather_intelligence", "ocean_analytics", "visualization"),
     ),
     RoutingRow(
         "HAZARD_ALERTS",
         ("lightning", "cyclone", "storm alert", "hazard warning", "weather warning"),
-        ("weather_intelligence", "risk_assessment"),
+        ("weather_intelligence", "risk_assessment", "visualization"),
     ),
     RoutingRow(
         "ZONES_TO_AVOID",
         ("zones to avoid", "boundary", "geofence", "restricted zone", "marine park"),
-        ("geospatial", "risk_assessment"),
+        ("geospatial", "risk_assessment", "visualization"),
     ),
     RoutingRow(
         "ROUTE",
         ("safest route", "route from", "route to", "passage from", "voyage from", "plan a voyage", "plan my route", "navigate from"),
-        ("geospatial", "weather_intelligence", "risk_assessment"),
+        ("geospatial", "weather_intelligence", "risk_assessment", "visualization"),
     ),
     RoutingRow(
         "DIAGNOSTIC",
         ("why has", "declined", "decline in", "fewer fish", "productivity", "catch dropped", "catch has dropped"),
-        ("marine_data_discovery", "ocean_analytics"),
+        ("marine_data_discovery", "ocean_analytics", "visualization"),
     ),
     RoutingRow(
         "REGULATORY",
         ("allowed to fish", "fishing ban", "ban period", "fishing banned", "closed season", "fishing season", "legal to fish"),
-        ("geospatial", "risk_assessment"),
+        ("geospatial", "risk_assessment", "visualization"),
     ),
     RoutingRow(
         "META",
@@ -93,9 +94,16 @@ ROUTING_TABLE: tuple[RoutingRow, ...] = (
     ),
 )
 
-# §4.2 no-match fallback — Discovery + Weather + Ocean Analytics, never an
-# empty response.
-NO_MATCH_FALLBACK_AGENTS = ("marine_data_discovery", "weather_intelligence", "ocean_analytics")
+# P2.7 — "visualization" is now named by every row that produces something to
+# draw (a map layer or a chart) and deliberately NOT by EXPORT, SUBSCRIPTION or
+# ADMINISTRATIVE, which never do: for those the plan-gate skips it, visibly,
+# instead of building map layers nobody asked for. Every other agent's
+# inclusion here stays as it was; execution of the safety inputs is fail-safe
+# regardless of the plan (see graph.ocean_analytics_node).
+#
+# §4.2 no-match fallback — Discovery + Weather + Ocean Analytics (+ the map),
+# never an empty response.
+NO_MATCH_FALLBACK_AGENTS = ("marine_data_discovery", "weather_intelligence", "ocean_analytics", "visualization")
 
 
 # P1.3 (`R-EDGE-1`) — the out-of-scope test, ahead of every routing tier.
@@ -223,11 +231,17 @@ def _expand(words: set[str]) -> set[str]:
     return expanded
 
 
-def _tier2_embedding_similarity(normalized_query: str) -> list[tuple[str, float]]:
-    """Tier 2 — word-overlap similarity fallback (Architecture §9.5). Scores
-    each row 0.0-1.0 as (shared words / row's keyword-word count) after
+def _tier2_word_overlap(normalized_query: str) -> list[tuple[str, float]]:
+    """The original Tier 2 — word-overlap similarity (Architecture §9.5).
+    Scores each row 0.0-1.0 as (shared words / row's keyword-word count) after
     synonym expansion, and keeps any row at or above `_TIER2_THRESHOLD`.
-    Catches paraphrases Tier 1's exact-substring match misses."""
+
+    **Kept as the fallback-of-the-fallback, not as Tier 2.** P2.8 replaced the
+    scorer with sentence embeddings, but the embedding model is a 120 MB
+    download and a machine that cannot have it must still route better than
+    "nothing matched" — so this runs when `orca/intent_embeddings.py` reports
+    itself unavailable. It is why an offline checkout still behaves exactly as
+    ORCA did before P2.8 rather than losing a routing tier."""
     query_words = _expand(_significant_words(normalized_query))
     matches: list[tuple[str, float]] = []
     for row in ROUTING_TABLE:
@@ -237,6 +251,23 @@ def _tier2_embedding_similarity(normalized_query: str) -> list[tuple[str, float]
         overlap = len(query_words & row_words) / len(row_words)
         if overlap >= _TIER2_THRESHOLD:
             matches.append((row.name, round(overlap, 2)))
+    return matches
+
+
+def _tier2_embedding_similarity(normalized_query: str) -> list[tuple[str, float]]:
+    """Tier 2 — multilingual sentence-embedding similarity (P2.8, `R-PS-1`).
+
+    `orca/intent_embeddings.py` holds the model and the per-row example
+    phrasings; this is only the tier wiring. It distinguishes the two ways
+    that module can return nothing: `None` means the model is not available at
+    all and the word-overlap scorer takes the tier, `[]` means the model ran
+    and this query genuinely matches no row, which must fall through to Tier 3
+    rather than be rescued by a weaker scorer."""
+    from orca import intent_embeddings
+
+    matches = intent_embeddings.match(normalized_query)
+    if matches is None:
+        return _tier2_word_overlap(normalized_query)
     return matches
 
 
@@ -283,22 +314,72 @@ def _tier3_llm_fallback(normalized_query: str, session_history: list[dict] | Non
     return []
 
 
-def classify_intent(normalized_query: str, session_history: list[dict] | None = None) -> list[tuple[str, float]]:
-    """Tool per Architecture §3.1 Agent 2. Tries Tier 1 (rules), then Tier 2
-    (embedding/word-overlap similarity), then Tier 3 (LLM cheap-tier) in
-    order, returning the first tier's matches — a higher tier only runs when
-    every tier before it found nothing (plan §5 D1 Day 11). Only Tier 3 reads
-    `session_history`: the deterministic tiers match this query's own words."""
-    return classify_intent_deterministic(normalized_query) or _tier3_llm_fallback(
-        normalized_query, session_history
-    )
+def classify_intent(
+    normalized_query: str,
+    session_history: list[dict] | None = None,
+    tier_out: list[str] | None = None,
+) -> list[tuple[str, float]]:
+    """Tool per Architecture §3.1 Agent 2. Tier 1 (rules) → Tier 2 (sentence
+    embeddings) → Tier 3 (LLM, cheap tier). Only Tier 3 reads
+    `session_history`: the deterministic tiers match this query's own words.
+
+    **Tier 3 is no longer only a last resort (P2.8).** It was reached only when
+    Tiers 1 and 2 both found nothing, which meant a Tier-2 match at 0.84
+    cosine — a real guess — was acted on with exactly as little scrutiny as
+    Tier 1's certainty. It now also runs as a *confirmation pass* whenever the
+    deterministic tiers came back below 1.0, and the two results are unioned:
+    agreement raises the reported confidence, disagreement dispatches both
+    interpretations. Union rather than override, deliberately — execution is
+    fail-safe (P2.7), and the cost of running an extra specialist is smaller
+    than the cost of answering the wrong half of an ambiguous question.
+
+    `tier_out`, when given, receives the name of the tier that decided, for
+    the span (P2.1) and for the answer to name its own inferred intent."""
+    def _record(tier: str) -> None:
+        if tier_out is not None:
+            tier_out.append(tier)
+
+    tier1 = _tier1_rules(normalized_query)
+    if tier1:
+        _record("tier1_rules")
+        return tier1
+
+    tier2 = _tier2_embedding_similarity(normalized_query)
+    if tier2:
+        confirmation = _tier3_llm_fallback(normalized_query, session_history)
+        if not confirmation:
+            # No LLM, or it declined to name a row. The Tier-2 match stands on
+            # its own — an unavailable confirmation is not a refutation.
+            _record("tier2_embeddings")
+            return tier2
+        confirmed = {name for name, _ in confirmation}
+        names = {name for name, _ in tier2}
+        if confirmed & names:
+            # Two independent methods agreeing is worth more than either
+            # alone, so the matched rows are re-scored to Tier 1's certainty.
+            _record("tier2_embeddings+tier3_confirmed")
+            return [(name, 1.0 if name in confirmed else score) for name, score in tier2]
+        _record("tier2_embeddings+tier3_disagreed")
+        merged = dict(tier2)
+        for name, score in confirmation:
+            merged.setdefault(name, score)
+        return sorted(merged.items(), key=lambda kv: kv[1], reverse=True)
+
+    tier3 = _tier3_llm_fallback(normalized_query, session_history)
+    if tier3:
+        _record("tier3_llm")
+    return tier3
 
 
 def classify_intent_deterministic(normalized_query: str) -> list[tuple[str, float]]:
     """Tiers 1 and 2 only — the part of the routing decision that needs no
-    model, no key and no network. Split out so a test (or any caller that must
-    not spend a token) can ask "would this route on its own words?" and get
-    the same answer the real classifier would, minus the LLM guess."""
+    key, no network and no paid call. Split out so a test (or any caller that
+    must not spend a token) can ask "would this route on its own words?" and
+    get the same answer the real classifier would, minus the LLM.
+
+    Tier 2 may load a local embedding model here; that is still "no key, no
+    network" once the model is cached, and it degrades to word overlap when it
+    is not available at all."""
     for tier in (_tier1_rules, _tier2_embedding_similarity):
         matches = tier(normalized_query)
         if matches:
@@ -309,6 +390,37 @@ def classify_intent_deterministic(normalized_query: str) -> list[tuple[str, floa
 # Below Tier 1's certain 1.0 and Tier 3's 0.7: inherited from the conversation,
 # not read off this query's own words — planning.run reports it as MEDIUM.
 _CARRIED_INTENT_SCORE = 0.6
+
+
+# A follow-up that continues the previous question rather than starting a new
+# one. Matched only at the START of the query, and only on a short one: "and
+# in a trawler?" continues, "and what about the fishing zones near Chennai
+# tomorrow" is long enough to be its own question and is treated as one.
+#
+# This exists because of P2.8. Tier 2 used to be a literal word-overlap
+# scorer, so a contentless follow-up matched nothing and fell through to
+# `carry_intent` — which is the correct answer for it. A sentence-embedding
+# scorer always has a nearest row, so "and in a trawler?" started matching
+# CONDITIONS on its own, and the safety intent of the conversation it was part
+# of was dropped. Caught by running P2.9's own three-turn Done-when, not by a
+# unit test. See `run` for what is done about it.
+_CONTINUATION_OPENERS: tuple[str, ...] = (
+    "and ", "what about", "how about", "what if", "and what about",
+    "also ", "then ", "or ", "but ", "in a ", "on a ", "with a ",
+)
+_CONTINUATION_MAX_WORDS = 7
+
+
+def is_continuation(normalized_query: str) -> bool:
+    """True when this reads as a continuation of the previous question rather
+    than a new one. Deterministic and deliberately narrow — the cost of a
+    false positive is one extra agent running (fail-safe), and the cost of a
+    false negative is only that nothing is carried, which is today's
+    behaviour."""
+    lowered = (normalized_query or "").strip().lower()
+    if not lowered or len(lowered.split()) > _CONTINUATION_MAX_WORDS:
+        return False
+    return lowered.startswith(_CONTINUATION_OPENERS)
 
 
 def carry_intent(session_history: list[dict] | None) -> list[tuple[str, float]]:
@@ -351,15 +463,65 @@ def run(state: ORCAState) -> AgentResult:
     this table entirely," which means bypassing this agent, not a branch
     inside it."""
     query = state.get("normalized_english_query") or state.get("raw_user_query", "")
-    matches = classify_intent(query, state.get("session_history"))
+    history = state.get("session_history")
+    tier_out: list[str] = []
     carried = False
-    if not matches:
-        matches = carry_intent(state.get("session_history"))
-        carried = bool(matches)
-    # Checked last, and only when nothing matched: a query that reached any
-    # routing row is a marine query by definition, and a follow-up carrying
-    # its predecessor's intent ("what about tomorrow?") reads as contentless
-    # on its own and must never be refused for it.
+
+    # The out-of-scope test now sits BETWEEN Tier 1 and the semantic tiers,
+    # and the reason is P2.8.
+    #
+    # It used to run last, once every tier had found nothing, on the stated
+    # grounds that "a query that reached any routing row is a marine query by
+    # definition". That was true while Tiers 1 and 2 were both *literal*
+    # matchers — a row only matched if its own words were present. It stopped
+    # being true the moment Tier 2 became a sentence-embedding scorer, because
+    # an embedding scorer always has a nearest row: "asdkjh askjdh askjd"
+    # landed on one above threshold and Phase 1's exit gate ("ten junk queries
+    # produce ten refusals") went red. Caught by `test_query_coverage.py`,
+    # which is exactly the unrehearsed-query gate P1.9 exists to be.
+    #
+    # So the precedence is now: a literal Tier-1 keyword match still proves
+    # the query is marine and wins outright; anything that needs a *semantic*
+    # match has to pass the deterministic scope test first. Two exemptions,
+    # both load-bearing: text still in a non-Latin script (is_out_of_scope
+    # returns False for it — an English vocabulary test says nothing about
+    # Tamil), and a follow-up whose intent carries from the previous turn
+    # ("what about tomorrow?"), which reads as contentless on its own and must
+    # never be refused for it. Refusing a real marine question stays far worse
+    # than answering a junk one; this only narrows which tier may rescue one.
+    matches = _tier1_rules(query)
+    if matches:
+        tier_out.append("tier1_rules")
+    else:
+        carried_rows = carry_intent(history)
+        if is_out_of_scope(query) and not carried_rows:
+            matches = []
+        else:
+            matches = classify_intent(query, history, tier_out=tier_out)
+            if not matches:
+                matches = carried_rows
+                carried = bool(matches)
+                if carried:
+                    tier_out.append("carried_from_previous_turn")
+            elif carried_rows and is_continuation(query):
+                # A continuation-shaped follow-up keeps the conversation's
+                # intent AND takes whatever this turn matched — a union, not
+                # an override, for the same reason the Tier-3 confirmation
+                # pass unions: execution is fail-safe, and the cost of running
+                # one more specialist is far below the cost of answering
+                # "and in a trawler?" as a conditions question when the
+                # conversation it belongs to was a safety question.
+                #
+                # The carried rows are appended *below* this turn's own
+                # matches so the new topic still leads the answer.
+                matched_names = {name for name, _ in matches}
+                inherited = [(name, score) for name, score in carried_rows if name not in matched_names]
+                if inherited:
+                    matches = [*matches, *inherited]
+                    carried = True
+                    tier_out.append("continuation_kept_previous_intent")
+
+    routing_tier = tier_out[0] if tier_out else "no_match"
     out_of_scope = not matches and is_out_of_scope(query)
     if out_of_scope:
         matched_rows, execution_plan = [OUT_OF_SCOPE_ROW], []
@@ -397,11 +559,27 @@ def run(state: ORCAState) -> AgentResult:
         query_id=state.get("query_id", ""),
         reasoning_depth=coerce_reasoning_depth(state.get("reasoning_depth", "SHALLOW")),
         inputs_consumed={"normalized_query": query},
-        outputs={"matched_intent_rows": matched_rows, "execution_plan": execution_plan},
+        outputs={
+            "matched_intent_rows": matched_rows,
+            "execution_plan": execution_plan,
+            # P2.8 — which tier decided, named in the response rather than
+            # inferable only from a confidence number. P2.7 renders it beside
+            # the intents: "Intents: SAFETY_CHECK + PFZ_NEAREST (sentence
+            # embeddings, confirmed) → 5 agents dispatched".
+            "routing_tier": routing_tier,
+            "routing_scores": [{"row": name, "score": score} for name, score in matches],
+        },
         source_provenance=SourceProvenance(
             dataset="Deterministic rules-tier routing table (Architecture §4)",
             acquisition_timestamp="",
             freshness_minutes=0,
         ),
         confidence=confidence,
+        # P2.1 — Planning is deterministic unless Tier 3 actually ran. The
+        # span must not read "Deterministic" on a query an LLM classified, and
+        # must not read a model id on the ~all of them it did not.
+        engine=(
+            engines.llm_engine("cheap") if "tier3" in routing_tier
+            else engines.DETERMINISTIC
+        ),
     )

@@ -11,7 +11,7 @@ import logging
 import math
 import os
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -20,11 +20,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from orca import intent_actions
+from orca import engines, intent_actions
+from orca import session as session_memory
 from orca.agents import distress as distress_agent
+from orca.agents import reporting
 from orca.agents.geospatial import DATA_ROOT
 from orca.agents.language import IndicTrans2Backend, register_translation_backend
-from orca.agents import reporting
+from orca.agents.planning import carry_intent, classify_intent_deterministic
 from orca.api.analytics_routes import router as analytics_router
 from orca.api.auth_routes import router as auth_router
 from orca.api.chats_routes import router as chats_router
@@ -32,14 +34,15 @@ from orca.api.discovery_routes import router as discovery_router
 from orca.api.feedback_routes import router as feedback_router
 from orca.api.geospatial_routes import router as geospatial_router
 from orca.api.notifications_routes import router as notifications_router
-from orca.api.params import OptLat, OptLon
 from orca.api.ops_routes import router as ops_router
+from orca.api.params import OptLat, OptLon
 from orca.api.replay_routes import router as replay_router
 from orca.api.system_status_routes import router as system_status_router
 from orca.api.trace_routes import (
-    _LLM_AGENTS,
     _reasoning_summary,
     record_recent_trace,
+)
+from orca.api.trace_routes import (
     router as trace_router,
 )
 from orca.api.voice_routes import router as voice_router
@@ -47,16 +50,16 @@ from orca.api.voyage_routes import router as voyage_router
 from orca.api.watches_routes import router as watches_router
 from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
 from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
-from orca.place_resolution import resolve_or_ask
 from orca.graph.graph import build_graph
-from orca.agents.planning import carry_intent, classify_intent
+from orca.llm.tiers import llm_enabled, reset_llm_call_count, set_llm_override
 from orca.logging_utils import configure_logging
+from orca.place_resolution import resolve_or_ask
 from orca.query_cache import get as query_cache_get
 from orca.query_cache import resolved_key
 from orca.query_cache import store as query_cache_store
 from orca.query_coalescing import coalesce
-from orca import session as session_memory
 from orca.state import ORCAState
+from orca.vessel import VESSEL_LABELS, resolve_vessel_class, vessel_named_in
 
 
 @asynccontextmanager
@@ -69,6 +72,17 @@ async def _lifespan(app: FastAPI):
     # cheap; the first Tamil/Hindi query after a cold start pays the model
     # load cost, not every query.
     register_translation_backend(IndicTrans2Backend())
+    # P2.8 — load the Tier-2 intent-embedding model now, off the event loop,
+    # rather than inside the first user's query. It is optional by
+    # construction (see orca/intent_embeddings.py): a machine that cannot
+    # download it logs one warning and routes with word overlap, and startup
+    # never waits on it.
+    try:
+        from orca import intent_embeddings
+
+        asyncio.get_running_loop().run_in_executor(None, intent_embeddings.warm)
+    except Exception:  # warm-up is an optimisation, never a startup dependency
+        logging.getLogger("orca.intent").warning("intent embedding warm-up not started", exc_info=True)
     # Agent 11 (Sentinel, Phase 3 D2) — an in-process asyncio poll loop,
     # single-instance via a Postgres advisory lock. Disabled with
     # ORCA_SENTINEL_ENABLED=0; a DB outage degrades it to a no-op tick, never
@@ -80,8 +94,6 @@ async def _lifespan(app: FastAPI):
         start_sentinel()
         _stop_sentinel = stop_sentinel
     except Exception:  # Sentinel must never block the API coming up
-        import logging
-
         logging.getLogger("orca.sentinel").warning("sentinel failed to start", exc_info=True)
     yield
     if _stop_sentinel is not None:
@@ -157,7 +169,13 @@ def _is_priority_shaped(query: str, depth: str | None, session_history: list[dic
     safety question runs SAFETY_CHECK, so it gets the safety lane too."""
     if depth not in (None, "SHALLOW"):
         return False
-    rows = classify_intent(query, session_history) or carry_intent(session_history)
+    # Deterministic tiers only (P2.8/P2.11). `classify_intent` can now make a
+    # Tier-3 LLM call as a confirmation pass, and this runs in the route layer
+    # BEFORE `_query_stream` sets the per-request LLM switch and call counter —
+    # so an `llm=off` demo query would still have spent a provider call here,
+    # uncounted, which is precisely the claim P2.11 exists to disprove. Which
+    # lane a request queues in never needs a paid opinion.
+    rows = classify_intent_deterministic(query) or carry_intent(session_history)
     return any(name == "SAFETY_CHECK" for name, _score in rows)
 
 
@@ -240,6 +258,124 @@ def _json_safe(obj: Any) -> Any:
     return obj
 
 
+def _latency_summary(entries: list[dict]) -> dict:
+    """P2.10 (`R-NEW-4`) — per-agent latency plus a total.
+
+    The total is the **sum of the spans**, not wall-clock: three specialists
+    run in parallel, so summing them overstates the elapsed time. That is the
+    honest direction to be wrong in for a cost/evidence number (it never
+    claims to have been faster than it was), and both figures are labelled so
+    nobody reads one as the other. `slowest` is the useful one for a judge
+    asking where the time goes."""
+    timed: list[dict[str, Any]] = [
+        {"agent_name": e.get("agent_name"), "latency_ms": float(e.get("latency_ms") or 0.0)}
+        for e in entries
+        if e.get("agent_name")
+    ]
+    if not timed:
+        return {"per_agent": [], "agent_time_ms": 0.0, "slowest": None}
+    slowest = max(timed, key=lambda row: row["latency_ms"])
+    return {
+        "per_agent": timed,
+        # Named `agent_time_ms`, not `total_ms`: it is time spent inside
+        # agents, summed, and the graph overlaps some of it.
+        "agent_time_ms": round(sum(row["latency_ms"] for row in timed), 1),
+        "slowest": slowest,
+    }
+
+
+def _inherited_values(final_state: Mapping[str, Any], history: list[dict] | None) -> list[dict]:
+    """P2.9 (`R-PS-3`, `R-CONV-1`, orca_final §16.2) — what this answer took
+    from earlier in the conversation rather than from the question itself.
+
+    Session history has fed classification for a while; what was missing is
+    that the user could not *see* it. "and in a trawler?" inheriting a place
+    from two turns ago is correct behaviour and completely invisible, which
+    makes it indistinguishable from ORCA guessing — and there was no way to
+    say "no, not there". Each entry is a chip the UI can show and remove;
+    removing one re-asks the question with that value overridden.
+
+    Only values genuinely carried from a previous turn appear here. A place
+    named in this question is not inherited, and neither is the regional
+    default — that is a fallback, and it is disclosed as one.
+    """
+    if not history:
+        return []
+    inherited: list[dict] = []
+
+    location = final_state.get("user_location") or {}
+    if location.get("place_source") == "session_carried" and location.get("place_name"):
+        inherited.append({
+            "field": "place",
+            "label": "Place",
+            "value": location["place_name"],
+            "detail": "carried from an earlier message in this chat",
+        })
+
+    # The intent, when this turn matched no routing row of its own and
+    # continued the previous turn's (planning.carry_intent).
+    planning_entry = next(
+        (e for e in (final_state.get("audit_trace_log") or []) if e.get("agent_name") == "planning"),
+        None,
+    )
+    if (planning_entry or {}).get("outputs", {}).get("routing_tier") == "carried_from_previous_turn":
+        rows = final_state.get("matched_intent_rows") or []
+        if rows:
+            inherited.append({
+                "field": "intent",
+                "label": "Question type",
+                "value": " + ".join(rows),
+                "detail": "this question matched no topic of its own, so it continues the previous one",
+            })
+
+    vessel = final_state.get("vessel_class")
+    # Carried only when a previous turn is where it came from — a vessel named
+    # in this question is the user's own choice, not an inheritance.
+    if (
+        vessel
+        and any(t.get("vessel_class") == vessel for t in history)
+        and not vessel_named_in(final_state.get("raw_user_query") or "")
+    ):
+        inherited.append({
+            "field": "vessel_class",
+            "label": "Vessel",
+            "value": VESSEL_LABELS.get(vessel, vessel),
+            "detail": "carried from an earlier message in this chat",
+        })
+
+    return inherited
+
+
+def _routing_summary(final_state: Mapping[str, Any]) -> dict:
+    """P2.7 (`R-JUDGE-3`) — the routing decision, in the response.
+
+    Multi-intent classification has existed for a while and nothing rendered
+    it, so a compound question looked exactly like a simple one. This is the
+    "Intents: SAFETY_CHECK + PFZ_NEAREST → 5 agents dispatched" line, built
+    from what Planning actually decided rather than re-derived here."""
+    planning_entry = next(
+        (e for e in (final_state.get("audit_trace_log") or []) if e.get("agent_name") == "planning"),
+        None,
+    )
+    outputs = (planning_entry or {}).get("outputs") or {}
+    rows = final_state.get("matched_intent_rows") or []
+    plan = final_state.get("execution_plan") or []
+    skipped = final_state.get("skipped_agents") or []
+    return {
+        "matched_intent_rows": rows,
+        "execution_plan": plan,
+        "routing_tier": outputs.get("routing_tier"),
+        "routing_scores": outputs.get("routing_scores") or [],
+        # Agents dispatched is the plan minus the plan's own agents that were
+        # skipped — the number the line quotes has to be the number that
+        # actually ran. Only skips that were IN the plan count: a Critic
+        # cancelled by P2.12 was never part of the plan, so subtracting it
+        # would under-report a compound query's dispatch by one.
+        "agents_dispatched": len(plan) - sum(1 for s in skipped if s.get("agent_name") in plan),
+        "multi_intent": len(rows) > 1,
+    }
+
+
 def _sse(payload: dict) -> str:
     """Every SSE frame goes out through here. allow_nan=False is the tripwire:
     if _json_safe ever misses a case, this raises here instead of shipping
@@ -260,11 +396,24 @@ async def _query_stream(
     session_id: str | None = None,
     session_history: list[dict] | None = None,
     resolution: dict | None = None,
+    llm: bool | None = None,
 ) -> AsyncIterator[str]:
     """`on_final`, when given, is called once with the same dict that gets
     JSON-serialized into the `final_response` SSE frame — the query-cache
     write hook (phase4 plan §2.3), kept as a callback rather than a return
-    value so this stays a plain generator callers can iterate directly."""
+    value so this stays a plain generator callers can iterate directly.
+
+    `llm=False` re-runs this query with every provider disabled (P2.11,
+    `R-NEW-3`) — the verdict, thresholds, geofence, citations and confidence
+    all still render; only the prose narration degrades to the deterministic
+    line. `None` means "whatever ORCA_LLM_ENABLED says", which is the ordinary
+    path."""
+    # Set on the task that drives the graph, not as a `with` block around the
+    # `async for`: LangGraph may run a sync node on a worker thread whose
+    # context was copied at a different moment, and the counter is a mutable
+    # list precisely so it survives that copy either way.
+    set_llm_override(llm)
+    llm_calls = reset_llm_call_count()
     state = _initial_state(
         query, lat, lon, vessel_class, distress, persona, depth, place, session_id, session_history,
         resolution,
@@ -281,21 +430,13 @@ async def _query_stream(
         trace_log = values.get("audit_trace_log", [])
         for node_name, trace_entry in zip(completed[emitted:], trace_log[emitted:]):
             agent_real = trace_entry.get("agent_name", node_name)
-            used_llm = agent_real in _LLM_AGENTS
-            tier = (
-                "cheap"
-                if agent_real == "planning"
-                else "mid"
-                if agent_real == "reporting"
-                else "reasoning"
-                if agent_real in ("ocean_analytics", "critic")
-                else None
-            )
-            model = (
-                os.environ.get(f"ORCA_LLM_{tier.upper()}_MODEL", "gemini-3.5-flash-lite")
-                if used_llm and tier
-                else None
-            )
+            # P2.1 — one resolved label per span, computed at the trace
+            # boundary (orca/trace.py) rather than re-derived here and again
+            # in trace_routes.py from two copies of the same ladder.
+            engine = engines.engine_for(agent_real, trace_entry.get("engine"))
+            used_llm = engines.used_llm(agent_real, engine)
+            tier = engines.AGENT_TIER.get(agent_real) if used_llm else None
+            model = engines.model_for_tier(tier)
             event = {
                 "type": "agent_span",
                 "agent_name": node_name,
@@ -306,13 +447,22 @@ async def _query_stream(
                 "confidence_score": trace_entry.get("confidence_score"),
                 "confidence_detail": trace_entry.get("confidence_detail"),
                 "latency_ms": trace_entry.get("latency_ms", 0.0),
-                "reasoning_summary": _reasoning_summary(agent_real, trace_entry.get("outputs", {}), trace_entry.get("status", "ok")),
+                "reasoning_summary": _reasoning_summary(
+                    agent_real, trace_entry.get("outputs", {}), trace_entry.get("status", "ok"),
+                    trace_entry.get("skip_reason"),
+                ),
                 "inputs_consumed": trace_entry.get("inputs_consumed", {}),
                 "outputs": trace_entry.get("outputs", {}),
                 "source_provenance": trace_entry.get("source_provenance"),
                 "used_llm": used_llm,
+                # P2.1 — `engine` is the field every surface renders now.
+                # `model` stays for the two clients that already read it, and
+                # is None on a deterministic span exactly as before.
+                "engine": engine,
                 "model": model,
                 "tier": tier,
+                # P2.7/P2.12 — why a span did not run. Null on every span that did.
+                "skip_reason": trace_entry.get("skip_reason"),
             }
             yield _sse(event)
         emitted = len(completed)
@@ -354,10 +504,35 @@ async def _query_stream(
             # query-cache hit replays only this event — no agent_span events —
             # and the /ask strip would otherwise draw bare ticks for it.
             "agent_confidence": [
-                {"agent_name": e.get("agent_name"), "status": e.get("status", "ok"), "confidence_tier": e.get("confidence")}
+                {
+                    "agent_name": e.get("agent_name"), "status": e.get("status", "ok"),
+                    "confidence_tier": e.get("confidence"),
+                    # P2.1/P2.3/P2.10 — a query-cache hit replays only this
+                    # frame and no spans, so the engine, the derivation and
+                    # the latency have to ride here too or a cached answer
+                    # silently loses all three.
+                    "engine": engines.engine_for(e.get("agent_name", ""), e.get("engine")),
+                    "confidence_rationale": e.get("confidence_rationale"),
+                    "latency_ms": e.get("latency_ms"),
+                    "skip_reason": e.get("skip_reason"),
+                }
                 for e in final_state.get("audit_trace_log") or []
                 if e.get("agent_name")
             ],
+            # P2.3 (`R-JUDGE-4`) — the derivation of the tier the card shows:
+            # the inputs Reporting took the worst of, each with its own tier
+            # and rationale. From the LAST reporting span, because a Critic
+            # re-invocation (P2.5) runs Reporting twice and the second is the
+            # answer the user sees. Absent (None) on a refusal or a distress
+            # response, which never reach Reporting.
+            "confidence_inputs": next(
+                (
+                    (e.get("outputs") or {}).get("confidence_inputs")
+                    for e in reversed(final_state.get("audit_trace_log") or [])
+                    if e.get("agent_name") == "reporting"
+                ),
+                None,
+            ),
             "risk_assessment": final_state.get("risk_assessment"),
             # Same gate graph.py already applies to the narrative's verdict
             # header (reporting.should_lead_with_verdict) — exposed so the
@@ -444,11 +619,49 @@ async def _query_stream(
             },
             # Agent 3's source-selection narratives (differentiator 4) — on
             # the answer card and the activity strip, not buried in the trace.
+            # Since P2.6 these come from the marine_data_discovery node, so
+            # they are present on every answer rather than only the ones that
+            # reached Ocean Analytics.
             "source_selections": discovery.get("source_selections", []),
+            # P2.4 — every pair of sources that was compared for this answer.
+            # The disagreements are also in `disclosures` (they belong above
+            # the answer); this is the full record, agreements included, for
+            # the panel that shows what was checked.
+            "reconciliation": final_state.get("reconciliation", []),
+            # P2.7 — what the plan decided not to do, and why. A smaller
+            # answer is a decision, and this is what lets the UI say so
+            # instead of rendering a gap.
+            "skipped_agents": final_state.get("skipped_agents", []),
+            # P2.7 — the routing decision itself, named: which rows matched,
+            # which tier decided, and how many agents that dispatched.
+            "routing": _routing_summary(final_state),
+            # P2.10 (`R-NEW-4`) — latency as evidence. Per-agent values have
+            # always been on the spans and the UI under-used them; the total
+            # is the number that retires an unverifiable "≤3 sec" claim, and
+            # a query-cache hit replays only this frame, so it has to be here
+            # and not only summable from spans the client may never see.
+            "latency": _latency_summary(final_state.get("audit_trace_log") or []),
+            # P2.13 — measured, not asserted. §6.2's cost-per-query number is
+            # computed from this rather than from an estimate of it.
+            "llm_call_count": llm_calls[0],
+            # P2.11 — whether any LLM was reachable for this query at all, so
+            # the UI can label a deterministic run instead of it silently
+            # looking like an ordinary one.
+            "llm_enabled": llm_enabled() if llm is None else llm,
+            # P2.9 — which boat this answer's thresholds were computed for.
+            # On the payload because `session.turn_from_final` builds the
+            # remembered turn from exactly this dict, so a vessel named in
+            # turn 3 is what turn 4 inherits.
+            "vessel_class": final_state.get("vessel_class"),
+            # P2.9 / orca_final §16.2 — the values this answer took from
+            # earlier in the conversation, as removable chips. Carrying
+            # context is correct; carrying it invisibly is indistinguishable
+            # from guessing, and leaves the user no way to say "not there".
+            "inherited": _inherited_values(final_state, session_history),
         }
         _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []))
         if final_state.get("distress_flag"):
-            _record_distress_event(final_state, final.get("mrcc_contact"))
+            _record_distress_event(dict(final_state), final.get("mrcc_contact"))
         # The turn itself is remembered by _remember_turns in query(), not
         # here: a query-cache hit or a coalesced follower never runs this
         # generator, and remembering only here left those turns out of the
@@ -467,6 +680,27 @@ async def _query_stream(
         except Exception:
             pass
         yield _sse(final)
+
+
+async def _reset_stream() -> AsyncIterator[str]:
+    """P2.14 — the whole response to a reset: one confirmation frame, no
+    agents, no spans, no marine content. `outcome: "RESET"` is what tells the
+    chat UI to drop its inherited-value chips (P2.9) rather than render this
+    as an answer."""
+    yield _sse({
+        "type": "final_response",
+        "query_id": str(uuid.uuid4()),
+        "outcome": "RESET",
+        "final_english_response": session_memory.RESET_CONFIRMATION,
+        "final_vernacular_response": session_memory.RESET_CONFIRMATION,
+        "confidence_tier": "HIGH",
+        "context_turns": 0,
+        "inherited": [],
+        "risk_assessment": None,
+        "citations": [],
+        "disclosures": [],
+        "distress_flag": False,
+    })
 
 
 async def _remember_turns(session_id: str | None, query: str, stream: AsyncIterator[str]) -> AsyncIterator[str]:
@@ -499,7 +733,7 @@ def _record_distress_event(final_state: dict, mrcc_contact: dict | None) -> None
             record_event(db, final_state, mrcc_contact)
         finally:
             db.close()
-    except Exception:  # noqa: BLE001 — see _persist_audit_trace_log
+    except Exception:
         logging.getLogger("orca.distress").warning("distress event not queued", exc_info=True)
 
 
@@ -520,7 +754,7 @@ def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
             persist_trace_entries(db, query_id=query_id, session_id=None, entries=entries)
         finally:
             db.close()
-    except Exception:  # noqa: BLE001, S110 — same exception-boundary rule as trace.py; a DB
+    except Exception:
         # outage here must never fail the request, and there is nothing more to do
         # than degrade to Phase-1 behaviour (the trace already shipped in the SSE body).
         pass
@@ -530,8 +764,24 @@ def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
 async def query(
     q: str = "", lat: OptLat = None, lon: OptLon = None, vessel_class: str | None = None,
     distress: bool = False, persona: str | None = None, depth: str | None = None,
-    session_id: str | None = None,
+    session_id: str | None = None, llm: str | None = None, drop: str | None = None,
 ) -> StreamingResponse:
+    """`llm=off` (P2.11, `R-NEW-3`) re-runs this exact query with every LLM
+    provider disabled. It is the demo beat: the same question, the same
+    verdict, thresholds, geofence, citations and confidence, and only the
+    prose narration degraded to the deterministic line. `llm=on` forces the
+    opposite even when `ORCA_LLM_ENABLED=0` is set in the environment;
+    omitting it entirely uses whatever the environment says.
+
+    `drop=place,vessel_class,intent` (P2.9, orca_final §16.2) refuses to inherit
+    the named values from earlier in this chat — what the ✕ on a "Carried over"
+    chip sends. It acts where each inheritance actually happens: the place is
+    not taken from `session.last_place`, the vessel not from
+    `session.last_vessel_class`, and Planning's follow-up rule sees no previous
+    intent. Rewriting the question text cannot do this, and the first version
+    tried: it re-asked "(not Kannur…)", which put the name back into the text
+    and resolved Kannur again."""
+    dropped = {d.strip() for d in (drop or "").split(",") if d.strip()}
     # An explicit lat/lon from the caller always wins — a resolved GPS fix or
     # a registered home port (Phase 2 D1) is real; a place name in free text is
     # a fallback for the caller that has no location at all yet. Only when
@@ -550,7 +800,45 @@ async def query(
     # follow-up rule and Agent 9's prompt all see the same window. Only the
     # Ask chat sends a session_id; /safety, /reasoning and the SOS control
     # don't, so they stay exactly as stateless (and cacheable) as before.
+    # P2.14 — "forget that, start fresh" clears the window and confirms in one
+    # line. Placed here, ahead of place resolution and the graph, because a
+    # reset is not a marine question: routing it would answer something nobody
+    # asked, using exactly the context the user just told us to drop.
+    #
+    # It is NOT ahead of Agent 12 in spirit — the distress control (`distress=`)
+    # is checked first below, and a *typed* distress call can never be a reset
+    # because `is_reset_request` matches the whole message and no reset phrase
+    # is a distress phrase. A message that is nothing but "forget it" is not
+    # someone in trouble.
+    if not distress and session_memory.is_reset_request(q):
+        session_memory.clear(session_id)
+        return StreamingResponse(_reset_stream(), media_type="text/event-stream")
+
     history = session_memory.get_turns(session_id)
+    if "intent" in dropped:
+        # Turns stay (Agent 9 still reads the conversation); only the carried
+        # intent is withheld from Planning.
+        history = [{**turn, "intent_rows": []} for turn in history]
+
+    # P2.9 — which boat this question is about. Three sources, in the order
+    # that respects what the user actually said:
+    #   1. an explicit `vessel_class` parameter (a registered vessel, or the
+    #      picker) — always wins;
+    #   2. a vessel named in this question's text ("and in a trawler?"), which
+    #      set nothing at all before this point;
+    #   3. the vessel from earlier in this chat, so the two follow-ups after
+    #      "in a trawler?" stay about the trawler.
+    # Nothing at all stays None, and `risk_assessment.run` applies the most
+    # conservative class — the safety default keeps its single home.
+    vessel_class = resolve_vessel_class(
+        vessel_class, q, None if "vessel_class" in dropped else session_memory.last_vessel_class(history),
+    )
+
+    # None = follow the environment. Anything unrecognised is also None rather
+    # than an error: a mistyped demo parameter must not fail a safety query.
+    llm_override = {"off": False, "0": False, "false": False, "on": True, "1": True, "true": True}.get(
+        (llm or "").strip().lower()
+    )
 
     place_name: str | None = None
     place_source = "explicit"
@@ -561,7 +849,7 @@ async def query(
         # answered at a position (`ambiguous`, `unresolvable`) are stopped by
         # the graph's place_guard node, *after* Agent 12 has had the query —
         # never here, where a distress call would be refused for naming no port.
-        carried = session_memory.last_place(history)
+        carried = None if "place" in dropped else session_memory.last_place(history)
         resolved = resolve_or_ask(q, {"last_place": carried} if carried else None)
         resolution = resolved.as_dict()
         if resolved.place is not None:
@@ -589,11 +877,18 @@ async def query(
             _remember_turns(session_id, q, _query_stream(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
                 session_id=session_id, session_history=history, resolution=resolution,
+                llm=llm_override,
             )),
             media_type="text/event-stream"
         )
 
     cache_key = resolved_key(q, lat, lon, vessel_class, persona, depth)
+    # P2.11 — an LLM-disabled run is a DIFFERENT answer to the same question,
+    # so it must not be served from, or written into, the ordinary answer's
+    # cache slot. Without this the demo shows the cached LLM narration back
+    # with the toggle off, which is precisely the claim being disproved.
+    if llm_override is not None:
+        cache_key = f"{cache_key}:llm={'on' if llm_override else 'off'}"
     # A follow-up's answer depends on its conversation, not just its resolved
     # parameters: "why?" means something different in every chat. So it is
     # never served from or written to the shared query cache, and it only
@@ -615,6 +910,7 @@ async def query(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
                 on_final=None if follow_up else (lambda final: query_cache_store(cache_key, final)),
                 session_id=session_id, session_history=history, resolution=resolution,
+                llm=llm_override,
             ):
                 yield line
 

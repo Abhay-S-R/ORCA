@@ -5,7 +5,7 @@
 // because that file renders one of these per turn now instead of exactly
 // one ever — keeping it here is what keeps the thread's map() call readable.
 import { motion } from "framer-motion";
-import { History, MapPin, Radio } from "lucide-react";
+import { History, MapPin, PowerOff, Radio } from "lucide-react";
 import { AgentPill, AgentStrip, AGENT_ORDER, nextRunningAgent, type AgentStatus } from "../components/AgentPill";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
@@ -21,9 +21,10 @@ import { SourceNarration } from "../components/SourceNarration";
 import { ErrorState, Skeleton } from "../components/States";
 import { INTENT_LABEL, type QueryIntent } from "../lib/queryIntent";
 import { type Persona } from "../persona/config";
-import type { Turn } from "./useAskThread";
+import type { AgentSpan, InheritedValue, Turn } from "./useAskThread";
 import { IntentActions } from "./IntentActions";
-import { DisclosureBanner, RefusalCard } from "./Disclosures";
+import { DisclosureBanner, RefusalCard, ResetNotice } from "./Disclosures";
+import { InheritedChips, ReconciliationPanel, RoutingLine, SkippedNotice } from "./ReasoningEvidence";
 
 const FOLLOW_UPS: Record<QueryIntent, string[]> = {
   safety: ["What are the wind and wave timings for the next 24 hours?", "Where is the nearest fishing zone right now?"],
@@ -34,6 +35,30 @@ const FOLLOW_UPS: Record<QueryIntent, string[]> = {
   general: ["Is it safe to go out tomorrow morning?", "Where are the fishing zones closest to my port?"],
 };
 
+// One pill per AGENT, not per span. A Critic-driven re-invocation makes the named specialist,
+// Reporting and the Critic report a second time; drawing each span put the Critic in the strip twice
+// (and pushed the strip to three rows) while the reasoning graph, which draws one node per agent,
+// showed it once. Grouping keeps the two surfaces saying the same thing: one pill, a x2 marker, the
+// summed time, and the LAST run's status and confidence (that is the state the answer was left in).
+function groupRuns(spans: AgentSpan[]): { span: AgentSpan; runs: number; latency: number | undefined }[] {
+  const order: string[] = [];
+  const byAgent = new Map<string, { span: AgentSpan; runs: number; latency: number | undefined }>();
+  for (const s of spans) {
+    const seen = byAgent.get(s.agent_name);
+    if (!seen) {
+      order.push(s.agent_name);
+      byAgent.set(s.agent_name, { span: s, runs: 1, latency: s.latency_ms });
+    } else {
+      byAgent.set(s.agent_name, {
+        span: s,
+        runs: seen.runs + 1,
+        latency: (seen.latency ?? 0) + (s.latency_ms ?? 0),
+      });
+    }
+  }
+  return order.map((name) => byAgent.get(name)!);
+}
+
 export function ChatTurn({
   turn,
   persona,
@@ -42,6 +67,7 @@ export function ChatTurn({
   onViewOnMap,
   onRetry,
   onFollowUp,
+  onDropInherited,
   onPersonaChange,
   onRendered,
 }: {
@@ -51,11 +77,20 @@ export function ChatTurn({
   hadEarlierAnswers: boolean;
   onViewOnMap: () => void;
   onRetry: () => void;
-  onFollowUp: (q: string) => void;
+  // `options` carries P2.11's LLM-off re-run, so the same handler that asks a
+  // follow-up can also re-ask this question deterministically.
+  onFollowUp: (q: string, options?: { llm?: "off" }) => void;
+  // P2.9 — the user rejecting an inherited value. Re-asks the question with
+  // that value explicitly overridden rather than silently carried again.
+  onDropInherited: (value: InheritedValue) => void;
   onPersonaChange: (p: Persona) => void;
   onRendered: (result: RenderResult) => void;
 }) {
   const { askedQuery, spans, answer, streaming, failed, renderedAs, focus } = turn;
+  // P2.11 — read from the answer, which persists with the chat, rather than
+  // from a flag on the turn, which the account store does not round-trip: a
+  // deterministic answer must still say so after the chat is reopened.
+  const llmOff = Boolean(turn.llmDisabled) || answer?.llm_enabled === false;
   const weatherCitation = answer?.citations?.find((c) => c.agent_name === "weather_intelligence");
   const runningAgent = streaming ? nextRunningAgent(spans) : null;
   const displaySpans: typeof spans =
@@ -92,11 +127,31 @@ export function ChatTurn({
             </span>
           )}
           <AgentStrip>
-            {displaySpans.map((s, i) => (
-              <AgentPill key={`${s.agent_name}-${i}`} name={s.agent_name} status={s.status} confidence={s.confidence_tier} />
+            {groupRuns(displaySpans).map(({ span: s, runs, latency }, i) => (
+              <AgentPill
+                key={`${s.agent_name}-${i}`}
+                name={s.agent_name}
+                status={s.status}
+                runs={runs}
+                confidence={s.confidence_tier}
+                // P2.1 — every pill names its engine; the safety pill reads
+                // "Deterministic". P2.10 — the latency was already on the
+                // wire and the pill already had a slot for it.
+                engine={s.engine}
+                latencyMs={latency}
+                skipReason={s.skip_reason}
+              />
             ))}
             {runningAgent && <AgentPill name={runningAgent} status="running" />}
           </AgentStrip>
+
+          {/* P2.7 (`R-JUDGE-3`) — the routing decision, said out loud, so a
+              compound query is visibly a compound query. P2.10 — the total
+              beside it, because "how long did that take" is the other
+              question every judge asks about an agent graph. */}
+          {answer?.routing && answer.routing.matched_intent_rows.length > 0 && (
+            <RoutingLine routing={answer.routing} latency={answer.latency} llmCalls={answer.llm_call_count} />
+          )}
         </div>
       )}
 
@@ -124,7 +179,10 @@ export function ChatTurn({
           WHOLE response — no verdict badge, no gauges, no weather panel, so
           there is nothing on screen to mistake for an answer. Answers cached
           before `outcome` existed have no field and render as before. */}
-      {answer && answer.outcome != null && answer.outcome !== "ANSWERED" && answer.outcome !== "DISTRESS" && (
+      {/* P2.14 — a reset is neither an answer nor a refusal. */}
+      {answer && answer.outcome === "RESET" && <ResetNotice answer={answer} />}
+
+      {answer && answer.outcome != null && answer.outcome !== "ANSWERED" && answer.outcome !== "DISTRESS" && answer.outcome !== "RESET" && (
         <RefusalCard answer={answer} onFollowUp={onFollowUp} />
       )}
 
@@ -132,19 +190,40 @@ export function ChatTurn({
         <>
           {/* Above the answer, never below it — see Disclosures.tsx. */}
           <DisclosureBanner disclosures={answer.disclosures} />
+
+          {/* P2.9 / orca_final §16.2 — what this answer inherited from earlier
+              turns, above the answer for the same reason a disclosure is:
+              it changes what the answer is about. Removing a chip re-asks the
+              question with that value explicitly dropped. */}
+          {answer.inherited && answer.inherited.length > 0 && (
+            <InheritedChips inherited={answer.inherited} onRemove={onDropInherited} />
+          )}
           <Panel title="Answer">
             <div className="flex flex-col gap-4">
               {/* Architecture §2.6 rendering matrix — same facts, structure
                   differs by persona. Only rendered once risk_assessment
                   exists — the distress bypass path never reaches
                   Reporting/risk_assessment. */}
-              {answer.risk_assessment && (
+              {/* `?.go_no_go`, not just truthiness: a safety agent that failed leaves
+                  an EMPTY verdict object, which is truthy, and indexed the verdict
+                  icon table with undefined — a hard render crash of the whole
+                  card. No verdict means no verdict panel, and the answer text
+                  (which then reads "UNKNOWN: no verdict computed") still shows. */}
+              {answer.risk_assessment?.go_no_go && (
                 <PersonaAnswerMatrix
                   persona={renderedAs ?? persona}
                   queryId={answer.query_id}
                   intent={focus?.intent ?? "general"}
                   agentsVerified={spans.filter((s) => s.status === "ok").length}
                   verdict={answer.risk_assessment.go_no_go}
+                  // P2.2 (`R-JUDGE-2`) — a GO on a question that was not about
+                  // safety is rendered as a quiet inline line, not a chip.
+                  // CAUTION and NO_GO lead whatever was asked. The backend
+                  // already decides this (reporting.should_lead_with_verdict,
+                  // shipped as `lead_with_verdict`); the frontend ignored it
+                  // and banner-ed every answer, which teaches people to skim
+                  // the one line that matters when it is not GO.
+                  leadWithVerdict={answer.lead_with_verdict ?? true}
                   reason={answer.risk_assessment.reason}
                   confidenceTier={answer.confidence_tier}
                   weather={answer.weather_summary ?? { wave_height_m: null, wind_speed_ms: null, lightning_active: false, cyclone_alert: null }}
@@ -192,7 +271,7 @@ export function ChatTurn({
                 // response today — identical to what PersonaAnswerMatrix's
                 // status row already shows above. Skip the repeat; a
                 // vernacular translation still differs, so it still renders.
-                const verdictLine = answer.risk_assessment
+                const verdictLine = answer.risk_assessment?.go_no_go
                   ? `${answer.risk_assessment.go_no_go}: ${answer.risk_assessment.reason}`
                   : null;
                 const isRedundant = verdictLine != null && answerBody.trim() === verdictLine.trim();
@@ -220,8 +299,23 @@ export function ChatTurn({
                   </div>
               )}
 
+              {/* P2.4 (`R-PS-5`) — where two sources covering the same
+                  variable were compared. The disagreements are already above
+                  the answer as disclosures; this is the full record, including
+                  the pairs that agreed, because "how do you know your sources
+                  agree" deserves the comparison and not a reassurance. */}
+              {answer.reconciliation && answer.reconciliation.length > 0 && (
+                <ReconciliationPanel rows={answer.reconciliation} />
+              )}
+
+              {/* P2.7/P2.12 — work deliberately not done, and why. */}
+              {answer.skipped_agents && answer.skipped_agents.length > 0 && (
+                <SkippedNotice skipped={answer.skipped_agents} />
+              )}
+
               <div className="border-t border-hairline pt-3.5">
-                <ConfidenceMeter tier={answer.confidence_tier} />
+                {/* P2.3 (`R-JUDGE-4`) — the derivation, not just the tier. */}
+                <ConfidenceMeter tier={answer.confidence_tier} inputs={answer.confidence_inputs} />
               </div>
 
               {/* Differentiator 4 — Agent 3's source-selection reasoning, on
@@ -272,6 +366,34 @@ export function ChatTurn({
                     </button>
                   ))}
                 </div>
+              )}
+
+              {/* P2.11 (`R-NEW-3`) — prove the LLM is optional, live. Re-asks
+                  this exact question with every provider disabled; the verdict,
+                  thresholds, geofence, citations and confidence all still
+                  render, and only the prose degrades to the deterministic
+                  line. The two answers sit side by side in the thread, which
+                  is the whole demonstration. */}
+              {!llmOff && (
+                <button
+                  type="button"
+                  onClick={() => onFollowUp(askedQuery, { llm: "off" })}
+                  className="flex w-fit items-center gap-1.5 self-start rounded-lg border border-hairline/60 bg-shelf-2/50 px-2.5 py-1.5 text-[11px] text-ink-muted transition-colors hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink"
+                >
+                  <PowerOff className="size-3 text-accent" aria-hidden="true" />
+                  Re-run this without any LLM
+                </button>
+              )}
+
+              {llmOff && (
+                <p className="flex items-start gap-1.5 rounded-lg border border-accent/40 bg-accent/5 p-2.5 text-[11px] leading-snug text-ink-muted">
+                  <PowerOff className="mt-0.5 size-3 shrink-0 text-accent" aria-hidden="true" />
+                  <span>
+                    <span className="font-medium text-ink">Answered with every LLM provider disabled.</span>{" "}
+                    The verdict, thresholds, boundary distance, citations and confidence above are all
+                    deterministic code — only the wording degrades to the plain verdict line.
+                  </span>
+                </p>
               )}
 
               <PersonaCorrection

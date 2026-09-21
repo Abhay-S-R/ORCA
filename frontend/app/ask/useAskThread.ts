@@ -20,7 +20,62 @@ import type { IntentAction } from "./IntentActions";
 
 // confidence_tier: the band of the agent's measured score (orca/confidence_score.py).
 // Only the label travels here — the number stays on /reasoning.
-export type AgentSpan = { agent_name: string; status: AgentStatus; confidence_tier?: ConfidenceTier };
+export type AgentSpan = {
+  agent_name: string;
+  status: AgentStatus;
+  confidence_tier?: ConfidenceTier;
+  // P2.1 (`R-JUDGE-1`) — what computed this span: "Deterministic" for the
+  // safety path, the IndicTrans2 weights for Agent 1, a model id for a span
+  // that actually reached one. Never absent on a live span.
+  engine?: string;
+  // P2.3 — why that confidence tier.
+  confidence_rationale?: string | null;
+  // P2.10 (`R-NEW-4`) — per-agent latency, already on the wire and unused.
+  latency_ms?: number;
+  // P2.7/P2.12 — why a span did not run, when it did not.
+  skip_reason?: string | null;
+};
+
+// P2.4 (`R-PS-5`) — one comparison between two sources covering the same
+// variable. `status` is "agree" | "diverged" | "not_comparable"; only the
+// last two produce a sentence, and a divergence also drops confidence a tier.
+export type Reconciliation = {
+  variable: string;
+  label: string;
+  unit: string;
+  primary: { value: number | boolean; source: string; timestamp?: string | null };
+  secondary: { value: number | boolean; source: string; timestamp?: string | null };
+  divergence: number | null;
+  divergence_pct: number | null;
+  time_gap_minutes: number | null;
+  status: "agree" | "diverged" | "not_comparable";
+  used_value: number | boolean;
+  used_source: string;
+  confidence_penalty: boolean;
+  statement: string;
+};
+
+// P2.9 / orca_final §16.2 — a value this answer took from earlier in the
+// conversation rather than from the question. Rendered as a removable chip:
+// carrying context is correct, carrying it invisibly is indistinguishable
+// from guessing.
+export type InheritedValue = {
+  field: "place" | "intent" | "vessel_class";
+  label: string;
+  value: string;
+  detail: string;
+};
+
+// P2.7 (`R-JUDGE-3`) — the routing decision, so a compound query visibly
+// dispatches a larger agent set than a simple one.
+export type RoutingSummary = {
+  matched_intent_rows: string[];
+  execution_plan: string[];
+  routing_tier?: string | null;
+  routing_scores: { row: string; score: number }[];
+  agents_dispatched: number;
+  multi_intent: boolean;
+};
 export type FinalResponse = {
   query_id?: string;
   final_english_response: string;
@@ -30,6 +85,9 @@ export type FinalResponse = {
   citations?: Citation[];
   source_selections?: SourceSelection[];
   risk_assessment?: { go_no_go: Verdict; reason: string } | null;
+  // P2.2 — whether the verdict leads this answer. False only for a GO on a
+  // question that was not about safety; a CAUTION or NO_GO always leads.
+  lead_with_verdict?: boolean;
   weather_summary?: WeatherSummary;
   hazard_breakdown?: HazardBreakdown;
   ocean_summary?: OceanSummary;
@@ -49,7 +107,34 @@ export type FinalResponse = {
   // refusal or a question back, and must NOT be drawn as an answer with a
   // verdict badge. Absent on answers cached before the field existed, which is
   // why every read defaults to "ANSWERED".
-  outcome?: "ANSWERED" | "OUT_OF_SCOPE" | "NEEDS_PLACE" | "OUT_OF_RANGE" | "DISTRESS";
+  // "RESET" (P2.14) is not an answer at all: the conversation was cleared and
+  // this is the one-line confirmation. It must render as neither an answer
+  // nor a refusal, and it clears the inherited chips.
+  outcome?: "ANSWERED" | "OUT_OF_SCOPE" | "NEEDS_PLACE" | "OUT_OF_RANGE" | "DISTRESS" | "RESET";
+  // P2.3 — the inputs the confidence tier is the worst OF, each with its own
+  // tier and rationale. Null on refusals and distress, which skip Reporting.
+  confidence_inputs?: { agent_name: string; tier: ConfidenceTier; rationale: string }[] | null;
+  // P2.4 — every pair of sources compared for this answer. The disagreements
+  // are also in `disclosures`, above the answer; this is the full record.
+  reconciliation?: Reconciliation[];
+  // P2.7 — what the plan decided not to run, and why.
+  skipped_agents?: { agent_name: string; status: string; reason: string }[];
+  routing?: RoutingSummary;
+  // P2.10 — per-agent latency and the summed agent time. `agent_time_ms` is a
+  // SUM of spans, not wall clock: three specialists run in parallel, so it
+  // overstates elapsed time rather than understating it.
+  latency?: {
+    per_agent: { agent_name: string; latency_ms: number }[];
+    agent_time_ms: number;
+    slowest: { agent_name: string; latency_ms: number } | null;
+  };
+  // P2.13 — measured provider calls for this query, not an estimate.
+  llm_call_count?: number;
+  // P2.11 — whether any LLM was reachable for this query.
+  llm_enabled?: boolean;
+  // P2.9 — values carried from earlier turns, as removable chips.
+  inherited?: InheritedValue[];
+  vessel_class?: string | null;
   // Sentences that belong ABOVE the answer, not below it: the position was a
   // fallback, the sector was a fallback, the reading is past its staleness
   // ceiling. A fallback that is not disclosed is a lie (plan principle 3).
@@ -77,6 +162,10 @@ export type Turn = {
   failed: boolean;
   renderedAs: Persona | null;
   focus: QueryFocus | null;
+  // P2.11 — this turn was deliberately asked with the LLM switched off. Held
+  // on the turn so the card can say so even after a reload, rather than the
+  // deterministic answer looking like an ordinary one that happened to be terse.
+  llmDisabled?: boolean;
 };
 
 // Chart focus reacts to the question itself, not the answer. A follow-up that
@@ -228,7 +317,16 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     );
   }
 
-  function ask(q: string) {
+  // P2.11 (`R-NEW-3`) — re-ask the same question with every LLM provider
+  // disabled. `llm` is threaded to the query string rather than held as
+  // component state, so the deterministic run is a distinct request the
+  // backend caches separately (see main.py's cache_key) and the two answers
+  // can sit side by side in the thread.
+  // `drop` (P2.9) — inherited values the user rejected with the ✕ on a
+  // "Carried over" chip, sent as `drop=place,vessel_class,intent`. The backend
+  // refuses to inherit exactly those, at the point each is inherited; the
+  // question itself is sent unchanged.
+  function ask(q: string, options?: { llm?: "off"; drop?: string[] }) {
     if (!q.trim()) return;
     sourceRef.current?.close();
 
@@ -256,6 +354,7 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
         failed: false,
         renderedAs: null,
         focus,
+        llmDisabled: options?.llm === "off",
       },
     ]);
     setActiveFocus(focus);
@@ -264,15 +363,33 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     // no classifier reads it (Ground Rule 1). "unresolved" = don't send one.
     const personaParam = persona !== "unresolved" ? `&persona=${persona}` : "";
     const sessionParam = `&session_id=${encodeURIComponent(sessionId)}`;
+    const llmParam = options?.llm === "off" ? "&llm=off" : "";
+    const dropParam = options?.drop?.length ? `&drop=${encodeURIComponent(options.drop.join(","))}` : "";
     void restoring.current.then(() => {
       // The user may have switched chats while the context was restoring.
       if (chatIdRef.current !== sessionId) return;
-      const es = new EventSource(`${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}`);
+      const es = new EventSource(
+        `${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${llmParam}${dropParam}`,
+      );
       sourceRef.current = es;
       es.onmessage = (ev) => {
         const data = JSON.parse(ev.data);
         if (data.type === "agent_span") {
-          updateTurn(id, (t) => ({ spans: [...t.spans, { agent_name: data.agent_name, status: data.status, confidence_tier: data.confidence_tier }] }));
+          updateTurn(id, (t) => ({
+            spans: [
+              ...t.spans,
+              {
+                agent_name: data.agent_name,
+                status: data.status,
+                confidence_tier: data.confidence_tier,
+                // P2.1 / P2.3 / P2.10 / P2.12 — all already on the wire.
+                engine: data.engine,
+                confidence_rationale: data.confidence_rationale,
+                latency_ms: data.latency_ms,
+                skip_reason: data.skip_reason,
+              },
+            ],
+          }));
         } else if (data.type === "final_response") {
           updateTurn(id, { answer: data, streaming: false });
           es.close();

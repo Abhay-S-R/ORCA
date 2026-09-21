@@ -25,7 +25,7 @@ import { Composer } from "./Composer";
 import { ChatTurn } from "./ChatTurn";
 import { ChatHistoryRail, CollapsedChatRail, iconButtonClass } from "./ChatHistoryRail";
 import { accountStore, browserStore, chatTitle } from "./chatStore";
-import { useAskThread } from "./useAskThread";
+import { useAskThread, type InheritedValue, type Turn } from "./useAskThread";
 
 const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapView), {
   ssr: false,
@@ -128,9 +128,31 @@ export default function AskPage() {
     }
   }
 
-  function submit(q: string) {
-    ask(q);
+  function submit(q: string, options?: { llm?: "off"; drop?: string[] }) {
+    ask(q, options);
     setQuery("");
+  }
+
+  // Whether the backend SHOULD still be holding context for turn `i`. Turns
+  // before a deliberate reset (P2.14) don't count: the warning "earlier
+  // messages have expired" is for a context that lapsed on its own, and
+  // showing it after "forget that, start fresh" would tell the user the reset
+  // they asked for was a failure.
+  function hadEarlierAnswers(all: Turn[], i: number): boolean {
+    const before = all.slice(0, i);
+    const lastReset = before.map((t) => t.answer?.outcome).lastIndexOf("RESET");
+    return before.slice(lastReset + 1).some((t) => t.answer && t.answer.outcome !== "RESET");
+  }
+
+  // P2.9 — the user rejecting a value this answer inherited from an earlier
+  // turn. Re-asks the SAME question and tells the backend which inheritance to
+  // refuse. The first version rewrote the question ("… (not Kannur — I have not
+  // said where yet)"), which put the place name straight back into the text,
+  // so the resolver found Kannur again — and without the name the session
+  // handed it back anyway. Neither layer can be talked out of a carry-over by
+  // the wording of the question; only a parameter reaches the code that does it.
+  function dropInherited(turn: Turn, value: InheritedValue) {
+    submit(turn.askedQuery, { drop: [value.field] });
   }
 
   const voice = useVoiceInput({ onTranscriptConfirmed: submit });
@@ -309,13 +331,14 @@ export default function AskPage() {
                   turn={turn}
                   persona={persona}
                   isMapFocus={activeFocus?.nonce === turn.focus?.nonce}
-                  hadEarlierAnswers={turns.slice(0, i).some((t) => t.answer)}
+                  hadEarlierAnswers={hadEarlierAnswers(turns, i)}
                   onViewOnMap={() => {
                     setActiveFocus(turn.focus);
                     setMapCollapsed(false);
                   }}
                   onRetry={() => ask(turn.askedQuery)}
                   onFollowUp={submit}
+                  onDropInherited={(value) => dropInherited(turn, value)}
                   onPersonaChange={(p) => setRenderedAs(turn.id, p)}
                   onRendered={(result) => applyRender(turn.id, result)}
                 />

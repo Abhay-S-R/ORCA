@@ -42,8 +42,39 @@ class ORCAState(TypedDict):
     risk_assessment: dict[str, Any]
     visualization_payload: dict[str, Any]
 
-    critic_pass: bool | None  # only set when reasoning_depth == "DEEP"
+    critic_pass: bool | None  # set on every query since P2.5 (was DEEP-only)
     critic_iteration_count: int
+    # P2.5 (`R-AGENT-1`) — the Critic-driven re-invocation loop. `critic_issues`
+    # is what the last pass found (rubric item, description, the agent it
+    # traces back to); `critic_reinvoke_agent` is the specialist the graph is
+    # routing back to right now, read by that agent as the critique to answer;
+    # `critic_reinvocations` is the spent budget, capped at
+    # critic.MAX_REINVOCATIONS so the loop cannot run away on a judge's query.
+    critic_issues: list[dict[str, Any]]
+    critic_reinvoke_agent: str | None
+    critic_critique: str | None
+    critic_reinvocations: int
+
+    # P2.6 (`R-AGENT-2`, `R-PS-4`) — Agent 3's chosen-sources-with-rationale,
+    # decided ONCE before the fan-out and consumed by the three specialists,
+    # instead of each of them picking its own sources independently and the
+    # result being smuggled out as a field on Ocean Analytics.
+    discovery_sources: dict[str, Any]
+
+    # P2.7 (`R-JUDGE-3`) — presentation, separated from execution. `skipped_agents`
+    # records what the plan (or P2.12's early exit) decided not to surface and
+    # why, so a smaller answer is visibly a decision rather than a gap.
+    # Additive (operator.add), like `disclosures`: more than one node can skip
+    # or cancel in the same query (Ocean Analytics AND Visualization for a
+    # subscription question; either of them plus a P2.12-cancelled Critic), and
+    # a plain overwrite silently kept only the last writer — found by the live
+    # run, where a span said "skipped" that the response's own list omitted.
+    skipped_agents: Annotated[list[dict[str, Any]], operator.add]
+    # P2.4 (`R-PS-5`, `R-AGENT-3`) — where two sources covering the same
+    # variable disagreed, what was done about it, and by how much.
+    reconciliation: list[dict[str, Any]]
+    # P2.13 — how many provider calls this query actually made.
+    llm_call_count: int
 
     distress_flag: bool  # set by Agent 12's detection, checked before any other node executes
     sentinel_subscription: dict[str, Any] | None  # set on ALERT_SUBSCRIPTION intent

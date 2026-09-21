@@ -58,10 +58,33 @@ def test_synthesize_never_prepends_a_header_it_was_told_to_omit(monkeypatch):
 
 def test_execution_plan_gates_ocean_analytics():
     """Agent 2's plan was computed and then ignored by every node. This is the
-    one branch it can gate: risk_assessment never reads ocean_data, so its
-    absence costs content and nothing else."""
+    one branch it can gate: risk_assessment reads no PFZ/tide/trend value from
+    ocean_data, so its absence costs content and nothing else.
+
+    P2.7 changed what a gated-off branch looks like. It used to return `{}` —
+    indistinguishable, on screen and in the trace, from Agent 5 silently
+    vanishing. It now emits a real `skipped` span carrying the reason, so the
+    decision is something a judge can watch being made. Execution is
+    unchanged; only its visibility is."""
     skipped = ocean_analytics_node({"execution_plan": ["geospatial", "risk_assessment"]})  # type: ignore[arg-type]
-    assert skipped == {}
+
+    # No data, and emphatically no fabricated stand-in for it.
+    assert "ocean_data" not in skipped
+
+    (entry,) = skipped["audit_trace_log"]
+    assert entry["agent_name"] == "ocean_analytics"
+    assert entry["status"] == "skipped"
+    assert entry["outputs"] == {}
+    assert entry["confidence"] == "LOW_DATA", "a span that did not run is never HIGH"
+    assert "execution plan" in entry["skip_reason"]
+
+    # audit_trace_log and completed_nodes are paired index-for-index by
+    # api/main.py; a node contributing to one but not the other mislabels
+    # every span after it.
+    assert skipped["completed_nodes"] == ["ocean_analytics"]
+    assert skipped["skipped_agents"] == [
+        {"agent_name": "ocean_analytics", "status": "skipped", "reason": entry["skip_reason"]}
+    ]
 
 
 def test_an_empty_plan_does_not_gate_anything_off():

@@ -8,7 +8,6 @@ route re-invokes a single specialist agent. `POST /render` calls only Agent
 from __future__ import annotations
 
 import math
-import os
 import uuid
 from typing import Any, Literal
 
@@ -16,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
+from orca import engines
 from orca.agents import reporting
 from orca.contracts import (
     AgentResult,
@@ -41,10 +41,13 @@ _NODE_DEPTH: dict[str, int] = {
     # for the distress_check node (Agent 12 runs once, named after the
     # agent, not the graph node) — this dict is keyed on what's actually
     # written to audit_trace_log, not on LangGraph's own node names.
+    # marine_data_discovery (P2.6) sits between planning and the fan-out,
+    # which is a real depth, so everything downstream of it moved down one.
     "distress": 0, "language_ingress": 1, "planning": 2,
-    "weather_intelligence": 3, "geospatial": 3, "ocean_analytics": 3,
-    "risk_assessment": 4, "visualization": 4,
-    "reporting": 5, "critic": 6, "language_egress": 7,
+    "marine_data_discovery": 3,
+    "weather_intelligence": 4, "geospatial": 4, "ocean_analytics": 4,
+    "risk_assessment": 5, "visualization": 5,
+    "reporting": 6, "critic": 7, "language_egress": 8,
 }
 _FANOUT_GROUPS: tuple[tuple[str, ...], ...] = (
     ("weather_intelligence", "geospatial", "ocean_analytics"),
@@ -53,19 +56,24 @@ _FANOUT_GROUPS: tuple[tuple[str, ...], ...] = (
 _LINEAR_EDGES: tuple[tuple[str, str], ...] = (
     ("distress", "language_ingress"),
     ("language_ingress", "planning"),
+    ("planning", "marine_data_discovery"),
     ("reporting", "language_egress"),
+    # `reporting -> critic` was missing from this table entirely: the Critic
+    # node had no incoming edge in any replay and floated free of the graph.
+    # It only surfaced once P2.5 made the Critic run on every query instead of
+    # only on DEEP ones nobody looked at.
+    ("reporting", "critic"),
     ("critic", "language_egress"),
 )
 _FANOUT_EDGES: tuple[tuple[str, str], ...] = (
-    ("planning", "weather_intelligence"), ("planning", "geospatial"), ("planning", "ocean_analytics"),
+    # P2.6 — the fan-out hangs off Agent 3 now, not Planning.
+    ("marine_data_discovery", "weather_intelligence"),
+    ("marine_data_discovery", "geospatial"),
+    ("marine_data_discovery", "ocean_analytics"),
     ("weather_intelligence", "risk_assessment"), ("geospatial", "risk_assessment"), ("ocean_analytics", "risk_assessment"),
     ("weather_intelligence", "visualization"), ("geospatial", "visualization"), ("ocean_analytics", "visualization"),
     ("risk_assessment", "reporting"), ("visualization", "reporting"),
 )
-# Agent 5 (Ocean Analytics) at DEEP, Agent 9, Agent 10 are the only nodes
-# that ever call an LLM (plan §3.2) — everything else is deterministic by
-# construction (Ground Rule 2), and the inspector drawer says so verbatim.
-_LLM_AGENTS = {"ocean_analytics", "reporting", "critic"}
 
 # In-memory LRU ring buffer for recent query traces (last 25 queries)
 # Guarantees that /trace/{query_id} and recent trace selection work out of
@@ -173,8 +181,18 @@ class TraceNode(BaseModel):
     inputs_consumed: dict[str, Any]
     outputs: dict[str, Any]
     source_provenance: dict[str, Any] | None
+    # P2.1 — what computed this node. Always present: "Deterministic" for the
+    # safety path, the IndicTrans2 weights for Agent 1, a model id for a span
+    # that actually reached one. `model`/`tier` stay for existing readers.
+    engine: str = engines.DETERMINISTIC
     model: str | None = None
     tier: str | None = None
+    # P2.7/P2.12 — why a node did not run, when it did not.
+    skip_reason: str | None = None
+    # How many times this agent ran in the query. A Critic-driven re-invocation runs the named
+    # specialist, Reporting and the Critic a second time (P2.5); the replay draws ONE node per
+    # agent and says so here. `latency_ms` on such a node is the SUM of its runs.
+    run_count: int = 1
 
 
 class TraceEdge(BaseModel):
@@ -199,11 +217,19 @@ class TraceGraph(BaseModel):
     groups: list[TraceGroup]
 
 
-def _reasoning_summary(agent_name: str, outputs: dict[str, Any], status: str = "ok") -> str:
+def _reasoning_summary(
+    agent_name: str, outputs: dict[str, Any], status: str = "ok",
+    skip_reason: str | None = None,
+) -> str:
     """One line, readable without opening the inspector drawer (plan §4.4
     'node anatomy' — a node is a summary of the agent's reasoning, not a
     labelled box). Every agent gets a real line from its actual outputs, not
     a generic placeholder."""
+    if status in ("skipped", "cancelled") and skip_reason:
+        # P2.7/P2.12 — a node that deliberately did not run says why. "no
+        # output produced" on a skipped node reads as a failure, which is the
+        # opposite of what a plan-gated skip or an early exit means.
+        return f"{'Cancelled' if status == 'cancelled' else 'Skipped'} — {skip_reason}"
     if not outputs:
         return "no output produced"
     if agent_name == "distress" or agent_name == "distress_check":
@@ -292,10 +318,21 @@ def build_trace_graph(query_id: str, rows: list[Any]) -> TraceGraph:
     seen_agents: set[str] = set()
     critic_row: Any = None
 
+    # Runs per agent, and their summed time. Before this, a re-run was dropped without a trace: the
+    # second Critic pass, the re-invoked specialist and the second Reporting were simply missing
+    # from the replay, so the loop the Critic exists to run was invisible on /reasoning.
+    run_counts: dict[str, int] = {}
+    run_latency: dict[str, float] = {}
+    for row in rows:
+        name = _get_val(row, "agent_name")
+        if name:
+            run_counts[name] = run_counts.get(name, 0) + 1
+            run_latency[name] = run_latency.get(name, 0.0) + float(_get_val(row, "latency_ms") or 0.0)
+
     for row in rows:
         agent_name = _get_val(row, "agent_name")
         if not agent_name or agent_name in seen_agents:
-            continue  # a re-run within one query_id keeps only its first appearance
+            continue  # one node per agent; its later runs are counted above, not drawn again
         seen_agents.add(agent_name)
         outputs = _get_val(row, "outputs") or {}
         status = _get_val(row, "status") or "ok"
@@ -307,21 +344,14 @@ def build_trace_graph(query_id: str, rows: list[Any]) -> TraceGraph:
         if agent_name == "critic":
             critic_row = row
 
-        used_llm = agent_name in _LLM_AGENTS
-        tier = (
-            "cheap"
-            if agent_name == "planning"
-            else "mid"
-            if agent_name == "reporting"
-            else "reasoning"
-            if agent_name in ("ocean_analytics", "critic")
-            else None
-        )
-        model = (
-            os.environ.get(f"ORCA_LLM_{tier.upper()}_MODEL", "gemini-3.5-flash-lite")
-            if used_llm and tier
-            else None
-        )
+        # P2.1 — the same resolved label the live SSE span carries, from the
+        # same function. A row persisted before `engine` existed falls to
+        # engines.py's static table, so an old trace replays labelled rather
+        # than blank.
+        engine = engines.engine_for(agent_name, _get_val(row, "engine"))
+        used_llm = engines.used_llm(agent_name, engine)
+        tier = engines.AGENT_TIER.get(agent_name) if used_llm else None
+        model = engines.model_for_tier(tier)
 
         nodes.append(TraceNode(
             id=agent_name,
@@ -332,22 +362,40 @@ def build_trace_graph(query_id: str, rows: list[Any]) -> TraceGraph:
             confidence_score=_get_val(row, "confidence_score"),
             confidence_detail=_get_val(row, "confidence_detail"),
             latency_ms=latency_ms,
-            reasoning_summary=_reasoning_summary(agent_name, outputs, status),
+            reasoning_summary=_reasoning_summary(agent_name, outputs, status, _get_val(row, "skip_reason")),
             source_count=1 if source_provenance else 0,
             used_llm=used_llm,
             inputs_consumed=inputs_consumed,
             outputs=outputs,
             source_provenance=source_provenance,
+            engine=engine,
             model=model,
             tier=tier,
+            skip_reason=_get_val(row, "skip_reason"),
         ))
 
+    for node in nodes:
+        node.run_count = run_counts.get(node.agent_name, 1)
+        if node.run_count > 1:
+            node.latency_ms = round(run_latency[node.agent_name], 1)
+
     present = seen_agents
-    edges = [
-        TraceEdge(**{"from": a, "to": b}, kind="handoff", label=b)
-        for a, b in (*_LINEAR_EDGES, *_FANOUT_EDGES)
-        if a in present and b in present and not (a == "reporting" and "critic" in present and b == "language_egress")
-    ]
+    status_by_agent = {n.agent_name: n.status for n in nodes}
+    edges = []
+    for a, b in (*_LINEAR_EDGES, *_FANOUT_EDGES):
+        if a not in present or b not in present:
+            continue
+        if a == "reporting" and "critic" in present and b == "language_egress":
+            continue
+        # P2.12 — an edge INTO a node that was cancelled is drawn dotted. The
+        # node itself carries the reason; the edge is what makes "this branch
+        # was pending and got stopped" visible at a glance on the graph.
+        cancelled = status_by_agent.get(b) == "cancelled"
+        edges.append(TraceEdge(
+            **{"from": a, "to": b},
+            kind="cancelled" if cancelled else "handoff",
+            label="cancelled" if cancelled else b,
+        ))
     # The dashed re-invocation loop: one edge per issue the Critic actually found
     if critic_row is not None:
         c_outputs = _get_val(critic_row, "outputs") or {}

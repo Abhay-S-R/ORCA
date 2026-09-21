@@ -60,7 +60,13 @@ def shape(query: str) -> str:
     if supplied and place_resolution.position_guard(resolution.place.lat, resolution.place.lon) is not None:
         return OUT_OF_RANGE
 
-    if planning.is_out_of_scope(query) and not planning.classify_intent_deterministic(query):
+    # Mirrors planning.run's precedence as of P2.8: a literal Tier-1 keyword
+    # match proves the query is marine and wins outright; anything that needs
+    # a *semantic* (Tier 2 embedding) match must clear the deterministic
+    # scope test first. Checking `classify_intent_deterministic` here instead
+    # would re-introduce the exact hole this gate caught — an embedding scorer
+    # always has a nearest row, so junk would "match" and never be refused.
+    if planning.is_out_of_scope(query) and not planning._tier1_rules(query):
         return REFUSED
     return DISCLOSED if resolution.status == "fallback" else ROUTED
 

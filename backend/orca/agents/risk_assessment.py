@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 from typing import Literal, TypedDict
 
+from orca import reconcile
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.data.freshness import SOURCE_CLASS, past_staleness_ceiling
 from orca.data.normalize import ms_to_kmh
@@ -204,7 +205,16 @@ def run(state: ORCAState) -> AgentResult:
     already-gathered inputs, never a live call and never an LLM."""
     weather = state.get("weather_data") or {}
     geospatial = state.get("geospatial_data") or {}
-    vessel_class: VesselClass = state.get("vessel_class") or "small_fishing"  # type: ignore[assignment]
+    requested = state.get("vessel_class") or "small_fishing"
+    # A class this engine has no thresholds for must never raise: run() sits
+    # behind an exception boundary that turns a raise into an EMPTY verdict,
+    # and an empty verdict is worse than a strict one. Translate a DB-enum name
+    # if that is what arrived, and otherwise fall to the strictest class —
+    # never to a more capable one. (P2.9's first version fed "trawler" here.)
+    vessel_class: VesselClass = (
+        requested if requested in _VESSEL_DELTAS  # type: ignore[assignment]
+        else DB_VESSEL_CLASS_TO_RISK_CLASS.get(requested, "small_fishing")
+    )
 
     # Phase 1 simplification: takes the first hourly record as "now". A real
     # target_time_window match is the forecast-time-slider's job (§4.8,
@@ -238,6 +248,35 @@ def run(state: ORCAState) -> AgentResult:
     # forbids, so a genuinely-absent distance is tracked as missing too.
     imbl_distance_nm = conservative_or(geospatial.get("imbl_distance_nm"), missing_field_name="imbl_distance_nm", missing=missing)
 
+    # P2.4 (`R-PS-5`, `R-AGENT-3`) — cross-source reconciliation, before the
+    # bands rather than after them. Where Open-Meteo and INCOIS OSF both
+    # report a variable and disagree past `orca/reconcile.py`'s threshold, the
+    # verdict is computed from the *conservative* reading, not from whichever
+    # feed happens to be primary. Pure arithmetic and no LLM — this is the
+    # safety path, and `scripts/verify_ci_guards.py` holds it to that.
+    #
+    # This is the first thing in this module to read `ocean_data`. The note in
+    # graph.reporting_run about RAA "never reading ocean_data" is updated
+    # there; the *verdict* still depends only on wave/wind/boundary, which is
+    # what that note is protecting — nothing here consults PFZ, tide or trend.
+    reconciliation = reconcile.reconcile_all(weather, state.get("ocean_data") or {})
+    reconciled_wave = reconcile.resolved(reconciliation, "wave_height_m")
+    reconciled_wind = reconcile.resolved(reconciliation, "wind_speed_ms")
+    if reconciled_wave is not None and wave_height_m is not None:
+        wave_height_m = reconciled_wave
+    if reconciled_wind is not None and wind_speed_ms is not None:
+        wind_speed_ms = reconciled_wind
+    # The convective pair, and the one reconciliation that can change the
+    # verdict on its own. `lightning_active` is a hard NO_GO band, and until
+    # now it was read from Open-Meteo's CAPE proxy alone while IMD's own
+    # district nowcast sat in the same dict saying the opposite. Either source
+    # reporting lightning is now enough — the only direction this can move a
+    # verdict is toward NO_GO, which is the direction Ground Rule 4 requires.
+    lightning_active = bool(weather.get("lightning_active", False))
+    reconciled_lightning = reconcile.resolved(reconciliation, "lightning_active")
+    if reconciled_lightning is not None:
+        lightning_active = bool(reconciled_lightning) or lightning_active
+
     # Unreadable inputs are passed through as None rather than coerced to a
     # stand-in number. The old `or 0.0` read as "dead calm" and the old
     # `else 999.0` as "nowhere near any boundary" — both are the safest
@@ -251,7 +290,7 @@ def run(state: ORCAState) -> AgentResult:
         # is the same conversion normalize.py uses in the other direction, not
         # an independently hardcoded factor.
         wind_speed_kmh=ms_to_kmh(wind_speed_ms) if wind_speed_ms is not None else None,
-        lightning_active=weather.get("lightning_active", False),
+        lightning_active=lightning_active,
         cyclone_alert=weather.get("cyclone_alert"),
         imbl_distance_nm=imbl_distance_nm,
         mpa_violation=geospatial.get("mpa_violation", False),
@@ -287,16 +326,34 @@ def run(state: ORCAState) -> AgentResult:
         confidence = Confidence(score="LOW_DATA", rationale=f"Missing required input(s): {', '.join(missing)}")
     elif stale:
         confidence = Confidence(score="LOW_DATA", rationale=f"Stale input(s): {', '.join(stale)}")
+    elif reconcile.penalty(reconciliation):
+        # P2.4 rule 3 — a disagreement between two sources costs exactly one
+        # tier, and never raises one. HIGH becomes MEDIUM; MEDIUM and LOW_DATA
+        # become LOW_DATA. Applied after the missing/stale branches above
+        # because those are already the floor and must not be lifted by this.
+        dropped: Literal["MEDIUM", "LOW_DATA"] = "MEDIUM" if confidence.score == "HIGH" else "LOW_DATA"
+        confidence = Confidence(
+            score=dropped,
+            rationale=f"{confidence.rationale} — reduced one tier: {' '.join(reconcile.statements(reconciliation))}",
+        )
 
     return AgentResult(
         agent_name="risk_assessment",
         query_id=state.get("query_id", ""),
         reasoning_depth=coerce_reasoning_depth(state.get("reasoning_depth", "SHALLOW")),
         inputs_consumed={
-            "wave_height_m": current.get("wave_height"), "lightning_active": weather.get("lightning_active"),
+            "wave_height_m": current.get("wave_height"), "lightning_active": lightning_active,
             "imbl_distance_nm": geospatial.get("imbl_distance_nm"), "vessel_class": vessel_class,
         },
-        outputs=dict(verdict),
+        outputs={
+            **verdict,
+            # P2.4 — every pair that was compared, including the ones that
+            # agreed: "we checked and they matched" is evidence too, and a
+            # judge asking "how do you know your sources agree" has to be able
+            # to see the comparison, not be told it happened. Only the
+            # disagreements become sentences on the card (reconcile.statements).
+            "reconciliation": reconciliation,
+        },
         source_provenance=SourceProvenance(
             dataset="Deterministic rules over Agent 4 + Agent 6 outputs",
             acquisition_timestamp=weather.get("acquisition_timestamp", ""),

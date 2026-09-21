@@ -154,6 +154,10 @@ Ten agents, each with one job. Five never call a language model — and the enti
 
 The agents run as thirteen graph nodes (§4.1): Agent 1 is two nodes (`language_ingress`, `language_egress`), Agent 2 is two (`planning`, `marine_data_discovery`), Agent 10's emergency mode is the `distress_check` node, and voyage planning (part of Agent 5's work) is its own plan-gated `voyage` node. Six of the thirteen call no model at all — `distress_check`, `weather_intelligence`, `geospatial`, `voyage`, `risk_assessment`, `visualization` — and the engine tag on each span (§1.2) shows it. Sentinel mode runs outside the graph.
 
+> **Numbering.** This section numbers the agents 1–10. The code, `DLC_implementation_plan.md` and `DLC_implementation_log.md` use the architecture doc's twelve numbers — the same agents, split finer: **2 → 2 Planning + 3 Discovery**, **3 → 4 Weather**, **4 → 5 Ocean Analytics**, **5 → 6 Geospatial**, **6 → 7 Risk**, **7 → 8 Visualization**, **8 → 9 Reporting**, **9 → 10 Critic**, **10 → 11 Sentinel + 12 Distress** (plan §1.1 has the full table).
+>
+> **As built, 2026-09-21.** The compiled graph has **16 nodes**: the 12 agent nodes plus four control nodes that emit no agent span — `query_guard`, `out_of_scope`, `critic_reinvoke`, `critic_cancelled` (voyage planning is a separate route). Of the thirteen agent nodes below, the following call **no model**: `distress_check`, `marine_data_discovery`, `weather_intelligence`, `geospatial`, `ocean_analytics`, `risk_assessment`, `visualization`, `voyage`; `planning` calls one only at Tier 3; `reporting` and `critic` are the two that call one on an ordinary query. **The Ocean Analytics reasoning-tier pass in §3.4 is not built** (plan §13.2), so the "six of thirteen" above is a floor for the tree, not the target.
+
 | # | Agent | Role | LLM |
 |---|---|---|---|
 | 1 | **User Interaction & Language** | The language and identity boundary | cheap — persona inference only |
@@ -201,7 +205,7 @@ The agents run as thirteen graph nodes (§4.1): Agent 1 is two nodes (`language_
 
 **Process:** co-locates SST and chlorophyll grids on a common 0.25° frame → detects thermal fronts from |∇SST| → relays the INCOIS PFZ advisory for the resolved sector, computing bearing, geodesic distance, sail time at cruise speed and a **persistence score** (days-with-advisory-within-25 km ÷ days-on-record, printed with its denominator, refusing to score below two snapshots) → predicts tides with spring/neap classification, high/low ordering and an explicit chart-datum-versus-MSL warning on any fallback source → samples HYCOM surface currents with nearest-wet-cell snapping so a coastal query never reads a land cell → derives mixed-layer depth, sea-level anomaly, marine-heatwave and coral-bleaching state → computes SST and wind anomaly at |z| ≥ 2σ against a labelled ERA5 baseline (`detect_anomaly`, `wind_anomaly`), returning an explicit *"no usable baseline spread"* when σ ≤ 0 → at DEEP depth runs `diagnose_productivity_decline()`, correlating SST anomaly, chlorophyll decline, wind anomaly, PFZ persistence decay and CMFRI landings with *"correlated with"* language enforced by test → writes `ocean_data`.
 
-**LLM:** reasoning tier, at DEEP depth only, and only for the multi-factor diagnostic narrative — never for a value.
+**LLM:** reasoning tier, at DEEP depth only, and only for the multi-factor diagnostic narrative — never for a value. *(Not built as of 2026-09-21 — `ocean_analytics.py` makes no model call and its span reads `Deterministic`; see `DLC_implementation_plan.md` §13.2.)*
 
 ### 3.5 Agent 5 — Geospatial Reasoning
 

@@ -1276,21 +1276,34 @@ def run(state: ORCAState) -> AgentResult:
     near = nearest_pfz(lat, lon)
 
     # Agent 3's source-selection reasoning for the data types this agent
-    # actually consumed — a first-class output surfaced on the answer card
-    # and the activity strip (differentiator 4), not buried in the trace.
-    from orca.agents.discovery import select_source_with_fallback
+    # actually consumes — a first-class output surfaced on the answer card and
+    # the activity strip (differentiator 4), not buried in the trace.
+    #
+    # P2.6: this agent no longer chooses its own sources. `marine_data_discovery`
+    # runs once before the fan-out, validates arrival, and its decision is in
+    # `state["discovery_sources"]`; this reads it. Choosing here as well was
+    # the "each specialist fetches independently" arrangement P2.6 replaces —
+    # two components each deciding which tide source to cite, with nothing to
+    # keep them agreeing. The fallback to deciding locally is only for a state
+    # that never went through Agent 3 (a unit test, or a caller invoking this
+    # agent directly), and it uses the same picker Agent 3 does.
+    from orca.agents.discovery import select_validated_source
 
+    decided = (state.get("discovery_sources") or {}).get("by_data_type") or {}
     source_selections = []
     for dtype in ("pfz", "tide", "catch_statistics"):
-        d = select_source_with_fallback(dtype)
-        if d is not None:
+        d = decided.get(dtype) or select_validated_source(dtype)
+        if d is not None and d.get("chosen"):
             source_selections.append({
                 "data_type": dtype,
-                "chosen": d.chosen.id,
-                "chosen_dataset": d.chosen.dataset,
-                "narrative": d.narrative,
-                "considered": [s.id for s in d.considered],
-                "fallback_chain": list(d.fallback_chain),
+                "chosen": d["chosen"],
+                "chosen_dataset": d["chosen_dataset"],
+                "narrative": d["narrative"],
+                "considered": d["considered"],
+                "fallback_chain": d["fallback_chain"],
+                # Where the decision came from, so a trace reader can see this
+                # agent consumed Agent 3's call rather than making its own.
+                "decided_by": "marine_data_discovery" if dtype in decided else "ocean_analytics (no Agent 3 decision in state)",
             })
 
     # The user's own sector governs the status they see — resolved from their

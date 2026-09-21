@@ -112,6 +112,102 @@ def replace_turns(session_id: str | None, turns: list[dict[str, Any]]) -> None:
         logger.warning("session: failed to store turn for %s in Redis (%s)", session_id, exc)
 
 
+# P2.14 (orca_final §16.2, `R-PS-3`) — "forget that, start fresh".
+#
+# A reset is NOT a marine question and must never reach the graph: routing it
+# would answer a question about the sea that nobody asked, on inherited
+# context the user just said to drop. So it is matched here, deterministically,
+# and short-circuited in the route.
+#
+# Deterministic for the same reason `distress.py` and `planning.is_out_of_scope`
+# are: a reset decided by a model is a reset that sometimes does not happen,
+# and the failure mode — answering with context the user explicitly discarded —
+# is one the user cannot see and cannot correct.
+#
+# **Same honest gap as P1.5's Tamil place names and P1.10's injury phrases: no
+# native speaker has reviewed the four Indic lists below.** They go to P3.7's
+# reviewers together. A green test here means the wiring works, not that the
+# phrases are right.
+#
+# Matched on the WHOLE normalized message, not as a substring. "Forget the
+# tide, what about the wind?" contains "forget" and is a marine question; only
+# a message that is *nothing but* a reset is one. This is the opposite choice
+# from `_DISTRESS_PATTERNS` (substring, deliberately over-eager), and for the
+# opposite reason: a missed reset costs one repeated question, a wrongly-fired
+# one silently discards a conversation.
+_RESET_PHRASES: dict[str, tuple[str, ...]] = {
+    "en": (
+        "forget that", "forget that start fresh", "forget it", "start fresh", "start over",
+        "start again", "new chat", "new conversation", "clear this", "clear the chat",
+        "reset", "reset the chat", "never mind", "nevermind", "forget everything",
+        "forget what i said", "let's start over", "lets start over", "start from scratch",
+    ),
+    "ta": (
+        "அதை மறந்துவிடு", "மறந்துவிடு", "மீண்டும் ஆரம்பி", "புதிதாக ஆரம்பி",
+        "புதிய உரையாடல்", "அழி", "விடு",
+    ),
+    "hi": (
+        "भूल जाओ", "इसे भूल जाओ", "फिर से शुरू करो", "नई शुरुआत", "नई बातचीत",
+        "रीसेट", "सब मिटा दो",
+    ),
+    "ml": ("അത് മറക്കൂ", "മറക്കൂ", "വീണ്ടും തുടങ്ങാം", "പുതിയ സംഭാഷണം", "റീസെറ്റ്"),
+    "te": ("అది మర్చిపో", "మర్చిపో", "మళ్ళీ మొదలుపెట్టు", "కొత్త సంభాషణ", "రీసెట్"),
+}
+
+# Punctuation a reset phrase is commonly typed with. Stripped from the ends
+# AND normalised internally, so "forget that!", "reset." and — the one that
+# caught this in live verification — "forget that, start fresh" all match.
+# The comma is the realistic way a person types the phrase this point is
+# literally named after, and edge-stripping alone missed it: the message was
+# routed as a marine question and answered with the context it asked to drop.
+_RESET_STRIP = " \t\r\n.!?,;:\"'।॥-–—"
+_RESET_PUNCT = str.maketrans({c: " " for c in ".!?,;:\"'।॥-–—"})
+
+
+def _normalize_reset(text: str) -> str:
+    """Lowercased, punctuation flattened to spaces, runs of whitespace
+    collapsed. Applied to both sides of the comparison so the phrase lists
+    stay readable as the sentences people actually type."""
+    return " ".join(text.translate(_RESET_PUNCT).lower().split())
+
+RESET_CONFIRMATION = (
+    "Done — I've forgotten this conversation. Your next question starts fresh, "
+    "so name the place and the time again if they matter."
+)
+
+
+def is_reset_request(text: str | None) -> bool:
+    """True when this message is a request to forget the conversation and
+    nothing else. Checked against every core language's list, because the
+    reset has to work in the language the user is already speaking."""
+    if not text:
+        return False
+    normalized = _normalize_reset(text)
+    if not normalized:
+        return False
+    for phrases in _RESET_PHRASES.values():
+        for phrase in phrases:
+            if normalized == _normalize_reset(phrase):
+                return True
+    return False
+
+
+def clear(session_id: str | None) -> None:
+    """Drops the whole context window — the Redis key and the in-process
+    mirror both, or the mirror would immediately re-seed a "cleared" session
+    on the next read. Best-effort on Redis, same as every other write here:
+    the mirror is already gone, and a Redis outage must not make a reset fail
+    silently in the other direction."""
+    if not session_id:
+        return
+    with _local_lock:
+        _local.pop(session_id, None)
+    try:
+        redis_client().delete(_key(session_id))
+    except Exception as exc:  # noqa: BLE001 — the mirror is already cleared
+        logger.warning("session: failed to clear %s in Redis (%s)", session_id, exc)
+
+
 def turn_from_final(query: str, final: dict[str, Any]) -> dict[str, Any]:
     """One remembered turn, built from the `final_response` payload main.py
     streams — the one shape every path (fresh run, query-cache hit, a
@@ -124,8 +220,24 @@ def turn_from_final(query: str, final: dict[str, Any]) -> dict[str, Any]:
         "user_location": final.get("user_location"),
         "verdict": (final.get("risk_assessment") or {}).get("go_no_go"),
         "intent_rows": final.get("matched_intent_rows") or [],
+        # P2.9 — so "what about the day after?" after "and in a trawler?" is
+        # still about the trawler. Stored as the DB-enum value the request
+        # resolved to, which is the same vocabulary /query takes as a parameter.
+        "vessel_class": final.get("vessel_class"),
         "answer": (final.get("final_english_response") or "")[:ANSWER_CHARS],
     }
+
+
+def last_vessel_class(turns: list[dict[str, Any]]) -> str | None:
+    """The most recent turn that actually named a vessel. None when no turn
+    in the window did — never a default, for the same reason `last_place`
+    returns None rather than the regional default: an inherited value has to
+    be traceable to a turn the user can be shown."""
+    for turn in reversed(turns):
+        vessel = turn.get("vessel_class")
+        if vessel:
+            return vessel
+    return None
 
 
 def last_place(turns: list[dict[str, Any]]) -> tuple[float, float, str | None] | None:

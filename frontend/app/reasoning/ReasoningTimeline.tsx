@@ -24,21 +24,23 @@ export const PIPELINE_STAGES: PipelineStage[] = [
   { id: "distress", label: "01 Distress Check", nodeIds: ["distress", "distress_check"], depth: 0 },
   { id: "ingress", label: "02 Language Ingress", nodeIds: ["language_ingress"], depth: 1 },
   { id: "planning", label: "03 Planning & Intent", nodeIds: ["planning"], depth: 2 },
+  { id: "discovery", label: "04 Data Discovery", nodeIds: ["marine_data_discovery"], depth: 3 },
   {
     id: "specialists",
-    label: "04 Parallel Specialists",
+    label: "05 Parallel Specialists",
     nodeIds: ["weather_intelligence", "geospatial", "ocean_analytics"],
-    depth: 3,
+    depth: 4,
   },
   {
     id: "synthesis",
-    label: "05 Synthesis & Assets",
+    label: "06 Synthesis & Assets",
     nodeIds: ["risk_assessment", "visualization"],
-    depth: 4,
+    depth: 5,
   },
-  { id: "reporting", label: "06 Narrative Assembly", nodeIds: ["reporting"], depth: 5 },
-  { id: "critic", label: "07 Critic Review", nodeIds: ["critic"], depth: 6 },
-  { id: "egress", label: "08 Language Egress", nodeIds: ["language_egress"], depth: 7 },
+  { id: "reporting", label: "07 Narrative Assembly", nodeIds: ["reporting"], depth: 6 },
+  // The Critic runs on every query since P2.5, so it is a stage of every run, not only a DEEP one.
+  { id: "critic", label: "08 Critic Review", nodeIds: ["critic"], depth: 7 },
+  { id: "egress", label: "09 Language Egress", nodeIds: ["language_egress"], depth: 8 },
 ];
 
 interface ReasoningTimelineProps {

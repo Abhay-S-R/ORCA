@@ -99,6 +99,9 @@ function ReasoningContent() {
   const initialQueryId = searchParams.get("query_id");
 
   const [trace, setTrace] = useState<TraceGraph>(EXAMPLE_TRACE);
+  // Agents that have already reported in the current live run. A second span for one of them is a
+  // re-invocation, which must not restart the flow from that agent.
+  const seenRef = useRef<Set<string>>(new Set());
   const [selectedNode, setSelectedNode] = useState<TraceNode | null>(null);
   const [queryInput, setQueryInput] = useState("Is it safe to fish near Thoothukudi tomorrow morning?");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -180,12 +183,18 @@ function ReasoningContent() {
     setIsPlaying(false);
 
     // Reset pipeline nodes to pending
-    const resetNodes = trace.nodes.map((n) => ({
+    // Seeded from EXAMPLE_TRACE (today's pipeline, Discovery and the Critic included), NOT from
+    // whichever trace is on screen. A loaded older trace has no node for `critic` or
+    // `marine_data_discovery`, and a live span for a node that does not exist was silently
+    // dropped, which is why the Critic never appeared in a live run.
+    seenRef.current = new Set();
+    const resetNodes = EXAMPLE_TRACE.nodes.map((n) => ({
       ...n,
       status: "pending" as const,
       latency_ms: 0,
+      run_count: 1,
     }));
-    setTrace((prev) => ({ ...prev, nodes: resetNodes }));
+    setTrace({ ...EXAMPLE_TRACE, query_id: "live", nodes: resetNodes });
     setCompletedNodeIds(new Set());
     setActiveNodeIds(new Set(["distress_check", "distress"]));
     setTimelineIndex(0);
@@ -211,7 +220,6 @@ function ReasoningContent() {
                 return {
                   ...n,
                   status: (data.status as TraceNode["status"]) || "ok",
-                  latency_ms: data.latency_ms ?? n.latency_ms,
                   confidence_tier: data.confidence_tier ?? n.confidence_tier,
                   confidence_score: data.confidence_score ?? null,
                   confidence_detail: data.confidence_detail ?? null,
@@ -220,6 +228,13 @@ function ReasoningContent() {
                   outputs: data.outputs,
                   source_provenance: data.source_provenance,
                   used_llm: data.used_llm ?? n.used_llm,
+                  engine: data.engine ?? n.engine,
+                  model: data.model ?? null,
+                  tier: data.tier ?? null,
+                  skip_reason: data.skip_reason ?? null,
+                  // A repeat span is a re-invocation: same node, one more run, time added not replaced.
+                  run_count: (n.run_count ?? 1) + (seenRef.current.has(n.id) ? 1 : 0),
+                  latency_ms: (seenRef.current.has(n.id) ? n.latency_ms : 0) + (data.latency_ms ?? 0),
                 };
               }
               return n;
@@ -236,42 +251,35 @@ function ReasoningContent() {
             nextActive.delete(agentName);
             nextActive.delete(realName);
 
-            // Flow logic:
-            if (agentName === "distress_check" || agentName === "distress") {
-              nextActive.add("language_ingress");
-              setTimelineIndex(1);
-            } else if (agentName === "language_ingress") {
-              nextActive.add("planning");
-              setTimelineIndex(2);
-            } else if (agentName === "planning") {
-              // Fan-out to all 3 specialists simultaneously
-              nextActive.add("weather_intelligence");
-              nextActive.add("geospatial");
-              nextActive.add("ocean_analytics");
-              setTimelineIndex(3);
-            } else if (
-              agentName === "weather_intelligence" ||
-              agentName === "geospatial" ||
-              agentName === "ocean_analytics"
-            ) {
-              nextActive.add("risk_assessment");
-              nextActive.add("visualization");
-              setTimelineIndex(4);
-            } else if (agentName === "risk_assessment" || agentName === "visualization") {
-              nextActive.add("reporting");
-              setTimelineIndex(5);
-            } else if (agentName === "reporting") {
-              if (isDeep) {
-                nextActive.add("critic");
-                setTimelineIndex(6);
-              } else {
-                nextActive.add("language_egress");
-                setTimelineIndex(7);
-              }
-            } else if (agentName === "critic") {
-              nextActive.add("language_egress");
-              setTimelineIndex(7);
+            // What runs next, from the graph as it is built today (graph.py). The Critic follows
+            // Reporting on EVERY query (the old `if (isDeep)` branch skipped it on ordinary ones),
+            // and Marine Data Discovery sits between Planning and the fan-out.
+            const rerun = seenRef.current.has(agentName);
+            const successors: Record<string, string[]> = {
+              distress_check: ["language_ingress"],
+              distress: ["language_ingress"],
+              language_ingress: ["planning"],
+              planning: ["marine_data_discovery"],
+              marine_data_discovery: ["weather_intelligence", "geospatial", "ocean_analytics"],
+              weather_intelligence: ["risk_assessment", "visualization"],
+              geospatial: ["risk_assessment", "visualization"],
+              ocean_analytics: ["risk_assessment", "visualization"],
+              risk_assessment: ["reporting"],
+              visualization: ["reporting"],
+              reporting: ["critic"],
+              critic: ["language_egress"],
+            };
+            // A re-run specialist hands straight to Reporting; Risk and Visualization do not re-run.
+            const next =
+              rerun && ["weather_intelligence", "geospatial", "ocean_analytics"].includes(agentName)
+                ? ["reporting"]
+                : successors[agentName] ?? [];
+            next.forEach((id) => nextActive.add(id));
+            const stageOf = PIPELINE_STAGES.findIndex((st) => st.nodeIds.includes(agentName));
+            if (stageOf >= 0) {
+              setTimelineIndex((cur) => Math.max(cur, Math.min(stageOf + 1, PIPELINE_STAGES.length - 1)));
             }
+            seenRef.current.add(agentName);
             return nextActive;
           });
         } else if (data.type === "final_response") {
@@ -279,6 +287,9 @@ function ReasoningContent() {
           setActiveNodeIds(new Set());
           setTimelineIndex(PIPELINE_STAGES.length - 1);
           es.close();
+          // The run is over: replace the streamed skeleton with the recorded trace, which carries what
+          // streaming cannot: the Critic's loop edge, a cancelled edge, and run counts.
+          if (data.query_id) void loadTraceById(data.query_id);
 
           const verdict = data.distress_flag
             ? "DISTRESS"

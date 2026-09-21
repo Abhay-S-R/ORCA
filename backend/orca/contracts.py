@@ -46,6 +46,13 @@ class AgentResult:
     freshness_class: str | None = None
     fallback_depth: int | None = None
     coverage: tuple[int, int] | None = None
+    # P2.1 (`R-JUDGE-1`) — what actually computed this result: a model id for a
+    # span that reached one, `Deterministic — <why>` for one that did not.
+    # Only the agents that can go either way set it (Reporting, the Critic,
+    # Ocean Analytics at DEEP, Planning's Tier 3); everyone else is labelled
+    # from orca/engines.py's static table, so None here means "ask the table",
+    # never "unknown".
+    engine: str | None = None
 
 
 @dataclass(frozen=True)

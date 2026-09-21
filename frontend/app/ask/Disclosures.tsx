@@ -13,7 +13,7 @@
 // holds nothing for. It carries no verdict badge, no gauges and no numbers,
 // deliberately — the point of a first-class refusal is that there is nothing
 // on screen to mistake for an answer.
-import { AlertTriangle, HelpCircle, MapPin } from "lucide-react";
+import { AlertTriangle, Eraser, HelpCircle, MapPin } from "lucide-react";
 import { Panel } from "../components/Panel";
 import type { FinalResponse } from "./useAskThread";
 
@@ -97,5 +97,22 @@ export function RefusalCard({
         )}
       </div>
     </Panel>
+  );
+}
+
+// P2.14 — "forget that, start fresh". Not an answer and not a refusal: the
+// conversation was cleared and this is the one-line confirmation. Deliberately
+// quiet — no verdict, no gauges, no follow-up chips that would re-ask the
+// question the user just told ORCA to drop.
+export function ResetNotice({ answer }: { answer: FinalResponse }) {
+  const body = answer.final_vernacular_response || answer.final_english_response;
+  return (
+    <p
+      role="status"
+      className="flex items-start gap-2 self-start rounded-xl border border-hairline/60 bg-shelf-2/50 px-3 py-2 text-[12px] leading-snug text-ink-muted"
+    >
+      <Eraser className="mt-0.5 size-3.5 shrink-0 text-accent" aria-hidden="true" />
+      <span className="min-w-0">{body}</span>
+    </p>
   );
 }

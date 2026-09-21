@@ -176,7 +176,9 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                 </span>
                 <p className="mt-1 text-[11px] text-ink-muted leading-snug">
                   {node.used_llm
-                    ? `Bounded synthesis pass using ${node.tier ?? "mid"} LLM tier (${node.model ?? "gemini-3.5-flash-lite"}). Evaluated under strict causal claims rubric.`
+                    ? `Bounded synthesis pass using the ${node.tier ?? "mid"} LLM tier${node.engine ? ` (${node.engine})` : ""}. Evaluated under strict causal claims rubric.`
+                    : node.skip_reason
+                    ? node.skip_reason
                     : "Deterministic specialist agent. Executes strict scientific formulas, bathymetric lookups, or GeoJSON geofences with zero stochastic variation."}
                 </p>
               </div>
@@ -324,9 +326,14 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                     Execution Architecture
                   </span>
                 </div>
+                {/* P2.1 — the engine as the backend reported it, never a
+                    default model id standing in for one nobody recorded. */}
                 <p className="text-[11px] text-ink-muted">
+                  {node.engine ?? (node.used_llm ? `Tier: ${node.tier ?? "mid"}` : "Deterministic")}
+                </p>
+                <p className="text-[11px] text-ink-dim">
                   {node.used_llm
-                    ? `Model: ${node.model ?? "gemini-3.5-flash-lite"} · Tier: ${node.tier ?? "mid"}`
+                    ? `Reached a generative model at the ${node.tier ?? "mid"} tier.`
                     : "Zero LLM tokens used. Pure mathematical/geospatial code execution."}
                 </p>
               </div>

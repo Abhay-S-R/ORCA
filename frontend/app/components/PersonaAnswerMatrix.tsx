@@ -308,6 +308,7 @@ export function PersonaAnswerMatrix({
   agentsVerified,
   verdict,
   reason,
+  leadWithVerdict = true,
   confidenceTier,
   weather,
   hazard,
@@ -324,6 +325,13 @@ export function PersonaAnswerMatrix({
   agentsVerified: number;
   verdict: Verdict;
   reason: string;
+  // P2.2 (`R-JUDGE-2`) — whether the verdict leads this answer. The backend
+  // decides it (reporting.should_lead_with_verdict) and it is deliberately
+  // asymmetric: only a GO on a question that was not about safety is demoted,
+  // so a CAUTION or NO_GO still leads whatever was asked. Defaults to true,
+  // so an answer cached before the field existed keeps its banner rather than
+  // silently losing a verdict.
+  leadWithVerdict?: boolean;
   confidenceTier: ConfidenceTier;
   weather: WeatherSummary;
   hazard: HazardBreakdown;
@@ -337,7 +345,8 @@ export function PersonaAnswerMatrix({
   const sector = formatSectorStatusData(ocean.sector_status);
   const productivity = formatProductivityData(ocean.productivity_diagnosis);
   const HeaderIcon = INTENT_ICON[intent];
-  const VerdictIcon = VERDICT_ICON[verdict];
+  // Falls back rather than indexing with a verdict the table has never heard of.
+  const VerdictIcon = VERDICT_ICON[verdict] ?? AlertTriangle;
 
   return (
     <div className="flex flex-col gap-3.5">
@@ -360,20 +369,47 @@ export function PersonaAnswerMatrix({
 
       {/* Status row — the verdict word and reason stay visible for every
           persona (what VerdictBadge's `summary` prop used to guarantee),
-          just without the loud banner chrome. */}
+          just without the loud banner chrome.
+
+          P2.2: two renderings, and which one is used is never a styling
+          choice. A CAUTION or NO_GO gets the chip, whatever was asked. A GO
+          on a question that was not about safety gets a single quiet line —
+          the risk assessment still ran (it runs on every query, and that
+          design must not be reverted), the answer still says so, it simply
+          does not shout a verdict nobody asked for on top of an answer about
+          fishing zones. */}
       <div className="flex items-start gap-3.5">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={verdictTone(verdict)} icon={<VerdictIcon className="size-3" aria-hidden="true" />}>
-              {VERDICT_LABEL[verdict]}
-            </Badge>
-            {confidenceTier === "LOW_DATA" && (
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-data-limited">
-                Data limited — verify locally
-              </span>
-            )}
-          </div>
-          {reason && <p className="mt-1.5 text-sm leading-relaxed text-ink">{reason}</p>}
+          {leadWithVerdict ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={verdictTone(verdict)} icon={<VerdictIcon className="size-3" aria-hidden="true" />}>
+                  {VERDICT_LABEL[verdict]}
+                </Badge>
+                {confidenceTier === "LOW_DATA" && (
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-data-limited">
+                    Data limited — verify locally
+                  </span>
+                )}
+              </div>
+              {reason && <p className="mt-1.5 text-sm leading-relaxed text-ink">{reason}</p>}
+            </>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <p className="flex items-start gap-1.5 text-[12px] leading-relaxed text-ink-muted">
+                <VerdictIcon className="mt-0.5 size-3.5 shrink-0 text-go" aria-hidden="true" />
+                <span>
+                  Conditions checked — no hazard threshold crossed
+                  {reason ? <span className="text-ink-dim"> ({reason.toLowerCase()})</span> : null}.
+                </span>
+              </p>
+              {confidenceTier === "LOW_DATA" && (
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-data-limited">
+                  Data limited — verify locally
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

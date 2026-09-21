@@ -253,6 +253,174 @@ def select_source_with_fallback(
     )
 
 
+# --- P2.6 (`R-AGENT-2`, `R-PS-4`): arrival validation ------------------------
+#
+# orca_final §3.2 says Agent 3 validates what arrives, and nothing in this
+# module did: `select_source_with_fallback` picked a source and the cascade
+# only ever moved when a caller already *knew* a source was down. An empty
+# payload, an all-NaN grid, an out-of-range value or a timestamp stale past
+# the source's own class is a failure, and a failure has to fall through the
+# cascade like any other — otherwise ORCA cites a Tier-1 dataset for a file
+# with nothing in it.
+#
+# Only the sources ORCA holds on disk can be checked *before* the fetch. Live
+# APIs (Open-Meteo, SACHET, Damini) cannot: a probe would be a second request
+# per query, and an API that answers a probe can still fail the real call a
+# second later. Those come back `checked=False`, which the span reports as
+# "unverified" — never as "valid". Claiming a validation that did not happen
+# is the same fabrication as claiming a reading that was not taken.
+
+_MAX_LATITUDE, _MAX_LONGITUDE = 90.0, 180.0
+
+
+@dataclass(frozen=True)
+class ArrivalCheck:
+    source_id: str
+    checked: bool  # False = no local probe exists; `ok` is then meaningless
+    ok: bool
+    detail: str
+
+
+def _finite_number(value: Any) -> bool:
+    import math
+
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _check_pfz() -> tuple[bool, str]:
+    doc = load_pfz_advisories()
+    features = doc.get("features") or []
+    if not features:
+        return False, "PFZ advisory file holds no features"
+    return True, f"{len(features)} PFZ advisory feature(s) on disk"
+
+
+def _check_tide_tables() -> tuple[bool, str]:
+    from orca.data.analytics_loaders import load_soi_tide_events
+
+    events = load_soi_tide_events()
+    if not events:
+        return False, "Survey of India tide table is empty"
+    heights = [e.get("height_m") for e in events]
+    if not any(_finite_number(h) for h in heights):
+        return False, f"{len(events)} tide events, none with a readable height"
+    # A tide height outside this band is a parse failure, not a tide — the
+    # largest range anywhere on the Indian coast (Gulf of Khambhat) is ~11 m.
+    out_of_range = [h for h in heights if isinstance(h, (int, float)) and _finite_number(h) and not (-2.0 <= float(h) <= 15.0)]
+    if out_of_range:
+        return False, f"tide height out of physical range: {out_of_range[0]} m"
+    return True, f"{len(events)} tide events, heights within range"
+
+
+def _check_osf_points(product: str) -> tuple[bool, str]:
+    from orca.data.analytics_loaders import load_osf_point_forecasts
+
+    points = load_osf_point_forecasts(product)
+    if not points:
+        return False, f"no INCOIS OSF {product.upper()} point series extracted"
+    placed = [
+        p for p in points
+        if _finite_number(p.get("lat")) and _finite_number(p.get("lon"))
+        and abs(float(p["lat"])) <= _MAX_LATITUDE and abs(float(p["lon"])) <= _MAX_LONGITUDE
+    ]
+    if not placed:
+        return False, f"{len(points)} OSF {product.upper()} points, none with usable coordinates"
+    return True, f"{len(placed)} OSF {product.upper()} point series"
+
+
+def _check_boundaries() -> tuple[bool, str]:
+    from orca.agents import geospatial
+
+    vintage = geospatial.boundary_data_vintage()
+    if not vintage:
+        return False, "boundary geometry has no recorded acquisition date"
+    return True, f"boundary geometry acquired {vintage}"
+
+
+# source_id -> a probe over what is actually on disk. A source absent from
+# this map is unverifiable before the fetch, not assumed good.
+_ARRIVAL_PROBES: dict[str, Any] = {
+    "incois_pfz": _check_pfz,
+    "soi_tide_tables": _check_tide_tables,
+    "incois_osf_ww3": lambda: _check_osf_points("ww3"),
+    "incois_osf_hycom": lambda: _check_osf_points("hycom"),
+    "marineregions_eez": _check_boundaries,
+    "unep_wcmc_wdpa": _check_boundaries,
+}
+
+
+def validate_arrival(source_id: str) -> ArrivalCheck:
+    """Did this source's data actually arrive in a usable state?
+
+    A probe that raises is a failed arrival, not a crashed query — the whole
+    point is to fall through the cascade rather than take the request down.
+    """
+    probe = _ARRIVAL_PROBES.get(source_id)
+    if probe is None:
+        return ArrivalCheck(source_id, checked=False, ok=True, detail="live source — validated on fetch, not before it")
+    try:
+        ok, detail = probe()
+    except Exception as exc:  # noqa: BLE001 — an unreadable file IS the failure being detected
+        return ArrivalCheck(source_id, checked=True, ok=False, detail=f"unreadable: {type(exc).__name__}: {exc}")
+    return ArrivalCheck(source_id, checked=True, ok=ok, detail=detail)
+
+
+def select_validated_source(
+    data_type: str, *, down: tuple[str, ...] = ()
+) -> dict[str, Any] | None:
+    """`select_source_with_fallback`, plus the arrival check — and the cascade
+    fall-through that failing it is supposed to cause.
+
+    Walks the declared §12.1 cascade, validating each rung, and returns the
+    first one whose data is actually there. Every rung it rejected is named in
+    `rejected`, because "we tried INCOIS first and its advisory file was empty"
+    is the sentence that makes the fallback honest.
+
+    Returns None only when nothing in the catalog covers `data_type` at all.
+    """
+    tried: list[dict[str, str]] = []
+    unavailable = list(down)
+    for _ in range(len(SOURCE_REGISTRY)):  # bounded: each pass marks one more source down
+        decision = select_source_with_fallback(data_type, down=tuple(unavailable))
+        if decision is None:
+            break
+        check = validate_arrival(decision.chosen.id)
+        if check.ok:
+            return {
+                "data_type": data_type,
+                "chosen": decision.chosen.id,
+                "chosen_dataset": decision.chosen.dataset,
+                "narrative": decision.narrative,
+                "considered": [s.id for s in decision.considered],
+                "fallback_chain": list(decision.fallback_chain),
+                "arrival": {"checked": check.checked, "ok": True, "detail": check.detail},
+                "rejected": tried,
+                "fell_through": bool(tried),
+            }
+        tried.append({"source_id": check.source_id, "reason": check.detail})
+        unavailable.append(decision.chosen.id)
+
+    if not tried:
+        return None
+    # Every rung of the cascade failed its arrival check. That is a real
+    # outcome and it is reported as one — a data_type with no usable source
+    # is LOW_DATA downstream, never a quietly-omitted line.
+    return {
+        "data_type": data_type,
+        "chosen": None,
+        "chosen_dataset": None,
+        "narrative": (
+            f"No usable source for '{data_type}': every rung of the declared cascade failed its "
+            f"arrival check ({'; '.join(t['reason'] for t in tried)})."
+        ),
+        "considered": [t["source_id"] for t in tried],
+        "fallback_chain": [],
+        "arrival": {"checked": True, "ok": False, "detail": "all rungs failed"},
+        "rejected": tried,
+        "fell_through": True,
+    }
+
+
 def local_catalog(source_id: str) -> list[dict[str, Any]]:
     """What ORCA holds locally *about* a registry source, for the sources whose
     on-disk file is an index rather than the data itself.
@@ -339,6 +507,32 @@ if __name__ == "__main__":
 
     pfz = load_pfz_advisories()
     assert pfz["type"] == "FeatureCollection" and pfz["features"]
+
+    # P2.6 arrival validation. A live source cannot be probed before the
+    # fetch, and says so rather than claiming a check it did not run.
+    live = validate_arrival("open_meteo_marine")
+    assert live.checked is False, "a live API must never report a pre-fetch validation"
+    on_disk = validate_arrival("incois_pfz")
+    assert on_disk.checked is True and on_disk.ok is True, on_disk
+    missing = validate_arrival("not_a_source")
+    assert missing.checked is False
+
+    validated_pfz = select_validated_source("pfz")
+    assert validated_pfz is not None and validated_pfz["chosen"] == "incois_pfz", validated_pfz
+    assert validated_pfz["fell_through"] is False and validated_pfz["rejected"] == []
+    assert select_validated_source("nonexistent_type") is None
+
+    # Forcing the validated primary down must move to the next rung that
+    # actually covers the type. `incois_pfz`'s declared §12.1 fallback is
+    # `bhuvan_wms`, which covers "pfz_overlay" and NOT "pfz" — so with INCOIS
+    # down there is genuinely no source for "pfz", and the honest answer is
+    # None rather than a rung that cannot answer the question.
+    assert select_validated_source("pfz", down=("incois_pfz",)) is None
+
+    # "tide" does have a real second rung (Stormglass), so it is the one that
+    # proves the fall-through rather than the absence of one.
+    fell = select_validated_source("tide", down=("soi_tide_tables",))
+    assert fell is not None and fell["chosen"] == "stormglass_tides", fell
 
     # Local catalogs: an index, explicitly not the data.
     nasa = local_catalog("nasa_ocean_color")
