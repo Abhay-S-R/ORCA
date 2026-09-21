@@ -74,7 +74,7 @@ def run_traced_node(
             result = fn(state)
             span.set_attribute("status", result.status)
             span.set_attribute("confidence", result.confidence.score)
-        except Exception as exc:  # noqa: BLE001 — deliberately blind: any agent
+        except Exception as exc:
             # failure must be caught here, whatever its type, so the graph continues.
             span.set_attribute("status", "failed")
             span.record_exception(exc)

@@ -13,7 +13,6 @@ import math
 import uuid
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, Literal
 
 import xarray as xr
@@ -28,7 +27,7 @@ from orca.agents.geospatial import (
     depth_at_point,
     point_in_polygon,
 )
-from orca.agents.risk_assessment import VesselClass, _VESSEL_DELTAS, compute_confidence
+from orca.agents.risk_assessment import _VESSEL_DELTAS, VesselClass, compute_confidence
 from orca.contracts import Confidence, RouteSegment, SourceProvenance, VoyagePlan
 
 WW3_DIR = DATA_ROOT / "incois_osf_pfz" / "osf_ww3"
@@ -164,7 +163,9 @@ def densify_route(
     """Geodesic waypoints from origin to destination (lat, lon), roughly
     `step_nm` apart — pyproj.Geod.npts, not a straight lerp on the map
     projection, same geodesy `bearing_and_distance` already uses."""
-    from orca.agents.geospatial import _GEOD  # module-private geodesic instance, reused rather than duplicated
+    from orca.agents.geospatial import (
+        _GEOD,  # module-private geodesic instance, reused rather than duplicated
+    )
 
     (lat1, lon1), (lat2, lon2) = origin, destination
     _, total_nm = bearing_and_distance(lat1, lon1, lat2, lon2)
@@ -217,7 +218,7 @@ def _classify_segment(
         if lightning["lightning_active"]:
             return _segment(segment_id, start, end, distance_nm, eta, "LIGHTNING", "BLOCKED", "Active lightning nowcast near this leg", provenance), Confidence("MEDIUM", "Nowcast only, not a forecast")
 
-    wind_delta_kmh, hs_delta = _VESSEL_DELTAS[vessel_class]
+    _wind_delta_kmh, hs_delta = _VESSEL_DELTAS[vessel_class]
     danger_hs, caution_hs = 3.5 + hs_delta, 2.0 + hs_delta
     hs = wave_height_at(mid_lat, mid_lon, eta)
     if hs is not None:

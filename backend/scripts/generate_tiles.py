@@ -182,7 +182,7 @@ def generate_wave_height_forecast_tiles():
         )
     except ImportError as e:
         print(f"[WARN] Missing dependency for forecast tile generation: {e}. Run: pip install -r requirements.txt")
-    except Exception as e:  # noqa: BLE001 — best-effort setup script, report and continue
+    except Exception as e:
         print(f"[ERROR] Error building wave-height forecast tiles: {e}")
 
 
@@ -190,6 +190,7 @@ def generate_bathymetry_tiles():
     print("\n[1/1] Building the bathymetry raster tile pyramid (ETOPO Pan-India, cmocean 'deep')...")
     try:
         import xarray as xr
+
         from orca.tiles import generate_layer_tiles
 
         pan_india = DATA_ROOT / "tier1" / "bathymetry" / "etopo_all_india_bathymetry.nc"
@@ -220,7 +221,7 @@ def generate_bathymetry_tiles():
         )
     except ImportError as e:
         print(f"[WARN] Missing dependency for tile generation: {e}. Run: pip install -r requirements.txt")
-    except Exception as e:  # noqa: BLE001 — best-effort setup script, report and continue
+    except Exception as e:
         print(f"[ERROR] Error building bathymetry tiles: {e}")
 
 

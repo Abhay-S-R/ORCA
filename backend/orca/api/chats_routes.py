@@ -49,8 +49,21 @@ def _checked_answer(answer: dict[str, Any]) -> dict[str, Any]:
 
 
 class Span(BaseModel):
+    """One agent's entry in a saved turn's activity strip.
+
+    `confidence_tier` is NOT optional decoration: without it this model
+    silently dropped the field on every save — Pydantic discards what a model
+    does not declare — so a signed-in user's chats could never keep their
+    agent confidence, and a reopened chat drew plain ticks. Guest chats in
+    localStorage were unaffected, which is why it looked like an "old chats"
+    problem rather than an account-store one.
+
+    Still optional on the way in: a turn that genuinely has no tier for an
+    agent (a failed one, or a turn saved before the field existed) must save
+    rather than 422."""
     agent_name: str = Field(max_length=64)
     status: str = Field(max_length=16)
+    confidence_tier: Literal["HIGH", "MEDIUM", "LOW_DATA"] | None = None
 
 
 class TurnIn(BaseModel):

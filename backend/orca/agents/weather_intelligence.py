@@ -36,21 +36,21 @@ from typing import Any, Literal
 import httpx
 import pandas as pd
 
-from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
-from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
+from orca.data.analytics_loaders import load_imd_nowcast_alerts
 from orca.data.loaders import (
     CACHED_MARINE_PORTS,
     CACHED_WEATHER_PORTS,
+    cached_gdacs_tc_path,
     cached_lightning_path,
     cached_marine_path,
-    cached_gdacs_tc_path,
     cached_ndma_cap_alerts_path,
     cached_weather_path,
     load_json,
     port_coordinates,
 )
-from orca.data.analytics_loaders import load_imd_nowcast_alerts
+from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
+from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.data.normalize import SourceDescriptor, normalize_to_common_frame, to_utc_iso
 from orca.state import ORCAState
 
@@ -345,7 +345,7 @@ def get_imd_nowcast_alerts(
         })
     nearby.sort(key=lambda a: a["distance_km"])
 
-    expired = bool(window_end is not None and window_end < now)
+    expired = window_end is not None and window_end < now
     lightning_flagged = any(
         "lightning" in (a.get("event_category") or "").lower() for a in nearby
     )
@@ -354,7 +354,7 @@ def get_imd_nowcast_alerts(
             score="LOW_DATA",
             rationale=f"no cached IMD nowcast district within {radius_km:.0f} km of this position",
         )
-    elif expired:
+    elif expired and window_end is not None:
         confidence = Confidence(
             score="LOW_DATA",
             rationale=f"cached IMD nowcast window closed {window_end.astimezone(timezone.utc):%Y-%m-%d %H:%MZ} — historical, not current",
@@ -387,7 +387,7 @@ def _fetch_sachet_alerts() -> tuple[list[dict], str, Confidence]:
         alerts = resp.json()
         # Guard against 200-with-empty-body or unexpected non-list payloads
         if not isinstance(alerts, list):
-            raise ValueError(f"SACHET returned non-list payload: {type(alerts).__name__}")
+            raise ValueError(f"SACHET returned non-list payload: {type(alerts).__name__}")  # noqa: TRY004
         return alerts, "NDMA SACHET CAP feed (live)", Confidence(score="HIGH", rationale="Live government CAP feed")
     except (httpx.HTTPError, ValueError):
         # ValueError covers JSONDecodeError (its subclass) and the guard above
@@ -544,7 +544,8 @@ def get_cyclone_tracks() -> dict[str, Any]:
             return {"available": False, "systems": [], "geojson": {"type": "FeatureCollection", "features": []},
                     "cached": False, "note": "GDACS unreachable and no earlier fetch on disk — cyclone track unavailable.",
                     "source": "GDACS (EU JRC)"}
-    active = len(result["systems"])
+    systems = result["systems"]
+    active = len(systems) if isinstance(systems, list) else 0
     result.update({
         "available": True,
         "source": "GDACS (EU JRC)",
@@ -703,7 +704,7 @@ def run(state: ORCAState) -> AgentResult:
         key=tiers.index,
     )
     confidence = Confidence(
-        score=worst,
+        score=worst,  # type: ignore[arg-type]  # max() over Literal values returns str
         rationale=f"weather={weather['confidence'].rationale}; lightning={lightning['confidence'].rationale}; "
         f"cyclone={cyclone['confidence'].rationale}; imd_nowcast={imd['confidence'].rationale}",
     )

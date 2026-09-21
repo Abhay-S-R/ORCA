@@ -16,9 +16,9 @@ against.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta, timezone
 import math
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -731,7 +731,7 @@ def fishing_ban_status(lat: float, lon: float, when: date | None = None) -> dict
     except ValueError:
         shore_nm = None
 
-    status = ban["ban_status"](coast, when or date.today(), shore_nm, ban["windows"])
+    status = ban["ban_status"](coast, when or datetime.now(tz=timezone.utc).date(), shore_nm, ban["windows"])
     return {"available": True, "distance_to_nearest_eez_edge_nm": shore_nm,
             "order": ban["order"], **status}
 
@@ -816,4 +816,4 @@ if __name__ == "__main__":
     assert district_at_point(5.0, 72.0) is None  # mid Arabian Sea
 
     print("geospatial self-check ok:", imbl, depth, "wind@" + wind["acquisition_date"],
-          "| A&N geofence, %d treaty lines, district=%s" % (len(load_boundary_lines()), onshore["district"]))
+          f"| A&N geofence, {len(load_boundary_lines())} treaty lines, district={onshore['district']}")

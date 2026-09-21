@@ -40,7 +40,7 @@ def download_whisper():
         print("[OK] faster-whisper ('small', int8) downloaded and cached successfully!")
     except ImportError:
         print("[WARN] 'faster-whisper' not installed in this environment. Run: pip install faster-whisper")
-    except Exception as e:  # noqa: BLE001 — best-effort setup script, report and continue
+    except Exception as e:
         print(f"[ERROR] Error downloading Whisper: {e}")
 
 def download_mms_tts():
@@ -59,7 +59,7 @@ def download_mms_tts():
         print("[OK] MMS-TTS demo-language models downloaded and cached successfully!")
     except ImportError:
         print("[WARN] 'transformers' not installed in this environment. Run: pip install transformers")
-    except Exception as e:  # noqa: BLE001 — best-effort setup script, report and continue
+    except Exception as e:
         print(f"[ERROR] Error downloading MMS-TTS: {e}")
 
 def download_indictrans2():
@@ -93,7 +93,7 @@ def download_indictrans2():
             "  3. huggingface-cli login   (paste a token from https://huggingface.co/settings/tokens)\n"
             "  Then re-run this script."
         )
-    except Exception as e:  # noqa: BLE001 — best-effort setup script, report and continue
+    except Exception as e:
         print(f"[ERROR] Error downloading IndicTrans2: {e}")
 
 if __name__ == "__main__":

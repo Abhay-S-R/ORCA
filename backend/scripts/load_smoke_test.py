@@ -31,7 +31,7 @@ async def _one_request(client: httpx.AsyncClient, base_url: str, params: dict) -
             async for _ in resp.aiter_lines():
                 pass
             ok = resp.status_code == 200
-    except Exception:  # noqa: BLE001 — a smoke test counts failures, it doesn't crash on one
+    except Exception:
         ok = False
     return time.perf_counter() - start, ok
 

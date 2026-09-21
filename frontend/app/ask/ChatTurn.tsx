@@ -19,9 +19,11 @@ import { FormattedResponse } from "../components/FormattedResponse";
 import { SourceChip } from "../components/SourceChip";
 import { SourceNarration } from "../components/SourceNarration";
 import { ErrorState, Skeleton } from "../components/States";
-import { INTENT_LABEL, type QueryIntent } from "../lib/queryIntent";
+import { intentLabel, type QueryIntent } from "../lib/queryIntent";
 import { type Persona } from "../persona/config";
 import type { AgentSpan, InheritedValue, Turn } from "./useAskThread";
+import { turnVersions } from "./useAskThread";
+import { RerunControl } from "./RerunControl";
 import { IntentActions } from "./IntentActions";
 import { DisclosureBanner, RefusalCard, ResetNotice } from "./Disclosures";
 import { InheritedChips, ReconciliationPanel, RoutingLine, SkippedNotice } from "./ReasoningEvidence";
@@ -66,6 +68,8 @@ export function ChatTurn({
   hadEarlierAnswers,
   onViewOnMap,
   onRetry,
+  onRerun,
+  onShowVersion,
   onFollowUp,
   onDropInherited,
   onPersonaChange,
@@ -77,6 +81,8 @@ export function ChatTurn({
   hadEarlierAnswers: boolean;
   onViewOnMap: () => void;
   onRetry: () => void;
+  onRerun: () => void;
+  onShowVersion: (index: number) => void;
   // `options` carries P2.11's LLM-off re-run, so the same handler that asks a
   // follow-up can also re-ask this question deterministically.
   onFollowUp: (q: string, options?: { llm?: "off" }) => void;
@@ -91,6 +97,18 @@ export function ChatTurn({
   // from a flag on the turn, which the account store does not round-trip: a
   // deterministic answer must still say so after the chat is reopened.
   const llmOff = Boolean(turn.llmDisabled) || answer?.llm_enabled === false;
+  // Re-running an SOS would re-file it on the authority queue, so the control
+  // is absent there rather than disabled — there is nothing to explain.
+  const versions = turnVersions(turn);
+  const rerunControl = answer && !answer.distress_flag && (
+    <RerunControl
+      versionCount={versions.length}
+      versionIndex={turn.versionIndex ?? 0}
+      streaming={streaming}
+      onRerun={onRerun}
+      onShowVersion={onShowVersion}
+    />
+  );
   const weatherCitation = answer?.citations?.find((c) => c.agent_name === "weather_intelligence");
   const runningAgent = streaming ? nextRunningAgent(spans) : null;
   const displaySpans: typeof spans =
@@ -183,7 +201,7 @@ export function ChatTurn({
       {answer && answer.outcome === "RESET" && <ResetNotice answer={answer} />}
 
       {answer && answer.outcome != null && answer.outcome !== "ANSWERED" && answer.outcome !== "DISTRESS" && answer.outcome !== "RESET" && (
-        <RefusalCard answer={answer} onFollowUp={onFollowUp} />
+        <RefusalCard answer={answer} onFollowUp={onFollowUp} actions={rerunControl} />
       )}
 
       {answer && (answer.outcome == null || answer.outcome === "ANSWERED" || answer.outcome === "DISTRESS") && (
@@ -198,7 +216,7 @@ export function ChatTurn({
           {answer.inherited && answer.inherited.length > 0 && (
             <InheritedChips inherited={answer.inherited} onRemove={onDropInherited} />
           )}
-          <Panel title="Answer">
+          <Panel title="Answer" action={rerunControl}>
             <div className="flex flex-col gap-4">
               {/* Architecture §2.6 rendering matrix — same facts, structure
                   differs by persona. Only rendered once risk_assessment
@@ -261,7 +279,10 @@ export function ChatTurn({
                   className="flex items-center gap-1.5 self-start text-[11px] text-ink-dim transition-colors hover:text-accent"
                 >
                   <MapPin className="size-3 text-accent" aria-hidden="true" />
-                  {isMapFocus ? `Map focused on ${INTENT_LABEL[focus.intent]}` : `View on map — ${INTENT_LABEL[focus.intent]}`}
+                  {(() => {
+                    const label = intentLabel(focus.intent, answer?.user_location?.place_source === "regional_default");
+                    return isMapFocus ? `Map focused on ${label}` : `View on map — ${label}`;
+                  })()}
                 </button>
               )}
 

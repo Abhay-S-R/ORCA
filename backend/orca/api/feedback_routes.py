@@ -40,7 +40,7 @@ def _optional_user(
 
         payload = decode_token(credentials.credentials, expected_type="access")
         return get_user_by_id(db, uuid.UUID(payload["sub"]))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 

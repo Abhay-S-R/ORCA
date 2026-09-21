@@ -40,7 +40,7 @@ def db() -> Session:
     try:
         session = get_sessionmaker()()
         session.execute(text("SELECT 1"))
-    except Exception:  # noqa: BLE001
+    except Exception:
         pytest.skip("local Postgres not reachable (docker compose up postgres)")
     trans = session.begin_nested() if session.in_transaction() else None
     try:

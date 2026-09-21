@@ -264,7 +264,7 @@ def generate_forecast_tiles(
                         tile_path.parent.mkdir(parents=True, exist_ok=True)
                         Image.fromarray(rgba, mode="RGBA").save(tile_path)
                         local_count += 1
-                    except Exception:  # noqa: BLE001, S112 — tile outside spatial envelope or invalid reprojection
+                    except Exception:
                         continue
         return local_count, local_bounds
 

@@ -1,6 +1,7 @@
 """Agent 12 tests. Real Tamil/Hindi phrases (verified against real sources
 while writing the module, not transliterated from memory — see the module
 docstring for the honest coverage caveat this test suite does not paper over)."""
+from orca.agents import distress
 from orca.agents.distress import (
     detect_distress_signal,
     emit_datsg_handoff,
@@ -8,7 +9,6 @@ from orca.agents.distress import (
     surface_mrcc_contact,
 )
 from orca.state import ORCAState
-from orca.agents import distress
 
 # --- detect_distress_signal ------------------------------------------------
 

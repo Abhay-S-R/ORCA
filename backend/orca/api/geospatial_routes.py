@@ -19,11 +19,11 @@ from orca.agents.geospatial import (
     current_vectors,
     depth_at_point,
     district_at_point,
+    fishing_ban_status,
     generate_map_layers,
+    hycom_nearest_step,
     nearest_boundary_line,
     point_in_polygon,
-    fishing_ban_status,
-    hycom_nearest_step,
     spatial_query_zones,
     wind_vectors,
 )
@@ -36,8 +36,8 @@ from orca.data.freshness import max_age_minutes, read_json_if_fresh
 # wind is WEEKLY. A derived artefact may never claim to be fresher than its input.
 CURRENT_VECTOR_TTL_MINUTES = max_age_minutes("DAILY")
 WIND_VECTOR_TTL_MINUTES = max_age_minutes("WEEKLY")
-from orca.trace import record_layer_metric
 from orca.api.params import Lat, Lon, OptLat, OptLon
+from orca.trace import record_layer_metric
 
 router = APIRouter(prefix="/api", tags=["geospatial"])
 

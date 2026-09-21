@@ -86,7 +86,8 @@ def test_saving_turns_creates_a_chat_listed_newest_first_with_its_turns_in_order
 
     chat = client.get(f"/api/chats/{newer}", headers=_auth(user["tokens"])).json()
     assert [t["asked_query"] for t in chat["turns"]] == ["second chat, turn one", "second chat, turn two"]
-    assert chat["turns"][0]["spans"] == [{"agent_name": "planning", "status": "ok"}]
+    # confidence_tier rides on every span now (None when the saver sent none).
+    assert chat["turns"][0]["spans"] == [{"agent_name": "planning", "status": "ok", "confidence_tier": None}]
 
 
 def test_stored_answers_drop_the_trace_and_map_layers(make_user):
@@ -303,3 +304,54 @@ def test_identifiers_are_normalized_so_one_person_is_one_account(make_user):
     assert client.post("/api/register", json={"identifier": "not-a-phone", "password": PASSWORD}).status_code == 422
     profile = client.get("/api/profile", headers=_auth(user["tokens"])).json()
     assert profile["identifier"] == user["identifier"]
+
+
+def test_a_saved_span_keeps_its_agent_confidence(make_user):
+    """The activity strip's whole point is showing how sure each agent was.
+    `Span` declared only agent_name and status, so Pydantic dropped
+    `confidence_tier` on every save — a signed-in user's chats could never
+    keep it, and a reopened chat drew plain ticks with no confidence at all."""
+    user = make_user()
+    chat_id = str(uuid.uuid4())
+    client.put(
+        f"/api/chats/{chat_id}/turns/{uuid.uuid4()}", headers=_auth(user["tokens"]),
+        json={
+            "asked_query": "Is it safe near Pamban?", "answer": _answer(), "persona": "fisherman",
+            "spans": [
+                {"agent_name": "planning", "status": "ok", "confidence_tier": "HIGH"},
+                {"agent_name": "weather_intelligence", "status": "ok", "confidence_tier": "MEDIUM"},
+                {"agent_name": "ocean_analytics", "status": "degraded", "confidence_tier": "LOW_DATA"},
+            ],
+        },
+    )
+    turn = client.get(f"/api/chats/{chat_id}", headers=_auth(user["tokens"])).json()["turns"][0]
+    assert [s["confidence_tier"] for s in turn["spans"]] == ["HIGH", "MEDIUM", "LOW_DATA"]
+
+
+def test_a_span_with_no_confidence_still_saves(make_user):
+    """A failed agent has no tier, and turns saved before the field existed
+    have none either. Those must store, not 422."""
+    user = make_user()
+    chat_id = str(uuid.uuid4())
+    res = client.put(
+        f"/api/chats/{chat_id}/turns/{uuid.uuid4()}", headers=_auth(user["tokens"]),
+        json={"asked_query": "Is it safe near Pamban?", "answer": _answer(), "persona": "fisherman",
+              "spans": [{"agent_name": "planning", "status": "failed"}]},
+    )
+    assert res.status_code == 204
+    turn = client.get(f"/api/chats/{chat_id}", headers=_auth(user["tokens"])).json()["turns"][0]
+    assert turn["spans"][0]["confidence_tier"] is None
+
+
+def test_an_invented_confidence_tier_is_rejected(make_user):
+    """The tier is a closed vocabulary shared with the confidence scorer; a
+    typo must fail loudly rather than reach the strip as an unrenderable
+    colour."""
+    user = make_user()
+    res = client.put(
+        f"/api/chats/{uuid.uuid4()}/turns/{uuid.uuid4()}", headers=_auth(make_user()["tokens"]),
+        json={"asked_query": "q", "answer": _answer(), "persona": "fisherman",
+              "spans": [{"agent_name": "planning", "status": "ok", "confidence_tier": "VERY_HIGH"}]},
+    )
+    assert res.status_code == 422
+    assert user is not None

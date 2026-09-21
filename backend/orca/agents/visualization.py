@@ -23,8 +23,6 @@ from typing import Any
 from shapely.geometry import shape
 from shapely.validation import explain_validity
 
-from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
-from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.agents import geospatial
 from orca.contracts import (
     AgentResult,
@@ -37,6 +35,8 @@ from orca.contracts import (
     VoyagePlan,
     coerce_reasoning_depth,
 )
+from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
+from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.state import ORCAState
 
 # scripts/generate_tiles.py writes {layer_id}/meta.json under here — same

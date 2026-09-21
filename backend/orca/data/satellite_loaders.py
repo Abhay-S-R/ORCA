@@ -165,7 +165,6 @@ def load_eos06_chl(bbox: dict[str, float] | None = None) -> dict[str, Any] | Non
     way out. India's bbox is entirely east of the prime meridian, so the crop
     itself needs no seam handling.
     """
-    import numpy as np
     import xarray as xr
 
     bbox = bbox or INDIA_BBOX

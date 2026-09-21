@@ -14,8 +14,6 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Response
 
-from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
-from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.agents import ocean_analytics as oa
 from orca.agents import reporting
 from orca.agents.discovery import (
@@ -24,9 +22,11 @@ from orca.agents.discovery import (
     load_pfz_advisories,
     select_source_with_fallback,
 )
+from orca.api.params import Lat, Lon
 from orca.contracts import ChartSpec, SourceProvenance
 from orca.data import analytics_loaders as al
-from orca.api.params import Lat, Lon
+from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
+from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["ocean-analytics"])
@@ -100,7 +100,7 @@ def _home_port_from_token(authorization: str | None) -> dict[str, float] | None:
             return user_home_port(user) if user is not None else None
         finally:
             db.close()
-    except Exception as exc:  # noqa: BLE001 — anonymous fallback, never a hard failure
+    except Exception as exc:
         logger.info("home-port resolution skipped (%s: %s)", type(exc).__name__, exc)
         return None
 
@@ -223,8 +223,8 @@ def trends(district: str | None = None, lat: Lat = _DEFAULT_LAT, lon: Lon = _DEF
     not inside it — the frozen contract has no slot for it and it is D2's
     surface concern.
     """
-    from orca.data import analytics_loaders as al
     from orca.agents.geospatial import district_at_point
+    from orca.data import analytics_loaders as al
 
     # Catch statistics are published per district, so the position has to
     # become a district name before the archive can be asked anything. The

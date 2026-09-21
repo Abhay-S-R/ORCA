@@ -66,7 +66,7 @@ def _regulatory(pos: tuple[float, float, str | None] | None) -> dict[str, Any]:
     lat, lon, name = pos
     try:
         ban = fishing_ban_status(lat, lon)
-    except Exception:  # noqa: BLE001 — a missing ban calendar is reported, not guessed
+    except Exception:
         return {"intent": "REGULATORY", "kind": "info", "text": "The fishing-ban calendar is not available right now."}
     where = name or f"{lat:.2f}, {lon:.2f}"
     if not ban.get("available"):

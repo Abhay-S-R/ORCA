@@ -249,6 +249,7 @@ export type DistressMarker = { id: string; lat: number; lon: number; label: stri
 export type QueryFocus = {
   intent: "fishing" | "boundary" | "safety" | "current" | "wave" | "general";
   regionId?: string;
+  coords?: [number, number];
   nonce: number;
 };
 
@@ -1260,13 +1261,16 @@ export function MapView({
       // the next manual toggle evicts a layer that is already off.
       lru.current = HEAVY_KEYS.filter((k) => prescribed.includes(k));
     }
-    // Same anchor the camera effect below uses: a named place if the query
-    // had one, the reader's own position otherwise — so the ship marker
-    // points at geometry that is actually on screen.
+    // Same anchor the camera effect below uses: explicit coords, a named place,
+    // the reader's GPS position, or coastal pilot default.
     const focusRegion = queryFocus.regionId
       ? COASTAL_REGIONS.find((r) => r.id === queryFocus.regionId)
       : undefined;
-    const anchor: [number, number] = focusRegion ? focusRegion.center : focusPoint;
+    const anchor: [number, number] = queryFocus.coords
+      ? queryFocus.coords
+      : focusRegion
+      ? focusRegion.center
+      : userLocation ?? COASTAL_REGIONS[1].center;
     let bearing: number | null = null;
     if (queryFocus.intent === "boundary") {
       const coords = boundaryFeatures.features.filter((f) => f.properties.near).flatMap((f) => flattenCoords(f.geometry));
@@ -1308,19 +1312,27 @@ export function MapView({
     // becomes the ANCHOR the topic then settles around, rather than a camera
     // move that wins outright: "PFZ near Kochi" has to show Kochi AND the
     // zones, so the place decides where to look and the intent decides how
-    // wide. With no place named, the anchor stays the reader's own position,
-    // exactly as before.
+    // wide. With no place named, the anchor stays explicit coords if present,
+    // the reader's position, or coastal fallback.
     const region = queryFocus.regionId
       ? COASTAL_REGIONS.find((r) => r.id === queryFocus.regionId)
       : undefined;
-    const anchor: [number, number] = region ? region.center : focusPoint;
+    const anchor: [number, number] = queryFocus.coords
+      ? queryFocus.coords
+      : region
+      ? region.center
+      : userLocation ?? COASTAL_REGIONS[1].center;
     // Where the camera lands when the topic has no geometry near the anchor:
-    // the named sector at its own framing, or the reader's position.
+    // the named sector at its own framing, explicit coords, user position, or all-India coastal view.
     const fallback = (zoom: number) =>
       m.flyTo(
         region
           ? { center: region.center, zoom: region.zoom, duration: 1000 }
-          : { center: focusPoint, zoom, duration: 900 },
+          : queryFocus.coords
+          ? { center: queryFocus.coords, zoom, duration: 900 }
+          : userLocation
+          ? { center: userLocation, zoom, duration: 900 }
+          : { center: INDIA_VIEW.center, zoom: INDIA_VIEW.zoom, duration: 900 },
       );
 
     if (queryFocus.intent === "boundary") {

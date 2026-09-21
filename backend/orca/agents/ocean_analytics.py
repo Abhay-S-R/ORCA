@@ -33,12 +33,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
-from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.agents import geospatial
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.data import analytics_loaders as al
 from orca.data import satellite_loaders as sl
+from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
+from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.state import ORCAState
 
 NM_PER_KM = 1 / 1.852

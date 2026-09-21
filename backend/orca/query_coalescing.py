@@ -11,7 +11,7 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-_inflight: dict[str, "_Broadcast"] = {}
+_inflight: dict[str, _Broadcast] = {}
 
 
 class _Broadcast:

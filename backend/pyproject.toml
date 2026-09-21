@@ -6,9 +6,15 @@ testpaths = ["tests"]
 line-length = 100
 
 [tool.ruff.lint]
-# B008 (Depends(...) in a default arg) is FastAPI's own required DI pattern,
-# not a bug — every route in orca/api/ and orca/auth/rbac.py uses it.
-ignore = ["B008"]
+# B008: Depends(...) in a default arg is FastAPI's own required DI pattern.
+# BLE001: Broad except Exception in best-effort cache writes — these must
+#   not crash the user-facing request; the alternative is narrower but fragile.
+# S110/S112: try-except-pass/continue for the same best-effort writes.
+# DTZ007/DTZ011: Naive datetimes in historical replay (Cyclone Gaja 2018) and
+#   the fishing-ban date fallback — sources carry no timezone.
+# RUF007: zip(x, x[1:]) vs itertools.pairwise() is stylistic.
+# UP031: %-format in self-check prints — not worth the churn.
+ignore = ["B008", "BLE001", "S110", "S112", "DTZ007", "DTZ011", "RUF007", "UP031"]
 
 [tool.mypy]
 ignore_missing_imports = true

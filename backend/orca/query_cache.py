@@ -53,7 +53,7 @@ def get(key: str) -> dict[str, Any] | None:
     try:
         client = redis_client()
         cached = client.get(key)
-    except Exception as exc:  # noqa: BLE001 — a cache outage is a latency hit, never a failed request
+    except Exception as exc:
         logger.warning("query_cache: Redis unavailable (%s)", exc)
         return None
     return json.loads(cached) if cached is not None else None  # type: ignore[no-any-return]
@@ -63,5 +63,5 @@ def store(key: str, response: dict[str, Any]) -> None:
     try:
         client = redis_client()
         client.setex(key, TTL_SECONDS, json.dumps(response, default=str))
-    except Exception as exc:  # noqa: BLE001 — a write failure just means the next identical query misses too
+    except Exception as exc:
         logger.warning("query_cache: failed to store %s (%s)", key, exc)

@@ -320,7 +320,7 @@ def run(state: ORCAState) -> AgentResult:
             rationale=f"{len(issues)} issue(s) on final pass" if not critic_pass else "passed all 5 rubric items",
         )
         error_detail = None
-    except Exception as exc:  # noqa: BLE001 — a Critic failure degrades to the
+    except Exception as exc:
         # unreviewed narrative, it never blocks the response (plan §4 D1 Day 18).
         # P2.11/P2.13: the switch being off and the provider returning 429 both
         # land here as LLMUnavailable, and both are ordinary degraded runs, not

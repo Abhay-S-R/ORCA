@@ -217,7 +217,7 @@ async def _loop() -> None:
 
         _graph = build_graph()
         escalate = _graph.invoke  # type: ignore[assignment]
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.info("sentinel: graph unavailable, running cheap-check-only alerts")
 
     def _tick() -> list[sentinel.WatchDecision]:

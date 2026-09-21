@@ -24,7 +24,7 @@ from orca import engines, intent_actions
 from orca import session as session_memory
 from orca.agents import distress as distress_agent
 from orca.agents import reporting
-from orca.agents.geospatial import DATA_ROOT
+from orca.agents.geospatial import DATA_ROOT, depth_at_point
 from orca.agents.language import IndicTrans2Backend, register_translation_backend
 from orca.agents.planning import carry_intent, classify_intent_deterministic
 from orca.api.analytics_routes import router as analytics_router
@@ -192,6 +192,7 @@ def _initial_state(
     session_id: str | None = None,
     session_history: list[dict] | None = None,
     resolution: dict | None = None,
+    fix_on_land: bool = False,
 ) -> ORCAState:
     return {  # type: ignore[typeddict-item]
         "session_id": session_id or "",
@@ -217,7 +218,14 @@ def _initial_state(
         # `place_name` is None and `place_source` is "regional_default" when
         # the query named no location we could resolve. Agent 9 must say so
         # rather than dress the default up as the user's own place.
-        "user_location": {"lat": lat, "lon": lon, "place_name": place[0], "place_source": place[1]},
+        # `fix_on_land` says the browser did send a position and it was
+        # discarded for being inland. Without it the default's numbers get
+        # narrated as "your nearest fishing zone" to somebody 1,500 km away,
+        # and the prompt claims no fix was supplied when one was.
+        "user_location": {
+            "lat": lat, "lon": lon, "place_name": place[0], "place_source": place[1],
+            **({"fix_on_land": True} if fix_on_land else {}),
+        },
         "vessel_class": vessel_class,  # None -> risk_assessment.run() defaults to "small_fishing"
         # An explicit persona choice (the selector, or a logged-in user's
         # resolved role — plan §4 D1 Day 10). It is a *resolved value* only:
@@ -397,6 +405,7 @@ async def _query_stream(
     session_history: list[dict] | None = None,
     resolution: dict | None = None,
     llm: bool | None = None,
+    fix_on_land: bool = False,
 ) -> AsyncIterator[str]:
     """`on_final`, when given, is called once with the same dict that gets
     JSON-serialized into the `final_response` SSE frame — the query-cache
@@ -416,7 +425,7 @@ async def _query_stream(
     llm_calls = reset_llm_call_count()
     state = _initial_state(
         query, lat, lon, vessel_class, distress, persona, depth, place, session_id, session_history,
-        resolution,
+        resolution, fix_on_land,
     )
     emitted = 0  # every graph node appends exactly one completed_nodes entry
     # AND exactly one audit_trace_log entry in the same call (see graph.py) —
@@ -661,7 +670,8 @@ async def _query_stream(
         }
         _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []))
         if final_state.get("distress_flag"):
-            _record_distress_event(dict(final_state), final.get("mrcc_contact"))
+            _mrcc = final.get("mrcc_contact")
+            _record_distress_event(final_state, _mrcc if isinstance(_mrcc, dict) else None)
         # The turn itself is remembered by _remember_turns in query(), not
         # here: a query-cache hit or a coalesced follower never runs this
         # generator, and remembering only here left those turns out of the
@@ -677,8 +687,8 @@ async def _query_stream(
                 confidence_tier=final_state.get("confidence_tier", "LOW_DATA"),
                 rows=final_state.get("audit_trace_log", []),
             )
-        except Exception:
-            pass
+        except Exception:  # the reasoning ribbon is a convenience; the answer still ships
+            logging.getLogger("orca.trace").warning("recent trace not recorded", exc_info=True)
         yield _sse(final)
 
 
@@ -720,7 +730,7 @@ async def _remember_turns(session_id: str | None, query: str, stream: AsyncItera
         yield line
 
 
-def _record_distress_event(final_state: dict, mrcc_contact: dict | None) -> None:
+def _record_distress_event(final_state: Mapping[str, Any], mrcc_contact: dict | None) -> None:
     """Puts the distress query on the authority queue (P4.16). Best-effort for
     the same reason as the audit write below: the caller's MRCC contacts are
     in the answer already, and a DB outage must not fail that answer."""
@@ -730,7 +740,7 @@ def _record_distress_event(final_state: dict, mrcc_contact: dict | None) -> None
 
         db = get_sessionmaker()()
         try:
-            record_event(db, final_state, mrcc_contact)
+            record_event(db, dict(final_state), mrcc_contact)
         finally:
             db.close()
     except Exception:
@@ -760,11 +770,29 @@ def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
         pass
 
 
+def _usable_fix(fix_lat: float | None, fix_lon: float | None) -> tuple[float, float] | None:
+    """The browser's GPS fix as a position ORCA can answer at, or None.
+
+    A fix is only a position if there is sea at it. A phone indoors in
+    Bengaluru is a perfectly valid GPS reading and a useless marine one: taken
+    as the answer's position it hands `place_guard` a point with no sea at it,
+    so every query that doesn't name a port dead-ends on "12.9380, 77.4953 is
+    on land" — strictly worse than the pilot default it replaced. On land, the
+    caller falls through to the text and then the default, exactly as they did
+    before the frontend ever sent a fix.
+    """
+    if fix_lat is None or fix_lon is None:
+        return None
+    lat, lon = float(fix_lat), float(fix_lon)
+    return None if depth_at_point(lat, lon).on_land else (lat, lon)
+
+
 @app.get("/query")
 async def query(
     q: str = "", lat: OptLat = None, lon: OptLon = None, vessel_class: str | None = None,
     distress: bool = False, persona: str | None = None, depth: str | None = None,
     session_id: str | None = None, llm: str | None = None, drop: str | None = None,
+    fresh: bool = False, fix_lat: OptLat = None, fix_lon: OptLon = None,
 ) -> StreamingResponse:
     """`llm=off` (P2.11, `R-NEW-3`) re-runs this exact query with every LLM
     provider disabled. It is the demo beat: the same question, the same
@@ -780,7 +808,21 @@ async def query(
     `session.last_vessel_class`, and Planning's follow-up rule sees no previous
     intent. Rewriting the question text cannot do this, and the first version
     tried: it re-asked "(not Kannur…)", which put the name back into the text
-    and resolved Kannur again."""
+    and resolved Kannur again.
+
+    `fresh=1` is the answer card's "try again": run every agent again for a
+    question that has already been answered, rather than replaying the cached
+    answer. It skips the cache *read* and the coalescer, but still writes what
+    it produces back to the cache — a re-run is the newest answer, so the next
+    ordinary asker should get it rather than the one it replaced.
+
+    It deliberately does NOT remember the turn (see `_remember_turns`): the
+    question is already in this chat's context window with its previous answer,
+    and appending it again would make the window read as if it had been asked
+    twice. The client re-pushes the window through
+    PUT /api/session/{id}/context once the re-run lands, which replaces it
+    wholesale with the new answer in place.
+    """
     dropped = {d.strip() for d in (drop or "").split(",") if d.strip()}
     # An explicit lat/lon from the caller always wins — a resolved GPS fix or
     # a registered home port (Phase 2 D1) is real; a place name in free text is
@@ -788,8 +830,17 @@ async def query(
     # neither is given do we try to name a pilot-region place in the query text
     # (e.g. "near Pamban"), then the last place THIS session actually resolved
     # (checklist P0 #1 — "what about tomorrow instead?" names no place of its
-    # own but should still mean the place just asked about), and only then
-    # fall back to the regional default.
+    # own but should still mean the place just asked about), then the browser's
+    # GPS fix (`fix_lat`/`fix_lon`), and only then the regional default.
+    #
+    # `fix_*` is deliberately a *different* parameter from `lat`/`lon` rather
+    # than a second way of setting them. `lat`/`lon` mean "answer here, I chose
+    # this"; an ambient GPS fix means "this is where I happen to be". If the
+    # ambient fix overrode the text, a fisherman in Thoothukudi asking "what
+    # about Pamban?" would get Thoothukudi's numbers under Pamban's name — the
+    # exact failure the paragraph below exists to prevent. So the fix is only
+    # consulted once the text has resolved to nothing: it replaces the pilot
+    # default, never a place the user actually named.
     #
     # `place_name`/`place_source` are carried onward deliberately: falling back
     # to the default is *not* the same event as resolving a place, and the
@@ -842,6 +893,7 @@ async def query(
 
     place_name: str | None = None
     place_source = "explicit"
+    fix_on_land = False
     resolution: dict | None = None
     if lat is None or lon is None:
         # P1.2 — one shared guard, not a second copy of the old inline
@@ -852,7 +904,13 @@ async def query(
         carried = None if "place" in dropped else session_memory.last_place(history)
         resolved = resolve_or_ask(q, {"last_place": carried} if carried else None)
         resolution = resolved.as_dict()
-        if resolved.place is not None:
+        usable = _usable_fix(fix_lat, fix_lon)
+        # Sent a position, and it was dropped for being inland — a different
+        # situation from never having one, and Agent 9 has to be told which.
+        fix_on_land = fix_lat is not None and fix_lon is not None and usable is None
+        if resolved.place is not None and not (
+            usable is not None and resolved.place.source == "regional_default"
+        ):
             lat, lon = resolved.place.lat, resolved.place.lon
             place_source = resolved.place.source
             # The regional default is nobody's place name. Leaving place_name
@@ -861,6 +919,20 @@ async def query(
             # came from the previous turn rather than this one, which is what
             # place_source and the disclosure say.
             place_name = None if place_source == "regional_default" else resolved.place.name
+        elif usable is not None and resolved.status != "ambiguous":
+            # The text named nothing we hold (or nothing at all) but the browser
+            # gave us a real fix — that beats the pilot default outright, and is
+            # what `resolve_or_ask`'s own fallback disclosure asks the caller for
+            # ("Name a place or send your position"). `place_source="gps_fix"`
+            # keeps it distinguishable from both a named place and the default,
+            # so Agent 9 can say where the answer is really about.
+            #
+            # Ambiguity is excluded on purpose: "Gujarat" has to keep asking
+            # which port was meant. Silently answering it at the caller's own
+            # position would resolve the ambiguity by ignoring the question.
+            (lat, lon), place_source = usable, "gps_fix"
+            place_name = None
+            resolution = {**(resolution or {}), "status": "resolved", "place_source": "gps_fix"}
         else:
             # Unresolvable or ambiguous: the graph will stop before any agent
             # reads this, and "regional_default" is what tells Agent 12 in the
@@ -877,9 +949,24 @@ async def query(
             _remember_turns(session_id, q, _query_stream(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
                 session_id=session_id, session_history=history, resolution=resolution,
-                llm=llm_override,
+                llm=llm_override, fix_on_land=fix_on_land,
             )),
             media_type="text/event-stream"
+        )
+
+    if fresh:
+        # A follow-up's answer depends on its conversation, so it is never
+        # written to the shared cache — the same rule the ordinary path below
+        # applies, and the reason this is not simply `on_final=store`.
+        shared_key = None if history else resolved_key(q, lat, lon, vessel_class, persona, depth)
+        return StreamingResponse(
+            _query_stream(
+                q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
+                on_final=None if shared_key is None else (lambda final: query_cache_store(shared_key, final)),
+                session_id=session_id, session_history=history, resolution=resolution,
+                llm=llm_override, fix_on_land=fix_on_land,
+            ),
+            media_type="text/event-stream",
         )
 
     cache_key = resolved_key(q, lat, lon, vessel_class, persona, depth)
@@ -910,7 +997,7 @@ async def query(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
                 on_final=None if follow_up else (lambda final: query_cache_store(cache_key, final)),
                 session_id=session_id, session_history=history, resolution=resolution,
-                llm=llm_override,
+                llm=llm_override, fix_on_land=fix_on_land,
             ):
                 yield line
 
