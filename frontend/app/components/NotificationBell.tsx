@@ -74,6 +74,9 @@ export function NotificationBell() {
         /* keep-alive / malformed frame */
       }
     };
+    es.onerror = () => {
+      es.close();
+    };
     return () => es.close();
   }, [signedIn, refresh]);
 

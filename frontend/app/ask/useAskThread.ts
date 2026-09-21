@@ -343,7 +343,18 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
         if (data.type === "agent_span") {
           updateTurn(id, (t) => ({ spans: [...t.spans, { agent_name: data.agent_name, status: data.status, confidence_tier: data.confidence_tier }] }));
         } else if (data.type === "final_response") {
-          updateTurn(id, { answer: data, streaming: false });
+          updateTurn(id, (t) => {
+            const loc = data.user_location as { lat?: number; lon?: number } | undefined;
+            const coords: [number, number] | undefined =
+              loc?.lon != null && loc?.lat != null ? [loc.lon, loc.lat] : undefined;
+            const focus: QueryFocus | null = t.focus
+              ? { ...t.focus, coords: coords ?? t.focus.coords }
+              : coords
+              ? { intent: "general", coords, nonce: focusNonce.current }
+              : null;
+            if (focus) setActiveFocus(focus);
+            return { answer: data, streaming: false, focus };
+          });
           es.close();
         }
       };
@@ -385,11 +396,23 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
       if (data.type === "agent_span") {
         updateTurn(id, (t) => ({ spans: [...t.spans, { agent_name: data.agent_name, status: data.status, confidence_tier: data.confidence_tier }] }));
       } else if (data.type === "final_response") {
-        updateTurn(id, (t) => ({
-          answer: data,
-          streaming: false,
-          versions: (t.versions ?? []).map((v, i) => (i === t.versionIndex ? { answer: data, spans: t.spans } : v)),
-        }));
+        updateTurn(id, (t) => {
+          const loc = data.user_location as { lat?: number; lon?: number } | undefined;
+          const coords: [number, number] | undefined =
+            loc?.lon != null && loc?.lat != null ? [loc.lon, loc.lat] : undefined;
+          const focus: QueryFocus | null = t.focus
+            ? { ...t.focus, coords: coords ?? t.focus.coords }
+            : coords
+            ? { intent: "general", coords, nonce: focusNonce.current }
+            : null;
+          if (focus) setActiveFocus(focus);
+          return {
+            answer: data,
+            streaming: false,
+            focus,
+            versions: (t.versions ?? []).map((v, i) => (i === t.versionIndex ? { answer: data, spans: t.spans } : v)),
+          };
+        });
         es.close();
         // /query?fresh=1 deliberately does NOT remember the turn — the question
         // is already in the window with the answer this one replaces. Push the
