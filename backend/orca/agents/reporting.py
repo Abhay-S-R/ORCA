@@ -232,7 +232,7 @@ def synthesize_narrative(
     try:
         from orca.llm.tiers import llm
         client = llm("mid")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _record(engines.deterministic(getattr(exc, "reason", "no LLM configured")))
         return fallback_line
 
@@ -328,7 +328,7 @@ CRITICAL RULES:
         if lead_with_verdict and verdict_str not in narrative:
             return f"{fallback_line}\n\n{narrative}"
         return narrative
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _record(engines.deterministic(getattr(exc, "reason", "narration failed")))
         return fallback_line
 
