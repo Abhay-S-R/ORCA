@@ -959,6 +959,11 @@ async def query(
         # written to the shared cache — the same rule the ordinary path below
         # applies, and the reason this is not simply `on_final=store`.
         shared_key = None if history else resolved_key(q, lat, lon, vessel_class, persona, depth)
+        # P2.11 — same rule as the ordinary path below: an LLM-disabled run is
+        # a DIFFERENT answer, so `fresh=1&llm=off` must not overwrite the
+        # ordinary (LLM-on) answer sitting in the shared cache slot.
+        if shared_key is not None and llm_override is not None:
+            shared_key = f"{shared_key}:llm={'on' if llm_override else 'off'}"
         return StreamingResponse(
             _query_stream(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
