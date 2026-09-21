@@ -159,7 +159,10 @@ def _normalize_dataframe(
         if "time" not in df.columns:
             raise ValueError("target_time_resolution requires a 'time' column")
         indexed = df.set_index(pd.to_datetime(df["time"]))
-        native_step = indexed.index.to_series().diff().median()
+        # Wrapped rather than used raw: pandas types `.median()` as returning a
+        # float, so comparing it to a Timedelta below is a type error even though
+        # the median of a datetime diff is always a Timedelta at runtime.
+        native_step = pd.Timedelta(indexed.index.to_series().diff().median())
         target_step = pd.Timedelta(target_time_resolution)
         if target_step < native_step:
             raise ValueError(
@@ -170,7 +173,10 @@ def _normalize_dataframe(
         df = indexed.resample(target_time_resolution).mean(numeric_only=True).reset_index(
             names="time"
         )
-        df["time"] = df["time"].dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        # `pd.to_datetime` rather than a bare `.dt`: the column is the resample
+        # index just put back as a column, so this is a no-op at runtime, but it
+        # is what tells a checker the `.dt` accessor is the datetime one.
+        df["time"] = pd.to_datetime(df["time"]).dt.strftime("%Y-%m-%dT%H:%M:%SZ")
         operations.append(f"resample:{target_time_resolution}")
 
     # --- extent clip ---

@@ -26,6 +26,16 @@ jobs:
       - name: Mypy (type check)
         run: mypy orca --ignore-missing-imports
 
+      # A third checker on purpose. Pyrefly is the analyzer the editor's
+      # Pyrefly extension runs, so without this step CI cannot reproduce a
+      # squiggle a dev sees in their IDE — and it is not redundant with mypy:
+      # it caught a real graph.py error (`disclosures` widened to
+      # list[dict | str]) that both ruff and mypy passed. Settings live in
+      # backend/pyproject.toml's [tool.pyrefly] so the gate means the same
+      # thing here and on a dev's machine.
+      - name: Pyrefly (type check — the checker the IDE runs)
+        run: pyrefly check
+
       # plan P0.12 / R-JUDGE-4 — one source of truth for all CI guards
       # (vendor SDK import, persona leak, secret scan, safety-path LLM
       # import), instead of re-implementing a subset of them as inline

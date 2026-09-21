@@ -18,3 +18,14 @@ ignore = ["B008", "BLE001", "S110", "S112", "DTZ007", "DTZ011", "RUF007", "UP031
 
 [tool.mypy]
 ignore_missing_imports = true
+
+# Pyrefly is a THIRD checker, deliberately: it is the analyzer the editor's
+# Pyrefly extension runs, so without this section CI cannot reproduce a
+# squiggle a dev sees in their IDE. It caught one real error mypy and ruff
+# both passed (graph.py's `update` dict literal widening `disclosures` to
+# list[dict | str]). Without an explicit section it silently imports
+# [tool.mypy] under a "legacy" preset, which is a setting that can change
+# under us; pinning it here means the gate means the same thing every run.
+[tool.pyrefly]
+project-includes = ["orca"]
+ignore-missing-imports = ["*"]

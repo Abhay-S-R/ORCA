@@ -58,6 +58,7 @@ import rioxarray  # noqa: F401 -- registers the .rio accessor used below
 import xarray as xr
 from PIL import Image
 from rio_tiler.io.xarray import XarrayReader
+from rio_tiler.types import WarpResampling
 
 TILE_SIZE = 256
 DEFAULT_ZOOM_RANGE: tuple[int, int] = (5, 11)  # inclusive, per the D3 plan
@@ -120,7 +121,7 @@ def generate_layer_tiles(
     valid_predicate: Callable[[np.ndarray], np.ndarray],
     to_display: Callable[[np.ndarray], np.ndarray] = lambda v: v,
     zoom_range: tuple[int, int] = DEFAULT_ZOOM_RANGE,
-    reproject_method: str = "bilinear",
+    reproject_method: WarpResampling = "bilinear",
 ) -> dict[str, Any]:
     """Build a zoom_range[0]..zoom_range[1] XYZ PNG pyramid for one gridded
     field and write it to `out_dir/{z}/{x}/{y}.png`, plus a `meta.json`
@@ -200,7 +201,7 @@ def generate_forecast_tiles(
     valid_predicate: Callable[[np.ndarray], np.ndarray],
     to_display: Callable[[np.ndarray], np.ndarray] = lambda v: v,
     zoom_range: tuple[int, int] = DEFAULT_ZOOM_RANGE,
-    reproject_method: str = "bilinear",
+    reproject_method: WarpResampling = "bilinear",
 ) -> dict[str, Any]:
     """Time-varying counterpart to `generate_layer_tiles` (plan §5.10 Day 12:
     `forecast_frames` over the 56 WW3 steps). `frames` is `{iso_timestamp:

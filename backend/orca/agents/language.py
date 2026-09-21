@@ -128,6 +128,11 @@ class IndicTrans2Backend:
             from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
             tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+            # transformers resolves its public names through a lazy module, so a
+            # checker sees `AutoModelForSeq2SeqLM` as None rather than a class. The
+            # sibling AutoTokenizer call above is not flagged only because it
+            # happens to resolve; both are the same real, working import.
+            # pyrefly: ignore[not-callable]
             model = AutoModelForSeq2SeqLM.from_pretrained(model_name, trust_remote_code=True)
             model.eval()
             self._models[model_name] = (tokenizer, model)

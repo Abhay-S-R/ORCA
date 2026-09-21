@@ -212,6 +212,10 @@ class MmsTtsBackend:
             from transformers import AutoTokenizer, VitsModel
 
             tokenizer = AutoTokenizer.from_pretrained(f"facebook/mms-tts-{lang_code}")
+            # Same lazy-module resolution as language.py's IndicTrans2 loader:
+            # transformers' public names are not statically visible, so this
+            # working call reads as calling None.
+            # pyrefly: ignore[not-callable]
             model = VitsModel.from_pretrained(f"facebook/mms-tts-{lang_code}")
             model.eval()
             self._models[lang_code] = (tokenizer, model)

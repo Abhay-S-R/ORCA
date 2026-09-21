@@ -66,3 +66,7 @@ redis>=5.0                 # orca/resilience.py cache TTLs (plan §9.1/§9.11)
 pytest>=8.3
 ruff>=0.7
 mypy>=1.13
+# A THIRD checker, and not redundant: pyrefly is what the editor extension
+# runs, so without it CI cannot reproduce a squiggle a dev sees in their IDE.
+# It caught a real graph.py error that ruff and mypy both passed.
+pyrefly>=1.3

@@ -625,7 +625,12 @@ def geospatial_node(state: ORCAState) -> dict:
 
 def risk_assessment_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("risk_assessment", risk_assessment.run, state)
-    update = {
+    # Annotated rather than inferred: without it the dict literal's value type
+    # is a union of everything assigned here, so the `disclosures` append below
+    # reads as list[dict | str] against ORCAState's list[str]. Runtime is fine
+    # (`reconcile.statements` returns list[str]); the annotation is what makes
+    # a stricter checker than mypy — pyrefly — agree.
+    update: dict[str, Any] = {
         "risk_assessment": result.outputs,
         "confidence_tier": result.confidence.score,
         "audit_trace_log": [entry],
@@ -1030,6 +1035,10 @@ def language_egress_node(state: ORCAState) -> dict:
 
 
 def build_graph():
+    # ORCAState IS a typing.TypedDict, but LangGraph's StateT bound is a set of
+    # structural protocols that a checker cannot match a TypedDict against
+    # through `from __future__ import annotations`. Runtime is unaffected.
+    # pyrefly: ignore[bad-specialization]
     g = StateGraph(ORCAState)
     g.add_node("distress_check", distress_check_node)
     g.add_node("query_guard", query_guard_node)

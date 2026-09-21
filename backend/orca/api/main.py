@@ -13,7 +13,7 @@ import os
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -434,7 +434,10 @@ async def _query_stream(
     final_state: ORCAState | None = None
 
     async for values in _graph.astream(state, stream_mode="values"):
-        final_state = values
+        # `astream` is typed as yielding a plain dict; every value it yields
+        # here is the graph's own ORCAState, so the cast is a name for what
+        # LangGraph's signature cannot express, not a claim about new data.
+        final_state = cast(ORCAState, values)
         completed = values.get("completed_nodes", [])
         trace_log = values.get("audit_trace_log", [])
         for node_name, trace_entry in zip(completed[emitted:], trace_log[emitted:]):

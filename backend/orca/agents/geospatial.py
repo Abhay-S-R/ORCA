@@ -188,6 +188,22 @@ def load_boundary_lines() -> tuple[tuple[Any, dict[str, Any]], ...]:
     return tuple((shape(f["geometry"]), f.get("properties", {})) for f in data["features"])
 
 
+def geojson_geometry(geom: BaseGeometry) -> dict[str, Any]:
+    """A shapely geometry as a parsed GeoJSON geometry dict.
+
+    `shapely.to_geojson` is typed as returning None when handed a null
+    geometry, so every `json.loads(to_geojson(...))` at a call site reads as
+    passing `str | None` to `json.loads`. Ours are never null — but saying so
+    once here beats a cast at each of the three call sites, and if shapely
+    ever does hand back nothing we raise instead of writing `null` into a
+    feature's `geometry` and shipping a silently empty shape to the chart.
+    """
+    encoded = to_geojson(geom)
+    if encoded is None:
+        raise ValueError(f"shapely produced no GeoJSON for a {type(geom).__name__}")
+    return json.loads(encoded)
+
+
 DISTRICTS_FILE = BOUNDARIES_DIR / "2011_Dist.shp"
 
 
@@ -201,11 +217,18 @@ def _district_index() -> tuple[STRtree, list[dict[str, Any]]] | None:
     reader = shapefile.Reader(str(DISTRICTS_FILE))
     rows: list[dict[str, Any]] = []
     for sr in reader.shapeRecords():
+        # pyshp types both halves as optional and it is right to: a .shp whose
+        # .dbf partner is truncated yields records without shapes. A row missing
+        # either half cannot place a position in a district, so it is skipped
+        # rather than crashing the whole index on one bad row.
+        record, geom = sr.record, sr.shape
+        if record is None or geom is None:
+            continue
         rows.append({
-            "district": sr.record["DISTRICT"],
-            "state": sr.record["ST_NM"],
-            "censuscode": sr.record["censuscode"],
-            "geometry": shape(sr.shape.__geo_interface__),
+            "district": record["DISTRICT"],
+            "state": record["ST_NM"],
+            "censuscode": record["censuscode"],
+            "geometry": shape(geom.__geo_interface__),
         })
     return STRtree([r["geometry"] for r in rows]), rows
 
@@ -596,10 +619,14 @@ def generate_map_layers(
         clipped = f.geometry.intersection(_MAP_CLIP_BOX)
         if clipped.is_empty:
             continue  # outside the pilot region entirely — not this map's business
-        simplified = clipped.simplify(tolerance, preserve_topology=True) if tolerance else clipped
+        # Annotated because `BaseGeometry.intersection` is typed as possibly
+        # returning None, which makes `to_geojson(...)` below read as `str | None`
+        # and `json.loads` reject it. The `is_empty` check above already rules
+        # None out — an empty intersection is a geometry, not a missing one.
+        simplified: BaseGeometry = clipped.simplify(tolerance, preserve_topology=True) if tolerance else clipped
         boundary_features.append({
             "type": "Feature",
-            "geometry": json.loads(to_geojson(simplified)),
+            "geometry": geojson_geometry(simplified),
             "properties": {"name": f.name, "designation": f.designation, "source_file": f.source_file},
         })
     # Delimitation lines ride as their own layer, not mixed into "boundaries":
@@ -613,7 +640,7 @@ def generate_map_layers(
         simplified = clipped.simplify(tolerance, preserve_topology=True) if tolerance else clipped
         line_features.append({
             "type": "Feature",
-            "geometry": json.loads(to_geojson(simplified)),
+            "geometry": geojson_geometry(simplified),
             "properties": {
                 "name": props.get("line_name"),
                 "line_type": props.get("line_type"),

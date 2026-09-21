@@ -8,7 +8,6 @@ the time the vessel would actually be there.
 """
 from __future__ import annotations
 
-import json
 import math
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -17,7 +16,6 @@ from typing import Any, Literal
 
 import xarray as xr
 from pyproj import Proj, Transformer
-from shapely import to_geojson
 from shapely.geometry import LineString
 from shapely.ops import transform
 
@@ -25,6 +23,7 @@ from orca.agents.geospatial import (
     DATA_ROOT,
     bearing_and_distance,
     depth_at_point,
+    geojson_geometry,
     point_in_polygon,
 )
 from orca.agents.risk_assessment import _VESSEL_DELTAS, VesselClass, compute_confidence
@@ -154,7 +153,7 @@ def _corridor_polygon(points_lonlat: list[tuple[float, float]], buffer_nm: float
     to_local = Transformer.from_proj(Proj("epsg:4326"), local, always_xy=True).transform
     to_wgs84 = Transformer.from_proj(local, Proj("epsg:4326"), always_xy=True).transform
     buffered = transform(to_local, line).buffer(buffer_nm * 1852.0)
-    return json.loads(to_geojson(transform(to_wgs84, buffered)))
+    return geojson_geometry(transform(to_wgs84, buffered))
 
 
 def densify_route(
