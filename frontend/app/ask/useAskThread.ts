@@ -345,7 +345,6 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- updateTurn only touches setters
   }, [savedTurns]);
 
   // Switching persona (nav-wide setting) changes how an answer would render,

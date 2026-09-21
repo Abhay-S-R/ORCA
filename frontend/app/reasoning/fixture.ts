@@ -40,8 +40,8 @@ export type TraceNode = {
   // specialist, Reporting and the Critic a second time; the graph draws one node per agent and
   // says so here rather than drawing duplicates.
   run_count?: number;
-  inputs_consumed?: Record<string, any>;
-  outputs?: Record<string, any>;
+  inputs_consumed?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
   source_provenance?: {
     dataset: string;
     acquisition_timestamp: string;

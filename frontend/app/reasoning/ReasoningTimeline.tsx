@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   Clock,
-  Gauge,
   Pause,
   Play,
   RotateCcw,

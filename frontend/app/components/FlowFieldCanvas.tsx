@@ -13,7 +13,11 @@ export interface VectorPoint {
 }
 
 interface FlowFieldCanvasProps {
-  map: maplibregl.Map | null;
+  /** The map lives in a ref on the parent; reading `.current` during the parent's
+   *  render is the hazard `react-hooks/refs` catches, so the ref is handed over
+   *  whole and read inside the effect below. `mapReady` is what re-runs it. */
+  mapRef: React.RefObject<maplibregl.Map | null>;
+  mapReady: boolean;
   showCurrents: boolean;
   showWind: boolean;
   currentVectors: VectorPoint[] | null;
@@ -131,7 +135,8 @@ class VectorGrid {
 }
 
 export function FlowFieldCanvas({
-  map,
+  mapRef,
+  mapReady,
   showCurrents,
   showWind,
   currentVectors,
@@ -144,6 +149,7 @@ export function FlowFieldCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
+    const map = mapRef.current;
     if (!map) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -391,7 +397,7 @@ export function FlowFieldCanvas({
       map.off("resize", resize);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     };
-  }, [map, showCurrents, showWind, currentVectors, windVectors, currentBounds, windBounds, greyCurrents, greyWind]);
+  }, [mapRef, mapReady, showCurrents, showWind, currentVectors, windVectors, currentBounds, windBounds, greyCurrents, greyWind]);
 
   if (!showCurrents && !showWind) return null;
 

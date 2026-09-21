@@ -66,7 +66,44 @@ export type OceanSummary = {
 };
 export type Citation = { agent_name: string; dataset: string; acquisition_timestamp: string };
 
-function parseData<T = Record<string, any>>(value: unknown): T | null {
+// The four payloads below arrive from the backend as JSON (sometimes as a
+// Python-repr string — see the sanitiser in parseData). Every field is
+// optional because an upstream agent that could not answer omits it, and the
+// formatters all fall back. These shapes replace the `any` they used to be
+// typed with: same tolerance, but a typo in a field name is now a compile
+// error instead of a silent "—" on screen.
+type TideData = {
+  tidal_state?: string;
+  state?: string;
+  next_high?: { height_m?: number | null; in_hours?: number | null } | null;
+  next_low?: { height_m?: number | null; in_hours?: number | null } | null;
+  station_code?: string;
+  station_name?: string;
+  spring_neap?: string;
+};
+type PfzData = {
+  found?: boolean;
+  distance_km?: number | string | null;
+  compass?: string;
+  bearing_deg?: number | null;
+  landing_center?: string;
+  depth_m?: number | null;
+};
+type SectorStatusData = {
+  status?: string;
+  sector_name?: string;
+  sector_id?: string;
+  node_count?: number | null;
+  is_data_gap?: boolean;
+  message?: string;
+};
+type ProductivityData = {
+  declined?: boolean;
+  district?: string;
+  factors?: { factor?: string }[];
+};
+
+function parseData<T = Record<string, unknown>>(value: unknown): T | null {
   if (!value) return null;
   if (typeof value === "object") return value as T;
   if (typeof value === "string") {
@@ -92,7 +129,7 @@ function parseData<T = Record<string, any>>(value: unknown): T | null {
 }
 
 export function formatTideData(raw: unknown): { value: string; unit?: string; hint?: string } {
-  const data = parseData<any>(raw);
+  const data = parseData<TideData>(raw);
   if (!data) {
     if (typeof raw === "string" && raw.trim() && !raw.includes("{")) {
       return { value: raw };
@@ -130,7 +167,7 @@ export function formatTideData(raw: unknown): { value: string; unit?: string; hi
 }
 
 export function formatPfzData(raw: unknown): { value: string; unit?: string; hint?: string } {
-  const data = parseData<any>(raw);
+  const data = parseData<PfzData>(raw);
   if (!data) {
     if (typeof raw === "string" && raw.trim() && !raw.includes("{")) {
       return { value: raw };
@@ -157,7 +194,7 @@ export function formatPfzData(raw: unknown): { value: string; unit?: string; hin
 }
 
 export function formatSectorStatusData(raw: unknown): { value: string; unit?: string; hint?: string } {
-  const data = parseData<any>(raw);
+  const data = parseData<SectorStatusData>(raw);
   if (!data) {
     if (typeof raw === "string" && raw.trim() && !raw.includes("{")) {
       return { value: raw };
@@ -191,7 +228,7 @@ export function formatSectorStatusData(raw: unknown): { value: string; unit?: st
 }
 
 export function formatProductivityData(raw: unknown): { value: string; unit?: string; hint?: string } {
-  const data = parseData<any>(raw);
+  const data = parseData<ProductivityData>(raw);
   if (!data) {
     if (typeof raw === "string" && raw.trim() && !raw.includes("{")) {
       return { value: raw };
@@ -218,7 +255,7 @@ function fmt(value: unknown): string {
   if (value === null || value === undefined) return "—";
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2);
   if (typeof value === "object") {
-    const obj = value as Record<string, any>;
+    const obj = value as Record<string, unknown>;
     if (obj.label) return String(obj.label);
     if (obj.name) return String(obj.name);
     if (obj.status) return String(obj.status);

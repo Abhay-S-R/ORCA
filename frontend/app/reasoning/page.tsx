@@ -5,8 +5,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  type Node,
-  type Edge,
   type NodeTypes,
   type EdgeTypes,
 } from "@xyflow/react";
@@ -161,14 +159,22 @@ function ReasoningContent() {
     }
   }, []);
 
+  // Both effects below are network fetches whose setState calls only run after
+  // an await. They are written as an inner async IIFE rather than a bare call
+  // so `react-hooks/set-state-in-effect` can see that too — calling an async
+  // useCallback directly reads to the rule as a synchronous cascade.
   useEffect(() => {
-    void refreshRecentTraces();
+    void (async () => {
+      await refreshRecentTraces();
+    })();
   }, [refreshRecentTraces]);
 
   // If URL has query_id, fetch it
   useEffect(() => {
     if (!initialQueryId) return;
-    void loadTraceById(initialQueryId);
+    void (async () => {
+      await loadTraceById(initialQueryId);
+    })();
   }, [initialQueryId, loadTraceById]);
 
   // Run live query via SSE

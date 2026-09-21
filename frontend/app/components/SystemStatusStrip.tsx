@@ -68,7 +68,7 @@ export function SystemStatusStrip() {
           onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
           className="glass absolute top-full right-0 z-50 mt-1.5 w-80 rounded-md p-3 text-xs shadow-2xl shadow-black/50"
         >
-          <p className="font-semibold text-ink">What's live right now</p>
+          <p className="font-semibold text-ink">What&apos;s live right now</p>
           <ul className="mt-2 space-y-2">
             {features.map((f) => (
               <li key={f.feature} className="flex items-start gap-2">

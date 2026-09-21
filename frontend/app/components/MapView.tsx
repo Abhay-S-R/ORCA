@@ -104,12 +104,6 @@ const SEVERITY_TONE: Record<WatchBadge["severity"], BadgeTone> = {
   warning: "caution",
   danger: "no-go",
 };
-const SEVERITY_COLOR: Record<WatchBadge["severity"], string> = {
-  info: "#7a8a99",
-  advisory: CHART.eez,
-  warning: CHART.caution,
-  danger: CHART.noGo,
-};
 type DepthResult = { depth_m: number | null; on_land: boolean; shallow_hazard: boolean };
 type Bearing = { bearing_deg: number; distance_nm: number };
 type CurrentVector = { lat: number; lon: number; speed_ms: number; direction_deg: number };
@@ -334,7 +328,10 @@ export function MapView({
   // neutral India-centre otherwise; only the "Your Location" marker itself
   // is gated on an actual granted fix (no marker at all without one).
   const { position: userLocation, status: geoStatus } = useGeolocation();
-  const focusPoint = userLocation ?? INDIA_CENTER;
+  // Memoised so it is a stable dependency: `getCurrentPosition` is one-shot,
+  // so this identity changes at most once — when the real fix lands — and the
+  // layer fetch below re-runs then, which is the point of reading it at all.
+  const focusPoint = useMemo(() => userLocation ?? INDIA_CENTER, [userLocation]);
 
   const [nearNames, setNearNames] = useState<string[]>([]);
   const [clicked, setClicked] = useState<{ lat: number; lon: number } | null>(null);
@@ -353,7 +350,9 @@ export function MapView({
   // Read inside the map-load handler, which runs once and must not re-run
   // when the basemap changes — the glyph re-tint effect below handles that.
   const basemapRef = useRef(basemap);
-  basemapRef.current = basemap;
+  useEffect(() => {
+    basemapRef.current = basemap;
+  }, [basemap]);
   const [depth, setDepth] = useState<DepthResult | null>(null);
   // Nearest DELIMITED boundary line at the tapped point: which treaty line,
   // how far, on what agreement. The EEZ-edge distance answers a different
@@ -577,7 +576,18 @@ export function MapView({
     } catch (err) {
       console.warn("MapView: depth/bearing fetch failed (backend may be starting up)", err);
     }
-  }, [onPointClick]);
+  }, [onPointClick, focusPoint]);
+
+  // The map's own click listener is registered once, inside the create-once
+  // effect below, so it would otherwise keep whichever `handleClick` closure
+  // existed at map creation — the one whose `focusPoint` is still the neutral
+  // India centre, making "bearing from you" wrong for the rest of the session
+  // once a real GPS fix lands. The listener calls through this ref instead, so
+  // it always runs the current closure and the effect stays create-once.
+  const handleClickRef = useRef(handleClick);
+  useEffect(() => {
+    handleClickRef.current = handleClick;
+  }, [handleClick]);
 
   /* ---- map instance: created once, never recreated ---- */
   useEffect(() => {
@@ -966,7 +976,7 @@ export function MapView({
         selectedPfzCoordsRef.current = null;
         setSelectedPfzPos(null);
       }
-      void handleClick(e.lngLat.lat, e.lngLat.lng);
+      void handleClickRef.current(e.lngLat.lat, e.lngLat.lng);
     });
     // Keep the PFZ popup glued to its marker's screen position while the
     // map pans/zooms, same as a native maplibre Popup would.
@@ -987,7 +997,7 @@ export function MapView({
       m.remove();
       map.current = null;
     };
-  }, [supported, handleClick]);
+  }, [supported]);
 
   /* ---- "Your Location" marker: a ship's-bow pointer over a pulsing GPS
      halo, shown ONLY once the browser actually grants a position — never a
@@ -1225,7 +1235,7 @@ export function MapView({
     return () => {
       cancelled = true;
     };
-  }, [ready]);
+  }, [ready, focusPoint]);
 
   // Ask page query -> chart focus, layer half (plan §7/§8): adjusted during
   // render when `queryFocus` changes, the pattern React's own docs recommend
@@ -1237,6 +1247,19 @@ export function MapView({
   // (north). Set from the same real geometry the camera below fits to, so
   // it is never a bearing toward something not actually on screen.
   const [shipBearing, setShipBearing] = useState<number | null>(null);
+  // Keep the heavy-layer LRU honest about what a prescription actually left
+  // running, or the next manual toggle evicts a layer that is already off.
+  // In an effect rather than the render-phase block below: a ref write during
+  // render is the hazard `react-hooks/refs` exists to catch, and nothing can
+  // toggle a layer between that render and this commit anyway.
+  const lruNonce = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!queryFocus || queryFocus.nonce === lruNonce.current) return;
+    lruNonce.current = queryFocus.nonce;
+    const prescribed = QUERY_INTENT_LAYERS[queryFocus.intent];
+    if (prescribed) lru.current = HEAVY_KEYS.filter((k) => prescribed.includes(k));
+  }, [queryFocus]);
+
   if (queryFocus && queryFocus.nonce !== focusedNonce) {
     setFocusedNonce(queryFocus.nonce);
     // A named place (plan item 8) is set here rather than in the camera
@@ -1257,9 +1280,6 @@ export function MapView({
         }
         return next;
       });
-      // Keep the heavy-layer LRU honest about what is actually running, or
-      // the next manual toggle evicts a layer that is already off.
-      lru.current = HEAVY_KEYS.filter((k) => prescribed.includes(k));
     }
     // Same anchor the camera effect below uses: explicit coords, a named place,
     // the reader's GPS position, or coastal pilot default.
@@ -1481,8 +1501,14 @@ export function MapView({
     if (!ready || !m) return;
     const lons: number[] = [];
     const lats: number[] = [];
-    for (const v of currentVectors ?? []) (lons.push(v.lon), lats.push(v.lat));
-    for (const v of windVectors ?? []) (lons.push(v.lon), lats.push(v.lat));
+    for (const v of currentVectors ?? []) {
+      lons.push(v.lon);
+      lats.push(v.lat);
+    }
+    for (const v of windVectors ?? []) {
+      lons.push(v.lon);
+      lats.push(v.lat);
+    }
     for (const f of pfzFeatures) {
       lons.push(f.geometry.coordinates[0]);
       lats.push(f.geometry.coordinates[1]);
@@ -1601,7 +1627,8 @@ export function MapView({
     <div className={`relative overflow-hidden rounded-md border border-hairline ${className}`}>
       <div ref={container} className="h-full w-full" />
       <FlowFieldCanvas
-        map={map.current}
+        mapRef={map}
+        mapReady={ready}
         showCurrents={layers.currents}
         showWind={layers.wind}
         currentVectors={currentVectors}

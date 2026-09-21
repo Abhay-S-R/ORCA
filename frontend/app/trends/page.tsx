@@ -14,7 +14,7 @@ import { ConfidenceMeter } from "../components/ConfidenceMeter";
 import { PageBody, PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { Readout, ReadoutGrid } from "../components/Readout";
-import { SourceNarration, type SourceSelection } from "../components/SourceNarration";
+import { type SourceSelection } from "../components/SourceNarration";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
 import type { ChartSpec } from "../lib/chartSpec";
 

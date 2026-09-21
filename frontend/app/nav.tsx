@@ -10,7 +10,7 @@
 // radio because that is how you ask a question at sea.
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   Building2,
@@ -60,6 +60,8 @@ const NAV: Record<(typeof NAV_ROUTES)[number], { label: string; Icon: LucideIcon
   "/reasoning": { label: "Reasoning", Icon: Workflow },
 };
 
+const NEVER_CHANGES = () => () => {};
+
 export function NavRail() {
   const pathname = usePathname();
   const { persona } = usePersona();
@@ -67,8 +69,11 @@ export function NavRail() {
   // Hydration-safe: render with "unresolved" on both the server pass and the
   // first client render so the HTML matches, then swap in the real persona
   // once the component has mounted (localStorage has been read by then).
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // useSyncExternalStore rather than setState-in-an-effect: it is the same
+  // swap, but the server/client snapshot split is the hook's actual job, so
+  // there is no cascading render for `react-hooks/set-state-in-effect` to
+  // object to. The store never changes, hence the no-op subscribe.
+  const mounted = useSyncExternalStore(NEVER_CHANGES, () => true, () => false);
   const effectivePersona = mounted ? persona : "unresolved";
 
   // Nav visibility is a rendering concern only, never a capability gate

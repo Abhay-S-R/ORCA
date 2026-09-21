@@ -1,20 +1,12 @@
 name: CI — Lint
 
-# TEMPORARILY manual again. The jobs below are correct and should go back to
-# `on: push` — they are dispatch-only because the frontend job fails today on
-# 15 pre-existing ESLint errors (8 no-explicit-any, 3 set-state-in-effect, 1
-# refs-during-render, 1 unescaped-entity) that are being handed to another dev
-# to clear. Turning the gate on before the tree is clean only teaches everyone
-# to ignore a red pipeline. Restore the block below once `npm run lint` is
-# green; `pytest` deliberately stays out of CI because data/ is gitignored and
-# a hosted runner has no Tier-1 fixtures.
-#
-#  push:
-#    branches: [main]
-#  pull_request:
-#    branches: [main]
+# Gating on every push and PR to main. `pytest` deliberately stays out of CI
+# because data/ is gitignored and a hosted runner has no Tier-1 fixtures.
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   backend-lint:
@@ -31,9 +23,8 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Ruff (all Python files)
         run: ruff check .
-      - name: Mypy (type check — advisory, pre-existing errors in newer modules)
+      - name: Mypy (type check)
         run: mypy orca --ignore-missing-imports
-        continue-on-error: true
 
       # plan P0.12 / R-JUDGE-4 — one source of truth for all CI guards
       # (vendor SDK import, persona leak, secret scan, safety-path LLM
