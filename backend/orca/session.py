@@ -211,7 +211,7 @@ def clear(session_id: str | None) -> None:
         _local.pop(session_id, None)
     try:
         redis_client().delete(_key(session_id))
-    except Exception as exc:  # noqa: BLE001 — the mirror is already cleared
+    except Exception as exc:  # the mirror is already cleared
         logger.warning("session: failed to clear %s in Redis (%s)", session_id, exc)
 
 

@@ -38,7 +38,11 @@ class AnthropicProvider:
 
 class GeminiProvider:
     def __init__(self) -> None:
-        from google import genai  # modern official vendor SDK — confined to this file
+        # modern official vendor SDK — confined to this file. mypy sees `google`
+        # as a namespace package contributed to by several installed Google
+        # libraries and cannot always resolve `genai` under it, though the
+        # import is real and works at runtime (google-genai's own package).
+        from google import genai  # type: ignore[attr-defined]
 
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not api_key:

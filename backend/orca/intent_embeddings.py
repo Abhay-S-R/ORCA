@@ -206,7 +206,7 @@ def _load() -> bool:
                     phrasings.append(f"passage: {example}")
                     index.append(position)
             matrix = model.encode(phrasings, normalize_embeddings=True, show_progress_bar=False)
-        except Exception as exc:  # noqa: BLE001 — absence is a supported state
+        except Exception as exc:  # absence is a supported state
             _unavailable_reason = f"{type(exc).__name__}: {exc}"
             logger.warning(
                 "intent embeddings unavailable (%s) — Tier 2 falls back to word overlap",
@@ -249,7 +249,7 @@ def match(query: str) -> list[tuple[str, float]] | None:
         vector = _model.encode([f"query: {query}"], normalize_embeddings=True, show_progress_bar=False)[0]
         # Both sides are L2-normalised, so the dot product IS the cosine.
         scores = _row_matrix @ vector
-    except Exception as exc:  # noqa: BLE001 — a runtime encode failure is a no-tier, not a 500
+    except Exception as exc:  # a runtime encode failure is a no-tier, not a 500
         logger.warning("intent embedding encode failed: %s", exc)
         return None
 

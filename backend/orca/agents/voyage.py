@@ -269,6 +269,7 @@ def _classify_route(
 
     blocked = [s for s in segments if s.status == "BLOCKED"]
     caution = [s for s in segments if s.status == "CAUTION"]
+    verdict: Literal["GO", "CAUTION", "NO_GO"]
     if blocked:
         verdict, reason = "NO_GO", f"{len(blocked)} segment(s) blocked: {', '.join(sorted({s.hazard_class for s in blocked}))}"
     elif caution:

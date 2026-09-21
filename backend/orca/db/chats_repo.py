@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from orca.db.models import ConversationTurn, SessionRow
@@ -179,10 +180,13 @@ def update_chat(
     last_seen_at: organising a chat isn't activity in it."""
     if not fields:
         return get_chat(db, user_id, chat_id) is not None
-    result = db.execute(
-        update(SessionRow)
-        .where(SessionRow.id == chat_id, SessionRow.user_id == user_id)
-        .values(**fields)
+    result = cast(
+        CursorResult,
+        db.execute(
+            update(SessionRow)
+            .where(SessionRow.id == chat_id, SessionRow.user_id == user_id)
+            .values(**fields)
+        ),
     )
     db.commit()
     return result.rowcount == 1
@@ -192,7 +196,10 @@ def delete_chat(db: Session, user_id: uuid.UUID, chat_id: uuid.UUID) -> bool:
     """Hard delete — its turns go with it (ON DELETE CASCADE). The per-query
     audit_trace_log rows are the compliance record and stay, detached
     (ON DELETE SET NULL); they never held the chat's text."""
-    result = db.execute(delete(SessionRow).where(SessionRow.id == chat_id, SessionRow.user_id == user_id))
+    result = cast(
+        CursorResult,
+        db.execute(delete(SessionRow).where(SessionRow.id == chat_id, SessionRow.user_id == user_id)),
+    )
     db.commit()
     return result.rowcount == 1
 

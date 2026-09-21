@@ -38,7 +38,8 @@ def badge_for_watch(db: Session, watch: SentinelSubscription) -> dict[str, Any]:
     from orca.db.notifications_models import Notification
     from orca.db.notifications_repo import watch_location
 
-    loc = watch_location(watch) or {"lat": None, "lon": None}
+    no_fix: dict[str, float | None] = {"lat": None, "lon": None}
+    loc = watch_location(watch) or no_fix
     unread = (
         db.query(Notification)
         .filter(Notification.watch_id == watch.id, Notification.read_at.is_(None))

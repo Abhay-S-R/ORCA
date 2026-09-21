@@ -360,7 +360,7 @@ def validate_arrival(source_id: str) -> ArrivalCheck:
         return ArrivalCheck(source_id, checked=False, ok=True, detail="live source — validated on fetch, not before it")
     try:
         ok, detail = probe()
-    except Exception as exc:  # noqa: BLE001 — an unreadable file IS the failure being detected
+    except Exception as exc:  # an unreadable file IS the failure being detected
         return ArrivalCheck(source_id, checked=True, ok=False, detail=f"unreadable: {type(exc).__name__}: {exc}")
     return ArrivalCheck(source_id, checked=True, ok=ok, detail=detail)
 

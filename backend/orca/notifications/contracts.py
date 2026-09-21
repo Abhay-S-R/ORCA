@@ -27,6 +27,10 @@ Severity = Literal["info", "advisory", "warning", "danger"]
 NotificationStatus = Literal["sent", "simulated", "failed"]
 
 
+def _default_channels() -> list[Channel]:
+    return ["in_app"]
+
+
 class WatchIn(BaseModel):
     """Create/replace a watch. `user_id` is deliberately absent — identity
     comes from the bearer token at the route, never the body (plan §5.4)."""
@@ -42,7 +46,7 @@ class WatchIn(BaseModel):
     # {"wave_height_m": 2.5, "wind_kt": 25} — keys are free-form; Sentinel's
     # crossing test knows which ones it understands and ignores the rest.
     thresholds: dict[str, float] = Field(default_factory=dict)
-    channels: list[Channel] = Field(default_factory=lambda: ["in_app"])
+    channels: list[Channel] = Field(default_factory=_default_channels)
     enabled: bool = True
 
     @field_validator("lat")

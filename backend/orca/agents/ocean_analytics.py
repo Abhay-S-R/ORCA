@@ -448,6 +448,8 @@ def correlate_sst_chlorophyll(bbox: dict[str, float] | None = None) -> dict[str,
 def _acquisition_gap(sst_prov: dict[str, Any] | None, chl_prov: dict[str, Any] | None) -> str | None:
     """Human-readable gap between the two granules' acquisition times, or None
     when they are within a day of each other."""
+    if sst_prov is None or chl_prov is None:
+        return None
     try:
         t_sst = datetime.fromisoformat(sst_prov["acquisition_timestamp"].replace("Z", "+00:00"))
         t_chl = datetime.fromisoformat(chl_prov["acquisition_timestamp"].replace("Z", "+00:00"))

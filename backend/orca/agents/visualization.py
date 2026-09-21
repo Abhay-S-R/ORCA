@@ -442,6 +442,7 @@ if __name__ == "__main__":
     kept, _, dropped = validate_payload([route_layer], [])
     assert kept and not dropped, dropped
     assert route_layer.layer_type == "Polyline"
+    assert route_layer.geojson is not None
     assert {f["properties"]["status"] for f in route_layer.geojson["features"]} <= {"CLEAR", "CAUTION", "BLOCKED"}
 
     print("visualization self-check OK:", layer_types, len(result.outputs["chart_specs"]), "chart(s)")

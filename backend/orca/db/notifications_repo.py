@@ -11,11 +11,13 @@ returned only to its owner, and `watch_location()` is the single accessor.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, cast
 
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import Point, shape
 from sqlalchemy import func, select, text
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from orca.db.notifications_models import AdvisoryFeedback, Notification, SentinelSubscription
@@ -55,7 +57,7 @@ def create_watch(
     radius_km: float | None = None,
     vessel_id: uuid.UUID | None = None,
     thresholds: dict[str, float] | None = None,
-    channels: list[str] | None = None,
+    channels: Sequence[str] | None = None,
     enabled: bool = True,
 ) -> SentinelSubscription:
     watch = SentinelSubscription(
@@ -123,7 +125,9 @@ def watch_location(watch: SentinelSubscription) -> dict[str, float] | None:
     if watch.watch_point is not None:
         return _latlon(watch.watch_point)
     if watch.watch_area is not None:
-        c = to_shape(watch.watch_area).centroid
+        # geoalchemy2's Geometry mapped_column has no precise stub — it is a
+        # WKBElement at runtime despite the ORM annotation reading `str`.
+        c = to_shape(cast(Any, watch.watch_area)).centroid
         return {"lat": c.y, "lon": c.x}
     return None
 
@@ -180,20 +184,26 @@ def unread_count(db: Session, user_id: uuid.UUID) -> int:
 
 def mark_notification_read(db: Session, notification_id: uuid.UUID, user_id: uuid.UUID) -> bool:
     """Returns True if a row belonging to this user was updated. Idempotent."""
-    result = db.execute(
-        text(
-            "UPDATE notifications SET read_at = now() "
-            "WHERE id = :id AND user_id = :uid AND read_at IS NULL"
+    result = cast(
+        CursorResult,
+        db.execute(
+            text(
+                "UPDATE notifications SET read_at = now() "
+                "WHERE id = :id AND user_id = :uid AND read_at IS NULL"
+            ),
+            {"id": notification_id, "uid": user_id},
         ),
-        {"id": notification_id, "uid": user_id},
     )
     return result.rowcount > 0
 
 
 def mark_all_read(db: Session, user_id: uuid.UUID) -> int:
-    result = db.execute(
-        text("UPDATE notifications SET read_at = now() WHERE user_id = :uid AND read_at IS NULL"),
-        {"uid": user_id},
+    result = cast(
+        CursorResult,
+        db.execute(
+            text("UPDATE notifications SET read_at = now() WHERE user_id = :uid AND read_at IS NULL"),
+            {"uid": user_id},
+        ),
     )
     return result.rowcount
 
