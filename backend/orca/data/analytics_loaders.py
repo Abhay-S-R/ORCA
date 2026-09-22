@@ -442,8 +442,13 @@ def load_bhuvan_wms_services() -> list[dict[str, Any]]:
 
     A second ISRO-lineage surface and a cheap one: these are WMS/WMTS
     endpoints, so they cost a map layer definition rather than a parser.
+
+    Read from `bhuvan_manifest.json` — the file `refresh_bhuvan_manifest.py`
+    writes and `freshness.py` ages. The catalog previously came from
+    `bhuvan_15days_marine_manifest.json`, which no refresh script ever touched,
+    so the freshness badge vouched for a file this function never opened.
     """
-    path = BHUVAN_DIR / "bhuvan_15days_marine_manifest.json"
+    path = BHUVAN_DIR / "bhuvan_manifest.json"
     if not path.exists():
         return []
     with open(path, encoding="utf-8") as f:

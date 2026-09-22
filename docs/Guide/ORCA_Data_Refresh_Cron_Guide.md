@@ -107,6 +107,13 @@ backend\.venv\Scripts\python.exe     (Windows)
 backend/.venv/bin/python             (macOS / Linux)
 ```
 
+**A scheduler console is cp1252, and the gazetteer is not.** Six place aliases are
+written in Tamil script, so any script that prints a place name — `refresh_openmeteo_caches.py`
+and `refresh_era5_baselines.py` both do — dies with `UnicodeEncodeError` partway
+through the list, and the freshness gate at the end of the job never runs to
+report it. Both wrappers set `PYTHONIOENCODING=utf-8`, which changes stdout only
+and leaves how the scripts read and write `data/` alone.
+
 Also set the working directory to the repo root — the scripts resolve `data/` and `.env`
 relative to it.
 
@@ -118,6 +125,7 @@ The wrappers are in the repo. `scripts/cron/refresh_daily.cmd`:
 @echo off
 cd /d "%~dp0..\.."
 set PY=backend\.venv\Scripts\python.exe
+set PYTHONIOENCODING=utf-8
 
 %PY% scripts\refresh_osf_forecasts.py
 %PY% scripts\extract_osf_pilot.py
@@ -141,12 +149,14 @@ alarm. A job that refreshes without verifying is a job that fails quietly for a 
 @echo off
 cd /d "%~dp0..\.."
 set PY=backend\.venv\Scripts\python.exe
+set PYTHONIOENCODING=utf-8
 
 %PY% scripts\refresh_cmems.py
 %PY% scripts\refresh_gfw_ais.py
 %PY% scripts\refresh_nasa_ocean_color.py
 %PY% scripts\refresh_bhuvan_manifest.py
 %PY% scripts\refresh_openmeteo_caches.py
+%PY% scripts\refresh_era5_baselines.py
 
 cd backend && ..\%PY% -m orca.data.freshness
 exit /b %ERRORLEVEL%

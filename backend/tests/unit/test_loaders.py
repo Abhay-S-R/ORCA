@@ -99,3 +99,44 @@ def test_ten_coastal_places_across_five_states_each_resolve_within_their_own_sta
         # And emphatically not the Gulf of Mannar default every one of these
         # used to land on.
         assert abs(p.lat - DEFAULT_LAT) + abs(p.lon - DEFAULT_LON) > 1.0, (text, p)
+
+
+def test_cmems_picks_the_current_file_even_if_a_stale_one_was_written_last():
+    """`docs/ORCA_Stale_Data_Cleanup.md` §6.2. `_cmems_newest` used to sort by
+    mtime, which records when the bytes landed on this machine rather than the
+    date the data describes. Restoring a backup, or re-copying `data/`,
+    reorders the directory and would hand the SST fallback rung an August
+    extract while the freshness badge above it — which grades the same files
+    by their filename dates — still read green.
+
+    The two must not be able to disagree, so both now read the date out of the
+    name. The undated rolling NRT file is the current one by construction.
+    """
+    import os
+    import time
+
+    from orca.data.satellite_loaders import CMEMS_DIR, _cmems_newest
+
+    current = _cmems_newest("thetao")
+    if current is None:
+        import pytest
+
+        pytest.skip("no CMEMS thetao files on disk")
+    assert current.name == "cmems_thetao_india_nrt.nc", current.name
+
+    stale = [
+        p
+        for p in CMEMS_DIR.glob("cmems_*.nc")
+        if "thetao" in p.name and p.name != current.name
+    ]
+    if not stale:
+        return
+    victim = stale[0]
+    saved = (os.path.getatime(victim), os.path.getmtime(victim))
+    try:
+        os.utime(victim, (time.time(), time.time()))
+        assert _cmems_newest("thetao").name == current.name, (
+            "mtime still decides — a restored backup would serve superseded data as current"
+        )
+    finally:
+        os.utime(victim, saved)
