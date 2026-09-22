@@ -39,7 +39,26 @@ def get_engine():
     if _engine is None:
         _engine = create_engine(
             _database_url(),
-            connect_args={"connect_timeout": 3},
+            connect_args={
+                "connect_timeout": 3,
+                # TCP keepalives. Sentinel holds a session-level
+                # pg_try_advisory_lock (notifications_repo.try_sentinel_lock)
+                # for the life of its connection; if that process is killed
+                # ungracefully (SIGKILL, OOM, container stop) the socket can
+                # go dead without either side sending a close, and Postgres
+                # has no idea the session is gone — it holds the lock
+                # forever, so every later instance's pg_try_advisory_lock
+                # returns false on every tick, silently, with no error.
+                # These probe an idle connection every 10s starting at 30s
+                # and give up after 3 misses, so a dead session (and the
+                # lock with it) is reaped within about a minute instead of
+                # however long the OS's default keepalive idle time is
+                # (hours, on Linux).
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 3,
+            },
             pool_pre_ping=True,
             future=True,
         )

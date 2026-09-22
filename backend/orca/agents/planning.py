@@ -131,6 +131,7 @@ ports jetty landing wharf quay
 wave waves swell surf sea-state tide tides tidal current currents ebb flood
 wind winds gale storm storms squall cyclone cyclonic depression monsoon
 weather forecast rain rainfall lightning thunder thunderstorm visibility fog
+conditions condition
 depth bathymetry shallow shallows reef reefs shoal sandbar draft draught
 safe safety danger dangerous risk hazard warning alert advisory rescue
 zone zones pfz boundary boundaries imbl eez geofence border maritime-boundary
@@ -182,6 +183,17 @@ def is_out_of_scope(normalized_query: str) -> bool:
     # translation pass, so an English vocabulary test says nothing about it.
     # Never refuse on that basis.
     if any(ord(ch) > 127 for ch in lowered):
+        return False
+    # A bare coordinate pair ("conditions at 8.75N 78.25E") names a real
+    # position even though it names no gazetteer place and no vocabulary
+    # word. place_resolution.parse_coordinates already parses this shape —
+    # resolve_all_places_from_text below does not — so without this check
+    # this function and the pipeline's own place resolution disagreed about
+    # whether the query named anywhere at all, and this refused a query that
+    # was answered a moment later when phrased with a marine word instead.
+    from orca.place_resolution import parse_coordinates
+
+    if parse_coordinates(lowered) is not None:
         return False
     from orca.data.loaders import resolve_all_places_from_text
 

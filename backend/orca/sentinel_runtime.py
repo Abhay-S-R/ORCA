@@ -150,13 +150,35 @@ def dispatch_decision(
     return note
 
 
+_consecutive_lock_misses = 0
+# A legitimate second instance (or a rolling deploy overlapping the old one)
+# skips for a tick or two, which is normal and not worth a peep. Missing for
+# longer than that is the lock-never-released failure mode audited
+# 2026-09-22 (a killed process's dead connection still holding the lock) —
+# say so loudly instead of leaving it in the debug line below, since nothing
+# else here ever surfaces "no watch has fired in a while".
+_LOCK_MISS_WARN_THRESHOLD = 5
+
+
 def run_poll_cycle(db: Session, *, escalate: EscalateFn | None = None) -> list[sentinel.WatchDecision]:
     """One tick. Returns every decision (fired or not) for observability /
     tests. Acquires the advisory lock; if another process holds it, returns
     [] without evaluating anything."""
+    global _consecutive_lock_misses
     if not try_sentinel_lock(db):
-        logger.debug("sentinel lock held by another process — skipping tick")
+        _consecutive_lock_misses += 1
+        if _consecutive_lock_misses >= _LOCK_MISS_WARN_THRESHOLD:
+            logger.warning(
+                "sentinel lock held by another process for %d consecutive ticks "
+                "(~%ds) — if that process is gone, its connection is orphaned "
+                "and holding the lock; it self-clears once Postgres reaps a "
+                "dead connection via TCP keepalives",
+                _consecutive_lock_misses, _consecutive_lock_misses * POLL_INTERVAL_SECONDS,
+            )
+        else:
+            logger.debug("sentinel lock held by another process — skipping tick")
         return []
+    _consecutive_lock_misses = 0
 
     decisions: list[sentinel.WatchDecision] = []
     try:

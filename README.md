@@ -94,7 +94,7 @@ ORCA serves four distinct user personas. Every persona receives a different dept
 <td width="50%">
 
 **🤖 No AI in the Safety Core**
-A LangGraph `StateGraph` orchestrates eleven graph nodes that genuinely collaborate — five of them never call a model at all, and every node that can stop someone going to sea is one of the five.
+A LangGraph `StateGraph` orchestrates sixteen graph nodes that genuinely collaborate — five of them never call a model at all, and every node that can stop someone going to sea is one of the five.
 
 </td>
 <td width="50%">
@@ -122,7 +122,7 @@ Every agent hand-off streams live to the user — which datasets were chosen, wh
 <td>
 
 **🔔 Proactive Sentinel Alerts**
-A background agent polls registered locations every 2 minutes. When conditions cross a threshold, it pushes an SMS or in-app alert — without the fisherman opening the app.
+A background agent polls registered locations every 2 minutes. When conditions cross a threshold, it pushes an in-app alert — without the fisherman opening the app. SMS/IVR/USSD channels are modeled and the message is rendered and stored for each (shown as SIMULATED in the feed), but no real transport is wired up yet.
 
 </td>
 <td>
@@ -155,8 +155,8 @@ Full historical replay using authentic IMD/MOSDAC data. Demonstrates live cyclon
 </td>
 <td>
 
-**⚖️ Critic Agent for Deep Queries**
-Any query that reaches `DEEP` reasoning depth — regardless of persona — passes through a fact-checking Critic Agent before it reaches the user.
+**⚖️ Critic Agent**
+Every query passes through a fact-checking Critic Agent before it reaches the user, at any reasoning depth — the one exception is a hard-constraint NO_GO (cyclone, lightning, an IMBL or MPA breach), which is a cost skip, not a quality one.
 
 </td>
 </tr>
@@ -168,7 +168,7 @@ Any query that reaches `DEEP` reasoning depth — regardless of persona — pass
 
 Every query flows through a compiled LangGraph `StateGraph`. Each node is a named, specialized agent. Here is the exact wiring:
 
-> **Why the labels below run to Agent 12 while the graph itself has eleven nodes:** the numbers are stable role IDs, not a headcount. Agent 3 (Discovery) rides inside Agent 5's (Ocean Analytics) output as a source-selection narrative rather than running as its own node, and Agent 1 (Language) appears twice in the diagram — ingress and egress — because it's the same agent used at both ends of the pipeline. The compiled graph (`orca/graph/graph.py`) has eleven nodes: `distress_check`, `language_ingress`, `planning`, `weather_intelligence`, `geospatial`, `ocean_analytics`, `risk_assessment`, `visualization`, `reporting`, `critic`, `language_egress`. **Five of eleven never call a model at all** — `distress_check`, `weather_intelligence`, `geospatial`, `risk_assessment`, `visualization` — and every node that can stop someone going to sea is one of the five. `ocean_analytics` calls an LLM only at `DEEP` reasoning depth; `language_ingress`/`language_egress` run IndicTrans2, a local neural translation model, not a hosted LLM; `critic` is real but conditional, engaging only at `DEEP` depth, so it's a bonus verification pass rather than a headline node.
+> **Why the labels below run to Agent 12 while the graph itself has sixteen nodes:** the numbers are stable role IDs, not a headcount. Agent 3 (Discovery) is its own node (`marine_data_discovery`) but shares Agent 5's diagram slot below since both feed Ocean Analytics' source selection, and Agent 1 (Language) appears twice in the diagram — ingress and egress — because it's the same agent used at both ends of the pipeline. The compiled graph (`orca/graph/graph.py`) has sixteen nodes: `distress_check`, `query_guard`, `out_of_scope`, `language_ingress`, `planning`, `marine_data_discovery`, `weather_intelligence`, `geospatial`, `ocean_analytics`, `risk_assessment`, `visualization`, `reporting`, `critic`, `critic_cancelled`, `critic_reinvoke`, `language_egress`. **Five never call a model at all** — `distress_check`, `weather_intelligence`, `geospatial`, `risk_assessment`, `visualization` — and every node that can stop someone going to sea is one of the five. `ocean_analytics` calls an LLM only at `DEEP` reasoning depth; `language_ingress`/`language_egress` run IndicTrans2, a local neural translation model, not a hosted LLM; `critic` runs on every query now, not only at `DEEP` — the one exception is a hard-constraint NO_GO, skipped for cost, not quality — with `critic_cancelled`/`critic_reinvoke` handling its re-invocation budget.
 
 ```
  ┌─────────────────────────────────────────────────────────────────────┐
@@ -222,7 +222,7 @@ Every query flows through a compiled LangGraph `StateGraph`. Each node is a name
                               └──────────┬────────────────┘
                                          │
                         ┌────────────────┴─────────────────┐
-                        │ DEEP depth only                  │ SHALLOW/STANDARD
+                        │ every query                      │ hard NO_GO (cost skip)
                         ▼                                  ▼
              ┌───────────────────┐            ┌────────────────────────┐
              │  Agent 10 · Critic│            │  Agent 1 · Language    │
@@ -237,7 +237,7 @@ Every query flows through a compiled LangGraph `StateGraph`. Each node is a name
 
 | Agent | Role |
 |---|---|
-| **Agent 11 · Sentinel** | Polls every registered watch location every 120 s. On threshold crossing (GO→CAUTION→NO-GO), dispatches in-app notification or SMS — no user action required |
+| **Agent 11 · Sentinel** | Polls every registered watch location every 120 s. On threshold crossing (GO→CAUTION→NO-GO), dispatches an in-app notification — no user action required. SMS/IVR/USSD are rendered and stored (SIMULATED in the feed) but have no real transport wired up |
 
 ---
 
@@ -441,13 +441,13 @@ These ten principles are non-negotiable. Every agent, every API response, and ev
 
 | # | Principle |
 |---|---|
-| **1** | **Eleven graph nodes, mapped to ISRO's named roles — five never call a model.** The architecture builds exactly what the problem statement asked for, and the nodes that gate whether a boat leaves port are deterministic Python, not text generation. |
+| **1** | **Sixteen graph nodes, mapped to ISRO's named roles — five never call a model.** The architecture builds exactly what the problem statement asked for, and the nodes that gate whether a boat leaves port are deterministic Python, not text generation. |
 | **2** | **Intent decides what fires. Persona decides how it's said.** The planning agent is completely persona-blind. Only the reporting agent reads persona. A misclassified fisherman never gets silently truncated analysis. |
 | **3** | **Zero LLM hallucination on safety.** Go/no-go decisions, geofence breaches, and hazard tiers are deterministic Python math — never generated text. |
 | **4** | **Every claim is provenance-stamped.** Source dataset, acquisition timestamp, and confidence tier travel with every fact to the user. |
 | **5** | **Persona is resolved explicitly wherever possible; inference is a fallback, never a gate.** The system cannot silently lock anyone into a worse experience. |
 | **6** | **Uncertainty defaults to the safety-conservative rendering.** Low-confidence data, unresolved persona, or ambiguous intent — all show the cautious version, not a confident guess. |
-| **7** | **Quality validation scales with reasoning depth, not with persona.** Any query that reaches `DEEP` reasoning passes through the Critic Agent — a fisherman's diagnostic query deserves the same fact-checking a researcher's does. |
+| **7** | **Quality validation runs regardless of persona.** Every query passes through the Critic Agent, at any reasoning depth — a fisherman's diagnostic query deserves the same fact-checking a researcher's does. |
 | **8** | **Safety-critical monitoring does not wait for a query.** The Sentinel Agent runs continuously. A fisherman who never opens the app before a cyclone still gets an alert. |
 | **9** | **Every emergency signal has exactly one owner, and it is never the LLM.** Distress detection and Coast Guard handoff is deterministic pattern-matching, not semantic inference. |
 | **10** | **Optimizations must never trade against principles 3, 6, or 8.** Every performance shortcut in the codebase has been explicitly checked against this constraint. |
