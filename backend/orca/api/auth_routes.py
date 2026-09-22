@@ -14,11 +14,14 @@ from sqlalchemy.orm import Session
 from orca.auth import service
 from orca.auth.rbac import get_current_user, require_role
 from orca.auth.schemas import (
+    ActiveVesselIn,
     HomePortIn,
     LoginIn,
     RefreshIn,
     RegisterIn,
     Role,
+    SavedLocationIn,
+    SavedLocationOut,
     SessionToken,
     UserOut,
     VesselClass,
@@ -26,12 +29,17 @@ from orca.auth.schemas import (
     VesselOut,
 )
 from orca.db.engine import get_db
-from orca.db.models import User, Vessel
+from orca.db.models import SavedLocation, User, Vessel
 from orca.db.repositories import (
+    create_saved_location,
     create_vessel,
+    delete_saved_location,
     get_vessel_for_owner,
+    list_saved_locations,
     list_vessels_for_owner,
     persist_security_event,
+    saved_location_point,
+    set_active_vessel,
     set_home_port,
     user_home_port,
     vessel_last_position,
@@ -54,7 +62,9 @@ def _user_out(user: User) -> UserOut:
     # the DB constraint that makes the value narrower.
     return UserOut(
         id=user.id, identifier=user.email or user.phone_e164, display_name=user.display_name, role=cast(Role, user.role), language=user.language,
+        default_persona=user.default_persona,
         home_port=user_home_port(user), home_port_name=user.home_port_name,
+        active_vessel_id=user.active_vessel_id,
     )
 
 
@@ -62,8 +72,15 @@ def _vessel_out(vessel: Vessel) -> VesselOut:
     return VesselOut(
         id=vessel.id, owner_user_id=vessel.owner_user_id, vessel_class=cast(VesselClass, vessel.vessel_class),
         name=vessel.name, registration_no=vessel.registration_no, draft_m=vessel.draft_m,
-        length_m=vessel.length_m, crew_size=vessel.crew_size, last_position=vessel_last_position(vessel),
+        length_m=vessel.length_m, crew_size=vessel.crew_size,
+        cruise_speed_kn=vessel.cruise_speed_kn, fuel_burn_lph=vessel.fuel_burn_lph, engine_count=vessel.engine_count,
+        last_position=vessel_last_position(vessel),
     )
+
+
+def _saved_location_out(loc: SavedLocation) -> SavedLocationOut:
+    point = saved_location_point(loc)
+    return SavedLocationOut(id=loc.id, name=loc.name, lat=point["lat"], lon=point["lon"])
 
 
 @router.post("/register", response_model=SessionToken, status_code=status.HTTP_201_CREATED)
@@ -131,7 +148,8 @@ def register_vessel(body: VesselIn, user: User = Depends(get_current_user), db: 
     vessel = create_vessel(
         db, owner_user_id=user.id, vessel_class=body.vessel_class, name=body.name,
         registration_no=body.registration_no, draft_m=body.draft_m, length_m=body.length_m,
-        crew_size=body.crew_size,
+        crew_size=body.crew_size, cruise_speed_kn=body.cruise_speed_kn,
+        fuel_burn_lph=body.fuel_burn_lph, engine_count=body.engine_count,
     )
     db.commit()
     persist_security_event(
@@ -154,6 +172,45 @@ def get_vessel(vessel_id: uuid.UUID, user: User = Depends(get_current_user), db:
         )
         raise HTTPException(status.HTTP_404_NOT_FOUND, "vessel not found")
     return _vessel_out(vessel)
+
+
+@router.put("/profile/active-vessel", response_model=UserOut)
+def put_active_vessel(body: ActiveVesselIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> UserOut:
+    """P3.9/orca_final §15.3 — several vessels, one active. `vessel_id: null`
+    clears the selection (e.g. after deleting the active vessel)."""
+    try:
+        set_active_vessel(db, user, body.vessel_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "vessel not found") from None
+    db.commit()
+    return _user_out(user)
+
+
+# --------------------------------------------------------------------------
+# P3.10 — saved locations. Signed-out users get the same feature from
+# localStorage (frontend/app/ask/chatStore.ts's pattern); these routes are
+# the signed-in half only, always owner-scoped in the repo's SQL.
+# --------------------------------------------------------------------------
+
+@router.get("/saved-locations", response_model=list[SavedLocationOut])
+def list_saved(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[SavedLocationOut]:
+    return [_saved_location_out(loc) for loc in list_saved_locations(db, user.id)]
+
+
+@router.post("/saved-locations", response_model=SavedLocationOut, status_code=status.HTTP_201_CREATED)
+def create_saved(body: SavedLocationIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> SavedLocationOut:
+    loc = create_saved_location(db, user_id=user.id, name=body.name, lat=body.lat, lon=body.lon)
+    db.commit()
+    return _saved_location_out(loc)
+
+
+@router.delete("/saved-locations/{location_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_saved(location_id: uuid.UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> Response:
+    deleted = delete_saved_location(db, user.id, location_id)
+    db.commit()
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "saved location not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/authority/vessels/{vessel_id}", response_model=VesselOut)

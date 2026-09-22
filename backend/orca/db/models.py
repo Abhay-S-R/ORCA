@@ -50,6 +50,11 @@ class User(Base):
     home_port: Mapped[str | None] = mapped_column(Geometry("POINT", srid=4326))
     home_port_name: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(account_status_enum, nullable=False, server_default="active")
+    # P3.9/orca_final §15.3 — the vessel /query's vessel-aware surfaces assume
+    # when the request names none more specific. NULL = no active vessel yet.
+    active_vessel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vessels.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
@@ -66,11 +71,31 @@ class Vessel(Base):
     draft_m: Mapped[float | None] = mapped_column(Numeric(4, 2))
     length_m: Mapped[float | None] = mapped_column(Numeric(5, 2))
     crew_size: Mapped[int | None] = mapped_column(SmallInteger)
+    # P3.9 (007_vessel_operational.sql) — worthwhileness/fuel-economics inputs.
+    # NULL means MISSING to those features, never a default (Ground Rule 1).
+    cruise_speed_kn: Mapped[float | None] = mapped_column(Numeric(4, 1))
+    fuel_burn_lph: Mapped[float | None] = mapped_column(Numeric(6, 2))
+    engine_count: Mapped[int | None] = mapped_column(SmallInteger)
     # SENSITIVE — last known position (plan §5.5).
     last_position: Mapped[str | None] = mapped_column(Geometry("POINT", srid=4326))
     last_position_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+
+
+class SavedLocation(Base):
+    """P3.10 (007_vessel_operational.sql) — a signed-in user's named places,
+    one tap above the /ask composer. Guest users get the same feature from
+    localStorage (frontend/app/ask/chatStore.ts's pattern); this is the
+    signed-in half only."""
+
+    __tablename__ = "saved_locations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[str] = mapped_column(Geometry("POINT", srid=4326), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
 
 class SessionRow(Base):

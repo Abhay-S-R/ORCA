@@ -18,7 +18,7 @@ from shapely.geometry import Point
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from orca.db.models import AuditTraceLog, User, Vessel
+from orca.db.models import AuditTraceLog, SavedLocation, User, Vessel
 
 
 def _point_wkb(lat: float | None, lon: float | None) -> Any:
@@ -96,6 +96,9 @@ def create_vessel(
     draft_m: float | None = None,
     length_m: float | None = None,
     crew_size: int | None = None,
+    cruise_speed_kn: float | None = None,
+    fuel_burn_lph: float | None = None,
+    engine_count: int | None = None,
 ) -> Vessel:
     vessel = Vessel(
         owner_user_id=owner_user_id,
@@ -105,10 +108,25 @@ def create_vessel(
         draft_m=draft_m,
         length_m=length_m,
         crew_size=crew_size,
+        cruise_speed_kn=cruise_speed_kn,
+        fuel_burn_lph=fuel_burn_lph,
+        engine_count=engine_count,
     )
     db.add(vessel)
     db.flush()
     return vessel
+
+
+def set_active_vessel(db: Session, user: User, vessel_id: uuid.UUID | None) -> User:
+    """P3.9/orca_final §15.3. `vessel_id=None` clears the selection (e.g. the
+    vessel was deleted). Ownership is checked here, not trusted from the
+    caller — setting someone else's vessel as your active one must 404, not
+    silently succeed."""
+    if vessel_id is not None and get_vessel_for_owner(db, vessel_id, user.id) is None:
+        raise ValueError("vessel not found")
+    user.active_vessel_id = vessel_id
+    db.flush()
+    return user
 
 
 def list_vessels_for_owner(db: Session, owner_user_id: uuid.UUID) -> list[Vessel]:
@@ -126,6 +144,39 @@ def get_vessel_for_owner(db: Session, vessel_id: uuid.UUID, owner_user_id: uuid.
 
 def vessel_last_position(vessel: Vessel) -> dict[str, float] | None:
     return _point_latlon(vessel.last_position)
+
+
+# --------------------------------------------------------------------------
+# saved_locations (P3.10) — every function takes the owning user_id and
+# filters by it, same ownership discipline as the vessel functions above.
+# --------------------------------------------------------------------------
+
+def create_saved_location(db: Session, *, user_id: uuid.UUID, name: str, lat: float, lon: float) -> SavedLocation:
+    loc = SavedLocation(user_id=user_id, name=name, position=_point_wkb(lat, lon))
+    db.add(loc)
+    db.flush()
+    return loc
+
+
+def list_saved_locations(db: Session, user_id: uuid.UUID) -> list[SavedLocation]:
+    stmt = select(SavedLocation).where(SavedLocation.user_id == user_id).order_by(SavedLocation.created_at)
+    return list(db.execute(stmt).scalars())
+
+
+def delete_saved_location(db: Session, user_id: uuid.UUID, location_id: uuid.UUID) -> bool:
+    stmt = select(SavedLocation).where(SavedLocation.id == location_id, SavedLocation.user_id == user_id)
+    loc = db.execute(stmt).scalar_one_or_none()
+    if loc is None:
+        return False
+    db.delete(loc)
+    db.flush()
+    return True
+
+
+def saved_location_point(loc: SavedLocation) -> dict[str, float]:
+    point = _point_latlon(loc.position)
+    assert point is not None  # NOT NULL column
+    return point
 
 
 # --------------------------------------------------------------------------

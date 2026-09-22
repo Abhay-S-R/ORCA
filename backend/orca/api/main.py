@@ -15,7 +15,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from typing import Any, cast
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -48,12 +48,16 @@ from orca.api.trace_routes import (
 from orca.api.voice_routes import router as voice_router
 from orca.api.voyage_routes import router as voyage_router
 from orca.api.watches_routes import router as watches_router
+from orca.auth.rbac import get_current_user_optional
 from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
 from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
+from orca.data.loaders import ResolvedPlace
+from orca.db.models import User
+from orca.db.repositories import user_home_port
 from orca.graph.graph import build_graph
 from orca.llm.tiers import llm_enabled, reset_llm_call_count, set_llm_override
 from orca.logging_utils import configure_logging
-from orca.place_resolution import resolve_or_ask
+from orca.place_resolution import PlaceResolution, resolve_or_ask
 from orca.query_cache import get as query_cache_get
 from orca.query_cache import resolved_key
 from orca.query_cache import store as query_cache_store
@@ -185,6 +189,21 @@ _PERSONAS = ("fisherman", "commercial_navigator", "researcher", "coastal_authori
 _DEPTHS = ("SHALLOW", "STANDARD", "DEEP")
 
 
+def _resolved_persona(persona: str | None, user: User | None) -> tuple[str, str]:
+    """P3.1 (`R-AUTH-1`) — an explicit `persona` query param always wins (the
+    picker, or a registered account acting on someone else's behalf); absent
+    that, an authenticated user's own `default_persona` is the default
+    instead of the hardcoded "fisherman" every anonymous caller still gets.
+    "profile" is a distinct source from "explicit"/"inferred_low": it is a
+    deliberate stored choice, not a guess, but it wasn't named on this
+    request either."""
+    if persona in _PERSONAS:
+        return persona, "explicit"  # type: ignore[return-value]
+    if user is not None and user.default_persona in _PERSONAS:
+        return user.default_persona, "profile"
+    return "fisherman", "inferred_low"
+
+
 def _initial_state(
     query: str, lat: float, lon: float, vessel_class: str | None,
     distress: bool = False, persona: str | None = None, depth: str | None = None,
@@ -193,7 +212,9 @@ def _initial_state(
     session_history: list[dict] | None = None,
     resolution: dict | None = None,
     fix_on_land: bool = False,
+    user: User | None = None,
 ) -> ORCAState:
+    resolved_persona, persona_source = _resolved_persona(persona, user)
     return {  # type: ignore[typeddict-item]
         "session_id": session_id or "",
         # Last few turns of this chat (checklist P0 #1 — multi-turn memory),
@@ -231,8 +252,8 @@ def _initial_state(
         # resolved role — plan §4 D1 Day 10). It is a *resolved value* only:
         # Agent 9 renders with it, no intent classifier ever reads it
         # (Ground Rule 1, CI persona-leak guard).
-        "stakeholder_persona": persona if persona in _PERSONAS else "fisherman",
-        "stakeholder_persona_source": "explicit" if persona in _PERSONAS else "inferred_low",
+        "stakeholder_persona": resolved_persona,
+        "stakeholder_persona_source": persona_source,
         # True when the SOS control was tapped: Agent 12 treats an explicit
         # control as sufficient on its own, with no text needed, and the
         # graph then routes straight to END (Architecture §3.2 step 1).
@@ -354,6 +375,31 @@ def _inherited_values(final_state: Mapping[str, Any], history: list[dict] | None
     return inherited
 
 
+def _apply_profile_language(final: dict, reply_language: str | None) -> None:
+    """P3.1 (`R-AUTH-1`) — an authenticated user's stored `language` is the
+    reply-language default. Real script detection always wins: this only
+    fills the neutral case where the query carried no Indic script at all
+    (`detected_language == "en"`, language_ingress's own default), so a
+    signed-in Tamil-preference user asking a place-less *English* question
+    gets a Tamil answer, computed at their own position — the Phase 3 exit
+    gate's own example. Never touches a refusal, a candidates card or a
+    distress response (only "ANSWERED" is re-targeted)."""
+    if not reply_language or reply_language == "en":
+        return
+    if final.get("detected_language") != "en":
+        return
+    if final.get("outcome") not in (None, "ANSWERED"):
+        return
+    from orca.agents.language import translate_from_english
+
+    try:
+        vernacular = translate_from_english(final.get("final_english_response", "") or "", target=reply_language)  # type: ignore[arg-type]
+    except RuntimeError:
+        return  # no translation backend registered — keep the English answer
+    final["final_vernacular_response"] = vernacular
+    final["detected_language"] = reply_language
+
+
 def _routing_summary(final_state: Mapping[str, Any]) -> dict:
     """P2.7 (`R-JUDGE-3`) — the routing decision, in the response.
 
@@ -406,6 +452,7 @@ async def _query_stream(
     resolution: dict | None = None,
     llm: bool | None = None,
     fix_on_land: bool = False,
+    user: User | None = None,
 ) -> AsyncIterator[str]:
     """`on_final`, when given, is called once with the same dict that gets
     JSON-serialized into the `final_response` SSE frame — the query-cache
@@ -425,7 +472,7 @@ async def _query_stream(
     llm_calls = reset_llm_call_count()
     state = _initial_state(
         query, lat, lon, vessel_class, distress, persona, depth, place, session_id, session_history,
-        resolution, fix_on_land,
+        resolution, fix_on_land, user,
     )
     emitted = 0  # every graph node appends exactly one completed_nodes entry
     # AND exactly one audit_trace_log entry in the same call (see graph.py) —
@@ -671,7 +718,13 @@ async def _query_stream(
             # from guessing, and leaves the user no way to say "not there".
             "inherited": _inherited_values(final_state, session_history),
         }
-        _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []))
+        _apply_profile_language(final, user.language if user is not None else None)
+        _persist_audit_trace_log(
+            final_state.get("query_id", ""), final_state.get("audit_trace_log", []),
+            user_id=str(user.id) if user is not None else None,
+            chat_session_id=session_id, persona=final_state.get("stakeholder_persona"),
+            language=final.get("detected_language"),
+        )
         if final_state.get("distress_flag"):
             _mrcc = final.get("mrcc_contact")
             _record_distress_event(final_state, _mrcc if isinstance(_mrcc, dict) else None)
@@ -750,12 +803,23 @@ def _record_distress_event(final_state: Mapping[str, Any], mrcc_contact: dict | 
         logging.getLogger("orca.distress").warning("distress event not queued", exc_info=True)
 
 
-def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
+def _persist_audit_trace_log(
+    query_id: str, entries: list[dict], *,
+    user_id: str | None = None, chat_session_id: str | None = None,
+    persona: str | None = None, language: str | None = None,
+) -> None:
     """Exit criterion 7 (Phase 2 plan §3): rows land in Postgres, not just
     ORCAState. Best-effort — a DB outage degrades to Phase-1 behaviour
     (in-memory only, shipped with the SSE response above) rather than
     failing the user-facing request; the trace itself already reached the
-    client either way."""
+    client either way.
+
+    P3.2 (`R-AUTH-2`) — when the caller is authenticated and this is one Ask
+    chat (`chat_session_id` is the frontend-minted chat id, the same one
+    `orca/db/chats_repo.ensure_session` claims for a saved turn), the trace
+    rows are indexed under a real `sessions` row instead of `session_id=None`.
+    An anonymous request, or one with no chat id (/safety, /reasoning, SOS),
+    keeps writing `session_id=None` exactly as before."""
     if not entries:
         return
     try:
@@ -764,7 +828,23 @@ def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
 
         db = get_sessionmaker()()
         try:
-            persist_trace_entries(db, query_id=query_id, session_id=None, entries=entries)
+            session_uuid = None
+            if user_id and chat_session_id:
+                try:
+                    import uuid as _uuid
+
+                    from orca.db.chats_repo import ensure_session
+
+                    ensure_session(
+                        db, _uuid.UUID(user_id), _uuid.UUID(chat_session_id),
+                        persona or "unresolved", language or "en",
+                    )
+                    session_uuid = _uuid.UUID(chat_session_id)
+                except Exception:
+                    # Not this user's chat id, a malformed one, or a DB hiccup —
+                    # the trace still lands, just unindexed by session.
+                    session_uuid = None
+            persist_trace_entries(db, query_id=query_id, session_id=session_uuid, entries=entries)
         finally:
             db.close()
     except Exception:
@@ -796,6 +876,7 @@ async def query(
     distress: bool = False, persona: str | None = None, depth: str | None = None,
     session_id: str | None = None, llm: str | None = None, drop: str | None = None,
     fresh: bool = False, fix_lat: OptLat = None, fix_lon: OptLon = None,
+    user: User | None = Depends(get_current_user_optional),
 ) -> StreamingResponse:
     """`llm=off` (P2.11, `R-NEW-3`) re-runs this exact query with every LLM
     provider disabled. It is the demo beat: the same question, the same
@@ -906,11 +987,29 @@ async def query(
         # never here, where a distress call would be refused for naming no port.
         carried = None if "place" in dropped else session_memory.last_place(history)
         resolved = resolve_or_ask(q, {"last_place": carried} if carried else None)
-        resolution = resolved.as_dict()
         usable = _usable_fix(fix_lat, fix_lon)
         # Sent a position, and it was dropped for being inland — a different
         # situation from never having one, and Agent 9 has to be told which.
         fix_on_land = fix_lat is not None and fix_lon is not None and usable is None
+        # P3.1 (`R-AUTH-1`) — a signed-in caller's registered home port beats
+        # the pilot regional default, the last resort resolve_or_ask itself
+        # falls to. It does NOT beat a real place named in the text, a
+        # session-carried place, or a live GPS fix (all more specific than a
+        # registered port) — only the bare "this question names no place at
+        # all, and there is no fix either" case. `place_source="home_port"`
+        # (not "regional_default") is what tells Agent 9 this position is the
+        # user's own, not a fallback nobody chose.
+        home = user_home_port(user) if user is not None else None
+        if home is not None and resolved.place is not None and resolved.place.source == "regional_default" and usable is None:
+            resolved = PlaceResolution(
+                "fallback",
+                ResolvedPlace(user.home_port_name or "your home port", home["lat"], home["lon"], "home_port"),  # type: ignore[union-attr]
+                resolved.candidates,
+                f"This question names no place. It is answered at "
+                f"{user.home_port_name or 'your registered home port'} — your saved home port. "  # type: ignore[union-attr]
+                "Name a place or send your position for an answer about somewhere else.",
+            )
+        resolution = resolved.as_dict()
         if resolved.place is not None and not (
             usable is not None and resolved.place.source == "regional_default"
         ):
@@ -952,7 +1051,7 @@ async def query(
             _remember_turns(session_id, q, _query_stream(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
                 session_id=session_id, session_history=history, resolution=resolution,
-                llm=llm_override, fix_on_land=fix_on_land,
+                llm=llm_override, fix_on_land=fix_on_land, user=user,
             )),
             media_type="text/event-stream"
         )
@@ -967,12 +1066,19 @@ async def query(
         # ordinary (LLM-on) answer sitting in the shared cache slot.
         if shared_key is not None and llm_override is not None:
             shared_key = f"{shared_key}:llm={'on' if llm_override else 'off'}"
+        # P3.1 — an authenticated answer can differ from an anonymous one at
+        # the identical resolved position (profile persona, profile reply
+        # language), and from another authenticated user's at that same
+        # position too. Scoping the slot by user id is what stops one
+        # account's cached, translated answer being served back to another.
+        if shared_key is not None and user is not None:
+            shared_key = f"{shared_key}:user:{user.id}"
         return StreamingResponse(
             _query_stream(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
                 on_final=None if shared_key is None else (lambda final: query_cache_store(shared_key, final)),
                 session_id=session_id, session_history=history, resolution=resolution,
-                llm=llm_override, fix_on_land=fix_on_land,
+                llm=llm_override, fix_on_land=fix_on_land, user=user,
             ),
             media_type="text/event-stream",
         )
@@ -984,6 +1090,9 @@ async def query(
     # with the toggle off, which is precisely the claim being disproved.
     if llm_override is not None:
         cache_key = f"{cache_key}:llm={'on' if llm_override else 'off'}"
+    # P3.1 — see the identical comment on `shared_key` above.
+    if user is not None:
+        cache_key = f"{cache_key}:user:{user.id}"
     # A follow-up's answer depends on its conversation, not just its resolved
     # parameters: "why?" means something different in every chat. So it is
     # never served from or written to the shared query cache, and it only
@@ -1005,7 +1114,7 @@ async def query(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
                 on_final=None if follow_up else (lambda final: query_cache_store(cache_key, final)),
                 session_id=session_id, session_history=history, resolution=resolution,
-                llm=llm_override, fix_on_land=fix_on_land,
+                llm=llm_override, fix_on_land=fix_on_land, user=user,
             ):
                 yield line
 

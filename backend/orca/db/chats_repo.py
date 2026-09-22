@@ -112,11 +112,17 @@ def chat_turns(db: Session, chat_id: uuid.UUID) -> list[dict[str, Any]]:
     return [by_query[qid] for qid in order if by_query[qid].get("answer") is not None]
 
 
-def _claim_chat(db: Session, user_id: uuid.UUID, chat_id: uuid.UUID, persona: str, language: str) -> bool:
-    """Create the chat on its first saved turn, or confirm the caller owns it.
-    INSERT ... ON CONFLICT DO NOTHING then a read, so two concurrent first
-    saves can't both create it and a chat id can't be taken over. Returns
-    whether this call created it."""
+def ensure_session(db: Session, user_id: uuid.UUID, chat_id: uuid.UUID, persona: str, language: str) -> bool:
+    """Create the chat's `sessions` row on its first save, or confirm the
+    caller owns it. INSERT ... ON CONFLICT DO NOTHING then a read, so two
+    concurrent first saves can't both create it and a chat id can't be taken
+    over. Returns whether this call created it.
+
+    Public (not chat-history-only) since P3.2 (`R-AUTH-2`) reuses it from
+    `/query` to write the real session row an authenticated request's trace
+    is indexed under — the same row a saved chat turn would claim, so a
+    signed-in user's on-demand queries and their saved chat share one
+    `sessions.id`, not two competing rows for the same chat id."""
     created = db.execute(
         insert(SessionRow)
         .values(id=chat_id, user_id=user_id, persona=persona, language=language, channel="web")
@@ -163,7 +169,7 @@ def save_turn(
 ) -> None:
     """Idempotent: saving the same query_id again (a persona re-render, a
     retried request) updates that turn in place."""
-    _claim_chat(db, user_id, chat_id, persona, answer.get("detected_language") or "en")
+    ensure_session(db, user_id, chat_id, persona, answer.get("detected_language") or "en")
     _upsert_turn_rows(
         db, chat_id=chat_id, query_id=query_id, asked_query=asked_query,
         answer=answer, spans=spans, rendered_as=rendered_as,
@@ -216,7 +222,7 @@ def import_chats(db: Session, user_id: uuid.UUID, chats: list[dict[str, Any]]) -
         if not turns:
             continue
         try:
-            created = _claim_chat(
+            created = ensure_session(
                 db, user_id, chat_id, chat["persona"], turns[0]["answer"].get("detected_language") or "en",
             )
         except ChatOwnershipError:

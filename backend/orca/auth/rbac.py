@@ -43,6 +43,29 @@ def get_current_user(
     return user
 
 
+def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """P3.1 (`R-AUTH-1`) — the optional half of `get_current_user`, for
+    routes an anonymous caller must keep reaching exactly as before. No
+    token, an invalid one, a DB outage while resolving one, or an inactive
+    account all resolve to `None` rather than a 401 — "optional means
+    optional: anonymous users keep today's exact path, no login wall,
+    nothing to fail on stage" (the point's own words). A route that actually
+    requires identity still uses `get_current_user`/`require_role`."""
+    if credentials is None:
+        return None
+    try:
+        payload = decode_token(credentials.credentials, expected_type="access")
+        user = get_user_by_id(db, uuid.UUID(payload["sub"]))
+    except Exception:
+        return None
+    if user is None or user.status != "active":
+        return None
+    return user
+
+
 def require_role(*roles: Role):
     """Dependency factory: `Depends(require_role("authority", "admin"))`.
     An empty `roles` means "any authenticated user" — used for routes that
