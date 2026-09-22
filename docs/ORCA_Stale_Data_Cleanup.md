@@ -144,35 +144,56 @@ correctness, not for space.
 
 ---
 
-## 2. Blocked — do not delete until the code moves first
+## 2. ~~Blocked — do not delete until the code moves first~~ — **UNBLOCKED 2026-09-22**
 
 ### `RSMC_hycom_20260830.nc` — 10,582 MB
 
 `data/incois_osf_pfz/osf_hycom/RSMC_hycom_20260830.nc`
 
-**This is the single largest file in `data/` — half the total — and it is the one you must not
-delete today.** It is tempting precisely because it is huge and dated August. Two things pin it:
+**Safe to delete.** The code that pinned it has been moved. The original finding and the two
+reasons it was blocked are kept below, followed by what was actually done.
 
-1. **It is hardcoded.** `scripts/build_pfz_fallback.py:47` names this exact file and reads `TEMP`
-   from it (line 81) to compute the thermal-front proxy that answers "where are the fishing zones"
-   on days when INCOIS publishes no advisory for a clouded sector.
-2. **It is the last copy of five variables.** The current refresh
-   (`scripts/refresh_osf_forecasts.py`) fetches only `UVEL`/`VVEL`, so `RSMC_hycom_20260917.nc` is
-   83 MB and carries currents alone. `TEMP`, `SALN`, `SSH`, `MLD`, `TCHP` and `TEMP_CT` exist
-   nowhere else on disk. `extract_osf_pilot.py:221` already documents this: those variables "came
-   with the retired RSMC_hycom bundle and have no current public equivalent here."
+> **This is the single largest file in `data/` — half the total — and it is the one you must not
+> delete today.** It is tempting precisely because it is huge and dated August. Two things pin it:
 
-**To unblock it:** re-point `build_pfz_fallback.py` at `SST_NIO_20260917.nc`, which carries `SST`
-on a 337 × 481 grid over 0–28 °N / 60–100 °E — a superset of the pilot box (7.5–10.5 °N,
-77–80.5 °E) and the same 1/12° spacing the fallback already assumes. Re-run the builder, confirm
-`pfz_fallback_pilot_region.geojson` still resolves, and only then delete. That frees 10.58 GB and
-also makes the fallback refreshable instead of frozen to one August snapshot.
+> 1. **It is hardcoded.** `scripts/build_pfz_fallback.py:47` names this exact file and reads `TEMP`
+>    from it (line 81) to compute the thermal-front proxy that answers "where are the fishing zones"
+>    on days when INCOIS publishes no advisory for a clouded sector.
+> 2. **It is the last copy of five variables.** The current refresh
+>    (`scripts/refresh_osf_forecasts.py`) fetches only `UVEL`/`VVEL`, so `RSMC_hycom_20260917.nc` is
+>    83 MB and carries currents alone. `TEMP`, `SALN`, `SSH`, `MLD`, `TCHP` and `TEMP_CT` exist
+>    nowhere else on disk. `extract_osf_pilot.py:221` already documents this: those variables "came
+>    with the retired RSMC_hycom bundle and have no current public equivalent here."
 
-Until someone does that work, this file stays.
+**That work is done [2026-09-22].** `build_pfz_fallback.py` no longer names any file: it globs for
+the newest `SST_NIO_*.nc` and reads `SST`, so the fallback now rebuilds with the daily refresh
+instead of being frozen to one August snapshot. Reason 2 stops mattering because reason 1 was the
+only thing reading `TEMP` — being the last copy of a variable no code reads is not a reason to keep
+10.58 GB.
+
+Two things changed with it, both because the grid is no longer a fixed assumption. The speck filter
+is now `MIN_ZONE_AREA_KM2` (the area the old "3 cells" covered at HYCOM's 4.63 km spacing) divided
+by the source grid's actual cell area, so the physical threshold survives a grid swap instead of
+silently quadrupling. And the reported `approx_area_km2` uses that same measured cell area rather
+than two hardcoded constants.
+
+**Honest caveat, because the output is not identical.** `SST_NIO` is 1/12° where HYCOM was about
+1/24°, so zones are blockier, front strengths roughly halve (p90 cutoff 0.0419 → 0.0224 °C/km) and
+3 of the 6 zones are single-cell — still above the 64.3 km² threshold, but only just. Zone
+*positions* are not comparable before and after, because the month changed as well as the grid.
+What was verified is that the schema is unchanged (no keys added or removed, feature property keys
+identical, geometry types `{Point}`, `LOW_DATA` tier preserved in `orca_metadata`) and that the
+builder produces 6 usable zones with the August file absent. The upgrade path, if the blockiness
+ever matters, is MOSDAC INSAT-3DR SST at roughly 4 km; it is recorded as a `ponytail:` comment in
+the builder's limitations block.
+
+**Proof it is deletable:** the file was renamed out of the way and the suite re-run. Builder ran (6
+zones), `orca.data.freshness` reported `28 sources | 0 breach(es)`, unit suite **700 passed, 1
+skipped**. It was then restored byte-for-byte — an agent does not delete these.
 
 ---
 
-## 3. Your judgement — unused, but not an exact duplicate
+## 3. Your judgement — unused, but not an exact duplicate — **no code change needed**
 
 ### `etopo_all_india_real.nc` — 12.4 MB
 
@@ -190,6 +211,12 @@ copied twice.
 It is still safe to delete — nothing reads it, and ETOPO is only the *fallback* rung anyway
 (GEBCO 2026 at 15″ is preferred, `geospatial.py:369`) — but you are discarding 0.56% of cells
 that disagree with the copy you keep, not a byte-identical twin. Flagged so the call is yours.
+
+**Re-checked 2026-09-22 with the file staged out of `data/`:** no code change was required, and
+none was made. `scripts/verify_gazetteer_at_sea.py` — the heaviest bathymetry consumer — reported
+`203 entries checked: 203 at sea, 0 no GEBCO coverage, 0 ON LAND`, confirming that the depth path
+resolves on GEBCO and never falls through to this file. Freshness and the unit suite were clean
+with it absent.
 
 ---
 
@@ -281,7 +308,7 @@ code; the original text of each is kept so the reasoning is still readable.
 | Tier | What | Files | Size |
 |---|---|---:|---:|
 | §1 | Safe to delete — verified unused | 44 | **9.51 GB** |
-| §2 | Blocked on a code change (`RSMC_hycom_20260830.nc`) | 1 | 10.58 GB |
+| §2 | ~~Blocked on a code change~~ **unblocked, safe to delete** (`RSMC_hycom_20260830.nc`) | 1 | 10.58 GB |
 | §3 | Unused, not an exact duplicate (`etopo_all_india_real.nc`) | 1 | 0.01 GB |
 | §5 | Two runs back (0915) — **now eligible [2026-09-22]** | 3 | 0.43 GB |
 | §5 | One run back (0917) — recommended keep | 3 | 0.43 GB |
@@ -289,7 +316,16 @@ code; the original text of each is kept so the reasoning is still readable.
 | | **`data/` today (2026-09-22, after both refresh jobs)** | 26,449 | **22.35 GB** |
 
 Acting on §1 alone takes `data/` from 22.35 GB to about 12.8 GB; adding the now-eligible 0915 run
-from §5 takes off a further 0.43 GB. Doing the §2 code change as well takes it to roughly 2.2 GB.
+from §5 takes off a further 0.43 GB. §2's code change is done, so §1 + §2 + §3 + the 0915 run is a
+single pass that takes `data/` to roughly **2.2 GB** — 49 files, 19.12 GiB freed.
+
+**All 49 were proved deletable together, not one at a time [2026-09-22].** They were moved out of
+`data/` into a staging directory in one operation and the checks re-run against a tree that looked
+exactly as it will after the deletion: `orca.data.freshness` → `28 sources | 0 breach(es)`,
+`build_pfz_fallback.py` → 6 zones written, `verify_gazetteer_at_sea.py` → `203 at sea, 0 ON LAND`,
+unit suite → **700 passed, 1 skipped**. Every file was then moved back. Checking them one at a time
+would not have caught a consumer that silently falls back from one deleted file to another; this
+does.
 
 **The §1 file count is 44, not 43+1:** §1.8 was added and nothing was removed, because all 43
 original files were re-confirmed present and unreferenced on 2026-09-22. The GB figure is unchanged

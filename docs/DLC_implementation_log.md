@@ -1907,3 +1907,30 @@ Remarks:
   **The §1 size discrepancy is a unit convention, not drift.** The audit's 9.51 GB counts decimal MB; the same bytes are 8.86 GiB. All 43 files reconcile exactly file by file. §1.4's path glob spans `20260320`–`20260330` but `20260327` has never existed, so its stated count of 10 is right and the range is what misleads.
 
   **Still open and still not a code defect:** the Stormglass tide quota (`HTTP 402`, 10 requests/day against 14 ports), which spreads itself across consecutive daily runs once the job is scheduled.
+
+---
+
+### [2026-09-22] PFZ fallback re-pointed off the hardcoded August HYCOM bundle; whole delete list proved safe in one pass — FIX
+
+- **Implements:** §2 of `docs/ORCA_Stale_Data_Cleanup.md` (the only code-level blocker on the register), plus the §3 re-check and a staged proof covering all 49 files Dev is about to delete.
+- **By:** Claude (Opus 5), Dev's request: "before i delete them manually, just fix all the things that are blocked by code and tell me when i can delete them so that i can do it without any hassle or being scared that i deleted something very important"
+- **Files:** `scripts/build_pfz_fallback.py`, `docs/ORCA_Stale_Data_Cleanup.md`
+- **Commit:** — (uncommitted, per Dev's standing instruction)
+- **Done-when test:** With all 49 delete-list files moved out of `data/` (19.12 GiB, staged not deleted): `orca.data.freshness` → `28 sources | 0 breach(es)`, exit 0; `scripts/build_pfz_fallback.py` → 6 zones written; `scripts/verify_gazetteer_at_sea.py` → `203 entries checked: 203 at sea, 0 no GEBCO coverage, 0 ON LAND`; `pytest -q tests/unit` → **700 passed, 1 skipped**. Every file then moved back and spot-checked at its original byte size (`RSMC_hycom_20260830.nc` = 10,581,647,292 bytes). `ruff check` clean.
+- **Remarks:**
+
+  **Nothing was deleted here either.** Dev deletes personally; this entry exists so that when the delete happens there is a record of what was verified beforehand, and by what means.
+
+  **The fix is a glob, not a rename.** `build_pfz_fallback.py` named `RSMC_hycom_20260830.nc` outright and read `TEMP[:, 0]` from it, which both pinned a 9.85 GiB file and froze the whole fallback layer to one August snapshot. It now takes the newest `SST_NIO_*.nc` and reads `SST`. Re-pointing it at *today's* `SST_NIO` by name would have cleared the register entry while leaving the actual defect — a hardcoded filename in a layer that is supposed to refresh daily — exactly where it was, and would have needed doing again next month. The register's second reason for blocking (the August bundle is the last copy of `TEMP`, `SALN`, `SSH`, `MLD`, `TCHP`, `TEMP_CT`) dissolves once the first is gone: line 47 was the only reader of `TEMP`, and being the last copy of variables no code opens is not worth 9.85 GiB.
+
+  **Removing the hardcoded filename exposed a hardcoded grid underneath it.** The speck filter was "at least 3 cells" and the reported areas were `n_cells * 4.63 * 4.63`, both assuming HYCOM's ~1/24° spacing. On the 1/12° `SST_NIO` grid that silently becomes a four-times-larger physical threshold. The threshold is now `MIN_ZONE_AREA_KM2` (the area those 3 cells covered, so the physical value is unchanged) divided by the cell area *measured from the field being read*, and `approx_area_km2` uses the same measured value. A constant that is only correct for one input file is the same bug as a filename that is only correct for one day.
+
+  **The output is not identical and the doc says so.** 1/12° is coarser, so zones are blockier, the p90 front cutoff roughly halves (0.0419 → 0.0224 °C/km) and 3 of 6 zones are single-cell — 84.4 km² against a 64.3 km² floor, above it but not by much. Zone positions are not comparable before and after because the month changed too, so the schema is what was actually verified: no keys added or removed, feature property keys identical, geometry types `{Point}`, `LOW_DATA` tier preserved. MOSDAC INSAT-3DR SST at ~4 km is recorded in the limitations block as the upgrade path if blockiness ever matters.
+
+  **The delete list was proved as a set, not file by file.** All 49 were moved into a staging directory inside `data/` in one operation — same volume, so even the 10 GB file is an instant rename — and the checks run against a tree that looked exactly like the post-delete state. This is the only way to catch a consumer that falls back from one deleted file to another: delete A alone and B covers it, delete B alone and A covers it, delete both and the layer goes dark. Checking them individually would have passed twice and still lost the data.
+
+  **§3 needed no code change, and that was confirmed rather than assumed.** `etopo_all_india_real.nc` is the ETOPO *fallback* rung; the gazetteer verifier resolving 203/203 entries with `0 no GEBCO coverage` while the file was absent is the evidence that the depth path never reaches it.
+
+  **One leftover, unrelated to this work:** the unit suite exits 139 (segfault) *after* printing its summary, at interpreter teardown, in a run that loads torch. It is a shutdown crash, not a test failure — all 700 tests report pass first. Worth its own ticket, not worth blocking a delete on.
+
+  **Still open and still not a code defect:** the Stormglass tide quota (`HTTP 402`, 10 requests/day against 14 ports), which spreads itself across consecutive daily runs once the job is scheduled.
