@@ -7,6 +7,7 @@
 // shows, and only once the browser actually grants a GPS fix.
 import { useEffect, useState } from "react";
 import { PersonaSelector } from "../persona/PersonaSelector";
+import { LanguageSelector } from "./LanguageSelector";
 import { Radio, Satellite } from "lucide-react";
 import { SystemStatusStrip } from "./SystemStatusStrip";
 import { AccountMenu } from "./AccountMenu";
@@ -40,6 +41,7 @@ export function StatusBar() {
         <SystemStatusStrip />
         <div className="hidden h-3.5 w-px bg-hairline sm:block" />
         <Clock />
+        <LanguageSelector />
         <PersonaSelector />
         <AccountMenu />
       </div>
