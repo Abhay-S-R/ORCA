@@ -68,10 +68,12 @@ type MapLayerDefaults = Partial<{
 }>;
 
 export const PERSONA_MAP_PROFILE: Record<Persona, { showLayerPanel: boolean; initialLayers: MapLayerDefaults }> = {
-  // "One map pin, no layer stack" — the console itself, not just its
-  // defaults, is hidden; a fisherman never needs to reach for a control the
-  // rest of the product treats as an instrument panel.
-  fisherman: { showLayerPanel: false, initialLayers: { pfz: true, seamarks: false, wind: false, cyclone: true, watchBadges: true } },
+  // Fisherman gets simplified defaults (PFZ + cyclone, no boundaries/wind)
+  // but the panel itself stays visible on /map — the "no layer console"
+  // rule in the plan applies only to the ask-page mini-map, which already
+  // passes showLayerPanel={false} directly. Hiding it here as well makes
+  // the "Chart layers" button disappear from the full /map page entirely.
+  fisherman: { showLayerPanel: true, initialLayers: { pfz: true, seamarks: false, wind: false, cyclone: true, watchBadges: true } },
   commercial_navigator: { showLayerPanel: true, initialLayers: { boundaries: true, boundaryLines: true, pfz: true, seamarks: true, wind: true, cyclone: true, watchBadges: true } },
   // "Multi-layer map by default" — every layer that costs nothing extra to
   // show turned on, including the two heavy ones (bathymetry, currents) the
