@@ -339,7 +339,7 @@ def text_to_speech(text: str, language: Language) -> tuple[bytes | None, TtsRung
     from_disk = _load_from_disk(key)
     if from_disk is not None:
         logger.info("TTS disk cache hit for key %s", key)
-        result = (from_disk, "bhashini")  # only Bhashini clips are persisted (see below)
+        result: tuple[bytes, TtsRung] = (from_disk, "bhashini")  # only Bhashini clips are persisted (see below)
         _tts_cache[key] = result
         return result
 

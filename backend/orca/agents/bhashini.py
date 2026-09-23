@@ -100,7 +100,7 @@ def _pipeline_config(task_type: TaskType, source_lang: str, target_lang: str | N
     language: dict[str, str] = {"sourceLanguage": source_lang}
     if target_lang is not None:
         language["targetLanguage"] = target_lang
-    body = {
+    body: dict[str, Any] = {
         "pipelineTasks": [{"taskType": task_type, "config": {"language": language}}],
         "pipelineRequestConfig": {"pipelineId": _PIPELINE_ID},
     }
@@ -132,7 +132,7 @@ def _inference(config: dict[str, Any], pipeline_task: dict[str, Any], input_data
         config["inference_api_key"]["name"]: config["inference_api_key"]["value"],
         "Content-Type": "application/json",
     }
-    body = {"pipelineTasks": [pipeline_task], "inputData": input_data}
+    body: dict[str, Any] = {"pipelineTasks": [pipeline_task], "inputData": input_data}
     try:
         resp = requests.post(config["callback_url"], headers=headers, json=body, timeout=TIMEOUT_S)
         resp.raise_for_status()
