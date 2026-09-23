@@ -198,61 +198,11 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
         {formatReasoningSummary(node.reasoning_summary) || "Awaiting pipeline inputs..."}
       </p>
 
-      {/* Bottom row: Confidence, Latency, and Architecture Badge */}
+      {/* Bottom row: Confidence only */}
       <div className="mt-2.5 flex items-center justify-between gap-1 border-t border-hairline/60 pt-2 text-[10px]">
-        <div className="flex items-center gap-1.5">
-          <span className={confidenceClass(node.confidence_tier)}>
-            {confidenceLabel(node.confidence_tier)}
-          </span>
-          {node.latency_ms !== null && node.latency_ms !== undefined && (
-            <span
-              data-readout
-              className="inline-flex items-center gap-0.5 text-ink-dim font-mono"
-            >
-              <Clock className="size-2.5" />
-              {node.latency_ms}ms
-              {(node.run_count ?? 1) > 1 && (
-                <span
-                  className="ml-1 rounded bg-shelf-3 px-1 text-[9px] font-semibold text-ink-muted"
-                  title={`Ran ${node.run_count} times, re-invoked after a Critic critique. Time is the sum.`}
-                >
-                  ×{node.run_count}
-                </span>
-              )}
-            </span>
-          )}
-        </div>
-
-        {/* P2.1 (`R-JUDGE-1`) — execution method is engineering provenance,
-            not a category to colour-code: quiet, monospace, same treatment
-            either way. What changed is that it is now read from the backend's
-            own `engine` rather than reconstructed from `used_llm` plus a
-            hardcoded default model. The old version printed
-            "gemini-3.5-flash-lite" for any LLM node whose model was unknown,
-            which is a specific factual claim about a call nobody verified —
-            and printed a bare "Deterministic" for the rest, with no way to
-            tell "arithmetic by design" from "the model was unavailable". */}
-        <div className="flex items-center gap-1 text-[9px] text-ink-dim font-mono">
-          {node.engine ? (
-            <span className="inline-flex min-w-0 items-center gap-1" title={`Engine: ${node.engine}`}>
-              {node.used_llm && <Cpu className="size-2.5 shrink-0" />}
-              <span className="truncate">{node.engine}</span>
-            </span>
-          ) : node.used_llm && node.model ? (
-            <span className="inline-flex items-center gap-1" title={`LLM Model: ${node.model} (${node.tier ?? "mid"} tier)`}>
-              <Cpu className="size-2.5 shrink-0" />
-              <span>{node.model}</span>
-            </span>
-          ) : (
-            <span>Deterministic</span>
-          )}
-          {node.source_count > 0 && (
-            <span className="inline-flex items-center gap-0.5 text-ink-dim font-mono">
-              <Database className="size-2.5" />
-              {node.source_count}
-            </span>
-          )}
-        </div>
+        <span className={confidenceClass(node.confidence_tier)}>
+          {confidenceLabel(node.confidence_tier)}
+        </span>
       </div>
     </div>
   );
