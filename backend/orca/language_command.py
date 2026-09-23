@@ -9,7 +9,6 @@ answered, not swallowed as a language switch).
 """
 from __future__ import annotations
 
-import re
 from typing import Literal
 
 Language = Literal["ta", "hi", "te", "ml", "kn", "bn", "mr", "gu", "or", "en"]
