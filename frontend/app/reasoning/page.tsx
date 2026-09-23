@@ -643,8 +643,6 @@ function ReasoningContent() {
                             </div>
                             <div className="mt-1 flex items-center gap-2 text-[10px] font-mono text-ink-dim">
                               <span>{item.node_count} agents</span>
-                              <span>·</span>
-                              <span>{item.total_latency_ms == null ? `time ${NOT_RECORDED}` : `${item.total_latency_ms} ms`}</span>
                             </div>
                           </button>
                         ))
@@ -780,7 +778,7 @@ function ReasoningContent() {
                     VERDICT: {finalVerdict.verdict}
                   </span>
                   <span className="text-xs font-mono text-ink-dim">
-                    Confidence: {finalVerdict.confidence} · {totalLatency} ms
+                    Confidence: {finalVerdict.confidence}
                   </span>
                 </div>
                 <button

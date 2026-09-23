@@ -164,9 +164,6 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                   <span className="text-[11px] font-medium text-ink capitalize">
                     {node.status}
                   </span>
-                  <span className="ml-auto font-mono text-[11px] text-ink-dim">
-                    {node.latency_ms ?? 0} ms latency
-                  </span>
                 </div>
               </div>
 
@@ -294,50 +291,6 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
 
           {activeTab === "telemetry" && (
             <div className="space-y-4">
-              <div className="rounded-xl border border-hairline bg-shelf-2/50 p-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-[11px] text-ink-dim">
-                    <Clock className="size-3.5 text-ocean-cyan" />
-                    <span>Execution Latency</span>
-                  </div>
-                  <span className="font-mono text-sm font-semibold text-ink">
-                    {node.latency_ms ?? 0} ms
-                  </span>
-                </div>
-                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-shelf-2">
-                  <div
-                    className="h-full rounded-full bg-ocean-cyan transition-all duration-500"
-                    style={{
-                      width: `${Math.min(100, Math.max(5, ((node.latency_ms ?? 0) / 600) * 100))}%`,
-                    }}
-                  />
-                </div>
-                <div className="mt-1 flex justify-between text-[9px] font-mono text-ink-dim">
-                  <span>0 ms</span>
-                  <span>300 ms (budget)</span>
-                  <span>600+ ms</span>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-hairline bg-shelf-2/50 p-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  <Cpu className="size-3.5 text-accent" />
-                  <span className="text-[12px] font-semibold text-ink">
-                    Execution Architecture
-                  </span>
-                </div>
-                {/* P2.1 — the engine as the backend reported it, never a
-                    default model id standing in for one nobody recorded. */}
-                <p className="text-[11px] text-ink-muted">
-                  {node.engine ?? (node.used_llm ? `Tier: ${node.tier ?? "mid"}` : "Deterministic")}
-                </p>
-                <p className="text-[11px] text-ink-dim">
-                  {node.used_llm
-                    ? `Reached a generative model at the ${node.tier ?? "mid"} tier.`
-                    : "Zero LLM tokens used. Pure mathematical/geospatial code execution."}
-                </p>
-              </div>
-
               <div className="rounded-xl border border-hairline bg-shelf-2/50 p-3 space-y-2">
                 <div className="flex items-center gap-2">
                   <Zap className="size-3.5 text-caution" />

@@ -162,12 +162,8 @@ export function ReasoningTimeline({
         </div>
       </div>
 
-      {/* Telemetry / Speed / Reset */}
+      {/* Speed / Reset */}
       <div className="flex items-center gap-2 border-l border-hairline pl-3">
-        <div className="flex items-center gap-1 font-mono text-[11px] text-ink-dim" title="Cumulative Execution Latency">
-          <Clock className="size-3 text-ocean-cyan" />
-          <span className="text-ink">{activeStageLatencyMs || totalLatencyMs}ms</span>
-        </div>
 
         {/* Speed toggle */}
         <button
