@@ -16,7 +16,7 @@ import { API_BASE } from "../lib/apiBase";
 
 type VoiceState = "idle" | "recording" | "transcribing" | "confirming" | "error";
 
-export function useVoiceInput({ onTranscriptConfirmed }: { onTranscriptConfirmed: (text: string) => void }) {
+export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTranscriptConfirmed: (text: string) => void; languageHint?: string }) {
   const [state, setState] = useState<VoiceState>("idle");
   const [transcript, setTranscript] = useState("");
   const [needsConfirmation, setNeedsConfirmation] = useState(false);
@@ -65,6 +65,11 @@ export function useVoiceInput({ onTranscriptConfirmed }: { onTranscriptConfirmed
         try {
           const form = new FormData();
           form.append("audio", blob, "query.webm");
+          // Always send when set — Bhashini needs an explicit source language to
+          // pick the right ASR model. Omitting it (even for "en") causes Bhashini
+          // to skip to FasterWhisper auto-detection, which is the right fallback
+          // when the user hasn't chosen a language explicitly.
+          if (languageHint) form.append("language_hint", languageHint);
           const res = await fetch(`${API_BASE}/voice/transcribe`, { method: "POST", body: form });
           if (!res.ok) throw new Error(`transcribe failed: ${res.status}`);
           const data = await res.json();
