@@ -1,8 +1,16 @@
 # Large Data & Satellite Models (18+ GB)
-/data/
+data/
+**/data/
+tts_cache/
+**/tts_cache/
 *.nc
 *.h5
 *.zip
+*.wav
+*.mp3
+*.ogg
+*.m4a
+*.webm
 
 # Environment & Secrets
 .env

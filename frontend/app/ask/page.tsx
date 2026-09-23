@@ -21,6 +21,7 @@ import { Skeleton } from "../components/States";
 import { useVoiceInput } from "../components/VoiceInput";
 import { useAuth } from "../lib/auth";
 import { usePersona } from "../persona/context";
+import { useLanguage } from "../language/context";
 import { classifyQueryIntent, type QueryIntent } from "../lib/queryIntent";
 import { Composer } from "./Composer";
 import { ChatTurn } from "./ChatTurn";
@@ -59,6 +60,7 @@ export default function AskPage() {
   const reduceMotion = useReducedMotion();
   const auth = useAuth();
   const t = useT();
+  const { language } = useLanguage();
   const store = auth.status === "loading" ? null : auth.status === "signed_in" ? accountStore : browserStore;
   const [query, setQuery] = useState("");
   const [mapCollapsed, setMapCollapsed] = useState(false);
@@ -174,7 +176,7 @@ export default function AskPage() {
     submit(turn.askedQuery, { drop: [value.field] });
   }
 
-  const voice = useVoiceInput({ onTranscriptConfirmed: submit });
+  const voice = useVoiceInput({ onTranscriptConfirmed: submit, languageHint: language });
   const hasStarted = turns.length > 0;
   const firstQuestion = turns[0]?.askedQuery ?? null;
 
