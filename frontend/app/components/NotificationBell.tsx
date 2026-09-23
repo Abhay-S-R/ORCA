@@ -1,43 +1,28 @@
 "use client";
 
-// The notification bell + toast surface (plan §4 D2 Day 17). Persistent on
-// every screen (mounted in layout.tsx, like the SOS button). A crossing that
-// Sentinel fires lands here live over SSE.
+// The notification toast + bell (plan §4 D2 Day 17). Persistent on every
+// screen (mounted in layout.tsx, like the SOS button). A crossing that
+// Sentinel fires lands here live over SSE as a toast; the bell itself is a
+// deep link to `/alerts` (P4.11) — the inline dropdown this used to open is
+// gone, superseded by the full inbox rather than duplicating it.
 //
-// aria-live="polite" for the feed; a distress-class alert (severity
-// "danger") escalates the toast region to "assertive" per §4.11.
+// aria-live="polite" for the toast; a distress-class alert (severity
+// "danger") escalates it to "assertive" per §4.11.
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Bell, X } from "lucide-react";
-import { Badge, type BadgeTone } from "./Badge";
-import {
-  listNotifications,
-  markAllRead,
-  notificationStream,
-  unreadCount,
-  type OrcaNotification,
-} from "../lib/watches";
+import { Badge } from "./Badge";
+import { notificationStream, unreadCount, SEVERITY_TONE, type OrcaNotification } from "../lib/watches";
 import { getToken } from "../lib/auth";
-
-const SEVERITY_TONE: Record<string, BadgeTone> = {
-  info: "neutral",
-  advisory: "accent",
-  warning: "caution",
-  danger: "no-go",
-};
 
 export function NotificationBell() {
   const [signedIn, setSignedIn] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<OrcaNotification[]>([]);
   const [unread, setUnread] = useState(0);
   const [toast, setToast] = useState<OrcaNotification | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(() => {
     if (!getToken()) return;
-    listNotifications()
-      .then((feed) => setItems(feed))
-      .catch(() => {});
     unreadCount()
       .then((count) => setUnread(count))
       .catch(() => {});
@@ -47,10 +32,7 @@ export function NotificationBell() {
     const sync = () => {
       const token = !!getToken();
       setSignedIn(token);
-      if (!token) {
-        setItems([]);
-        setUnread(0);
-      }
+      if (!token) setUnread(0);
     };
     sync();
     window.addEventListener("orca:auth", sync);
@@ -65,7 +47,6 @@ export function NotificationBell() {
     es.onmessage = (ev) => {
       try {
         const n: OrcaNotification = JSON.parse(ev.data);
-        setItems((prev) => [n, ...prev.filter((p) => p.id !== n.id)]);
         setUnread((c) => c + 1);
         setToast(n);
         if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -79,15 +60,6 @@ export function NotificationBell() {
     };
     return () => es.close();
   }, [signedIn, refresh]);
-
-  async function openFeed() {
-    setOpen(true);
-    if (unread > 0) {
-      await markAllRead();
-      setUnread(0);
-      setItems((prev) => prev.map((n) => ({ ...n, read: true })));
-    }
-  }
 
   if (!signedIn) return null;
 
@@ -126,10 +98,10 @@ export function NotificationBell() {
         )}
       </div>
 
-      {/* Bell — bottom-left so it never sits under the SOS button. */}
-      <button
-        type="button"
-        onClick={openFeed}
+      {/* Bell — bottom-left so it never sits under the SOS button. Links to
+          the full inbox rather than opening a second, smaller one here. */}
+      <Link
+        href="/alerts"
         aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`}
         className="fixed bottom-18 left-4 z-40 grid size-11 place-items-center rounded-full border border-hairline bg-shelf-1/95 text-ink-muted backdrop-blur-md transition-colors hover:text-ink sm:bottom-6"
       >
@@ -139,58 +111,7 @@ export function NotificationBell() {
             {unread > 9 ? "9+" : unread}
           </span>
         )}
-      </button>
-
-      {open && (
-        <div
-          role="dialog"
-          aria-label="Notifications"
-          className="fixed inset-0 z-50 flex items-end justify-start bg-abyss/50 p-3 sm:items-start sm:pt-14 sm:pl-4"
-          onClick={() => setOpen(false)}
-        >
-          <div
-            className="glass max-h-[70vh] w-[min(24rem,calc(100vw-1.5rem))] overflow-y-auto rounded-md p-3"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
-          >
-            <header className="mb-2 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-ink">Notifications</h2>
-              <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="text-ink-dim hover:text-ink">
-                <X className="size-4" aria-hidden="true" />
-              </button>
-            </header>
-            {items.length === 0 ? (
-              <p className="py-6 text-center text-sm text-ink-dim">No notifications yet.</p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {items.map((n) => (
-                  <li key={n.id} className="rounded-sm border border-hairline bg-shelf-1/60 p-2.5 text-sm">
-                    <p className="flex items-center gap-2 font-medium text-ink">
-                      <Badge tone={SEVERITY_TONE[n.severity] ?? "neutral"}>{n.severity}</Badge>
-                      {n.title}
-                    </p>
-                    <p className="mt-1 text-ink-muted">{n.body}</p>
-                    {typeof n.rendered_payload?.alert === "object" && n.rendered_payload.alert !== null && (
-                      <p data-readout className="mt-1 rounded-sm bg-shelf-2/60 p-1.5 text-[11px] text-ink-dim">
-                        {String((n.rendered_payload.alert as Record<string, unknown>).sagar_vani_sms ?? "")}
-                      </p>
-                    )}
-                    <p className="mt-1 flex items-center gap-2 text-[11px] text-ink-dim">
-                      <span data-readout>{new Date(n.created_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC</span>
-                      {n.status !== "sent" && <span className="text-caution">SIMULATED</span>}
-                      {n.query_id && (
-                        <a href={`/reasoning?query_id=${n.query_id}`} className="text-accent underline">
-                          trace
-                        </a>
-                      )}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
+      </Link>
     </>
   );
 }

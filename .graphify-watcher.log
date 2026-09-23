@@ -297,3 +297,349 @@
 [graphify watch] 2 file(s) changed
   AST extraction: 91/91 uncached files (100%) [12 workers]
   warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] Watching D:\ORCA - press Ctrl+C to stop
+[graphify watch] Code changes rebuild graph automatically. Doc/image changes require /graphify --update.
+[graphify watch] Debounce: 3.0s
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 100/134 uncached files (74%) [12 workers]
+  AST extraction: 134/134 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] 3670 file(s) changed
+  AST extraction: 100/134 uncached files (74%) [12 workers]
+  AST extraction: 134/134 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 100/134 uncached files (74%) [12 workers]
+  AST extraction: 134/134 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 2 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 1 file(s) changed
+
+[graphify watch] New or changed fil  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] 3 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] 2480 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] 1 file(s) changed
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 4 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] community set changed since labeling (254 saved labels, 247 communities now; renamed 44 community(ies) by their hub). Run `graphify label` to refresh names with the LLM.
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 12 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 4 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] 6 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] community set changed since labeling (253 saved labels, 251 communities now; renamed 61 community(ies) by their hub). Run `graphify label` to refresh names with the LLM.
+[graphify] backed up curated graph (5 files) -> 2026-09-23/
+[graphify watch] Rebuild failed: [WinError 2] The system cannot find the file specified: 'graphify-out\\.graph.tmp.json' -> 'graphify-out\\graph.json'
+
+[graphify watch] 2 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] 2 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 181 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 2 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 6 file(s) changed
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 1 file(s) changed
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 9 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] community set changed since labeling (263 saved labels, 252 communities now; renamed 79 community(ies) by their hub). Run `graphify label` to refresh names with the LLM.
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] 30 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 100/135 uncached files (74%) [12 workers]
+  AST extraction: 135/135 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 285 file(s) changed
+  AST extraction: 100/137 uncached files (72%) [12 workers]
+  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 21 file(s) changed
+  AST extraction: 100/137 uncached files (72%) [12 workers]
+  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 4 file(s) changed
+  AST extraction: 100/137 uncached files (72%) [12 workers]
+  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 4 file(s) changed
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 100/137 uncached files (72%) [12 workers]
+  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 3672 file(s) changed
+  AST extraction: 100/137 uncached files (72%) [12 workers]
+  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 3 file(s) changed
+  AST extraction: 100/137 uncached files (72%) [12 workers]
+  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 4 file(s) changed
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 1 file(s) changed
+  AST extraction: 100/137 uncached files (72%) [12 workers]
+  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 8 file(s) changed
+  AST extraction: 100/137 uncached files (72%) [12 workers]
+  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify] backed up curated graph (5 files) -> 2026-09-23/
+Graph has 5888 nodes (above 5000 limit). Building aggregated community view...
+graph.html written (aggregated: 249 community nodes, 538 cross-community edges)
+Tip: run with --obsidian for full node-level detail.
+[graphify watch] Rebuilt: 5888 nodes, 12793 edges, 249 communities
+[graphify watch] graph.json, graph.html and GRAPH_REPORT.md updated in graphify-out
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 6 file(s) changed
+  AST extraction: 100/137 uncached files (72%) [12 workers]
+  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 1 file(s) changed
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 1 file(s) changed
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 2 file(s) changed
+  AST extraction: 100/137 uncached files (72%) [12 workers]
+  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+outputs left untouched.
+
+[graphify watch] 8[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] 8 file(s) changed
+  AST extraction: 100/137 uncached files (72%) [12 workers]
+  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-r[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-[graphify watch] No code-graph changes detected; graph.json/GRAPH_REPORT.md left untouched.
+
+[graphify watch] New o  AST extraction: 138/138 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] N[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to updat[graphify watch] No code-graph topology changes detected; outputs left untouched.
+
+[graphify watch] New or changed files detected in .
+[graphify watch] Non-code files changed - semantic re-extraction requires LLM.
+[graphify watch] Run `/graphify --update` in Claude Code to update the graph.
+[graphify watch] Flag written to graphify-out\needs_update
+
+[graphify watch] 1 file  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).
+7/137 uncached fi  AST extraction: 137/137 uncached files (100%) [12 workers]
+  warning: 1 source file(s) produced zero nodes and are absent from the graph: pyproject.toml. A re-run will retry them (empties are no longer cached); if it persists, please report the file(s) (#1666).

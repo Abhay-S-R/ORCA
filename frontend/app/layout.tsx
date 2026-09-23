@@ -15,6 +15,7 @@ import {
 import { AppChrome } from "./components/AppChrome";
 import { LanguageProvider } from "./language/context";
 import { PersonaProvider } from "./persona/context";
+import { CriticalAlertProvider } from "./lib/criticalAlert";
 import "./globals.css";
 
 // Barlow: a slightly condensed grotesque from transit-signage lineage —
@@ -121,7 +122,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </a>
         <LanguageProvider>
           <PersonaProvider>
-            <AppChrome>{children}</AppChrome>
+            <CriticalAlertProvider>
+              <AppChrome>{children}</AppChrome>
+            </CriticalAlertProvider>
           </PersonaProvider>
         </LanguageProvider>
       </body>

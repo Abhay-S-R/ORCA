@@ -10,6 +10,7 @@ import { PageBody, PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ErrorState, Skeleton } from "../components/States";
 import { API_BASE } from "../lib/apiBase";
+import { ProvenanceBadge, ProvenanceLegend, provenanceTierForSource } from "../components/Provenance";
 
 type DataSource = {
   id: string;
@@ -177,6 +178,15 @@ export default function DataPage() {
         action={sources ? <ExportButton /> : undefined}
       />
 
+      {/* P4.6 — the legend every provenance dot on this page (and on /ask's
+          source chips, and the status bar) refers back to. Provenance and
+          confidence are two different axes; this page only ever shows the
+          first. */}
+      <Panel dense className="mb-4">
+        <p className="mb-1.5 text-xs font-semibold tracking-wide text-ink-dim">Provenance key</p>
+        <ProvenanceLegend />
+      </Panel>
+
       {error && (
         <ErrorState
           title="Could not reach the ORCA API"
@@ -209,7 +219,10 @@ export default function DataPage() {
                           aria-expanded={isOpen}
                           className="flex w-full items-baseline justify-between gap-3 text-left"
                         >
-                          <span className="text-sm font-medium text-ink">{s.dataset}</span>
+                          <span className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-ink">{s.dataset}</span>
+                            <ProvenanceBadge tier={provenanceTierForSource(s)} />
+                          </span>
                           <ChevronDown
                             className={`size-4 shrink-0 text-ink-dim transition-transform ${isOpen ? "rotate-180" : ""}`}
                             aria-hidden="true"

@@ -7,7 +7,7 @@
 // thermal-front proxy, which is valid ONLY when INCOIS has published nothing.
 // P3.12 — all visible strings now sourced from the i18n dictionaries via useT().
 import { useEffect, useState } from "react";
-import { Compass, Fish } from "lucide-react";
+import { Compass, Fish, Gauge } from "lucide-react";
 import { Badge } from "../components/Badge";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
 import { PageBody, PageHeader } from "../components/PageHeader";
@@ -16,7 +16,46 @@ import { Readout, ReadoutGrid } from "../components/Readout";
 import { SourceChip } from "../components/SourceChip";
 import { SourceNarration, type SourceSelection } from "../components/SourceNarration";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
+import { authFetch, useAuth } from "../lib/auth";
+import { usePersona } from "../persona/context";
 import { useT } from "../i18n/useT";
+
+// P4.4 (orca_final §9.1a) — the Small Vessel view's reach check, for the
+// fisherman persona only. A day trip's realistic outbound leg: enough of a
+// working day left to fish and motor back before dark, not the boat's full
+// range one-way. Disclosed inline wherever it's used — this is ORCA's own
+// planning assumption, not a measurement, so it must never read like one.
+const REACH_HOURS_OUTBOUND = 4;
+
+function useVesselReachKm(): { reachKm: number | null; cruiseSpeedKn: number | null; checked: boolean } {
+  const auth = useAuth();
+  const [cruiseSpeedKn, setCruiseSpeedKn] = useState<number | null>(null);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    if (auth.status !== "signed_in" || !auth.profile?.active_vessel_id) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing from the external auth store, same as persona/context.tsx
+      setChecked(auth.status !== "loading");
+      return;
+    }
+    let cancelled = false;
+    authFetch(`/api/vessels/${auth.profile.active_vessel_id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v) => {
+        if (!cancelled) {
+          setCruiseSpeedKn(typeof v?.cruise_speed_kn === "number" ? v.cruise_speed_kn : null);
+          setChecked(true);
+        }
+      })
+      .catch(() => !cancelled && setChecked(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status, auth.profile?.active_vessel_id]);
+
+  const reachKm = cruiseSpeedKn != null ? cruiseSpeedKn * 1.852 * REACH_HOURS_OUTBOUND : null;
+  return { reachKm, cruiseSpeedKn, checked };
+}
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const POS = { lat: 8.8, lon: 78.14 }; // Thoothukudi — pilot reference position
@@ -85,6 +124,8 @@ export default function ZonesPage() {
   const [ban, setBan] = useState<FishingBan | null>(null);
   const [error, setError] = useState(false);
   const t = useT();
+  const { persona } = usePersona();
+  const reach = useVesselReachKm();
 
   useEffect(() => {
     fetch(`${API_BASE}/api/zones?lat=${POS.lat}&lon=${POS.lon}`)
@@ -197,6 +238,33 @@ export default function ZonesPage() {
                   {data.nearest_pfz.compass} {data.nearest_pfz.bearing_deg}° · {data.nearest_pfz.distance_km} km
                 </span>
               </div>
+
+              {/* P4.4 / orca_final §9.1a — Small Vessel view: is this zone
+                  within a realistic day trip for the vessel actually on
+                  record? Fisherman persona only — the other three personas
+                  read distance as a plain number, not a go/no-go filter. */}
+              {persona === "fisherman" && (() => {
+                const distanceKm = Number(data.nearest_pfz.distance_km);
+                if (!reach.checked) return null;
+                if (reach.reachKm == null) {
+                  return (
+                    <p className="mb-3 flex items-center gap-1.5 text-xs text-ink-dim">
+                      <Gauge className="size-3.5 shrink-0" aria-hidden="true" />
+                      Reach filter is off — add your boat&apos;s cruise speed in your profile to see whether this zone is a realistic day trip.
+                    </p>
+                  );
+                }
+                const within = Number.isFinite(distanceKm) && distanceKm <= reach.reachKm;
+                return (
+                  <p className={`mb-3 flex items-center gap-1.5 text-xs ${within ? "text-go" : "text-caution"}`}>
+                    <Gauge className="size-3.5 shrink-0" aria-hidden="true" />
+                    {within
+                      ? `Within reach — your boat covers ~${Math.round(reach.reachKm)} km outbound in a ${REACH_HOURS_OUTBOUND} h day-trip leg at ${reach.cruiseSpeedKn} kn.`
+                      : `Outside a realistic day trip — your boat's ${REACH_HOURS_OUTBOUND} h outbound leg at ${reach.cruiseSpeedKn} kn reaches ~${Math.round(reach.reachKm)} km, this zone is ${Math.round(distanceKm)} km away.`}
+                  </p>
+                );
+              })()}
+
               <p className="mb-3 text-[11px] text-ink-dim">
                 {t("zones.measuredFrom")} {data.measured_from}
                 {data.measured_from === "supplied position" &&

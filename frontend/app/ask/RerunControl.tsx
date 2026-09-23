@@ -11,7 +11,39 @@
 // The answer it replaces is never thrown away; the "2/2" stepper beside it
 // walks back through every run of the same question. Deliberately absent on a
 // distress answer — the caller decides that, not this component.
-import { ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
+import { useState } from "react";
+import { Check, ChevronLeft, ChevronRight, Copy, RotateCcw } from "lucide-react";
+
+const ghostBtn =
+  "grid size-6 place-items-center rounded-md text-ink-dim transition-colors hover:bg-shelf-2 hover:text-ink disabled:pointer-events-none disabled:opacity-35";
+
+// P4.10 (`R-UX-3`) — "the one missing per-turn action on /ask" (re-ask,
+// open trace and re-render already existed). A quiet ghost icon, same
+// family as the rerun control beside it.
+export function CopyControl({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className={ghostBtn}
+      onClick={() => {
+        void navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          })
+          .catch(() => {
+            /* clipboard unavailable — nothing else to fall back to */
+          });
+      }}
+      title={copied ? "Copied" : "Copy this answer"}
+      aria-label={copied ? "Copied" : "Copy this answer"}
+    >
+      {copied ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
+    </button>
+  );
+}
 
 export function RerunControl({
   versionCount,
@@ -26,8 +58,7 @@ export function RerunControl({
   onRerun: () => void;
   onShowVersion: (index: number) => void;
 }) {
-  const ghost =
-    "grid size-6 place-items-center rounded-md text-ink-dim transition-colors hover:bg-shelf-2 hover:text-ink disabled:pointer-events-none disabled:opacity-35";
+  const ghost = ghostBtn;
 
   return (
     <span className="flex items-center gap-0.5">

@@ -15,9 +15,10 @@ import {
   Workflow,
 } from "lucide-react";
 import { OrcaMark } from "./nav";
-import { type Persona } from "./persona/config";
+import { PERSONA_DEFAULT_ROUTE, type Persona } from "./persona/config";
 import { usePersona } from "./persona/context";
 import { signOut, useAuth } from "./lib/auth";
+import { Greeting } from "./components/Greeting";
 
 const STATS = [
   { label: "Agents in the crew", value: "10" },
@@ -168,6 +169,20 @@ export default function LandingPage() {
               each get the same underlying facts, rendered for what they actually decide.
             </p>
 
+            {/* P4.3 — the live conditions strip: a real cheap-check verdict for
+                the signed-in visitor's own home port, never an invented one for
+                a signed-out visitor (the illustrative chart badges stay as
+                decoration, not as a claimed reading). */}
+            {auth.status === "signed_in" && auth.profile?.home_port && (
+              <div className="mt-4 max-w-xl">
+                <Greeting
+                  homePort={auth.profile.home_port}
+                  homePortName={auth.profile.home_port_name}
+                  fallback=""
+                />
+              </div>
+            )}
+
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <Link
                 href="/login"
@@ -268,7 +283,7 @@ export default function LandingPage() {
                     </ul>
                   </div>
                   <Link
-                    href="/login?next=%2Fask"
+                    href={`/login?next=${encodeURIComponent(PERSONA_DEFAULT_ROUTE[station.id])}`}
                     onClick={() => setPersona(station.id)}
                     className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-hairline-strong bg-shelf-2 py-2 text-xs font-bold text-ink transition-colors hover:bg-ink hover:text-on-accent cursor-pointer"
                   >
@@ -312,7 +327,6 @@ export default function LandingPage() {
         <footer className="mt-20 border-t border-hairline pt-8 pb-12">
           <div className="flex flex-wrap justify-center gap-6 text-xs text-ink-dim">
             <Link href="/ask" className="hover:text-ink">Ask</Link>
-            <Link href="/safety" className="hover:text-ink">Safety</Link>
             <Link href="/map" className="hover:text-ink">Chart</Link>
             <Link href="/voyage" className="hover:text-ink">Voyage</Link>
             <Link href="/zones" className="hover:text-ink">Fishing zones</Link>

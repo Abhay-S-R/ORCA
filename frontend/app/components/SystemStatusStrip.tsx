@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { API_BASE } from "../lib/apiBase";
+import { ProvenanceLegend } from "./Provenance";
 
 type Feature = { feature: string; status: "live" | "fallback" | "simulated"; detail: string };
 
@@ -44,7 +45,7 @@ export function SystemStatusStrip() {
   }, [open]);
 
   if (!features || features.length === 0) return null;
-  const notLive = features.filter((f) => f.status !== "live").length;
+  const liveCount = features.filter((f) => f.status === "live").length;
 
   return (
     <span ref={stripRef} className="relative hidden sm:inline-flex">
@@ -57,7 +58,7 @@ export function SystemStatusStrip() {
       >
         <ShieldCheck className="size-3" aria-hidden="true" />
         <span className="text-[10px] font-medium tracking-wide uppercase">
-          {notLive} of {features.length} fallback
+          {liveCount} of {features.length} live
         </span>
       </button>
 
@@ -83,6 +84,13 @@ export function SystemStatusStrip() {
               </li>
             ))}
           </ul>
+
+          {/* P4.6 — a second, orthogonal axis from the list above: not
+              whether a feature is live, but where a number on screen came
+              from. Same popover, since a status bar has no room to spare
+              for a second control. */}
+          <p className="mt-3 border-t border-hairline pt-2 font-semibold text-ink">Data provenance</p>
+          <ProvenanceLegend className="mt-2" />
         </div>
       )}
     </span>

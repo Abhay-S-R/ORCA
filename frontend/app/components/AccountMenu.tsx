@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Eye, LogIn, LogOut } from "lucide-react";
 import { displayNameOf, signOut, useAuth } from "../lib/auth";
+import { PersonaSelector } from "../persona/PersonaSelector";
 
 function initials(name: string): string {
   const parts = name.replace(/@.*/, "").split(/[\s._-]+/).filter(Boolean);
@@ -86,6 +87,15 @@ export function AccountMenu() {
                 {auth.profile.role}
               </p>
             )}
+          </div>
+          {/* P4.1 — persona moved out of the status bar (a rendering hint,
+              not a page in its own right) and into the account it belongs
+              to. The live per-answer switch still lives on the answer card
+              itself (PersonaCorrection), which re-renders without re-asking;
+              this is the standing default for new questions. */}
+          <div className="mt-1 flex items-center justify-between gap-2 px-2 py-1.5">
+            <span className="text-ink-dim">Viewing as</span>
+            <PersonaSelector />
           </div>
           <Link
             role="menuitem"

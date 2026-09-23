@@ -1,6 +1,7 @@
 "use client";
 
 import { API_BASE, authFetch, getToken } from "./auth";
+import type { BadgeTone } from "../components/Badge";
 
 // ---------------------------------------------------------------------------
 // Types. `WatchBadge` is the D2 -> D3 map handoff contract (plan §14) — D3
@@ -17,6 +18,16 @@ export type WatchType =
 
 export type Severity = "info" | "advisory" | "warning" | "danger";
 export type NotificationStatus = "sent" | "simulated" | "failed";
+
+// Shared between the toast/dropdown bell and the `/alerts` inbox (P4.11) —
+// one severity vocabulary, one place it maps to a colour and a rank.
+export const SEVERITY_TONE: Record<Severity, BadgeTone> = {
+  info: "neutral",
+  advisory: "accent",
+  warning: "caution",
+  danger: "no-go",
+};
+export const SEVERITY_RANK: Record<Severity, number> = { danger: 3, warning: 2, advisory: 1, info: 0 };
 
 export type Watch = {
   id: string;

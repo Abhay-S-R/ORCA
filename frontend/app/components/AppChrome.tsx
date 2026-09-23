@@ -11,6 +11,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { NavRail, SosButton } from "../nav";
 import { useAuth } from "../lib/auth";
 import { NotificationBell } from "./NotificationBell";
+import { CriticalAlertTakeover } from "./CriticalAlertTakeover";
 import { StatusBar } from "./StatusBar";
 
 const NO_CHROME_ROUTES = ["/", "/onboarding"];
@@ -47,9 +48,12 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
 
   if (NO_CHROME_ROUTES.includes(pathname)) {
     return (
-      <main id="main-content" className="h-full overflow-y-auto">
-        {children}
-      </main>
+      <>
+        <main id="main-content" className="h-full overflow-y-auto">
+          {children}
+        </main>
+        <CriticalAlertTakeover />
+      </>
     );
   }
 
@@ -70,6 +74,10 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
       {/* Sentinel notification feed — persistent, like SOS. Renders
           nothing until there is an authenticated session. */}
       <NotificationBell />
+      {/* P4.12 — the ≤1 nm boundary band / cyclone Red full-screen takeover.
+          Mounted once here so it works on any route, SOS stays visible
+          through it (it renders above this, not instead of it). */}
+      <CriticalAlertTakeover />
     </>
   );
 }

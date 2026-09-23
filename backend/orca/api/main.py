@@ -31,6 +31,7 @@ from orca.agents.planning import carry_intent, classify_intent_deterministic
 from orca.api.analytics_routes import router as analytics_router
 from orca.api.auth_routes import router as auth_router
 from orca.api.chats_routes import router as chats_router
+from orca.api.conditions_routes import router as conditions_router
 from orca.api.discovery_routes import router as discovery_router
 from orca.api.feedback_routes import router as feedback_router
 from orca.api.geospatial_routes import router as geospatial_router
@@ -123,6 +124,7 @@ app.include_router(discovery_router)
 app.include_router(geospatial_router)
 app.include_router(auth_router)  # D1 — /register, /login, /profile, /vessels (Phase 2 D1)
 app.include_router(chats_router)  # Ask chat history — /api/chats CRUD + /api/session/{id}/context
+app.include_router(conditions_router)  # P4.3 — /api/quick-conditions, the greeting's cheap read
 app.include_router(analytics_router)  # Agent 5 — /zones, /trends, /tides, /data (Phase 2 D2)
 app.include_router(voyage_router)  # D3 — /voyage-plan, /wind-vectors already mounted via geospatial_router
 app.include_router(trace_router)  # D1 Phase 3 — /trace/{query_id} replay, /render persona re-render

@@ -356,6 +356,11 @@ def run(state: ORCAState) -> AgentResult:
             rationale=f"{confidence.rationale} — reduced one tier: {' '.join(reconcile.statements(reconciliation))}",
         )
 
+    # Same lookup `evaluate_marine_safety` made internally to compare the
+    # verdict's own bands — recomputed here (not returned by that function)
+    # so the UI can show what the reading was measured against.
+    wind_delta, hs_delta = _VESSEL_DELTAS[vessel_class]
+
     return AgentResult(
         agent_name="risk_assessment",
         query_id=state.get("query_id", ""),
@@ -372,6 +377,18 @@ def run(state: ORCAState) -> AgentResult:
             # to see the comparison, not be told it happened. Only the
             # disagreements become sentences on the card (reconcile.statements).
             "reconciliation": reconciliation,
+            # P4.1 — the bands `evaluate_marine_safety` actually compared this
+            # answer against, for this vessel class, so the UI can draw a
+            # value against its limit ("1.2 m / 2.0 m caution") instead of a
+            # bare reading. The same two numbers `_VESSEL_DELTAS` already
+            # produces — never a second copy of the thresholds themselves.
+            "thresholds": {
+                "vessel_class": vessel_class,
+                "caution_wave_m": 2.0 + hs_delta,
+                "danger_wave_m": 3.5 + hs_delta,
+                "caution_wind_kmh": 35.0 + wind_delta,
+                "danger_wind_kmh": 55.0 + wind_delta,
+            },
         },
         source_provenance=SourceProvenance(
             dataset="Deterministic rules over Agent 4 + Agent 6 outputs",

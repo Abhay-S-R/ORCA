@@ -6,10 +6,10 @@
 // "Your Location" marker (MapView) is the one place a real position ever
 // shows, and only once the browser actually grants a GPS fix.
 import { useEffect, useState } from "react";
-import { PersonaSelector } from "../persona/PersonaSelector";
-import { Radio, Satellite } from "lucide-react";
+import { Radio } from "lucide-react";
 import { SystemStatusStrip } from "./SystemStatusStrip";
 import { AccountMenu } from "./AccountMenu";
+import { API_BASE } from "../lib/apiBase";
 
 export function StatusBar() {
   return (
@@ -35,57 +35,91 @@ export function StatusBar() {
       </div>
 
       <div className="flex items-center gap-4">
-        <FeedStatus />
-        <div className="hidden h-3.5 w-px bg-hairline sm:block" />
         <SystemStatusStrip />
         <div className="hidden h-3.5 w-px bg-hairline sm:block" />
-        <Clock />
-        <PersonaSelector />
+        <DataCurrency />
         <AccountMenu />
       </div>
     </header>
   );
 }
 
-function Clock() {
-  const [now, setNow] = useState<string | null>(null);
+type SourceObservation = {
+  id: string;
+  observed_last_refresh_utc?: string | null;
+  observed_age_minutes?: number | null;
+};
 
-  useEffect(() => {
-    const tick = () =>
-      setNow(
-        new Date().toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          timeZone: "Asia/Kolkata",
-          hour12: true,
-        }),
-      );
-    tick();
-    const id = setInterval(tick, 1_000);
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    <div className="flex items-center gap-1.5 text-ink-muted" title="Indian Standard Time (UTC+5:30)">
-      <Radio className="size-3 text-ocean-cyan/70" aria-hidden="true" />
-      <span data-readout className="font-mono text-ink">
-        {now ?? "--:--:--"}
-      </span>
-      <span className="text-[9px] font-semibold text-ink-dim tracking-wider">IST</span>
-    </div>
-  );
+function humanAge(minutes: number): string {
+  if (minutes < 60) return `${minutes} min old`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} h old`;
+  return `${Math.round(minutes / (60 * 24))} d old`;
 }
 
-function FeedStatus() {
+// P4.2: a wall clock changes no decision. What matters is how current the data
+// behind the app is — so this shows the most recently refreshed dataset on disk,
+// not the time of day. Never fabricated: with nothing observed yet, it says so.
+function DataCurrency() {
+  const [state, setState] = useState<"loading" | "unavailable" | { asOf: string; age: number }>(
+    "loading",
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/api/sources`)
+      .then((r) => r.json())
+      .then((data: { sources?: SourceObservation[] }) => {
+        if (cancelled) return;
+        const freshest = (data.sources ?? [])
+          .filter((s) => s.observed_last_refresh_utc && s.observed_age_minutes != null)
+          .sort((a, b) => (a.observed_age_minutes ?? Infinity) - (b.observed_age_minutes ?? Infinity))[0];
+        setState(
+          freshest
+            ? { asOf: freshest.observed_last_refresh_utc as string, age: freshest.observed_age_minutes as number }
+            : "unavailable",
+        );
+      })
+      .catch(() => !cancelled && setState("unavailable"));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (state === "loading") {
+    return (
+      <div className="flex items-center gap-1.5 text-ink-dim" data-readout>
+        <Radio className="size-3 text-ocean-cyan/70 animate-pulse" aria-hidden="true" />
+        <span className="text-[10px]">Checking data currency…</span>
+      </div>
+    );
+  }
+
+  if (state === "unavailable") {
+    return (
+      <div className="flex items-center gap-1.5 text-ink-dim" data-readout>
+        <Radio className="size-3 text-data-limited" aria-hidden="true" />
+        <span className="text-[10px] uppercase tracking-wide">Data currency unverified</span>
+      </div>
+    );
+  }
+
+  const asOfIst = new Date(state.asOf).toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Kolkata",
+    hour12: false,
+  });
+
   return (
-    <div className="hidden items-center gap-2 text-ink-dim sm:inline-flex">
-      <Satellite className="size-3 text-go" aria-hidden="true" />
-      <span className="inline-flex items-center gap-1.5">
-        <span aria-hidden="true" className="size-1.5 rounded-full bg-go shadow-sm shadow-go/50" />
-        <span className="text-[10px] font-medium tracking-wide uppercase text-ink-muted">
-          Feeds Live
-        </span>
+    <div
+      className="flex items-center gap-1.5 text-ink-muted"
+      data-readout
+      title="Freshest dataset ORCA holds on disk right now"
+    >
+      <Radio className="size-3 text-ocean-cyan/70" aria-hidden="true" />
+      <span className="font-mono text-ink">Data as of {asOfIst} IST</span>
+      <span className="text-[9px] font-semibold text-ink-dim tracking-wider">
+        · {humanAge(state.age)}
       </span>
     </div>
   );

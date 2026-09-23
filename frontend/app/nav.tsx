@@ -13,6 +13,7 @@ import { usePathname } from "next/navigation";
 import { useRef, useState, useSyncExternalStore } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
+  Bell,
   Building2,
   Database,
   Eye,
@@ -22,7 +23,6 @@ import {
   Navigation,
   Radio,
   Sailboat,
-  ShieldAlert,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
@@ -53,7 +53,7 @@ const NATIONWIDE_MRCC = {
 // slug here matches a real key in every one of the ten dictionaries).
 const NAV: Record<(typeof NAV_ROUTES)[number], { label: string; Icon: LucideIcon }> = {
   "/ask": { label: "Ask", Icon: Radio },
-  "/safety": { label: "Safety", Icon: ShieldAlert },
+  "/alerts": { label: "Alerts", Icon: Bell },
   "/map": { label: "Chart", Icon: MapIcon },
   "/zones": { label: "Fishing zones", Icon: Fish },
   "/voyage": { label: "Voyage", Icon: Navigation },

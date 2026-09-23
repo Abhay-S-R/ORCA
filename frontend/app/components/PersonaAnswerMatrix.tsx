@@ -16,6 +16,7 @@ import { AlertTriangle, CheckCircle2, Compass, Cloud, Crosshair, Download, Octag
 import { Badge, verdictTone, type ConfidenceTier, type Verdict } from "./Badge";
 import { Button } from "./Button";
 import { Readout, ReadoutGrid } from "./Readout";
+import { freshnessLabel } from "./SourceChip";
 import { type Persona } from "../persona/config";
 import { type QueryIntent } from "../lib/queryIntent";
 
@@ -57,6 +58,16 @@ export type WeatherSummary = {
   wind_speed_ms: number | null;
   lightning_active: boolean;
   cyclone_alert: string | null;
+};
+// P4.1 — the bands `risk_assessment.evaluate_marine_safety` actually compared
+// this answer's readings against, for the vessel class the verdict used. Lets
+// a reading render as "value against its limit" instead of a bare number.
+export type SafetyThresholds = {
+  vessel_class: string;
+  caution_wave_m: number;
+  danger_wave_m: number;
+  caution_wind_kmh: number;
+  danger_wind_kmh: number;
 };
 export type OceanSummary = {
   tide: unknown;
@@ -338,6 +349,54 @@ function downloadExport(queryId: string | undefined, rows: ReturnType<typeof exp
   URL.revokeObjectURL(url);
 }
 
+// A limit only means something once it drove a real comparison — never shown
+// while a reading is missing, since "— / 2.0 m caution" reads as a value
+// that just happens to be absent, not as "nothing to compare".
+function waveHint(value: number | null, t?: SafetyThresholds | null): string | undefined {
+  if (!t || value === null) return undefined;
+  return `limit ${t.caution_wave_m.toFixed(1)} m caution · ${t.danger_wave_m.toFixed(1)} m danger`;
+}
+function windHint(value: number | null, t?: SafetyThresholds | null): string | undefined {
+  if (!t || value === null) return undefined;
+  return `limit ${(t.caution_wind_kmh / 3.6).toFixed(1)} m/s caution · ${(t.danger_wind_kmh / 3.6).toFixed(1)} m/s danger`;
+}
+
+// P4.7 (R-PS-10) — "Why this answer?" for the fisherman persona: three plain
+// sentences (deciding factor, source, freshness), no agent names, no
+// jargon — everything else on this card ("IMBL distance", "MPA status")
+// is exactly the engineer-facing language this point exists to replace.
+function fishermanWhy(
+  weather: WeatherSummary,
+  thresholds: SafetyThresholds | null | undefined,
+  citations: Citation[],
+): { deciding: string; source: string; freshness: string } {
+  const waveM = weather.wave_height_m;
+  const windMs = weather.wind_speed_ms;
+  const windKmh = windMs !== null ? windMs * 3.6 : null;
+  let deciding: string;
+  if (thresholds && waveM !== null && waveM >= thresholds.danger_wave_m) {
+    deciding = `The waves were measured at ${waveM.toFixed(1)} m — too high for your boat.`;
+  } else if (thresholds && windKmh !== null && windKmh >= thresholds.danger_wind_kmh) {
+    deciding = `The wind was measured at ${windKmh.toFixed(0)} km/h — too strong for your boat.`;
+  } else if (thresholds && waveM !== null && waveM >= thresholds.caution_wave_m) {
+    deciding = `The waves were measured at ${waveM.toFixed(1)} m — close to the safe limit for your boat.`;
+  } else if (thresholds && windKmh !== null && windKmh >= thresholds.caution_wind_kmh) {
+    deciding = `The wind was measured at ${windKmh.toFixed(0)} km/h — close to the safe limit for your boat.`;
+  } else if (waveM !== null || windKmh !== null) {
+    deciding = "Wave height and wind speed were both within the safe limit for your boat.";
+  } else {
+    deciding = "No wave or wind reading was available for this answer.";
+  }
+
+  const weatherCitation = citations.find((c) => c.agent_name === "weather_intelligence");
+  const source = weatherCitation ? `Based on ${weatherCitation.dataset}.` : "No source is recorded for this reading.";
+  const freshness = weatherCitation
+    ? `That reading is ${freshnessLabel(Math.round((Date.now() - new Date(weatherCitation.acquisition_timestamp).getTime()) / 60000))}.`
+    : "";
+
+  return { deciding, source, freshness };
+}
+
 export function PersonaAnswerMatrix({
   persona,
   queryId,
@@ -351,6 +410,8 @@ export function PersonaAnswerMatrix({
   hazard,
   ocean,
   citations,
+  thresholds,
+  rawAnswer,
 }: {
   persona: Persona;
   queryId: string | undefined;
@@ -374,6 +435,11 @@ export function PersonaAnswerMatrix({
   hazard: HazardBreakdown;
   ocean: OceanSummary;
   citations: Citation[];
+  thresholds?: SafetyThresholds | null;
+  // P4.4 — "raw JSON one click away" for the researcher persona: the actual
+  // `/query` response this card was built from, not a curated re-shape of
+  // it. Optional because only the researcher branch reads it.
+  rawAnswer?: unknown;
 }) {
   const [showTechnical, setShowTechnical] = useState(false);
   const direction = hazard.imbl_distance_nm !== null ? `boundary ${hazard.imbl_distance_nm.toFixed(1)} nm away` : "boundary distance unknown";
@@ -452,20 +518,24 @@ export function PersonaAnswerMatrix({
 
       {persona === "fisherman" && (
         <>
-          <p className="text-sm text-ink-muted">{direction}. See the map for the single nearest pin.</p>
-          <Button variant="ghost" className="w-fit text-xs" icon={<ShieldCheck className="size-3.5" aria-hidden="true" />} onClick={() => setShowTechnical((v) => !v)}>
+          {/* P4.4 — ≥18px body on the fisherman surface, plain words only:
+              this is the one persona whose plain-language line already had
+              no jargon in it ("boundary X nm away" reads as-is); the change
+              here is size and contrast, not wording. */}
+          <p className="text-lg leading-snug text-ink">{direction}. See the map for the single nearest pin.</p>
+          <Button variant="ghost" className="w-fit text-sm" icon={<ShieldCheck className="size-4" aria-hidden="true" />} onClick={() => setShowTechnical((v) => !v)}>
             {showTechnical ? "Hide reasoning" : "Why this answer?"}
           </Button>
-          {showTechnical && (
-            <div className="rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md">
-              <ReadoutGrid cols={4}>
-                <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" />
-                <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" />
-                <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
-                <Readout label="MPA status" value={hazard.mpa_violation ? "Inside" : "Clear"} />
-              </ReadoutGrid>
-            </div>
-          )}
+          {showTechnical && (() => {
+            const why = fishermanWhy(weather, thresholds, citations);
+            return (
+              <div className="flex flex-col gap-1.5 rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 text-base leading-relaxed text-ink backdrop-blur-md">
+                <p>{why.deciding}</p>
+                <p className="text-ink-muted">{why.source}</p>
+                {why.freshness && <p className="text-ink-muted">{why.freshness}</p>}
+              </div>
+            );
+          })()}
         </>
       )}
 
@@ -478,8 +548,8 @@ export function PersonaAnswerMatrix({
           {showTechnical && (
             <div className="rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md">
               <ReadoutGrid cols={4}>
-                <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" />
-                <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" />
+                <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" hint={waveHint(weather.wave_height_m, thresholds)} />
+                <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" hint={windHint(weather.wind_speed_ms, thresholds)} />
                 <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
                 <Readout label="MPA status" value={hazard.mpa_violation ? "Inside" : "Clear"} />
               </ReadoutGrid>
@@ -506,8 +576,8 @@ export function PersonaAnswerMatrix({
           <div className="flex flex-col gap-4 rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md shadow-sm">
             <Group icon={<Cloud className="size-3.5" />} label="Weather & sea state">
               <ReadoutGrid cols={3}>
-                <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" />
-                <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" />
+                <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" hint={waveHint(weather.wave_height_m, thresholds)} />
+                <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" hint={windHint(weather.wind_speed_ms, thresholds)} />
                 <Readout label="Lightning" value={weather.lightning_active ? "Active" : "None"} />
               </ReadoutGrid>
             </Group>
@@ -534,6 +604,20 @@ export function PersonaAnswerMatrix({
               Export JSON
             </Button>
           </div>
+          {/* P4.4 — "raw JSON one click away": the actual response object,
+              not the curated CSV/JSON export rows above (those are a shaped
+              subset for spreadsheets). One click to expand, right here,
+              rather than a second page or a download dialog. */}
+          {rawAnswer != null && (
+            <details className="rounded-xl border border-hairline/70 bg-shelf-1/40">
+              <summary className="cursor-pointer px-3.5 py-2 text-xs font-semibold text-ink-dim hover:text-ink">
+                Raw response JSON
+              </summary>
+              <pre className="max-h-80 overflow-auto border-t border-hairline/60 bg-abyss/40 p-3.5 text-[11px] leading-relaxed text-ink-muted">
+                {JSON.stringify(rawAnswer, null, 2)}
+              </pre>
+            </details>
+          )}
         </>
       )}
 

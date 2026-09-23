@@ -33,6 +33,13 @@ export type ChartSpec = {
 // wrapper alongside the spec.
 export type AnomalyBand = { from: number; to: number; label?: string };
 
+// P4.8 (`R-PS-6`) — the vessel-class limits a `y_key` was actually compared
+// against, keyed the same way `series` rows are. Same non-contract status as
+// `AnomalyBand`: a surface concern the frozen `ChartSpec` has no slot for,
+// built from `risk_assessment`'s own `thresholds` field (P4.1), never a
+// second copy of the bands.
+export type ChartThresholds = Record<string, { caution?: number; danger?: number }>;
+
 // One shared categorical ramp so every chart in the product reads as one
 // system. Cool instrument tones — never the safety triad, which is reserved
 // for hazard state (Ground Rule 3).

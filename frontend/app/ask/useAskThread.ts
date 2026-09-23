@@ -8,12 +8,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentStatus } from "../components/AgentPill";
 import type { ConfidenceTier, Verdict } from "../components/Badge";
-import type { HazardBreakdown, OceanSummary, WeatherSummary, Citation } from "../components/PersonaAnswerMatrix";
+import type { HazardBreakdown, OceanSummary, WeatherSummary, Citation, SafetyThresholds } from "../components/PersonaAnswerMatrix";
 import type { RenderResult } from "../components/PersonaCorrection";
 import type { SourceSelection } from "../components/SourceNarration";
 import type { QueryFocus } from "../components/MapView";
+import type { ChartSpec } from "../lib/chartSpec";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
+import { useCriticalAlert, type CriticalCondition } from "../lib/criticalAlert";
 import { useGeolocation } from "../lib/useGeolocation";
 import { classifyQueryIntent, matchRegionInQuery } from "../lib/queryIntent";
 import { confidenceFromTrace, readActiveChat, restoreContext, withCachedConfidence, writeActiveChat, type ChatStore } from "./chatStore";
@@ -85,12 +87,15 @@ export type FinalResponse = {
   confidence_tier: ConfidenceTier;
   citations?: Citation[];
   source_selections?: SourceSelection[];
-  risk_assessment?: { go_no_go: Verdict; reason: string } | null;
+  risk_assessment?: { go_no_go: Verdict; reason: string; thresholds?: SafetyThresholds | null } | null;
   // P2.2 — whether the verdict leads this answer. False only for a GO on a
   // question that was not about safety; a CAUTION or NO_GO always leads.
   lead_with_verdict?: boolean;
   weather_summary?: WeatherSummary;
   hazard_breakdown?: HazardBreakdown;
+  // Agent 8 — P4.8 reads `chart_specs` for the wave/wind time series;
+  // `map_layers` stays unused here, MapView reads the map-layers route instead.
+  visualization_payload?: { chart_specs?: ChartSpec[] } | null;
   ocean_summary?: OceanSummary;
   // Earlier turns of this chat the backend answered with (its context window,
   // orca/session.py). Absent on answers cached before the field existed.
@@ -208,7 +213,33 @@ function focusFor(q: string, previous: QueryFocus | null | undefined, nonce: num
   };
 }
 
+// P4.12 — the same hard-block reading every answer already carries
+// (`geospatial.py`'s `_alert_level`: DANGER ≤1 nm, INSIDE; cyclone Red from
+// weather_intelligence) becomes the full-screen takeover's trigger. Never a
+// second computation of the threshold, just a read of what risk_assessment
+// already decided this answer against.
+function criticalConditionFrom(data: {
+  query_id?: string;
+  hazard_breakdown?: { imbl_distance_nm?: number | null; imbl_alert_level?: string | null } | null;
+  weather_summary?: { cyclone_alert?: string | null } | null;
+}): Omit<CriticalCondition, "raisedAt"> | null {
+  const level = data.hazard_breakdown?.imbl_alert_level;
+  if (level === "DANGER" || level === "INSIDE") {
+    return {
+      kind: "boundary",
+      level,
+      distanceNm: data.hazard_breakdown?.imbl_distance_nm ?? null,
+      queryId: data.query_id ?? null,
+    };
+  }
+  if (data.weather_summary?.cyclone_alert === "Red") {
+    return { kind: "cyclone", level: "Red", distanceNm: null, queryId: data.query_id ?? null };
+  }
+  return null;
+}
+
 export function useAskThread(persona: Persona, store: ChatStore | null, onChatSaved?: () => void) {
+  const { raise: raiseCriticalAlert } = useCriticalAlert();
   // null means "not yet hydrated" — distinct from a real empty thread ([]).
   // Starting at null (rather than reading storage in useState's initializer)
   // avoids mismatching the server-rendered HTML, the exact pitfall
@@ -488,6 +519,8 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
             if (focus) setActiveFocus(focus);
             return { answer: data, streaming: false, focus };
           });
+          const critical = criticalConditionFrom(data);
+          if (critical) raiseCriticalAlert(critical);
           es.close();
         }
       };
@@ -546,6 +579,10 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
             versions: (t.versions ?? []).map((v, i) => (i === t.versionIndex ? { answer: data, spans: t.spans } : v)),
           };
         });
+        {
+          const critical = criticalConditionFrom(data);
+          if (critical) raiseCriticalAlert(critical);
+        }
         es.close();
         // /query?fresh=1 deliberately does NOT remember the turn — the question
         // is already in the window with the answer this one replaces. Push the
