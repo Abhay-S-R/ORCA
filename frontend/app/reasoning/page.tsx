@@ -15,7 +15,10 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  Download,
   History,
+  ImageDown,
+  Info,
   Maximize2,
   Minimize2,
   Play,
@@ -26,6 +29,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
+import { toPng } from "html-to-image";
 
 import { AgentNode, FanoutGroupNode } from "./AgentNode";
 import { AnimatedFlowEdge } from "./AnimatedFlowEdge";
@@ -34,6 +38,8 @@ import { ReasoningTimeline, PIPELINE_STAGES } from "./ReasoningTimeline";
 import { layoutTrace } from "./dagre-layout";
 import { EXAMPLE_TRACE, type TraceGraph, type TraceNode } from "./fixture";
 import { API_BASE } from "../lib/apiBase";
+import { usePersona } from "../persona/context";
+import { freshnessLabel } from "../components/SourceChip";
 
 const nodeTypes: NodeTypes = {
   agent: AgentNode,
@@ -92,9 +98,21 @@ const SCENARIOS = [
   },
 ];
 
+// P4.7 (R-PS-10) — what POST /render returns for a fisherman re-render: the
+// same zero-re-query mechanism P3.13's language switcher already uses.
+type FishermanWhy = {
+  deciding: string;
+  source: string;
+  freshness: string;
+};
+
 function ReasoningContent() {
   const searchParams = useSearchParams();
   const initialQueryId = searchParams.get("query_id");
+  const { persona } = usePersona();
+  const [showTechnical, setShowTechnical] = useState(false);
+  const [fishermanWhy, setFishermanWhy] = useState<FishermanWhy | null>(null);
+  const [fishermanWhyLoading, setFishermanWhyLoading] = useState(false);
 
   const [trace, setTrace] = useState<TraceGraph>(EXAMPLE_TRACE);
   // Agents that have already reported in the current live run. A second span for one of them is a
@@ -176,6 +194,55 @@ function ReasoningContent() {
       await loadTraceById(initialQueryId);
     })();
   }, [initialQueryId, loadTraceById]);
+
+  // P4.7 — "Why this answer?" for the fisherman persona: three plain
+  // sentences (deciding factor, source, freshness), not the agent graph.
+  // Re-renders through the same POST /render P3.13 already built for the
+  // persona/language switcher — zero re-query, byte-identical numbers, and
+  // the fisherman rendering instruction (reporting.py) is already "plain,
+  // simple language" with no agent names, so no separate jargon-stripping
+  // logic is needed here.
+  const queryIdForWhy = finalVerdict?.queryId;
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (persona !== "fisherman" || !queryIdForWhy || queryIdForWhy === "live") {
+        if (!cancelled) setFishermanWhy(null);
+        return;
+      }
+      if (!cancelled) setFishermanWhyLoading(true);
+      try {
+        const res = await fetch(`${API_BASE}/render`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query_id: queryIdForWhy, persona: "fisherman" }),
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const primarySource = (data.citations ?? [])[0] as
+          | { dataset?: string; freshness_minutes?: number }
+          | undefined;
+        if (cancelled) return;
+        setFishermanWhy({
+          deciding: data.final_english_response || "No answer recorded for this query.",
+          source: primarySource?.dataset
+            ? `Based on ${primarySource.dataset}.`
+            : "No source is recorded for this answer.",
+          freshness:
+            primarySource && typeof primarySource.freshness_minutes === "number"
+              ? `That reading is ${freshnessLabel(primarySource.freshness_minutes)}.`
+              : "",
+        });
+      } catch {
+        if (!cancelled) setFishermanWhy(null);
+      } finally {
+        if (!cancelled) setFishermanWhyLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [persona, queryIdForWhy]);
 
   // Run live query via SSE
   const runLiveQuery = (queryText: string) => {
@@ -394,6 +461,70 @@ function ReasoningContent() {
     }
   };
 
+  // P4.14 — the trace itself, exactly as `GET /trace/{query_id}` returns it,
+  // not the client's own laid-out copy: a report or an incident review needs
+  // the record, not this page's rendering of it.
+  async function exportTraceJson() {
+    if (!trace.query_id || trace.query_id === "live") return;
+    const res = await fetch(`${API_BASE}/trace/${trace.query_id}`);
+    if (!res.ok) return;
+    const blob = new Blob([await res.text()], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `orca-trace-${trace.query_id}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // The rendered graph, not the trace data — a PNG for a slide or an
+  // incident review shows what the reviewer saw, which the JSON export
+  // above does not. `.react-flow` is the library's own root element.
+  async function exportGraphPng() {
+    const node = containerRef.current?.querySelector<HTMLElement>(".react-flow");
+    if (!node) return;
+    const dataUrl = await toPng(node, { backgroundColor: "#f2ead4", pixelRatio: 2 });
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = `orca-reasoning-graph-${trace.query_id}.png`;
+    a.click();
+  }
+
+  // P4.7 — fisherman persona sees this instead of the agent graph: no agent
+  // names, no jargon, an explicit opt-in to the engineer-facing view below.
+  if (persona === "fisherman" && !showTechnical) {
+    return (
+      <div className="mx-auto flex h-[calc(100vh-70px)] max-w-lg flex-col justify-center gap-4 p-4">
+        <div className="rounded-2xl border border-hairline-strong/70 bg-shelf-1/60 p-5 shadow-lg">
+          <div className="flex items-center gap-2 text-ink-dim">
+            <Info className="size-4 shrink-0 text-ocean-cyan" aria-hidden="true" />
+            <h1 className="text-sm font-semibold text-ink">Why this answer?</h1>
+          </div>
+          {fishermanWhyLoading && <p className="mt-3 text-sm text-ink-muted">Loading…</p>}
+          {!fishermanWhyLoading && !fishermanWhy && (
+            <p className="mt-3 text-sm text-ink-muted">
+              Ask a question on the home screen first, then come back here to see why.
+            </p>
+          )}
+          {!fishermanWhyLoading && fishermanWhy && (
+            <div className="mt-3 flex flex-col gap-2 text-sm leading-relaxed text-ink">
+              <p>{fishermanWhy.deciding}</p>
+              <p className="text-ink-muted">{fishermanWhy.source}</p>
+              {fishermanWhy.freshness && <p className="text-ink-muted">{fishermanWhy.freshness}</p>}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowTechnical(true)}
+          className="self-center text-xs font-medium text-ink-dim underline-offset-2 hover:text-ink hover:underline"
+        >
+          Show the technical trace
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={containerRef}
@@ -401,6 +532,15 @@ function ReasoningContent() {
         isFullscreen ? "h-screen bg-abyss p-6" : "h-[calc(100vh-70px)]"
       }`}
     >
+      {persona === "fisherman" && (
+        <button
+          type="button"
+          onClick={() => setShowTechnical(false)}
+          className="self-start text-xs font-medium text-ink-dim underline-offset-2 hover:text-ink hover:underline"
+        >
+          ← Back to the plain answer
+        </button>
+      )}
       {/* Top Bar / Command Hub */}
       <div className="relative z-30 flex flex-col gap-3 rounded-2xl border border-hairline/80 bg-shelf-1/80 p-3.5 shadow-lg backdrop-blur-md">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -515,6 +655,24 @@ function ReasoningContent() {
               )}
             </div>
 
+            {trace.query_id !== "live" && (
+              <button
+                type="button"
+                onClick={() => void exportTraceJson()}
+                className="grid size-8 place-items-center rounded-xl border border-hairline bg-shelf-2/60 text-ink-dim transition-colors hover:border-hairline-strong hover:text-ink"
+                title="Export trace as JSON"
+              >
+                <Download className="size-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void exportGraphPng()}
+              className="grid size-8 place-items-center rounded-xl border border-hairline bg-shelf-2/60 text-ink-dim transition-colors hover:border-hairline-strong hover:text-ink"
+              title="Export graph as PNG"
+            >
+              <ImageDown className="size-4" />
+            </button>
             <button
               type="button"
               onClick={toggleFullscreen}

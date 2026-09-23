@@ -26,6 +26,7 @@ import {
   Radar,
   RadarChart as RRadarChart,
   ReferenceArea,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -39,6 +40,7 @@ import {
   Y_KEY_LABELS,
   type AnomalyBand,
   type ChartSpec,
+  type ChartThresholds,
 } from "../lib/chartSpec";
 import { SourceChip } from "./SourceChip";
 
@@ -105,10 +107,14 @@ export function Chart({
   spec,
   title,
   band,
+  thresholds,
 }: {
   spec: ChartSpec;
   title: string;
   band?: AnomalyBand | null;
+  // P4.8 — vessel-class caution/danger bands for a TimeSeries; ignored by
+  // the other chart types, which have nothing to compare against a limit.
+  thresholds?: ChartThresholds | null;
 }) {
   switch (spec.chart_type) {
     case "BarChart":
@@ -117,11 +123,21 @@ export function Chart({
     case "WindRose":
       return <RadarW spec={spec} title={title} />;
     default:
-      return <TimeSeriesW spec={spec} title={title} band={band} />;
+      return <TimeSeriesW spec={spec} title={title} band={band} thresholds={thresholds} />;
   }
 }
 
-function TimeSeriesW({ spec, title, band }: { spec: ChartSpec; title: string; band?: AnomalyBand | null }) {
+function TimeSeriesW({
+  spec,
+  title,
+  band,
+  thresholds,
+}: {
+  spec: ChartSpec;
+  title: string;
+  band?: AnomalyBand | null;
+  thresholds?: ChartThresholds | null;
+}) {
   return (
     <ChartFrame title={title} unit={band?.label ?? spec.unit} provenance={spec.source_provenance}>
       <LineChart data={spec.series} margin={{ top: 6, right: 12, bottom: 4, left: 4 }}>
@@ -137,6 +153,34 @@ function TimeSeriesW({ spec, title, band }: { spec: ChartSpec; title: string; ba
             ifOverflow="extendDomain"
           />
         )}
+        {spec.y_keys.flatMap((key) => {
+          const t = thresholds?.[key];
+          if (!t) return [];
+          return [
+            t.caution != null && (
+              <ReferenceLine
+                key={`${key}-caution`}
+                y={t.caution}
+                stroke="var(--color-caution)"
+                strokeDasharray="4 3"
+                strokeOpacity={0.8}
+                ifOverflow="extendDomain"
+                label={{ value: `${label(key)} caution`, position: "insideTopLeft", fill: "var(--color-caution)", fontSize: 10 }}
+              />
+            ),
+            t.danger != null && (
+              <ReferenceLine
+                key={`${key}-danger`}
+                y={t.danger}
+                stroke="var(--color-no-go)"
+                strokeDasharray="4 3"
+                strokeOpacity={0.8}
+                ifOverflow="extendDomain"
+                label={{ value: `${label(key)} danger`, position: "insideBottomLeft", fill: "var(--color-no-go)", fontSize: 10 }}
+              />
+            ),
+          ];
+        })}
         <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={{ color: AXIS_COLOR }} />
         {spec.y_keys.length > 1 && <Legend wrapperStyle={{ fontSize: 11, color: AXIS_COLOR }} />}
         {spec.y_keys.map((key, i) => (

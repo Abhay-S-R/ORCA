@@ -20,7 +20,7 @@ export const PERSONAS: { id: Persona; label: string }[] = [
 
 export const NAV_ROUTES = [
   "/ask",
-  "/safety",
+  "/alerts",
   "/map",
   "/zones",
   "/voyage",
@@ -31,7 +31,55 @@ export const NAV_ROUTES = [
   "/reasoning",
 ] as const;
 
-type Route = (typeof NAV_ROUTES)[number];
+export type Route = (typeof NAV_ROUTES)[number];
+
+// P4.4 (`R-JUDGE-5`) — the local-storage key both `PersonaProvider` and the
+// login page's post-sign-in redirect read, so "which persona is this device"
+// has exactly one source rather than two copies of the same string.
+export const PERSONA_STORAGE_KEY = "orca.persona";
+
+// P4.4 — "opens on ___". Only navigator and authority differ from the
+// product's own default landing surface (`/ask`, primary for everyone);
+// fisherman and researcher have no reason to leave it.
+export const PERSONA_DEFAULT_ROUTE: Record<Persona, Route> = {
+  fisherman: "/ask",
+  commercial_navigator: "/voyage",
+  researcher: "/ask",
+  coastal_authority: "/ops",
+  unresolved: "/ask",
+};
+
+// P4.4 — "per-persona map defaults... come from one extension of the
+// existing config table, not scattered conditionals." Same shape as
+// `MapView`'s own `initialLayers` prop (kept in sync there, not imported,
+// since that type is inline to the component and this table is the one
+// place outside it that needs to agree with it).
+type MapLayerDefaults = Partial<{
+  boundaries: boolean;
+  boundaryLines: boolean;
+  pfz: boolean;
+  seamarks: boolean;
+  srvBathymetry: boolean;
+  waveForecast: boolean;
+  currents: boolean;
+  wind: boolean;
+  watchBadges: boolean;
+  cyclone: boolean;
+}>;
+
+export const PERSONA_MAP_PROFILE: Record<Persona, { showLayerPanel: boolean; initialLayers: MapLayerDefaults }> = {
+  // "One map pin, no layer stack" — the console itself, not just its
+  // defaults, is hidden; a fisherman never needs to reach for a control the
+  // rest of the product treats as an instrument panel.
+  fisherman: { showLayerPanel: false, initialLayers: { pfz: true, seamarks: false, wind: false, cyclone: true, watchBadges: true } },
+  commercial_navigator: { showLayerPanel: true, initialLayers: { boundaries: true, boundaryLines: true, pfz: true, seamarks: true, wind: true, cyclone: true, watchBadges: true } },
+  // "Multi-layer map by default" — every layer that costs nothing extra to
+  // show turned on, including the two heavy ones (bathymetry, currents) the
+  // other personas leave off by default.
+  researcher: { showLayerPanel: true, initialLayers: { boundaries: true, boundaryLines: true, pfz: true, seamarks: true, srvBathymetry: true, currents: true, wind: true, cyclone: true, watchBadges: true } },
+  coastal_authority: { showLayerPanel: true, initialLayers: { boundaries: true, boundaryLines: true, pfz: true, seamarks: true, wind: true, cyclone: true, watchBadges: true } },
+  unresolved: { showLayerPanel: true, initialLayers: {} },
+};
 
 // ✅ primary · ◐ secondary · ✗ hidden (parent plan §4.3 table, verbatim).
 // NOTE: The plan annotates some cells as "✅ simplified" (fisherman Map,
@@ -44,7 +92,9 @@ const VISIBILITY_MATRIX: Record<Route, Record<Persona, Visibility>> = {
   // entirely) — the Ask surface this row describes moved to "/ask", the
   // matrix values are unchanged from the plan.
   "/ask": { fisherman: "primary", commercial_navigator: "primary", researcher: "primary", coastal_authority: "primary", unresolved: "primary" },
-  "/safety": { fisherman: "primary", commercial_navigator: "primary", researcher: "secondary", coastal_authority: "primary", unresolved: "primary" },
+  // P4.11 — takes `/safety`'s old slot in the nav (P4.1's collapse), same
+  // per-persona visibility it had.
+  "/alerts": { fisherman: "primary", commercial_navigator: "primary", researcher: "secondary", coastal_authority: "primary", unresolved: "primary" },
   "/map": { fisherman: "primary", commercial_navigator: "primary", researcher: "primary", coastal_authority: "primary", unresolved: "primary" },
   "/zones": { fisherman: "primary", commercial_navigator: "primary", researcher: "secondary", coastal_authority: "hidden", unresolved: "primary" },
   "/voyage": { fisherman: "hidden", commercial_navigator: "primary", researcher: "hidden", coastal_authority: "secondary", unresolved: "hidden" },

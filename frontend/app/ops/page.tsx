@@ -90,6 +90,9 @@ export default function OpsPage() {
         <>
           <DistressQueue />
 
+          {/* P4.4 — "district roll-up first": the day's severity counts,
+              right after the one thing more urgent than any roll-up
+              (an open distress call). */}
           <Panel title="District severity — last 24 h" className="mb-4">
             <div className="flex flex-wrap gap-2">
               {(["danger", "warning", "advisory", "info"] as const).map((s) => (
@@ -99,6 +102,12 @@ export default function OpsPage() {
               ))}
             </div>
           </Panel>
+
+          {/* P4.4 — "CAP builder promoted from preview to primary": its own
+              panel, ahead of the sector matrix, output always rendered
+              rather than tucked behind a `<details>` under the broadcast
+              composer's channel preview. */}
+          <CapBuilder />
 
           <Panel title="Sector threat matrix" className="mb-4">
             {rows === null ? (
@@ -153,21 +162,20 @@ export default function OpsPage() {
   );
 }
 
-function BroadcastComposer() {
+// P4.4 — the CAP 1.2 builder, split out of the broadcast composer and
+// promoted to a primary panel of its own: a headline/description/severity
+// form and the generated XML payload, both always visible, not a preview
+// artifact tucked inside another panel's `<details>`.
+function CapBuilder() {
   const [verdict, setVerdict] = useState("NO-GO");
   const [hazard, setHazard] = useState("High waves");
   const [location, setLocation] = useState("Thoothukudi");
-  const [preview, setPreview] = useState<Record<string, { body: string; chars: number | null }> | null>(null);
   const [cap, setCap] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function runPreview() {
+  async function build() {
     setBusy(true);
     try {
-      const p = await authFetch(
-        `/api/ops/broadcast/preview?verdict=${encodeURIComponent(verdict)}&hazard=${encodeURIComponent(hazard)}&location=${encodeURIComponent(location)}`,
-      );
-      if (p.ok) setPreview((await p.json()).channels);
       const c = await authFetch("/api/ops/cap", {
         method: "POST",
         body: JSON.stringify({
@@ -178,6 +186,54 @@ function BroadcastComposer() {
         }),
       });
       if (c.ok) setCap(await c.text());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Panel title="CAP 1.2 alert builder" className="mb-4">
+      <div className="grid grid-cols-3 gap-3">
+        <Field label="Verdict">{(id) => <input id={id} className={inputClass} value={verdict} onChange={(e) => setVerdict(e.target.value)} />}</Field>
+        <Field label="Hazard">{(id) => <input id={id} className={inputClass} value={hazard} onChange={(e) => setHazard(e.target.value)} />}</Field>
+        <Field label="Location">{(id) => <input id={id} className={inputClass} value={location} onChange={(e) => setLocation(e.target.value)} />}</Field>
+      </div>
+      <Button variant="primary" onClick={build} disabled={busy}>
+        {busy ? "Building…" : "Build CAP alert"}
+      </Button>
+
+      <div className="mt-4 border-t border-hairline pt-3">
+        <p className="mb-1.5 text-[11px] font-medium text-ink-dim">CAP 1.2 XML payload</p>
+        {cap ? (
+          <pre className="max-h-80 overflow-auto rounded-sm border border-hairline bg-abyss/60 p-3 text-[11px] text-ink-muted">
+            {cap}
+          </pre>
+        ) : (
+          <p className="text-xs text-ink-dim">Fill in the fields above and build the alert to see its CAP 1.2 XML here.</p>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+// The four rendered-and-simulated channel previews (P4.13's per-channel
+// pattern, at the district-broadcast scale rather than one alert). Kept
+// separate from the CAP builder above — one is the regulatory payload, the
+// other is what a fisherman's phone would actually show.
+function BroadcastComposer() {
+  const [verdict, setVerdict] = useState("NO-GO");
+  const [hazard, setHazard] = useState("High waves");
+  const [location, setLocation] = useState("Thoothukudi");
+  const [preview, setPreview] = useState<Record<string, { body: string; chars: number | null }> | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function runPreview() {
+    setBusy(true);
+    try {
+      const p = await authFetch(
+        `/api/ops/broadcast/preview?verdict=${encodeURIComponent(verdict)}&hazard=${encodeURIComponent(hazard)}&location=${encodeURIComponent(location)}`,
+      );
+      if (p.ok) setPreview((await p.json()).channels);
     } finally {
       setBusy(false);
     }
@@ -207,15 +263,6 @@ function BroadcastComposer() {
             </div>
           ))}
         </div>
-      )}
-
-      {cap && (
-        <details className="mt-4">
-          <summary className="cursor-pointer text-[11px] text-accent">CAP 1.2 XML payload</summary>
-          <pre className="mt-2 max-h-72 overflow-auto rounded-sm border border-hairline bg-abyss/60 p-3 text-[11px] text-ink-muted">
-            {cap}
-          </pre>
-        </details>
       )}
     </Panel>
   );

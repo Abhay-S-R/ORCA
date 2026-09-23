@@ -5,6 +5,9 @@
 // judgement call — and so the axe-core pass has one place to run first.
 //
 // Deliberately not in NAV_ROUTES: it is a team tool, not a product surface.
+// P4.10 — "/design is removed from the production build": 404s outside dev
+// rather than being deleted, so the team tool still exists for local work.
+import { notFound } from "next/navigation";
 import "@xyflow/react/dist/style.css";
 import { ReactFlow, Background, type Node } from "@xyflow/react";
 import { useMemo, useState } from "react";
@@ -110,6 +113,7 @@ const TOKENS: [string, string, string][] = [
 ];
 
 export default function DesignPage() {
+  if (process.env.NODE_ENV === "production") notFound();
   const [layer, setLayer] = useState(true);
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);

@@ -1,10 +1,8 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { type Persona } from "./config";
+import { PERSONA_STORAGE_KEY as STORAGE_KEY, type Persona } from "./config";
 import { useAuth } from "../lib/auth";
-
-const STORAGE_KEY = "orca.persona";
 
 type PersonaContextValue = {
   persona: Persona;

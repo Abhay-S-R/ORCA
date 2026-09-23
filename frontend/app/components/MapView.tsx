@@ -29,6 +29,7 @@ import {
 import { Badge, type BadgeTone } from "./Badge";
 import { LayerToggle } from "./LayerToggle";
 import { Panel } from "./Panel";
+import { ProvenanceLegend } from "./Provenance";
 import { Readout, ReadoutGrid } from "./Readout";
 import { EmptyState } from "./States";
 import { TimeSlider } from "./TimeSlider";
@@ -1899,6 +1900,10 @@ export function MapView({
                         onChange={(v) => toggleHeavy("wind", v)}
                       />
                     )}
+                    <p className="mt-3 px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-dim">
+                      Provenance
+                    </p>
+                    <ProvenanceLegend className="mx-2" />
                   </div>
                 )}
                 {layersOpen && nearNames.length > 0 && (

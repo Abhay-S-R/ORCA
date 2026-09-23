@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { Database } from "lucide-react";
 import { confidenceClass, confidenceLabel, type ConfidenceTier } from "./Badge";
+import { ProvenanceDot, provenanceTierForCitation } from "./Provenance";
 
 export function SourceChip({
   dataset,
@@ -15,6 +16,7 @@ export function SourceChip({
   detail,
   freshnessMinutes,
   sourceSelection,
+  agentName,
 }: {
   dataset: string;
   acquisitionTimestamp: string;
@@ -24,9 +26,14 @@ export function SourceChip({
   // freshness and — when Agent 3 chose between candidates — why this source.
   freshnessMinutes?: number;
   sourceSelection?: { narrative: string; considered?: string[] };
+  // P4.6 — which agent's citation this is, so the provenance dot can tell
+  // the deterministic safety engine's own arithmetic (DERIVED) from a
+  // fetched reading (LIVE) or a static reference file (REFERENCE).
+  agentName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const when = formatTimestamp(acquisitionTimestamp);
+  const provenanceTier = agentName ? provenanceTierForCitation(agentName, freshnessMinutes) : null;
 
   return (
     <span className="relative inline-flex">
@@ -37,6 +44,7 @@ export function SourceChip({
         className="inline-flex items-center gap-1.5 rounded-sm border border-hairline bg-shelf-1/60 px-1.5 py-0.5 text-[11px] text-ink-dim transition-colors hover:border-hairline-strong hover:text-ink-muted"
       >
         <Database className="size-3 shrink-0" aria-hidden="true" />
+        {provenanceTier && <ProvenanceDot tier={provenanceTier} />}
         <span className="text-ink-muted">{dataset}</span>
         <time dateTime={acquisitionTimestamp} data-readout className="text-[11px]">
           {when}
@@ -61,7 +69,7 @@ export function SourceChip({
   );
 }
 
-function freshnessLabel(minutes: number): string {
+export function freshnessLabel(minutes: number): string {
   if (minutes <= 0) return "static reference — does not go stale";
   if (minutes < 90) return `${minutes} min old`;
   if (minutes < 2880) return `~${Math.round(minutes / 60)} h old`;

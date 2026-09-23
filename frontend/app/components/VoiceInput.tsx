@@ -179,26 +179,32 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
 
 export type VoiceInputState = ReturnType<typeof useVoiceInput>;
 
-// The mic button alone — sits beside the Ask button. The fisherman persona
-// gets the largest touch target (plan §6 D1 Day 17: "the largest touch
-// target on the fisherman surface") — every other persona gets the same
-// control at the design system's normal button size.
+// The mic button alone — sits beside the Ask button. P4.4: on the fisherman
+// surface the mic IS the primary control, not a smaller secondary one next
+// to the "real" Ask button — noticeably larger, filled even at rest rather
+// than only while recording, so it reads as the thing to press first. Every
+// other persona gets the design system's normal-size, outline-until-active
+// control.
 export function VoiceMicButton({ voice, isFisherman = false }: { voice: VoiceInputState; isFisherman?: boolean }) {
   const { state, startRecording, stopRecording } = voice;
   const isRecording = state === "recording";
+  const size = isFisherman ? "h-[52px] w-[52px]" : "h-[38px] w-[38px]";
+  const iconSize = isFisherman ? "size-5" : "size-3.5";
   return (
     <button
       type="button"
       aria-label={isRecording ? "Stop recording" : "Ask by voice — space bar also works"}
       onClick={isRecording ? stopRecording : startRecording}
       disabled={state === "transcribing"}
-      className={`inline-flex h-[38px] w-[38px] shrink-0 cursor-pointer items-center justify-center rounded-lg border text-xs font-semibold transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
+      className={`inline-flex ${size} shrink-0 cursor-pointer items-center justify-center rounded-full border-2 font-semibold transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
         isRecording
           ? "border-ocean-cyan/50 bg-ocean-cyan text-on-accent shadow-sm hover:bg-ocean-cyan/90"
-          : "border-hairline bg-shelf-2/70 text-ink-muted hover:border-ocean-cyan/50 hover:bg-shelf-3/80 hover:text-ink"
-      } ${isFisherman ? "ring-2 ring-ocean-cyan/30 ring-offset-1" : ""}`}
+          : isFisherman
+            ? "border-ocean-cyan bg-ocean-cyan text-on-accent shadow-md hover:bg-ocean-cyan/90"
+            : "rounded-lg border-hairline bg-shelf-2/70 text-ink-muted hover:border-ocean-cyan/50 hover:bg-shelf-3/80 hover:text-ink"
+      }`}
     >
-      {isRecording ? <Square className="size-3.5" /> : <Mic className="size-3.5" />}
+      {isRecording ? <Square className={iconSize} /> : <Mic className={iconSize} />}
       <span className="sr-only">{isRecording ? "Stop recording" : "Ask by voice"}</span>
     </button>
   );

@@ -21,6 +21,7 @@
     "@xyflow/react": "^12.11.6",
     "dagre": "^0.8.5",
     "framer-motion": "^13.2.0",
+    "html-to-image": "^1.11.13",
     "lucide-react": "^1.39.0",
     "maplibre-gl": "^6.7.0",
     "maplibre-gl-wind": "^0.2.1",

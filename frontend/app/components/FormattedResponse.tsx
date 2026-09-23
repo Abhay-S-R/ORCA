@@ -23,6 +23,10 @@ interface FormattedResponseProps {
   // Indic glyphs and depends entirely on whatever the OS happens to fall
   // back to.
   language?: string | null;
+  // P4.4 — the fisherman surface's "≥18px body, maximum sunlight contrast":
+  // every other persona keeps the design system's normal 14px/12px reading
+  // sizes, which is what "sections" and "items" default to below.
+  large?: boolean;
 }
 
 /**
@@ -87,7 +91,7 @@ interface ParsedSection {
   items: string[];
 }
 
-export function FormattedResponse({ text, className = "", language }: FormattedResponseProps) {
+export function FormattedResponse({ text, className = "", language, large = false }: FormattedResponseProps) {
   const t = useT();
   const langClass = fontClassForLanguage(language);
   const parsed = useMemo(() => {
@@ -191,7 +195,7 @@ export function FormattedResponse({ text, className = "", language }: FormattedR
     return (
       <div lang={language ?? undefined} className={`space-y-3 ${className} ${langClass}`}>
         {parsed.paragraphs.map((p, i) => (
-          <p key={i} className="text-[14px] leading-relaxed text-ink">
+          <p key={i} className={`leading-relaxed text-ink ${large ? "text-lg" : "text-[14px]"}`}>
             {renderInlineMarkdown(p)}
           </p>
         ))}
@@ -258,7 +262,7 @@ export function FormattedResponse({ text, className = "", language }: FormattedR
                   return (
                     <div
                       key={iIdx}
-                      className="flex items-start gap-2.5 text-xs leading-relaxed text-ink-muted"
+                      className={`flex items-start gap-2.5 leading-relaxed text-ink-muted ${large ? "text-base" : "text-xs"}`}
                     >
                       <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-accent/80" />
                       <div className="min-w-0 flex-1">

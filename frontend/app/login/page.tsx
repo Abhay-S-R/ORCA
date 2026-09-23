@@ -11,15 +11,28 @@ import { PasswordInput } from "../components/PasswordInput";
 import { Card } from "../components/Panel";
 import { OrcaMark } from "../nav";
 import { register, signInWithPassword, useAuth } from "../lib/auth";
+import { PERSONA_DEFAULT_ROUTE, PERSONA_STORAGE_KEY, type Persona } from "../persona/config";
 import { useT } from "../i18n/useT";
 
 type Mode = "sign_in" | "register";
 
 // Only same-app paths: `?next=https://evil.example` must not become an open
 // redirect off the back of a successful sign-in.
+//
+// P4.4 — "opens on ___": an explicit `?next=` (a station card, a deep link)
+// always wins; absent one, the persona already chosen on this device (the
+// same key `PersonaProvider` reads/writes) picks the default landing route
+// instead of every sign-in landing on `/ask` regardless of who's asking.
 function nextPath(): string {
   const next = new URLSearchParams(window.location.search).get("next");
-  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/ask";
+  if (next && next.startsWith("/") && !next.startsWith("//")) return next;
+  try {
+    const persona = window.localStorage.getItem(PERSONA_STORAGE_KEY) as Persona | null;
+    if (persona && persona in PERSONA_DEFAULT_ROUTE) return PERSONA_DEFAULT_ROUTE[persona];
+  } catch {
+    /* storage disabled — fall through to the default */
+  }
+  return "/ask";
 }
 
 export default function LoginPage() {

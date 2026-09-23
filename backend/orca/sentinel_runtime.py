@@ -24,6 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from orca.agents import sentinel
+from orca.channels import renderers
 from orca.db.models import AuditTraceLog, User
 from orca.db.notifications_models import Notification
 from orca.db.notifications_repo import (
@@ -101,6 +102,42 @@ def _write_session_history(db: Session, user_id: uuid.UUID, query_id: str, decis
         logger.debug("session_history write skipped", exc_info=True)
 
 
+def _query_stream_shape(decision: sentinel.WatchDecision) -> dict[str, Any]:
+    """Adapts a `WatchDecision` into the shape `orca/channels/renderers.py`
+    is written against (the `_query_stream` final-event dict) — Sentinel's
+    cheap check carries the same facts (verdict, wave/wind, lightning,
+    cyclone) flatly in `snapshot_payload` rather than nested under
+    `risk_assessment`/`weather_summary`. No boundary reading exists on this
+    path (`cheap_check` does not compute one), so `hazard_breakdown` is
+    empty — every renderer already treats a missing key as "no active
+    hazard" via `.get()`, never as a fabricated SAFE value."""
+    snap = decision.snapshot_payload
+    return {
+        "final_vernacular_response": decision.body,
+        "risk_assessment": {"go_no_go": snap.get("go_no_go")},
+        "weather_summary": {
+            "lightning_active": snap.get("lightning_active"),
+            "cyclone_alert": snap.get("cyclone_alert"),
+        },
+        "hazard_breakdown": {},
+    }
+
+
+def _render_for_channel(channel: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """P4.13 — the verbatim text for one channel, using the renderers that
+    exist today (`channels/renderers.py`); a channel P6.10 has not built yet
+    is simply absent from `by_channel` rather than guessed at."""
+    if channel == "in_app" or channel == "web":
+        return {"body": renderers.render_web(payload).get("final_vernacular_response", "")}
+    if channel == "sms":
+        return {"body": renderers.render_sms(payload).body}
+    if channel == "ivr":
+        return {"body": renderers.render_ivr(payload).body}
+    if channel == "ussd":
+        return {"body": renderers.render_ussd(payload).body}
+    return {"body": ""}
+
+
 def dispatch_decision(
     db: Session,
     *,
@@ -114,10 +151,20 @@ def dispatch_decision(
     caught here -> the row is stored 'simulated' with the rendered payload
     verbatim, and the loop keeps going (never crashes — exit criterion 10)."""
     primary_channel = channels[0] if channels else "in_app"
+    stream_shape = _query_stream_shape(decision)
+    # P4.13 — "what was sent" needs every enabled channel's own rendered
+    # text, not only the primary one's dispatch status. Rendering is free
+    # (pure functions, no I/O) even for channels that were not the primary
+    # dispatch target this tick.
+    by_channel: dict[str, Any] = {
+        ch: {**_render_for_channel(ch, stream_shape), "status": "sent" if ch == "in_app" else "simulated"}
+        for ch in dict.fromkeys([*channels, "in_app"])  # in_app always lands regardless of the primary
+    }
     rendered: dict[str, Any] = {
         "alert": decision.alert_payload,
         "snapshot": decision.snapshot_payload,
         "channels_requested": channels,
+        "by_channel": by_channel,
     }
 
     status = "sent"
@@ -129,6 +176,8 @@ def dispatch_decision(
         except NotImplementedError as exc:
             status, detail = "simulated", str(exc)
             logger.info("watch %s: %s dispatch simulated — %s", watch_id, primary_channel, exc)
+    by_channel[primary_channel]["status"] = status
+    by_channel[primary_channel]["detail"] = detail
 
     rendered["dispatch_detail"] = detail
     note = create_notification(

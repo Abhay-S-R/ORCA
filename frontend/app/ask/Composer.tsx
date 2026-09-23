@@ -56,7 +56,12 @@ export function Composer({
               onChange={(e) => onChange(e.target.value)}
               placeholder="Is it safe to go out tomorrow morning?"
               autoFocus={centered}
-              className="w-full rounded-xl border border-hairline bg-shelf-1/90 px-4 py-3 text-sm sm:text-base text-ink placeholder:text-ink-dim/60 transition-all hover:border-hairline-strong focus:border-ocean-cyan/70 focus:bg-shelf-2/90 shadow-inner outline-none"
+              // P4.4 — "≥18px body, maximum sunlight contrast" on the
+              // fisherman surface: the question box is the one piece of text
+              // every fisherman query starts from.
+              className={`w-full rounded-xl border border-hairline bg-shelf-1/90 px-4 py-3 text-ink placeholder:text-ink-dim/60 transition-all hover:border-hairline-strong focus:border-ocean-cyan/70 focus:bg-shelf-2/90 shadow-inner outline-none ${
+                isFisherman ? "text-lg" : "text-sm sm:text-base"
+              }`}
             />
           </div>
           {/* Voice ingress (plan §6 D1 Day 16-17): mic sits right next to Ask

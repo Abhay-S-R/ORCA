@@ -9,6 +9,8 @@ import { History, MapPin, PowerOff, Radio } from "lucide-react";
 import { AgentPill, AgentStrip, AGENT_ORDER, nextRunningAgent, type AgentStatus } from "../components/AgentPill";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
+import { Chart } from "../components/charts";
+import type { ChartThresholds } from "../lib/chartSpec";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
 import { Panel } from "../components/Panel";
 import { PersonaAnswerMatrix } from "../components/PersonaAnswerMatrix";
@@ -24,7 +26,7 @@ import { intentLabel, type QueryIntent } from "../lib/queryIntent";
 import { type Persona } from "../persona/config";
 import type { AgentSpan, InheritedValue, Turn } from "./useAskThread";
 import { turnVersions } from "./useAskThread";
-import { RerunControl } from "./RerunControl";
+import { RerunControl, CopyControl } from "./RerunControl";
 import { IntentActions } from "./IntentActions";
 import { DisclosureBanner, RefusalCard, ResetNotice } from "./Disclosures";
 import { InheritedChips, ReconciliationPanel, RoutingLine, SkippedNotice } from "./ReasoningEvidence";
@@ -104,15 +106,34 @@ export function ChatTurn({
   // is absent there rather than disabled — there is nothing to explain.
   const versions = turnVersions(turn);
   const rerunControl = answer && !answer.distress_flag && (
-    <RerunControl
-      versionCount={versions.length}
-      versionIndex={turn.versionIndex ?? 0}
-      streaming={streaming}
-      onRerun={onRerun}
-      onShowVersion={onShowVersion}
-    />
+    <span className="flex items-center gap-0.5">
+      <CopyControl text={answer.final_vernacular_response || answer.final_english_response || ""} />
+      <RerunControl
+        versionCount={versions.length}
+        versionIndex={turn.versionIndex ?? 0}
+        streaming={streaming}
+        onRerun={onRerun}
+        onShowVersion={onShowVersion}
+      />
+    </span>
   );
   const weatherCitation = answer?.citations?.find((c) => c.agent_name === "weather_intelligence");
+  // P4.8 (`R-PS-6`) — the wave/wind series Agent 8 already builds per query,
+  // never rendered anywhere until now, plus the vessel-class limits it was
+  // actually checked against (P4.1's `thresholds`, not a second copy of them).
+  const waveWindChart = answer?.visualization_payload?.chart_specs?.find((c) => c.chart_id === "wave_wind_timeseries");
+  const chartThresholds: ChartThresholds | undefined = answer?.risk_assessment?.thresholds
+    ? {
+        wave_height_m: {
+          caution: answer.risk_assessment.thresholds.caution_wave_m,
+          danger: answer.risk_assessment.thresholds.danger_wave_m,
+        },
+        wind_speed_ms: {
+          caution: answer.risk_assessment.thresholds.caution_wind_kmh / 3.6,
+          danger: answer.risk_assessment.thresholds.danger_wind_kmh / 3.6,
+        },
+      }
+    : undefined;
   const runningAgent = streaming ? nextRunningAgent(spans) : null;
   const displaySpans: typeof spans =
     spans.length > 0
@@ -251,6 +272,8 @@ export function ChatTurn({
                   hazard={answer.hazard_breakdown ?? { imbl_distance_nm: null, imbl_alert_level: null, mpa_violation: false, mpa_alert_level: null }}
                   ocean={answer.ocean_summary ?? { tide: null, nearest_pfz: null, sector_status: null, productivity_diagnosis: null }}
                   citations={answer.citations ?? []}
+                  thresholds={answer.risk_assessment.thresholds}
+                  rawAnswer={answer}
                 />
               )}
 
@@ -301,7 +324,13 @@ export function ChatTurn({
                 const isRedundant = verdictLine != null && answerBody.trim() === verdictLine.trim();
                 return (
                   <div className="flex flex-col gap-2.5">
-                    {!isRedundant && <FormattedResponse text={answerBody} language={answer.detected_language} />}
+                    {!isRedundant && (
+                      <FormattedResponse
+                        text={answerBody}
+                        language={answer.detected_language}
+                        large={(renderedAs ?? persona) === "fisherman"}
+                      />
+                    )}
                     <AnswerSpeaker
                       text={answerBody}
                       language={answer.detected_language ?? "en"}
@@ -365,6 +394,7 @@ export function ChatTurn({
                           dataset={c.dataset}
                           acquisitionTimestamp={c.acquisition_timestamp}
                           detail={t("chatTurn.readBy", { agent: c.agent_name })}
+                          agentName={c.agent_name}
                         />
                       ))}
                     </div>
@@ -448,7 +478,7 @@ export function ChatTurn({
               title={t("chatTurn.weather")}
               action={
                 weatherCitation && (
-                  <SourceChip dataset={weatherCitation.dataset} acquisitionTimestamp={weatherCitation.acquisition_timestamp} />
+                  <SourceChip dataset={weatherCitation.dataset} acquisitionTimestamp={weatherCitation.acquisition_timestamp} agentName={weatherCitation.agent_name} />
                 )
               }
             >
@@ -480,6 +510,11 @@ export function ChatTurn({
                   }
                 />
               </ReadoutGrid>
+              {waveWindChart && (
+                <div className="mt-3">
+                  <Chart spec={waveWindChart} title={t("chatTurn.weather")} thresholds={chartThresholds} />
+                </div>
+              )}
             </Panel>
           )}
         </>

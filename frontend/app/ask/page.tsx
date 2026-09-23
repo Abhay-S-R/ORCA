@@ -16,7 +16,9 @@ import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Compass, Fish, History, Maximize2, MapPin, Minimize2, PanelLeftOpen, Plus, ShieldCheck, Waves, Wind } from "lucide-react";
 import { Button } from "../components/Button";
+import { Greeting } from "../components/Greeting";
 import { SavedLocationChips } from "../components/SavedLocationChips";
+import { VesselChip } from "../components/VesselChip";
 import { Skeleton } from "../components/States";
 import { useVoiceInput } from "../components/VoiceInput";
 import { useAuth } from "../lib/auth";
@@ -29,6 +31,8 @@ import { ChatHistoryRail, CollapsedChatRail, iconButtonClass } from "./ChatHisto
 import { accountStore, browserStore, chatTitle } from "./chatStore";
 import { useAskThread, type InheritedValue, type Turn } from "./useAskThread";
 import { useT } from "../i18n/useT";
+import { useTour } from "../tour/useTour";
+import { TourCard, TOUR_PRESET, TOUR_FOLLOWUP } from "../tour/TourCard";
 
 const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapView), {
   ssr: false,
@@ -101,6 +105,16 @@ export default function AskPage() {
     return t && loc ? [{ id: t.id, lat: loc.lat, lon: loc.lon, label: loc.place_name?.replace(/\b\p{L}/gu, (c) => c.toUpperCase()) ?? "your position" }] : [];
   }, [turns]);
 
+  // P4.1 — the vessel class that actually drove the most recent verdict, so
+  // the chip above the composer shows what is real rather than an assumption.
+  const latestVesselClass = useMemo(() => {
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const vc = turns[i].answer?.vessel_class;
+      if (vc) return vc;
+    }
+    return null;
+  }, [turns]);
+
   useEffect(() => {
     try {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage only exists after mount
@@ -125,6 +139,25 @@ export default function AskPage() {
   useEffect(() => {
     threadBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turns.length, streaming]);
+
+  // P4.9 — the five-step tour. Step 2 ("watch the agent strip stream") and
+  // step 4 ("ask a follow-up") each end the moment their real query
+  // finishes streaming — a streaming-true-then-false transition witnessed
+  // while this page is mounted, not a turn count (which a resumed tour,
+  // reloaded mid-step, cannot reconstruct reliably).
+  const tour = useTour();
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    void (async () => {
+      const wasStreaming = wasStreamingRef.current;
+      wasStreamingRef.current = streaming;
+      if (!tour.active || !wasStreaming || streaming) return;
+      if (tour.step === 2 || tour.step === 4) tour.advance();
+    })();
+    // tour.advance is stable (useTour's own useCallback); the whole `tour`
+    // object is not, and re-runs on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tour.active, tour.step, tour.advance, streaming]);
 
   function collapseRail(collapsed: boolean) {
     setRailCollapsed(collapsed);
@@ -153,6 +186,8 @@ export default function AskPage() {
   function askSavedLocation(loc: { name: string; lat: number; lon: number }) {
     submit(`Is it safe near ${loc.name}?`, { position: { lat: loc.lat, lon: loc.lon } });
   }
+
+  const lastQueryId = turns[turns.length - 1]?.answer?.query_id ?? null;
 
   // Whether the backend SHOULD still be holding context for turn `i`. Turns
   // before a deliberate reset (P2.14) don't count: the warning "earlier
@@ -272,12 +307,19 @@ export default function AskPage() {
               </span>
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">{t("ask.heading")}</h1>
-            <p className="mt-1.5 text-sm sm:text-base leading-relaxed text-ink-muted">
-              {t("ask.subheading")}
-            </p>
+            <div className="mt-1.5">
+              <Greeting
+                homePort={auth.status === "signed_in" ? auth.profile?.home_port : null}
+                homePortName={auth.status === "signed_in" ? auth.profile?.home_port_name : null}
+                fallback={t("ask.subheading")}
+              />
+            </div>
           </div>
 
-          <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} />
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} />
+            <VesselChip auth={auth} vesselClass={latestVesselClass} />
+          </div>
           <Composer
             value={query}
             onChange={setQuery}
@@ -288,6 +330,15 @@ export default function AskPage() {
             centered
             presets={PRESETS}
           />
+          {!tour.active && !tour.completed && (
+            <button
+              type="button"
+              onClick={tour.start}
+              className="text-xs font-medium text-ink-dim underline-offset-2 hover:text-accent hover:underline"
+            >
+              Take the 3-minute tour →
+            </button>
+          )}
         </div>
       ) : (
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-4 lg:flex-row">
@@ -373,7 +424,10 @@ export default function AskPage() {
               <div ref={threadBottomRef} />
             </div>
 
-            <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} />
+            <div className="flex flex-wrap items-center gap-2">
+              <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} />
+              <VesselChip auth={auth} vesselClass={latestVesselClass} />
+            </div>
             <Composer
               value={query}
               onChange={setQuery}
@@ -430,6 +484,26 @@ export default function AskPage() {
           </motion.div>
         </div>
       )}
+
+      <AnimatePresence>
+        {tour.active && (
+          <TourCard
+            key={tour.step}
+            step={tour.step}
+            persona={persona}
+            waiting={streaming}
+            queryId={lastQueryId}
+            onRunPreset={() => {
+              submit(TOUR_PRESET[persona]);
+              tour.advance();
+            }}
+            onNext={tour.advance}
+            onRunFollowUp={() => submit(TOUR_FOLLOWUP)}
+            onFinish={tour.skip}
+            onSkip={tour.skip}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
