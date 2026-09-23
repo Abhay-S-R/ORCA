@@ -2038,6 +2038,56 @@ Remarks:
 
   `python -m pytest tests/` now: **710 passed, 1 failed (the ERA5 gap above), 2 skipped** — up from 699/12/2, the one remaining failure named and explained rather than silently reappearing in a future log entry as a mystery. `scripts/verify_ci_guards.py` still 4/4.
 
+---
+
+### [2026-09-23] Migration 007 applied to local DB; variable-font weight arrays removed from the root layout — FIX
+
+- **Implements:** two runtime failures Dev hit before the stale-data delete: `sentinel_subscriptions.escalation does not exist` in `sentinel_runtime.run_poll_cycle`, and `next/font/google queries have exactly one entry` returning HTTP 500 on every dev page load.
+- **By:** Claude (Opus 5), Dev's report: "also before we delete, [backend traceback] and frontend error [turbopack font error] we need to solve"
+- **Files:** `frontend/app/layout.tsx` (the backend half was a DB state fix, not a code change)
+- **Commit:** — (uncommitted, per Dev's standing instruction)
+- **Done-when test:** `list_enabled_watches(db)` → 2 enabled watches (the exact call that raised). `pytest -q tests/unit` → **700 passed, 1 skipped**. Frontend: dev server on :3000 went **500 → 200**, all 11 font variables present on `<html>`, `tsc --noEmit` exit 0, `eslint app/layout.tsx` exit 0, `next build` exit 0.
+- **Remarks:**
+
+  **Neither of these touched `data/`, so the delete register is unaffected.**
+
+  **The backend failure was not a code defect — the database was one migration behind.** `infra/db/007_vessel_operational.sql` adds `sentinel_subscriptions.escalation`, three `vessels` operational columns, `users.active_vessel_id`/`quiet_hours` and the `saved_locations` table; `schema_migrations` showed 001–006 applied and nothing since 2026-09-20. Running `infra/db/migrate.sh` applied it; the file is idempotent (`ADD COLUMN IF NOT EXISTS` / `CREATE TABLE IF NOT EXISTS`) and purely additive, and every object it declares was verified present afterwards. Worth recording because the failure *looked* like a model/schema drift bug and the fix was operational — the log entry exists so the next person who sees this traceback checks `schema_migrations` before editing a model.
+
+  **The second traceback in that report was fallout, not a second bug, but it hides evidence.** Once the `SELECT` aborted the transaction, `release_sentinel_lock()` in the `finally` path raised `InFailedSqlTransaction`, which is what surfaced in the logs — a cleanup error masking the real cause. It resolves with the cause and was not otherwise touched, but the cleanup path running on a possibly-failed transaction is a latent evidence-destroyer and deserves its own ticket.
+
+  **The frontend fix is the class, not the case.** The 500 named only `fraunces`, and the obvious fix is to change that one declaration. But 9 of the 11 families in `layout.tsx` are variable fonts and 8 of them carried the same misuse: `weight` as an array, which `next/dist/docs/01-app/03-api-reference/02-components/font.md` documents as being for *non*-variable families ("An array of 3 possible values for a non variable font"). Fraunces broke and the others did not purely because of axis count — Fraunces carries four axes (SOFT, WONK, opsz, wght) so a pinned weight makes Google emit several `src` entries and Turbopack accepts exactly one, while the Noto families have two (wdth, wght) and squeak through *today*. Axis counts come from font data that ships with `next` and changes on upgrade, so leaving the eight was leaving a trap. `weight` was removed from all nine; Barlow and IBM Plex Mono keep theirs because those two genuinely are static.
+
+  **One visible consequence, stated rather than buried:** Indic text asking for weight 700 previously had only 400/500/600 loaded and snapped to the nearest instance; it now renders true 700 off the variable axis. That is a fidelity improvement but it is a rendering change, not a no-op.
+
+  **Two hypotheses were tested and discarded before the real one, both by reproducing rather than reasoning.** `style: ["normal"]` on Fraunces was removed first — still 500. Next.js also warns that it "inferred your workspace root" because a stray repo-root `package.json`/`package-lock.json` (declaring framer-motion, with no `node_modules` beside them) outranks `frontend/package-lock.json`; that warning is real but is *not* the cause, since `next build` passed with it present throughout. Those two root files were then **deleted** at Dev's request, once they were shown to be inert: they declare `framer-motion@^13.2.0`, the identical spec already in `frontend/package.json`, with no `node_modules` beside them, and the package actually resolves from `frontend/node_modules` at 13.2.0. Nothing references them — CI pins `cache-dependency-path: frontend/package-lock.json` and runs `npm ci` with `working-directory: frontend`, and no script, Dockerfile, compose file or doc names the root pair. They entered the tree in merge `d48d4b4`, i.e. a stray `npm install` run one directory too high. Proof rather than inference, same method as the data register: both files were moved out of the tree and `next build` re-run — exit 0, and the "inferred your workspace root / multiple lockfiles" warning went from 2 occurrences to 0. They stay recoverable with `git checkout HEAD -- package.json package-lock.json`.
+
+  **Unchanged from the previous entry:** the unit suite still exits 139 at interpreter teardown after reporting all 700 passes, in runs that load torch. Pre-existing, confirmed identical before and after this work.
+
+---
+
+### [2026-09-23] Stale-data register EXECUTED — 49 files, 20.53 GB deleted after a verified backup — OPS
+
+- **Implements:** `docs/ORCA_Stale_Data_Cleanup.md` in full — §1 (44 files), §2 (`RSMC_hycom_20260830.nc`), §3 (`etopo_all_india_real.nc`) and the 0915 run of §5 (3 files).
+- **By:** Claude (Opus 5), Dev's instruction: "i think i need you to delete the files that is listed in the stale dataset md file, please be careful. Start the purge!"
+- **Files:** `docs/ORCA_Stale_Data_Cleanup.md` (status → EXECUTED, new §0.1). No code changed; this was an operations task.
+- **Commit:** — (uncommitted, per Dev's standing instruction)
+- **Done-when test:** `data/` 22.35 GB → **1.82 GB** immediately after the delete (2.31 GB after the daily refresh re-fetched current data). Post-delete: `build_pfz_fallback.py` → 6 zones off `SST_NIO_20260921.nc`; `verify_gazetteer_at_sea.py` → `203 at sea, 0 no GEBCO coverage, 0 ON LAND`; `pytest -q tests/unit` → **700 passed, 1 skipped**; `orca.data.freshness` after the daily job → `28 sources | 0 breach(es)`, exit 0.
+- **Remarks:**
+
+  **This reverses the standing rule that agents do not delete ORCA data, on Dev's explicit instruction for this purge only.** Recorded here because the rule exists for a reason and the exception should be visible rather than inferred from the absence of files. The default is unchanged.
+
+  **The first `go` was refused, and that was the most useful thing done here.** Dev had ejected the pendrive on my own earlier advice, so at the moment of the instruction the 49 files existed in exactly one place: `data/`, which is gitignored and therefore unrecoverable from the repo. Deleting then would have been irreversible with no backup reachable. The delete waited until the drive was physically re-attached. An explicit instruction to proceed is not the same as it being safe to proceed.
+
+  **Three gates, all of which had to pass per file.** (1) The backup was re-read *off the pendrive* and re-hashed against `MANIFEST.txt` — 49 verified, 0 failed. Re-hashing the source would have proved only that the source is still the source; the copy is the thing that has to be good. (2) At delete time each file was SHA-256'd immediately before `unlink()` and compared to its manifest entry, so a file whose bytes had drifted since the backup would have been left on disk and reported rather than destroyed — a per-file gate, not an all-or-nothing precondition. 0 were skipped. (3) The script asserted that no path on its list contained `20260917` or `20260921` and would have refused to run otherwise. A typo in a 49-entry list is the one mistake that cannot be undone after the fact, so the keepers were named explicitly instead of being trusted to be absent.
+
+  **The freshness gate reported 4 breaches immediately after the delete, and that was not the delete.** `incois_osf_hycom`, `incois_osf_ww3`, `mosdac_nrt_sst` and `mosdac_open_sst` all read 2.4d. Every one of those sources' newest content date was 2026-09-21 — a kept file — and every deleted file was older than its own source's newest, so no source's maximum content date moved. It was elapsed time against a DAILY threshold, because the refresh is still not registered as a scheduled task. Running `scripts/cron/refresh_daily.cmd` cleared it to 0 breaches. Worth recording as a trap: after a large delete the instinct is to read any new breach as damage, and the discriminating check is whether the source's *newest* content date changed, not whether its file count did.
+
+  **Stormglass is no longer outstanding.** `stormglass_tides` now reports 0.0d with 10 files. The HTTP 402 quota (10 requests/day against 14 ports) spread itself across consecutive daily runs exactly as predicted, so it never needed a code change.
+
+  **Still outstanding, and now the only thing on this track:** registering `orca-refresh-daily` and `orca-refresh-weekly` as Windows scheduled tasks (§3 of `docs/Guide/ORCA_Data_Refresh_Cron_Guide.md`). That needs an elevated PowerShell session, so it is Dev's to run. Until it is done the freshness gate will keep re-breaching on age every couple of days, which is the gate working, not failing.
+
+---
+
 ### [2026-09-23] P4.0, P4.1, P4.2 — Phase 4 begins: demo script, `/safety` collapsed into `/ask`, status bar honesty
 
 - **Implements:** P4.0 (gates `R-UX-3`), `R-UX-4` (P4.1), `R-UX-2` (P4.2).

@@ -1,6 +1,9 @@
 # ORCA — Stale Data Cleanup Register
 
-**Status:** advisory. Nothing in this document has been deleted.
+**Status:** **EXECUTED 2026-09-23.** All 49 files listed in §1, §2, §3 and the 0915 run of
+§5 have been deleted; `data/` went from 22.35 GB to **1.82 GB**, freeing 20.53 GB (19.12 GiB).
+The sections below are kept as the reasoning behind that delete, not as a to-do list. What was
+done, and how it was made safe, is recorded in §0.1.
 **Audited:** 2026-09-19. **Re-verified against live disk 2026-09-22**, after the daily and weekly
 refresh jobs were run end to end; `data/` now holds 26,449 files, 22.35 GB. Every entry below was
 re-checked file by file on that date — all 43 files in §1 are still present and still unreferenced,
@@ -10,6 +13,41 @@ new, §5 has shifted by one run, and both wiring problems in §6 are now fixed.
 **Grounded in:** `docs/ORCA_PS_SIH26176_Problem_Statement.md` (canonical), `docs/ORCA_Data_Freshness_Contract.md`
 (which defines LIVE / DAILY / WEEKLY / STATIC), and `docs/ORCA_SIH26176_AllIndia_Dataset_Coverage_Guide.md`
 (which records what each file is wired to).
+
+---
+
+## 0.1 What was actually done — 2026-09-23
+
+**Backed up first, and the backup was verified before anything was destroyed.** All 49 files were
+copied to `D:\orca_stale_data_backup_20260923\` (17.71 GiB across 14 archive files, plus
+`MANIFEST.txt`, `RESTORE.md` and `VERIFY.txt`). The copy was then read back *off that drive* and
+re-hashed against the manifest: **49 verified, 0 failed**. Re-reading the copy rather than the
+source is the point — re-hashing the original would only prove the original is still the original.
+
+**The delete was gated per file, not all-or-nothing.** Each file was SHA-256'd immediately before
+unlinking and compared against its manifest entry; a file whose bytes no longer matched its backup
+would have been left on disk and reported rather than destroyed. **0 were skipped** — every target
+matched. The script also asserted that no path on its list contained `20260917` or `20260921` and
+would have refused to run otherwise, because a typo in the list was the one mistake that could not
+be undone afterwards. Both of those runs survive intact.
+
+**The drive is FAT32**, which cannot hold a file of 4 GiB or more, so two files too large to be zip
+members — `RSMC_hycom_20260830.nc` (9.85 GiB) and `rsmc_combined_ww3_20260829.nc` (6.44 GiB) — are
+stored as raw 3 GiB parts that reassemble by plain concatenation. `RESTORE.md` on the drive carries
+the commands.
+
+**Post-delete verification:** `build_pfz_fallback.py` → 6 zones, now reading `SST_NIO_20260921.nc`
+(the point of the §2 fix); `verify_gazetteer_at_sea.py` → `203 at sea, 0 no GEBCO coverage, 0 ON
+LAND`; `pytest -q tests/unit` → **700 passed, 1 skipped**.
+
+**One honest note on the freshness gate.** Immediately after the delete it reported `28 sources |
+4 breach(es)` — `incois_osf_hycom`, `incois_osf_ww3`, `mosdac_nrt_sst` and `mosdac_open_sst`, all
+at 2.4d. This is **not** caused by the delete. Each of those sources' newest content date is
+2026-09-21, a file that was kept, and every file removed was older than its own source's newest, so
+no source's maximum content date changed. It is elapsed time: the daily refresh is not yet
+registered as a Windows scheduled task, so 2026-09-21 data had aged past the DAILY threshold by
+2026-09-23. Running the daily job clears it. A gate that flags stale data while no data is missing
+is a gate working correctly.
 
 ---
 

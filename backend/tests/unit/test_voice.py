@@ -85,10 +85,9 @@ def test_real_tts_then_asr_round_trip_produces_a_nonempty_transcript(monkeypatch
     monkeypatch.setattr(BhashiniTtsBackend, "speak", _bhashini_unreachable)
     monkeypatch.setattr(BhashiniAsrBackend, "transcribe", _bhashini_unreachable)
     # A prior run (before Bhashini was disabled above) may have already
-    # cached this exact (text, language) pair as a Bhashini clip, in-memory
-    # or on disk — bypass both so this run actually exercises mms_tts.
+    # cached this exact (text, language) pair as a Bhashini clip in-memory
+    # — clear it so this run actually exercises mms_tts.
     monkeypatch.setattr("orca.agents.voice._tts_cache", {})
-    monkeypatch.setattr("orca.agents.voice._load_from_disk", lambda key: None)
 
     audio, rung = text_to_speech("hello there, this is a test of the ORCA voice pipeline", "en")
     assert rung == "mms_tts"

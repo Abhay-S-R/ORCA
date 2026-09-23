@@ -44,12 +44,10 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
-import os
 import re
 import time
 import wave
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal, Protocol
 
 from orca.agents.language import Language
@@ -113,8 +111,18 @@ class BhashiniAsrBackend:
                 "Bhashini ASR not configured (BHASHINI_USER_ID / BHASHINI_ULCA_API_KEY / "
                 "BHASHINI_INFERENCE_API_KEY empty — access pending per .env.example)."
             )
-        transcript, confidence = bhashini.asr(audio, language_hint or "en")
-        service_id = bhashini._pipeline_config("asr", language_hint or "en").get("serviceId")
+        # Bhashini ASR requires an explicit source language to select the right
+        # model — passing "en" when the speaker is using Telugu/Kannada/etc.
+        # silently transcribes regional speech as garbled English. Skip to
+        # FasterWhisper (which auto-detects language from the audio itself)
+        # when no hint is provided, rather than guessing wrong every time.
+        if language_hint is None:
+            raise RuntimeError(
+                "Bhashini ASR requires an explicit language_hint — deferring to "
+                "FasterWhisper for audio-based language auto-detection."
+            )
+        transcript, confidence = bhashini.asr(audio, language_hint)
+        service_id = bhashini._pipeline_config("asr", language_hint).get("serviceId")
         return TranscriptionResult(
             transcript=transcript,
             # ULCA does not always report a per-utterance confidence; a
@@ -161,6 +169,10 @@ class FasterWhisperBackend:
         # buffer via BytesIO covers both WAV and the compressed formats
         # ffmpeg on PATH can decode (Opus/WebM, plan §2's MediaRecorder
         # output), so no manual container parsing belongs here.
+        #
+        # When language_hint is None (no hint from the caller), pass language=None
+        # so Whisper runs its own audio-based language detection rather than being
+        # forced into English. info.language is the detected code (ISO 639-1).
         segments, info = model.transcribe(
             io.BytesIO(audio), language=language_hint, vad_filter=True,
         )
@@ -174,7 +186,11 @@ class FasterWhisperBackend:
         # report — clamped, not extrapolated beyond the observed range.
         avg_logprob = float(np.mean([s.avg_logprob for s in segments]))
         confidence = max(0.0, min(1.0, 1.0 + avg_logprob))
-        detected = info.language if info.language in _MMS_CODE else None
+        # Use Whisper's detected language (from audio) when no hint was given;
+        # otherwise trust the hint the caller provided — Whisper's detection
+        # is probabilistic and a confirmed user preference beats it.
+        whisper_lang = info.language if info.language in _MMS_CODE else None
+        detected = language_hint if language_hint is not None else whisper_lang  # type: ignore[assignment]
         return TranscriptionResult(
             transcript=transcript, confidence=confidence, rung="faster_whisper",
             detected_language=detected,  # type: ignore[arg-type]
@@ -292,35 +308,9 @@ def speech_to_text(audio: bytes, language_hint: Language | None = None) -> Trans
 _tts_cache: dict[str, tuple[bytes, TtsRung]] = {}
 _TTS_CACHE_MAX = 32
 
-# P3.8 (2) — a Bhashini-synthesized clip surviving a process restart, so the
-# offline border-crossing demo can speak a pre-rendered alert with no
-# network AND no local TTS model loaded, not just no network. `data/` stays
-# gitignored (plan principle 4) — this is a runtime cache, not a fixture.
-_DISK_CACHE_DIR = Path(os.environ.get("ORCA_DATA_ROOT", "data")) / "tts_cache"
-
 
 def _tts_cache_key(text: str, language: Language) -> str:
     return hashlib.sha256(f"{language}:{text}".encode()).hexdigest()[:16]
-
-
-def _disk_cache_path(key: str) -> Path:
-    return _DISK_CACHE_DIR / f"{key}.wav"
-
-
-def _load_from_disk(key: str) -> bytes | None:
-    path = _disk_cache_path(key)
-    try:
-        return path.read_bytes() if path.exists() else None
-    except OSError:
-        return None  # a locked/unreadable cache file degrades to re-synthesis, never a crash
-
-
-def _save_to_disk(key: str, audio: bytes) -> None:
-    try:
-        _DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        _disk_cache_path(key).write_bytes(audio)
-    except OSError:
-        logger.warning("TTS disk cache write failed for key %s (non-fatal)", key, exc_info=True)
 
 
 def text_to_speech(text: str, language: Language) -> tuple[bytes | None, TtsRung]:
@@ -329,36 +319,23 @@ def text_to_speech(text: str, language: Language) -> tuple[bytes | None, TtsRung
     "unavailable") rather than raising, so the voice UI degrades to
     text-only playback instead of a broken request.
 
-    Results are cached in-memory (repeated clicks, same process) and on
-    disk (P3.8 — survives a restart, and is what `POST /voice/prefetch`
-    persisting the alert vocabulary actually means)."""
+    Results are cached in-memory (repeated clicks, same process)."""
     key = _tts_cache_key(text, language)
     if key in _tts_cache:
         logger.info("TTS cache hit for key %s", key)
         return _tts_cache[key]
-    from_disk = _load_from_disk(key)
-    if from_disk is not None:
-        logger.info("TTS disk cache hit for key %s", key)
-        result: tuple[bytes, TtsRung] = (from_disk, "bhashini")  # only Bhashini clips are persisted (see below)
-        _tts_cache[key] = result
-        return result
 
     t0 = time.monotonic()
     for backend in _tts_backends:
         try:
             audio = backend.speak(text, language)
             rung: TtsRung = "bhashini" if isinstance(backend, BhashiniTtsBackend) else "mms_tts"
-            # Cache the result
+            # Cache the result in-memory
             if len(_tts_cache) >= _TTS_CACHE_MAX:
                 # Evict oldest entry (FIFO)
                 oldest = next(iter(_tts_cache))
                 del _tts_cache[oldest]
             _tts_cache[key] = (audio, rung)
-            if rung == "bhashini":
-                # Only Bhashini clips go to disk: MMS-TTS is already a local
-                # model, so caching its output on disk buys nothing offline
-                # that keeping the model loaded doesn't already give for free.
-                _save_to_disk(key, audio)
             logger.info("TTS synthesis completed in %.1fs (rung=%s), cached as %s", time.monotonic() - t0, rung, key)
             return audio, rung
         except (RuntimeError, OSError):

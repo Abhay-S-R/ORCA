@@ -6,6 +6,7 @@
 // "Your Location" marker (MapView) is the one place a real position ever
 // shows, and only once the browser actually grants a GPS fix.
 import { useEffect, useState } from "react";
+import { LanguageSelector } from "./LanguageSelector";
 import { Radio } from "lucide-react";
 import { SystemStatusStrip } from "./SystemStatusStrip";
 import { AccountMenu } from "./AccountMenu";
@@ -38,6 +39,7 @@ export function StatusBar() {
         <SystemStatusStrip />
         <div className="hidden h-3.5 w-px bg-hairline sm:block" />
         <DataCurrency />
+        <LanguageSelector />
         <AccountMenu />
       </div>
     </header>

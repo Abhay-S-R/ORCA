@@ -32,11 +32,20 @@ const barlow = Barlow({
 // h1/h2/.font-display) — a chart-room serif with real character, standing
 // in for the hand-lettered titles on a paper chart without going full
 // blackletter about it.
+//
+// No `weight` here, and none on the Noto families below, because all of them
+// are variable fonts — `weight` as an array is documented for *non*-variable
+// families only (next/dist/docs/.../components/font.md), and omitting it loads
+// the whole 100–900 axis instead of a few pinned instances. Pinning weights on
+// Fraunces is what produced `next/font/google queries have exactly one entry`
+// and a 500 on every dev page load: it carries four axes (SOFT, WONK, opsz,
+// wght), so a discrete weight makes Google emit several `src` entries and
+// Turbopack accepts only one. The Noto families have two axes and happen to
+// survive it today, which is exactly why they are not left as a trap.
+// Barlow and IBM Plex Mono keep their arrays — those two really are static.
 const fraunces = Fraunces({
   variable: "--font-fraunces",
   subsets: ["latin"],
-  weight: ["600", "700", "900"],
-  style: ["normal"],
 });
 
 // Mono is for numeric readouts ONLY — depths, bearings, coordinates, wave
@@ -51,7 +60,6 @@ const plexMono = IBM_Plex_Mono({
 const notoTamil = Noto_Sans_Tamil({
   variable: "--font-noto-tamil",
   subsets: ["tamil"],
-  weight: ["400", "500", "600"],
 });
 
 // P3.12 (orca_final §14.4) — every other core script gets the same
@@ -62,37 +70,30 @@ const notoTamil = Noto_Sans_Tamil({
 const notoDevanagari = Noto_Sans_Devanagari({
   variable: "--font-noto-devanagari",
   subsets: ["devanagari"],
-  weight: ["400", "500", "600"],
 });
 const notoTelugu = Noto_Sans_Telugu({
   variable: "--font-noto-telugu",
   subsets: ["telugu"],
-  weight: ["400", "500", "600"],
 });
 const notoMalayalam = Noto_Sans_Malayalam({
   variable: "--font-noto-malayalam",
   subsets: ["malayalam"],
-  weight: ["400", "500", "600"],
 });
 const notoKannada = Noto_Sans_Kannada({
   variable: "--font-noto-kannada",
   subsets: ["kannada"],
-  weight: ["400", "500", "600"],
 });
 const notoBengali = Noto_Sans_Bengali({
   variable: "--font-noto-bengali",
   subsets: ["bengali"],
-  weight: ["400", "500", "600"],
 });
 const notoGujarati = Noto_Sans_Gujarati({
   variable: "--font-noto-gujarati",
   subsets: ["gujarati"],
-  weight: ["400", "500", "600"],
 });
 const notoOriya = Noto_Sans_Oriya({
   variable: "--font-noto-oriya",
   subsets: ["oriya"],
-  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
