@@ -221,6 +221,18 @@ export function AgentPill({
         {runs > 1 ? `, ran ${runs} times` : ""}
         {engineNote})
       </span>
+      {/* P2.1 — the engine, pinned bottom-left so it costs the agent name no
+          width (the same constraint the confidence letter solves top-right).
+          Text, not colour alone: "DET" / "MT" / "AI" read without hue, and
+          the full engine string is in the title and the sr-only text above. */}
+      {badge && (
+        <span
+          aria-hidden="true"
+          className={`absolute -bottom-1.5 -left-1.5 hidden rounded-[3px] border px-1 font-mono text-[8px] font-bold leading-[1.4] ring-2 ring-shelf-1 sm:inline ${badge.cls}`}
+        >
+          {badge.short}
+        </span>
+      )}
       {showConfidence && (
         // One boxed letter pinned to the pill's top-right corner, so it takes
         // no width from the name (which otherwise truncated at ~1366 px).
@@ -237,10 +249,18 @@ export function AgentPill({
       {runs > 1 && (
         <span
           aria-hidden="true"
-          title={`Ran ${runs} times, re-invoked after a Critic critique.`}
+          title={`Ran ${runs} times, re-invoked after a Critic critique. Time is the sum.`}
           className="absolute -bottom-1.5 -right-1.5 rounded-[3px] border border-hairline bg-shelf-3 px-1 font-mono text-[8px] font-bold leading-[1.4] text-ink-muted ring-2 ring-shelf-1"
         >
           ×{runs}
+        </span>
+      )}
+      {latencyMs != null && status === "ok" && (
+        <span
+          data-readout
+          className="hidden 2xl:inline ml-0.5 rounded bg-shelf-2/90 px-1 py-0.2 font-mono text-[9px] text-ink-dim"
+        >
+          {latencyMs}ms
         </span>
       )}
     </span>
