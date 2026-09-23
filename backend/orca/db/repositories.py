@@ -15,10 +15,10 @@ from typing import Any
 
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import Point
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from orca.db.models import AuditTraceLog, User, Vessel
+from orca.db.models import AuditTraceLog, SavedLocation, SessionRow, User, Vessel
 
 
 def _point_wkb(lat: float | None, lon: float | None) -> Any:
@@ -81,6 +81,30 @@ def user_home_port(user: User) -> dict[str, float] | None:
     return _point_latlon(user.home_port)
 
 
+def set_user_language(db: Session, user: User, language: str) -> User:
+    user.language = language
+    db.flush()
+    return user
+
+
+def set_default_persona(db: Session, user: User, persona: str) -> User:
+    user.default_persona = persona
+    db.flush()
+    return user
+
+
+def set_active_vessel(db: Session, user: User, vessel_id: uuid.UUID) -> User:
+    user.active_vessel_id = vessel_id
+    db.flush()
+    return user
+
+
+def set_quiet_hours(db: Session, user: User, quiet_hours: dict | None) -> User:
+    user.quiet_hours = quiet_hours
+    db.flush()
+    return user
+
+
 # --------------------------------------------------------------------------
 # vessels — every function below takes owner_user_id and filters by it;
 # there is no vessel-lookup-by-id-alone function in this module on purpose.
@@ -96,6 +120,9 @@ def create_vessel(
     draft_m: float | None = None,
     length_m: float | None = None,
     crew_size: int | None = None,
+    cruise_speed_kn: float | None = None,
+    fuel_burn_lph: float | None = None,
+    engine_count: int | None = None,
 ) -> Vessel:
     vessel = Vessel(
         owner_user_id=owner_user_id,
@@ -105,6 +132,9 @@ def create_vessel(
         draft_m=draft_m,
         length_m=length_m,
         crew_size=crew_size,
+        cruise_speed_kn=cruise_speed_kn,
+        fuel_burn_lph=fuel_burn_lph,
+        engine_count=engine_count,
     )
     db.add(vessel)
     db.flush()
@@ -126,6 +156,74 @@ def get_vessel_for_owner(db: Session, vessel_id: uuid.UUID, owner_user_id: uuid.
 
 def vessel_last_position(vessel: Vessel) -> dict[str, float] | None:
     return _point_latlon(vessel.last_position)
+
+
+# --------------------------------------------------------------------------
+# saved_locations — same ownership discipline as vessels (P3.10).
+# --------------------------------------------------------------------------
+
+def create_saved_location(db: Session, *, user_id: uuid.UUID, name: str, lat: float, lon: float) -> SavedLocation:
+    loc = SavedLocation(user_id=user_id, name=name, position=_point_wkb(lat, lon))
+    db.add(loc)
+    db.flush()
+    return loc
+
+
+def list_saved_locations(db: Session, user_id: uuid.UUID) -> list[SavedLocation]:
+    stmt = select(SavedLocation).where(SavedLocation.user_id == user_id).order_by(SavedLocation.created_at)
+    return list(db.execute(stmt).scalars())
+
+
+def delete_saved_location(db: Session, *, location_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+    loc = db.execute(
+        select(SavedLocation).where(SavedLocation.id == location_id, SavedLocation.user_id == user_id)
+    ).scalar_one_or_none()
+    if loc is None:
+        return False
+    db.delete(loc)
+    db.flush()
+    return True
+
+
+def saved_location_latlon(loc: SavedLocation) -> dict[str, float]:
+    point = _point_latlon(loc.position)
+    assert point is not None  # position is NOT NULL (007_vessel_operational.sql)
+    return point
+
+
+# --------------------------------------------------------------------------
+# sessions — P3.2: a real row per query on the audit trail, not session_id=None.
+# --------------------------------------------------------------------------
+
+def set_session_language(db: Session, *, session_id: uuid.UUID, language: str) -> None:
+    """P3.13 — "speak to me in Telugu" changes this chat's stored language
+    going forward, independent of whether the caller is signed in."""
+    row = db.get(SessionRow, session_id)
+    if row is not None:
+        row.language = language
+        db.flush()
+
+
+def get_or_create_session(
+    db: Session, *, session_id: uuid.UUID, user_id: uuid.UUID | None,
+    persona: str | None = None, language: str | None = None,
+) -> SessionRow:
+    """One row per chat `session_id`, created the first time it is seen and
+    touched (`last_seen_at`) on every later query — the mapped `sessions`
+    table (001_init.sql) that `/query` used to leave permanently empty."""
+    row = db.get(SessionRow, session_id)
+    if row is None:
+        row = SessionRow(
+            id=session_id, user_id=user_id,
+            persona=persona or "unresolved", language=language or "en",
+        )
+        db.add(row)
+    else:
+        row.last_seen_at = func.now()
+        if user_id is not None and row.user_id is None:
+            row.user_id = user_id  # an anonymous chat that later signs in
+    db.flush()
+    return row
 
 
 # --------------------------------------------------------------------------

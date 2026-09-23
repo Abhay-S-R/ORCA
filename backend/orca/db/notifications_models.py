@@ -45,6 +45,9 @@ class SentinelSubscription(Base):
     radius_km: Mapped[float | None] = mapped_column(Numeric(6, 2))
     thresholds: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'"))
     channels: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default=text("'{in_app}'"))
+    # 007_vessel_operational.sql — which channel(s) this watch escalates to per
+    # severity (P5.22 reads it); empty means "not configured", not a default.
+    escalation: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'"))
     enabled: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
     last_fired_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))

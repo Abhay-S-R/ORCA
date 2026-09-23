@@ -20,26 +20,30 @@ export function classifyQueryIntent(query: string): QueryIntent {
   return "general";
 }
 
-export const INTENT_LABEL: Record<QueryIntent, string> = {
-  fishing: "fishing zones near your position",
-  boundary: "the maritime boundary standoff",
-  safety: "local sea conditions",
-  current: "surface current speed and direction",
-  wave: "wave height and swell",
-  general: "your area",
+// P3.12 — these used to be the literal label text; now they're the i18n keys
+// that hold it (`i18n/*.json`), so `intentLabel` below takes the same `t()`
+// every other piece of UI chrome does instead of returning fixed English.
+export const INTENT_LABEL_KEY: Record<QueryIntent, string> = {
+  fishing: "intentLabel.fishing",
+  boundary: "intentLabel.boundary",
+  safety: "intentLabel.safety",
+  current: "intentLabel.current",
+  wave: "intentLabel.wave",
+  general: "intentLabel.general",
 };
 
 // Two of those labels claim the map is showing the reader's own surroundings.
 // That is only true when the answer resolved to a position — at the pilot
 // default it is the same misattribution Agent 9 is forbidden from making in
 // the sentence directly below it on the page.
-const AT_DEFAULT_LABEL: Partial<Record<QueryIntent, string>> = {
-  fishing: "fishing zones in the default pilot region",
-  general: "the default pilot region",
+const AT_DEFAULT_LABEL_KEY: Partial<Record<QueryIntent, string>> = {
+  fishing: "intentLabel.fishingAtDefault",
+  general: "intentLabel.generalAtDefault",
 };
 
-export function intentLabel(intent: QueryIntent, atRegionalDefault: boolean): string {
-  return (atRegionalDefault && AT_DEFAULT_LABEL[intent]) || INTENT_LABEL[intent];
+export function intentLabel(t: (key: string) => string, intent: QueryIntent, atRegionalDefault: boolean): string {
+  const key = (atRegionalDefault && AT_DEFAULT_LABEL_KEY[intent]) || INTENT_LABEL_KEY[intent];
+  return t(key);
 }
 
 // A place named in the query (plan item 8: "location-specific query"),

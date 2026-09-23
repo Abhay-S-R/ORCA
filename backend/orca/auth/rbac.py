@@ -43,6 +43,29 @@ def get_current_user(
     return user
 
 
+def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Same verification as `get_current_user`, but a missing, malformed or
+    expired token is simply "no user" rather than a 401 — for routes like
+    `/query` (P3.1) where a Bearer token is optional and anonymous callers
+    must keep working exactly as before (no login wall, nothing to fail on
+    stage). A token that IS present and invalid is still not an error here:
+    treating it as anonymous is safer than guessing which stale/forged claim
+    to trust."""
+    if credentials is None:
+        return None
+    try:
+        payload = decode_token(credentials.credentials, expected_type="access")
+    except TokenError:
+        return None
+    user = get_user_by_id(db, uuid.UUID(payload["sub"]))
+    if user is None or user.status != "active":
+        return None
+    return user
+
+
 def require_role(*roles: Role):
     """Dependency factory: `Depends(require_role("authority", "admin"))`.
     An empty `roles` means "any authenticated user" — used for routes that

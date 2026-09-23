@@ -14,6 +14,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Uploa
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from orca.agents.distress import detect_distress_signal
 from orca.agents.language import Language
 from orca.agents.voice import LOW_CONFIDENCE_THRESHOLD, speech_to_text, text_to_speech
 
@@ -31,6 +32,12 @@ class TranscribeResponse(BaseModel):
     # confirmation before becoming a query whenever confidence is low —
     # computed here once so every client applies the same threshold rather
     # than each one guessing its own.
+    engine: str | None = None  # P3.8 — "Bhashini ASR · <serviceId>" when
+    # that rung served; None on the local (faster-whisper) rung.
+    possible_distress: bool = False  # P3.7 — a low-confidence transcript
+    # that still matched a distress/medical/romanized pattern routes to
+    # "Did you mean SOS?" rather than the generic low-confidence edit box:
+    # a mishearing here is a safety incident, not a UX annoyance.
 
 
 def _coerce_language_hint(value: str | None) -> Language | None:
@@ -45,12 +52,20 @@ async def transcribe(
     if not blob:
         raise HTTPException(status_code=422, detail="empty audio upload")
     result = speech_to_text(blob, language_hint=_coerce_language_hint(language_hint))
+    low_confidence = result.rung == "unavailable" or result.confidence < LOW_CONFIDENCE_THRESHOLD
+    # P3.7 — checked only when confidence is already low: a confident
+    # transcript containing a distress word is an ordinary query about
+    # distress procedure ("what do I do if my crewmate is injured"), not a
+    # mishearing to double-check; SOS itself is a separate, always-on control.
+    possible_distress = low_confidence and detect_distress_signal(result.transcript)["is_distress"]
     return TranscribeResponse(
         transcript=result.transcript,
         confidence=result.confidence,
         rung=result.rung,
         detected_language=result.detected_language,
-        needs_confirmation=result.rung == "unavailable" or result.confidence < LOW_CONFIDENCE_THRESHOLD,
+        needs_confirmation=low_confidence,
+        engine=f"Bhashini ASR · {result.service_id}" if result.rung == "bhashini" and result.service_id else None,
+        possible_distress=possible_distress,
     )
 
 

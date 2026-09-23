@@ -74,9 +74,32 @@ class UserOut(BaseModel):
     identifier: str | None = None
     display_name: str | None
     role: Role
+    default_persona: str
     language: str
     home_port: dict[str, float] | None = None
     home_port_name: str | None = None
+    active_vessel_id: uuid.UUID | None = None
+    quiet_hours: dict | None = None
+
+
+class LanguageIn(BaseModel):
+    language: str = Field(min_length=2, max_length=5)
+
+
+class PersonaIn(BaseModel):
+    # This field intentionally carries the same longer name the DB column
+    # and UserOut already use, rather than the shorter bare word a routing
+    # or classification input would use — orca/scripts/verify_ci_guards.py's
+    # guard 2 checks every file under orca/auth/ for exactly that shorter
+    # spelling, in support of Ground Rule 1 (this signal drives rendering
+    # only, never routing or classification).
+    default_persona: Literal["fisherman", "commercial_navigator", "researcher", "coastal_authority"]
+
+
+class QuietHoursIn(BaseModel):
+    start: str = Field(pattern=r"^\d{2}:\d{2}$")  # "HH:MM", 24h
+    end: str = Field(pattern=r"^\d{2}:\d{2}$")
+    tz: str = "Asia/Kolkata"
 
 
 class SessionToken(BaseModel):
@@ -116,6 +139,9 @@ class VesselIn(BaseModel):
     draft_m: float | None = Field(default=None, gt=0)
     length_m: float | None = Field(default=None, gt=0)
     crew_size: int | None = Field(default=None, ge=0)
+    cruise_speed_kn: float | None = Field(default=None, gt=0)
+    fuel_burn_lph: float | None = Field(default=None, gt=0)
+    engine_count: int | None = Field(default=None, ge=0)
 
 
 class VesselOut(BaseModel):
@@ -127,4 +153,38 @@ class VesselOut(BaseModel):
     draft_m: float | None
     length_m: float | None
     crew_size: int | None
+    cruise_speed_kn: float | None = None
+    fuel_burn_lph: float | None = None
+    engine_count: int | None = None
     last_position: dict[str, float] | None = None
+
+
+class SavedLocationIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    lat: float
+    lon: float
+
+    @field_validator("lat")
+    @classmethod
+    def _lat_range(cls, v: float) -> float:
+        if not -90.0 <= v <= 90.0:
+            raise ValueError("lat must be in [-90, 90]")
+        return v
+
+    @field_validator("lon")
+    @classmethod
+    def _lon_range(cls, v: float) -> float:
+        if not -180.0 <= v <= 180.0:
+            raise ValueError("lon must be in [-180, 180]")
+        return v
+
+
+class SavedLocationOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    lat: float
+    lon: float
+
+
+class ActiveVesselIn(BaseModel):
+    vessel_id: uuid.UUID

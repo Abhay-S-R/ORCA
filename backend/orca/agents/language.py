@@ -40,6 +40,7 @@ as if translated.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Literal, Protocol
 
@@ -89,6 +90,52 @@ def detect_language(text: str) -> Language:
                 break
     best_lang, best_count = max(counts.items(), key=lambda kv: kv[1])
     return best_lang if best_count > 0 else "en"
+
+
+# P3.5 (`R-PS-2`)/P3.14 — a short, common-English word list, checked only
+# against ALL-Latin text that has no Indic codepoint at all (script-mixed
+# text, e.g. Tamil script + English words, is already correctly resolved by
+# `detect_language` above — every Indic codepoint anywhere makes it win over
+# the untracked "en" bucket). This is the other case: text with NO Indic
+# codepoint that may still not be English — "kadal safe-a irukka" (romanized
+# Tamil, P3.5/P3.14's own example). Deliberately small and unglamorous: it
+# only has to be wrong in one safe direction — treating too much as "maybe
+# not English" costs one extra (fast, local) Bhashini TLD call; treating too
+# little that way is the actual failure mode this exists to close.
+_COMMON_ENGLISH_WORDS = frozenset({
+    "the", "is", "it", "safe", "to", "go", "sea", "today", "tomorrow", "and", "in", "a", "i",
+    "am", "are", "will", "what", "when", "where", "how", "boat", "fishing", "weather", "wind",
+    "wave", "should", "can", "my", "me", "you", "please", "help", "yes", "no", "okay", "thanks",
+})
+
+
+def _low_english_coverage(text: str) -> bool:
+    words = re.findall(r"[a-zA-Z']+", text.lower())
+    if not words:
+        return False
+    known = sum(1 for w in words if w in _COMMON_ENGLISH_WORDS)
+    return (known / len(words)) < 0.5
+
+
+def detect_language_with_bhashini(text: str) -> Language:
+    """P3.5/P3.14 — `detect_language`, extended: when script detection found
+    no Indic codepoint AND the Latin text does not read as ordinary English,
+    ask Bhashini TLD (text language detection) rather than defaulting to
+    English. Falls straight back to the script-only result when Bhashini is
+    unreachable or unconfigured — there is no local rung for GENERAL
+    romanized language detection (only for the distress phrase list itself,
+    which is safety-critical and stays fully offline — see
+    orca/agents/distress.py's `_ROMANIZED_DISTRESS_PATTERNS`)."""
+    script_result = detect_language(text)
+    if script_result != "en" or not _low_english_coverage(text):
+        return script_result
+    try:
+        from orca.agents import bhashini
+
+        code = bhashini.detect_language(text)
+        return _coerce_language(code)
+    except Exception:
+        return script_result  # Bhashini unavailable/unconfigured — degrade to the script-only call
 
 
 def _coerce_language(value: str) -> Language:
@@ -184,28 +231,89 @@ def register_translation_backend(backend: TranslationBackend) -> None:
     _backend = backend
 
 
-def translate_to_english(text: str, source: Language) -> str:
-    if source == "en":
-        return text
+# P3.8 — domain-term masking around NMT. IMBL/PFZ/GO/NO-GO/sector codes and
+# every number are exactly what a marine safety answer cannot afford a
+# translation model to paraphrase, mistranslate, or drop a decimal from.
+#
+# The placeholder format below (`ZKEEPZ0Z`, `ZKEEPZ1Z`, …) replaced an
+# earlier bracket scheme (`⟦0⟧`) that looked safer and was not: verified
+# live against Bhashini NMT on 2026-09-23, `⟦0⟧` came back as a bare `0` —
+# the brackets were stripped but the digit kept, so "GO: All Parameters..."
+# translated to "0: பாதுகாப்பான..." with no way to tell the corrupted
+# placeholder from a real answer. `ZKEEPZ0Z` (and a letter variant,
+# `ZKEEPZAZ`) were tested against the same live model and came back
+# byte-for-byte unchanged, including with three of them in one sentence and
+# Tamil's own word-reordering around them — an all-caps run with no
+# punctuation reads to the model as an unknown proper noun to copy, not a
+# structure to normalize away. Still a best-effort choice, not a guarantee
+# for every model this seam might ever run against (IndicTrans2 included,
+# untested here — see module docstring on `IndicTransToolkit`), which is why
+# unmasking stays a plain, order-independent string substitution rather than
+# something that assumes the live-verified shape is the only one it will
+# ever see.
+_PROTECTED_TERM = re.compile(
+    r"\bIMBL\b|\bPFZ\b|\bNO[-_ ]?GO\b|\bGO\b|\bSEC\d{3}\b"
+    r"|[+-]?\d+(?:\.\d+)?\s?(?:m|km|kmh|km/h|kt|kn|nm|°C|%)?\b"
+)
+
+
+def _mask_protected_terms(text: str) -> tuple[str, list[str]]:
+    tokens: list[str] = []
+
+    def _sub(m: re.Match[str]) -> str:
+        tokens.append(m.group(0))
+        return f"ZKEEPZ{len(tokens) - 1}Z"
+
+    return _PROTECTED_TERM.sub(_sub, text), tokens
+
+
+def _unmask_protected_terms(text: str, tokens: list[str]) -> str:
+    for i, original in enumerate(tokens):
+        text = text.replace(f"ZKEEPZ{i}Z", original)
+    return text
+
+
+# (source_provenance.dataset, human rationale prefix) per rung — one table
+# both ingress and egress read, so the two spans never drift apart on wording.
+_RUNG_LABEL: dict[str, tuple[str, str]] = {
+    "bhashini": ("Bhashini ASR/NMT pipeline", "Bhashini"),
+    "indictrans2": ("IndicTrans2 (local, indictrans2-indic-en-dist-200M)", "IndicTrans2, local inference"),
+}
+
+
+def _translate_with_rung(text: str, source: Language, target: Language) -> tuple[str, str]:
+    """Two rungs: Bhashini NMT first (P3.8 — the primary path once
+    credentialed), IndicTrans2 local inference second. Returns (translation,
+    rung) so callers can tag their span with which one actually served,
+    rather than always claiming the local model regardless of which ran."""
+    masked, tokens = _mask_protected_terms(text)
+    try:
+        from orca.agents import bhashini
+
+        result = bhashini.nmt(masked, source, target)
+        return _unmask_protected_terms(result, tokens), "bhashini"
+    except Exception:
+        pass  # not configured, unreachable, or timed out — fall to the local rung
     if _backend is None:
         raise RuntimeError(
             "No translation backend registered. Pull IndicTrans2 weights via "
             "backend/scripts/download_ml_models.py and register an IndicTrans2 "
             "backend before calling this (plan §4 S6 pre-Phase-1 action item)."
         )
-    return _backend.translate(text, source=source, target="en")
+    result = _backend.translate(masked, source=source, target=target)
+    return _unmask_protected_terms(result, tokens), "indictrans2"
+
+
+def translate_to_english(text: str, source: Language) -> str:
+    if source == "en":
+        return text
+    return _translate_with_rung(text, source, "en")[0]
 
 
 def translate_from_english(text: str, target: Language) -> str:
     if target == "en":
         return text
-    if _backend is None:
-        raise RuntimeError(
-            "No translation backend registered. Pull IndicTrans2 weights via "
-            "backend/scripts/download_ml_models.py and register an IndicTrans2 "
-            "backend before calling this (plan §4 S6 pre-Phase-1 action item)."
-        )
-    return _backend.translate(text, source="en", target=target)
+    return _translate_with_rung(text, "en", target)[0]
 
 
 # --- Agent entry points (Architecture: "Ingress & Egress") -------------------
@@ -223,16 +331,37 @@ def run_ingress(state: ORCAState) -> AgentResult:
     query to English for everything downstream (Planning's keyword matcher
     and every specialist agent are English-only by design)."""
     raw = state.get("raw_user_query", "") or ""
-    detected = detect_language(raw)
+    detected = detect_language_with_bhashini(raw)
+    # P3.1 — script detection on empty/no-Indic-codepoint text always falls
+    # to "en" (module docstring); for a signed-in user that is a wrong
+    # default, not a neutral one, e.g. the SOS control fires with no text
+    # message at all. A language actually found IN the text always wins —
+    # this only fills the gap when detection found nothing to go on.
+    if not raw.strip():
+        default = state.get("user_language_default")
+        if default:
+            detected = _coerce_language(default)
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
+    engine = None
     try:
-        normalized = translate_to_english(raw, source=detected)
+        if detected == "en":
+            normalized, rung = raw, "passthrough"
+        else:
+            normalized, rung = _translate_with_rung(raw, detected, "en")
         status: Literal["ok", "degraded"] = "ok"
-        confidence = Confidence(
-            score="MEDIUM",  # distilled 200M model, not independently WER/BLEU-validated yet
-            rationale=f"IndicTrans2 {detected}->en, local inference",
-        )
+        # P3.8 — the span names which rung actually served, Bhashini or the
+        # local offline fallback, rather than always claiming IndicTrans2.
+        if rung == "passthrough":
+            dataset = "IndicTrans2 (local, indictrans2-indic-en-dist-200M)"
+            confidence = Confidence(score="HIGH", rationale="already English, no translation needed")
+        else:
+            dataset, rung_label = _RUNG_LABEL[rung]
+            engine = "Bhashini NMT" if rung == "bhashini" else None
+            confidence = Confidence(
+                score="MEDIUM",  # neither rung independently WER/BLEU-validated yet
+                rationale=f"{rung_label} {detected}->en",
+            )
         error_detail = None
     except RuntimeError as exc:
         # No backend registered — degrade to passing the raw text through
@@ -240,6 +369,7 @@ def run_ingress(state: ORCAState) -> AgentResult:
         # will not match a Tamil/Hindi string, so this correctly falls
         # through to the no-match fallback rather than silently mistranslating.
         normalized = raw
+        dataset, _ = _RUNG_LABEL["indictrans2"]
         status = "degraded"
         confidence = Confidence(score="LOW_DATA", rationale=f"No translation backend: {exc}")
         error_detail = str(exc)
@@ -251,12 +381,13 @@ def run_ingress(state: ORCAState) -> AgentResult:
         inputs_consumed={"raw_user_query": raw},
         outputs={"detected_language": detected, "normalized_english_query": normalized},
         source_provenance=SourceProvenance(
-            dataset="IndicTrans2 (local, indictrans2-indic-en-dist-200M)",
+            dataset=dataset,
             acquisition_timestamp=now, freshness_minutes=0,
         ),
         confidence=confidence,
         status=status,
         error_detail=error_detail,
+        engine=engine,
     )
 
 
@@ -268,13 +399,21 @@ def run_egress(state: ORCAState) -> AgentResult:
     english_text = state.get("final_english_response", "") or ""
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
+    engine = None
     try:
-        vernacular = translate_from_english(english_text, target=target)
+        vernacular, rung = (english_text, "passthrough") if target == "en" else _translate_with_rung(english_text, "en", target)
         status: Literal["ok", "degraded"] = "ok"
-        confidence = Confidence(score="MEDIUM", rationale=f"IndicTrans2 en->{target}, local inference")
+        dataset = "IndicTrans2 (local, indictrans2-en-indic-dist-200M)" if rung != "bhashini" else _RUNG_LABEL["bhashini"][0]
+        engine = "Bhashini NMT" if rung == "bhashini" else None
+        rung_label = "Bhashini" if rung == "bhashini" else "IndicTrans2, local inference"
+        confidence = Confidence(
+            score="MEDIUM",
+            rationale=f"{rung_label} en->{target}" if rung != "passthrough" else "already English",
+        )
         error_detail = None
     except RuntimeError as exc:
         vernacular = english_text  # degrade to English rather than crash the response
+        dataset = "IndicTrans2 (local, indictrans2-en-indic-dist-200M)"
         status = "degraded"
         confidence = Confidence(score="LOW_DATA", rationale=f"No translation backend: {exc}")
         error_detail = str(exc)
@@ -286,12 +425,13 @@ def run_egress(state: ORCAState) -> AgentResult:
         inputs_consumed={"final_english_response": english_text, "target_language": target},
         outputs={"final_vernacular_response": vernacular},
         source_provenance=SourceProvenance(
-            dataset="IndicTrans2 (local, indictrans2-en-indic-dist-200M)",
+            dataset=dataset,
             acquisition_timestamp=now, freshness_minutes=0,
         ),
         confidence=confidence,
         status=status,
         error_detail=error_detail,
+        engine=engine,
     )
 
 

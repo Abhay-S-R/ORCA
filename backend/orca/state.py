@@ -15,6 +15,12 @@ class ORCAState(TypedDict):
     raw_user_query: str
     normalized_english_query: str
     detected_language: str
+    # P3.1 (`R-AUTH-1`) — a signed-in user's `users.language`, used only when
+    # script detection finds no Indic codepoint at all (empty text — a voice
+    # query that transcribed to nothing, or the SOS control with no message);
+    # a language actually detected IN the text always wins. None for an
+    # anonymous caller or one with no stored language preference.
+    user_language_default: str | None
 
     session_history: list[dict[str, Any]]  # prior turns for follow-up resolution
 

@@ -74,7 +74,22 @@ def test_low_confidence_threshold_is_a_real_fraction() -> None:
 
 
 @pytest.mark.skipif(not (_WHISPER_PRESENT and _MMS_EN_PRESENT), reason="faster-whisper / MMS-TTS models not downloaded on this machine")
-def test_real_tts_then_asr_round_trip_produces_a_nonempty_transcript() -> None:
+def test_real_tts_then_asr_round_trip_produces_a_nonempty_transcript(monkeypatch: pytest.MonkeyPatch) -> None:
+    # This test is specifically about the LOCAL rungs (faster-whisper /
+    # MMS-TTS), gated on their weights being present — real BHASHINI_*
+    # credentials (P3.8, live since 2026-09-23) would otherwise let Bhashini
+    # answer both legs first, since it's tried before either local backend.
+    def _bhashini_unreachable(self, *_a: object, **_kw: object) -> None:
+        raise RuntimeError("bhashini disabled for this test")
+
+    monkeypatch.setattr(BhashiniTtsBackend, "speak", _bhashini_unreachable)
+    monkeypatch.setattr(BhashiniAsrBackend, "transcribe", _bhashini_unreachable)
+    # A prior run (before Bhashini was disabled above) may have already
+    # cached this exact (text, language) pair as a Bhashini clip, in-memory
+    # or on disk — bypass both so this run actually exercises mms_tts.
+    monkeypatch.setattr("orca.agents.voice._tts_cache", {})
+    monkeypatch.setattr("orca.agents.voice._load_from_disk", lambda key: None)
+
     audio, rung = text_to_speech("hello there, this is a test of the ORCA voice pipeline", "en")
     assert rung == "mms_tts"
     assert audio is not None and len(audio) > 100

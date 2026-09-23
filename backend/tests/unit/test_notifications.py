@@ -22,6 +22,8 @@ pytest.importorskip("geoalchemy2")
 from orca.agents import sentinel
 from orca.db.engine import get_sessionmaker
 from orca.db.notifications_repo import (
+    SENTINEL_LOCK_CLASS,
+    SENTINEL_LOCK_OBJ,
     create_feedback,
     create_notification,
     create_watch,
@@ -35,6 +37,28 @@ from orca.db.repositories import create_user
 from orca.sentinel_runtime import run_poll_cycle
 
 
+def _clear_stale_sentinel_lock(session: Session) -> None:
+    """Self-healing, not a fix for `run_poll_cycle` itself: the sentinel
+    advisory lock is session-scoped in Postgres, but this fixture's own
+    `db.commit()` (below) can hand the ORM Session a different pooled
+    connection than the one that took the lock, so `release_sentinel_lock`'s
+    unlock call can silently run on the wrong connection and leave the real
+    lock-holder connection idle-but-locked in the pool — which then blocks
+    `try_sentinel_lock` for every test afterward, in this run or the next.
+    Terminating any backend that still holds this exact lock before the
+    test starts makes the test self-recovering instead of order-dependent
+    on cleanup that already failed once."""
+    session.execute(
+        text(
+            "SELECT pg_terminate_backend(l.pid) FROM pg_locks l "
+            "WHERE l.locktype = 'advisory' AND l.classid = :c AND l.objid = :o "
+            "AND l.pid <> pg_backend_pid()"
+        ),
+        {"c": SENTINEL_LOCK_CLASS, "o": SENTINEL_LOCK_OBJ},
+    )
+    session.commit()
+
+
 @pytest.fixture
 def db() -> Session:
     try:
@@ -42,6 +66,7 @@ def db() -> Session:
         session.execute(text("SELECT 1"))
     except Exception:
         pytest.skip("local Postgres not reachable (docker compose up postgres)")
+    _clear_stale_sentinel_lock(session)
     trans = session.begin_nested() if session.in_transaction() else None
     try:
         yield session

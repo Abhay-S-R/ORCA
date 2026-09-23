@@ -466,12 +466,19 @@ def get_trace(query_id: str) -> TraceGraph:
 class PersonaRenderRequest(BaseModel):
     query_id: str
     persona: Literal["fisherman", "commercial_navigator", "researcher", "coastal_authority"]
+    # P3.13 (orca_final §15.2) — "speak to me in Telugu" re-renders the
+    # ALREADY-ANSWERED query in a new language, same zero-re-query contract
+    # as the persona switch: no agent runs again, only the wording changes.
+    # None keeps today's behaviour (English only).
+    language: str | None = None
 
 
 class PersonaRenderResponse(BaseModel):
     query_id: str
     persona: str
     final_english_response: str
+    final_vernacular_response: str | None = None
+    language: str | None = None
     confidence_tier: str
     citations: list[dict[str, Any]]
 
@@ -512,24 +519,27 @@ def _rows_to_agent_results(rows: list[AuditTraceLog]) -> list[AgentResult]:
     return results
 
 
-@router.post("/render")
-def render_persona(req: PersonaRenderRequest) -> PersonaRenderResponse:
-    """Re-renders an already-answered query under a new persona. Calls
-    ONLY orca.agents.reporting — never a specialist agent, never the graph —
-    which is what makes this a zero-re-query operation (Phase 3 exit
-    criterion 3 / differentiator 7). Every number in the response is
-    byte-identical to the original answer; only the wording changes."""
+def render_query(query_id: str, persona: str, language: str | None = None) -> PersonaRenderResponse:
+    """The actual re-render — calls ONLY orca.agents.reporting, never a
+    specialist agent, never the graph, which is what makes this a
+    zero-re-query operation (Phase 3 exit criterion 3 / differentiator 7).
+    Every number in the response is byte-identical to the original answer;
+    only the wording (and, with `language` set, the script) changes.
+
+    Extracted from the `/render` route (P3.13) so `orca/api/main.py`'s
+    deterministic "speak to me in Telugu" handler can call this directly —
+    an in-process function call, not a second HTTP round-trip to itself."""
     # Same two-tier read as GET /trace/{query_id}: the in-memory ring buffer
     # first, Postgres second. Reading only Postgres here meant a query
     # answered while the DB was offline was inspectable on /reasoning but
     # 404'd on the persona switcher — one surface saying the answer exists
     # and the other saying it doesn't, for the same query_id.
-    cached = _RECENT_TRACES.get(req.query_id)
+    cached = _RECENT_TRACES.get(query_id)
     rows = cached["rows"] if cached else []
 
     if not rows:
         try:
-            qid = uuid.UUID(req.query_id)
+            qid = uuid.UUID(query_id)
         except ValueError:
             raise HTTPException(status_code=422, detail="query_id must be a UUID")
         db = get_sessionmaker()()
@@ -538,7 +548,7 @@ def render_persona(req: PersonaRenderRequest) -> PersonaRenderResponse:
         finally:
             db.close()
     if not rows:
-        raise HTTPException(status_code=404, detail=f"no stored result for query_id {req.query_id}")
+        raise HTTPException(status_code=404, detail=f"no stored result for query_id {query_id}")
 
     results = _rows_to_agent_results(rows)
 
@@ -550,20 +560,36 @@ def render_persona(req: PersonaRenderRequest) -> PersonaRenderResponse:
     query_row = _row("planning")
     query_text = (_get_val(query_row, "inputs_consumed") or {}).get("query", "") if query_row else ""
 
-    assembled = reporting.assemble_response(req.query_id, results)
+    assembled = reporting.assemble_response(query_id, results)
     # A re-render reads back what the original run recorded; geospatial's
     # inputs_consumed is where the position it actually used was persisted, so
     # the re-rendered narrative claims the same location the first one did.
     geo_row = _row("geospatial")
     user_location = (_get_val(geo_row, "inputs_consumed") or {}).get("user_location") if geo_row else None
     narrative = reporting.synthesize_narrative(
-        query_text, verdict, results, persona=req.persona, user_location=user_location,
+        query_text, verdict, results, persona=persona, user_location=user_location,
     )
 
+    vernacular: str | None = None
+    if language and language != "en":
+        from orca.agents.language import _ALL_LANGUAGES, translate_from_english
+
+        if language in _ALL_LANGUAGES:
+            try:
+                vernacular = translate_from_english(narrative, target=language)  # type: ignore[arg-type]
+            except RuntimeError:
+                # Degrade to English rather than fail the re-render — same
+                # contract as language_egress (principle 3: say so, don't hide
+                # it). The caller sees `final_vernacular_response is None` and
+                # `language` echoed back, so it can fall back visibly.
+                vernacular = None
+
     return PersonaRenderResponse(
-        query_id=req.query_id,
-        persona=req.persona,
+        query_id=query_id,
+        persona=persona,
         final_english_response=narrative,
+        final_vernacular_response=vernacular,
+        language=language,
         confidence_tier=assembled.confidence_tier,
         citations=[
             {
@@ -573,3 +599,10 @@ def render_persona(req: PersonaRenderRequest) -> PersonaRenderResponse:
             for c in assembled.citations
         ],
     )
+
+
+@router.post("/render")
+def render_persona(req: PersonaRenderRequest) -> PersonaRenderResponse:
+    """Re-renders an already-answered query under a new persona and/or
+    language. Thin HTTP wrapper — see `render_query` for the actual logic."""
+    return render_query(req.query_id, req.persona, req.language)

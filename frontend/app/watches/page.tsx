@@ -4,6 +4,7 @@
 // belongs to someone, so this needs identity; the fisherman variant is
 // simplified, not crippled ("watch my home port" is one tap with sane
 // default thresholds; the full editor is behind "Advanced").
+// P3.12 — all visible strings now sourced from the i18n dictionaries via useT().
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Eye } from "lucide-react";
@@ -17,12 +18,14 @@ import { WatchCard } from "../components/WatchCard";
 import { usePersona } from "../persona/context";
 import { getToken, signIn, signOut } from "../lib/auth";
 import { createWatch, listWatches, type Watch, type WatchType } from "../lib/watches";
+import { useT } from "../i18n/useT";
 
 const HOME_PORT = { lat: 8.8, lon: 78.14 }; // Thoothukudi pilot reference — TODO(D1): user's registered home port
 const DEFAULT_WAVE_THRESHOLD = 2.5;
 
 export default function WatchesPage() {
   const { persona } = usePersona();
+  const t = useT();
   const [signedIn, setSignedIn] = useState(false);
   const [watches, setWatches] = useState<Watch[] | null>(null);
   const [error, setError] = useState(false);
@@ -69,22 +72,22 @@ export default function WatchesPage() {
   return (
     <PageBody className="mx-auto max-w-3xl">
       <PageHeader
-        title="Watches"
-        lede="Standing alerts on a place you care about — Sentinel checks it on a schedule and tells you when conditions cross your thresholds."
+        title={t("watches.title")}
+        lede={t("watches.lede")}
         action={
           <Button variant="ghost" onClick={() => signOut()}>
-            Sign out
+            {t("common.signOut")}
           </Button>
         }
       />
 
-      <Panel title="Add a watch" className="mb-4">
+      <Panel title={t("watches.addWatch")} className="mb-4">
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="primary" onClick={quickAddHomePort}>
-            Watch my home port
+            {t("watches.watchHomePort")}
           </Button>
           <span className="text-[11px] text-ink-dim">
-            Wave height over {DEFAULT_WAVE_THRESHOLD} m within 10 km, in-app alerts.
+            {t("watches.waveDefault")}
           </span>
           <button
             type="button"
@@ -92,19 +95,19 @@ export default function WatchesPage() {
             aria-expanded={advanced}
             onClick={() => setAdvanced((v) => !v)}
           >
-            {advanced ? "Hide advanced" : "Advanced"}
+            {advanced ? t("watches.hideAdvanced") : t("watches.advanced")}
           </button>
         </div>
         {advanced && <AdvancedWatchForm onCreated={load} />}
       </Panel>
 
-      {error && <ErrorState title="Could not load your watches" body="The server did not answer. Try reloading." />}
+      {error && <ErrorState title={t("watches.serverError")} body={t("watches.serverErrorBody")} />}
       {!error && watches === null && <Skeleton className="h-40" />}
       {!error && watches !== null && watches.length === 0 && (
         <EmptyState
           icon={<Eye className="size-6" />}
-          title="No watches yet"
-          body="Add your home port above, or use Advanced to watch a specific point with your own thresholds."
+          title={t("watches.noWatches")}
+          body={t("watches.noWatchesBody")}
         />
       )}
       {!error && watches && watches.length > 0 && (
@@ -116,14 +119,14 @@ export default function WatchesPage() {
       )}
 
       <p className="mt-4 text-[11px] text-ink-dim">
-        Viewing as <span className="text-ink-muted">{persona.replace(/_/g, " ")}</span>. SMS / IVR delivery is not built —
-        those channels are shown as SIMULATED with the exact message that would be sent.
+        {t("common.signOut").charAt(0).toUpperCase()} — <span className="text-ink-muted">{persona.replace(/_/g, " ")}</span>. {t("watches.simulated")}
       </p>
     </PageBody>
   );
 }
 
 function AdvancedWatchForm({ onCreated }: { onCreated: () => void }) {
+  const t = useT();
   const [type, setType] = useState<WatchType>("wave_height");
   const [lat, setLat] = useState(String(HOME_PORT.lat));
   const [lon, setLon] = useState(String(HOME_PORT.lon));
@@ -155,33 +158,34 @@ function AdvancedWatchForm({ onCreated }: { onCreated: () => void }) {
 
   return (
     <form onSubmit={submit} className="mt-4 border-t border-hairline pt-4">
-      <Field label="Watch type">
+      <Field label={t("watches.watchType")}>
         {(id) => (
           <select id={id} className={inputClass} value={type} onChange={(e) => setType(e.target.value as WatchType)}>
-            <option value="wave_height">Wave height</option>
-            <option value="weather">Weather (any worsening)</option>
-            <option value="lightning">Lightning</option>
-            <option value="cyclone">Cyclone</option>
-            <option value="geofence_approach">Boundary approach</option>
-            <option value="pfz_shift">Fishing-zone shift</option>
+            <option value="wave_height">{t("watches.waveHeight")}</option>
+            <option value="weather">{t("watches.weather")}</option>
+            <option value="lightning">{t("watches.lightning")}</option>
+            <option value="cyclone">{t("watches.cyclone")}</option>
+            <option value="geofence_approach">{t("watches.boundaryApproach")}</option>
+            <option value="pfz_shift">{t("watches.fishingZoneShift")}</option>
           </select>
         )}
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Latitude">{(id) => <input id={id} className={inputClass} value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" />}</Field>
-        <Field label="Longitude">{(id) => <input id={id} className={inputClass} value={lon} onChange={(e) => setLon(e.target.value)} inputMode="decimal" />}</Field>
-        <Field label="Radius (km)">{(id) => <input id={id} className={inputClass} value={radius} onChange={(e) => setRadius(e.target.value)} inputMode="decimal" />}</Field>
-        <Field label="Wave threshold (m)">{(id) => <input id={id} className={inputClass} value={wave} onChange={(e) => setWave(e.target.value)} inputMode="decimal" />}</Field>
-        <Field label="Wind threshold (kt)" hint="optional">{(id) => <input id={id} className={inputClass} value={wind} onChange={(e) => setWind(e.target.value)} inputMode="decimal" />}</Field>
+        <Field label={t("watches.latitude")}>{(id) => <input id={id} className={inputClass} value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" />}</Field>
+        <Field label={t("watches.longitude")}>{(id) => <input id={id} className={inputClass} value={lon} onChange={(e) => setLon(e.target.value)} inputMode="decimal" />}</Field>
+        <Field label={t("watches.radius")}>{(id) => <input id={id} className={inputClass} value={radius} onChange={(e) => setRadius(e.target.value)} inputMode="decimal" />}</Field>
+        <Field label={t("watches.waveThreshold")}>{(id) => <input id={id} className={inputClass} value={wave} onChange={(e) => setWave(e.target.value)} inputMode="decimal" />}</Field>
+        <Field label={t("watches.windThreshold")} hint={t("watches.windHint")}>{(id) => <input id={id} className={inputClass} value={wind} onChange={(e) => setWind(e.target.value)} inputMode="decimal" />}</Field>
       </div>
       <Button type="submit" variant="primary" disabled={busy}>
-        {busy ? "Adding…" : "Add watch"}
+        {busy ? t("watches.adding") : t("watches.addButton")}
       </Button>
     </form>
   );
 }
 
 function SignInGate() {
+  const t = useT();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [failed, setFailed] = useState(false);
@@ -198,15 +202,15 @@ function SignInGate() {
 
   return (
     <PageBody className="mx-auto max-w-md">
-      <PageHeader title="Watches" lede="Sign in to set standing alerts on the places you care about." />
-      <Panel title="Sign in">
+      <PageHeader title={t("watches.title")} lede={t("watches.signInLede")} />
+      <Panel title={t("watches.signInPanel")}>
         <form onSubmit={submit}>
-          <Field label="Phone or email">
+          <Field label={t("watches.phoneOrEmail")}>
             {(id) => (
               <input id={id} className={inputClass} value={identifier} onChange={(e) => setIdentifier(e.target.value)} autoComplete="username" />
             )}
           </Field>
-          <Field label="Password">
+          <Field label={t("watches.password")}>
             {(id) => (
               <PasswordInput
                 id={id}
@@ -218,20 +222,20 @@ function SignInGate() {
           </Field>
           {failed && (
             <p role="alert" className="mb-2 text-[11px] text-no-go">
-              Sign-in failed — check your details and try again.
+              {t("watches.signInFailed")}
             </p>
           )}
           <Button type="submit" variant="primary" disabled={busy}>
-            {busy ? "Signing in…" : "Sign in"}
+            {busy ? t("watches.signingIn") : t("common.signIn")}
           </Button>
         </form>
       </Panel>
       <p className="mt-3 text-[11px] text-ink-dim">
-        No account yet?{" "}
+        {t("watches.noAccount")}{" "}
         <Link href="/login?next=/watches" className="font-semibold text-ocean-cyan hover:underline">
-          Create one
+          {t("watches.createOne")}
         </Link>{" "}
-        — the same account keeps your Ask chats and alerts.
+        {t("watches.sameAccount")}
       </p>
     </PageBody>
   );

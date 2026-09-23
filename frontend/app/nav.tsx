@@ -29,6 +29,7 @@ import {
 import { NAV_ROUTES, visibilityFor } from "./persona/config";
 import { usePersona } from "./persona/context";
 import { API_BASE } from "./lib/apiBase";
+import { useT } from "./i18n/useT";
 
 // Thoothukudi, the pilot region's own reference position — the same default
 // the API uses when no live fix is supplied. Live GPS is Phase 2.
@@ -47,6 +48,9 @@ const NATIONWIDE_MRCC = {
   vhf_channel: "16",
 };
 
+// P3.12 (orca_final §14.4) — icons only; the label itself comes from
+// useT() below, keyed as `nav.<route slug>` in app/i18n/<lang>.json (every
+// slug here matches a real key in every one of the ten dictionaries).
 const NAV: Record<(typeof NAV_ROUTES)[number], { label: string; Icon: LucideIcon }> = {
   "/ask": { label: "Ask", Icon: Radio },
   "/safety": { label: "Safety", Icon: ShieldAlert },
@@ -60,11 +64,16 @@ const NAV: Record<(typeof NAV_ROUTES)[number], { label: string; Icon: LucideIcon
   "/reasoning": { label: "Reasoning", Icon: Workflow },
 };
 
+function navKey(href: (typeof NAV_ROUTES)[number]): string {
+  return `nav.${href.slice(1)}`;
+}
+
 const NEVER_CHANGES = () => () => {};
 
 export function NavRail() {
   const pathname = usePathname();
   const { persona } = usePersona();
+  const t = useT();
 
   // Hydration-safe: render with "unresolved" on both the server pass and the
   // first client render so the HTML matches, then swap in the real persona
@@ -97,7 +106,8 @@ export function NavRail() {
           <span className="sr-only">ORCA</span>
         </Link>
         {visible.map(({ href, visibility }) => {
-          const { label, Icon } = NAV[href];
+          const { Icon } = NAV[href];
+          const label = t(navKey(href));
           const active = pathname === href;
           return (
             <Link
@@ -133,7 +143,8 @@ export function NavRail() {
         className="fixed inset-x-0 bottom-0 z-40 flex border-t border-hairline bg-shelf-1/95 backdrop-blur-xl sm:hidden shadow-2xl"
       >
         {visible.slice(0, 5).map(({ href }) => {
-          const { label, Icon } = NAV[href];
+          const { Icon } = NAV[href];
+          const label = t(navKey(href));
           const active = pathname === href;
           return (
             <Link

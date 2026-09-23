@@ -223,8 +223,13 @@ def test_generate_alert_payload_sms_truncates_to_160_chars():
 
 
 def test_generate_alert_payload_non_english_raises_not_silently_returns_english():
-    with pytest.raises(NotImplementedError, match="ta"):
-        generate_alert_payload("Cyclone", "danger", "Thoothukudi", language="ta")
+    # P3.6 (2026-09-23) widened _ALERT_VERIFIED_LANGUAGES to en/hi/ta/te —
+    # "ta" is verified now, so it exercises the translate_from_english path
+    # below rather than this guard. Kannada is still outside the verified
+    # set, which is what this test is actually about: an unverified language
+    # raises rather than silently shipping mislabelled English.
+    with pytest.raises(NotImplementedError, match="kn"):
+        generate_alert_payload("Cyclone", "danger", "Thoothukudi", language="kn")
 
 
 # --- check_active_hazards (composes Agent 4 via WIA) ---------------------------

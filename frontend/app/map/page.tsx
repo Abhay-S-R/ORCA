@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { Skeleton } from "../components/States";
+import { useT } from "../i18n/useT";
 
 // MapLibre touches `window` at module load, so the chart is client-only —
 // same constraint Leaflet had, same fix.
@@ -13,9 +14,10 @@ const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapV
 // The chart explorer goes edge to edge. No page header, no padding: this
 // surface IS the map, and framing it in a card would make it a widget.
 export default function MapPage() {
+  const t = useT();
   return (
     <div className="h-full">
-      <h1 className="sr-only">Chart</h1>
+      <h1 className="sr-only">{t("nav.map")}</h1>
       <MapView className="h-full w-full rounded-none border-0" />
     </div>
   );

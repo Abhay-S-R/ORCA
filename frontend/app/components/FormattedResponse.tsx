@@ -11,10 +11,18 @@ import {
   Clock,
   MapPin,
 } from "lucide-react";
+import { fontClassForLanguage } from "../i18n/languages";
+import { useT } from "../i18n/useT";
 
 interface FormattedResponseProps {
   text: string;
   className?: string;
+  // P3.12 — the answer's own detected/vernacular language (`en` by
+  // default). Loads the matching Noto family (globals.css `@theme`) rather
+  // than leaving a non-Tamil Indic script to the base UI font, which has no
+  // Indic glyphs and depends entirely on whatever the OS happens to fall
+  // back to.
+  language?: string | null;
 }
 
 /**
@@ -79,7 +87,9 @@ interface ParsedSection {
   items: string[];
 }
 
-export function FormattedResponse({ text, className = "" }: FormattedResponseProps) {
+export function FormattedResponse({ text, className = "", language }: FormattedResponseProps) {
+  const t = useT();
+  const langClass = fontClassForLanguage(language);
   const parsed = useMemo(() => {
     if (!text) return null;
 
@@ -179,7 +189,7 @@ export function FormattedResponse({ text, className = "" }: FormattedResponsePro
   // removes.
   if (parsed.sections.length === 0) {
     return (
-      <div className={`space-y-3 ${className}`}>
+      <div lang={language ?? undefined} className={`space-y-3 ${className} ${langClass}`}>
         {parsed.paragraphs.map((p, i) => (
           <p key={i} className="text-[14px] leading-relaxed text-ink">
             {renderInlineMarkdown(p)}
@@ -190,7 +200,7 @@ export function FormattedResponse({ text, className = "" }: FormattedResponsePro
   }
 
   return (
-    <div className={`space-y-3.5 ${className}`}>
+    <div lang={language ?? undefined} className={`space-y-3.5 ${className} ${langClass}`}>
       {/* Verdict prefix is stripped from the raw text above but, same as the
           unsectioned branch, no longer rendered as its own banner box here —
           PersonaAnswerMatrix's status row already states it once. */}
@@ -201,7 +211,7 @@ export function FormattedResponse({ text, className = "" }: FormattedResponsePro
           {parsed.metadata.sector && (
             <span className="inline-flex items-center gap-1">
               <MapPin className="size-3 text-accent shrink-0" />
-              <strong className="font-medium text-ink-dim">Sector:</strong>{" "}
+              <strong className="font-medium text-ink-dim">{t("chatTurn.sector")}</strong>{" "}
               {parsed.metadata.sector}
             </span>
           )}

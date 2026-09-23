@@ -154,25 +154,44 @@ def compute_confidence(inputs: list[Confidence]) -> Confidence:
 
 # --- generate_alert_payload ---------------------------------------------------
 
+# P3.6 (`R-PS-7`) — the four languages with verified TTS end-to-end
+# (orca/agents/voice.py's MmsTtsBackend docstring: en/hi/ta/te round-trip
+# confirmed). The other five core languages have a translation backend
+# (IndicTrans2 covers all ten) but no verified voice output, and the DLC is
+# explicit: mislabelled English is worse than nothing, so they still raise
+# rather than silently ship an unverified alert as if it were checked.
+_ALERT_VERIFIED_LANGUAGES = frozenset({"en", "hi", "ta", "te"})
+
+
 def generate_alert_payload(
     hazard_type: str, severity: str, location: str, language: str = "en"
 ) -> dict[str, str]:
-    """Tool per Architecture §3.1 Agent 7. English only in Phase 1 — Ground
-    Rule 1 keeps specialist agents persona/language-blind; localization
-    happens at Agent 1's egress (or, for Sentinel's background dispatch in
-    Phase 3, via a direct call to Agent 1's translate_from_english). Wiring
-    that cross-agent call is Phase 3 work (Sentinel), not built here — this
-    raises rather than silently returning English text mislabelled as
-    localized."""
-    if language != "en":
+    """Tool per Architecture §3.1 Agent 7. Ground Rule 1 keeps specialist
+    agents persona/language-blind for the query path; Sentinel's background
+    dispatch has no query-time egress to route through, so this is the one
+    place a specialist agent calls Agent 1's `translate_from_english`
+    directly (P3.6) — not a second localization system, the same seam.
+    Still raises for a language with no verified voice output (module-level
+    `_ALERT_VERIFIED_LANGUAGES`): a Tamil-speaking fisherman getting no
+    alert is a known, disclosed gap; getting one mislabelled as Odia when
+    nobody has heard it spoken is a worse one."""
+    if language not in _ALERT_VERIFIED_LANGUAGES:
         raise NotImplementedError(
-            f"generate_alert_payload has no localization for {language!r} yet — "
-            "Phase 1 only builds the English text. Route through Agent 1's "
-            "translate_from_english when this is called from Sentinel (Phase 3)."
+            f"generate_alert_payload has no verified localization for {language!r} yet "
+            f"— only {sorted(_ALERT_VERIFIED_LANGUAGES)} have confirmed end-to-end voice "
+            "(orca/agents/voice.py). Falls back to English at the caller (sentinel.build_alert)."
         )
     text = f"{severity.upper()}: {hazard_type} near {location}."
     sms = f"[ORCA {severity.upper()}] {hazard_type} near {location}. Seek safety."[:160]
-    return {"text": text, "sms": sms, "language": "en"}
+    if language != "en":
+        from orca.agents.language import translate_from_english
+
+        text = translate_from_english(text, target=language)  # type: ignore[arg-type]
+        # Not re-truncated to 160 chars here: that limit is GSM-7's, and a
+        # translated Indic alert is UCS-2 (P3.11's render_sms), a different
+        # per-part budget this function has no business assuming.
+        sms = translate_from_english(sms, target=language)  # type: ignore[arg-type]
+    return {"text": text, "sms": sms, "language": language}
 
 
 # --- check_active_hazards ----------------------------------------------------

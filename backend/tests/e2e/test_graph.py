@@ -227,6 +227,14 @@ def test_tamil_query_translates_in_and_out_with_a_mocked_backend(monkeypatch):
         def translate(self, text: str, source: str, target: str) -> str:
             return f"[{source}->{target}] {text}"
 
+    # Real BHASHINI_* credentials (P3.8, live since 2026-09-23) mean the
+    # live NMT rung now answers before this echo backend would ever be
+    # reached — disabled here so this test still proves what it names: the
+    # WIRING to a registered backend, not whichever rung answers first.
+    def _bhashini_unreachable(*_a: object, **_kw: object) -> str:
+        raise RuntimeError("bhashini disabled for this test")
+
+    monkeypatch.setattr("orca.agents.bhashini.nmt", _bhashini_unreachable)
     monkeypatch.setattr(language, "_backend", _EchoBackend())
     _mock_calm_weather(monkeypatch)
 

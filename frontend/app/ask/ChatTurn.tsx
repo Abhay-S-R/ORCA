@@ -12,7 +12,8 @@ import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
 import { Panel } from "../components/Panel";
 import { PersonaAnswerMatrix } from "../components/PersonaAnswerMatrix";
-import { PersonaCorrection, type RenderResult } from "../components/PersonaCorrection";
+import { LanguageSwitch, PersonaCorrection, type RenderResult } from "../components/PersonaCorrection";
+import { ProfilePrompt } from "../components/ProfilePrompt";
 import { Readout, ReadoutGrid } from "../components/Readout";
 import { AnswerSpeaker } from "../components/AnswerSpeaker";
 import { FormattedResponse } from "../components/FormattedResponse";
@@ -27,6 +28,7 @@ import { RerunControl } from "./RerunControl";
 import { IntentActions } from "./IntentActions";
 import { DisclosureBanner, RefusalCard, ResetNotice } from "./Disclosures";
 import { InheritedChips, ReconciliationPanel, RoutingLine, SkippedNotice } from "./ReasoningEvidence";
+import { useT } from "../i18n/useT";
 
 const FOLLOW_UPS: Record<QueryIntent, string[]> = {
   safety: ["What are the wind and wave timings for the next 24 hours?", "Where is the nearest fishing zone right now?"],
@@ -92,6 +94,7 @@ export function ChatTurn({
   onPersonaChange: (p: Persona) => void;
   onRendered: (result: RenderResult) => void;
 }) {
+  const t = useT();
   const { askedQuery, spans, answer, streaming, failed, renderedAs, focus } = turn;
   // P2.11 — read from the answer, which persists with the chat, rather than
   // from a flag on the turn, which the account store does not round-trip: a
@@ -129,7 +132,7 @@ export function ChatTurn({
       className="flex flex-col gap-3"
     >
       <p className="flex items-start gap-2 self-end rounded-2xl rounded-tr-sm border border-hairline-strong bg-shelf-3 px-4 py-2 text-sm text-ink shadow-sm">
-        <span className="font-mono text-[10px] font-semibold tracking-wider text-ink-dim uppercase">You</span>
+        <span className="font-mono text-[10px] font-semibold tracking-wider text-ink-dim uppercase">{t("chatTurn.you")}</span>
         <span className="min-w-0 break-words">{askedQuery}</span>
       </p>
 
@@ -141,7 +144,7 @@ export function ChatTurn({
           {streaming && (
             <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
               <Radio className="size-3" aria-hidden="true" />
-              Agent trace
+              {t("chatTurn.agentTrace")}
             </span>
           )}
           <AgentStrip>
@@ -175,11 +178,11 @@ export function ChatTurn({
 
       {failed && (
         <ErrorState
-          title="ORCA could not reach the backend"
-          body="The answer service did not respond. Check that the API is running, then ask again."
+          title={t("chatTurn.backendErrorTitle")}
+          body={t("chatTurn.backendErrorBody")}
           action={
             <Button variant="ghost" onClick={onRetry}>
-              Ask again
+              {t("chatTurn.askAgain")}
             </Button>
           }
         />
@@ -264,8 +267,8 @@ export function ChatTurn({
                 >
                   <History className="size-3 shrink-0" aria-hidden="true" />
                   {answer.context_turns > 0
-                    ? `Following on from ${answer.context_turns} earlier ${answer.context_turns === 1 ? "message" : "messages"} in this chat`
-                    : "Earlier messages in this chat have expired, so this was answered as a new question — name your location again if it matters."}
+                    ? t(answer.context_turns === 1 ? "chatTurn.followingOnOne" : "chatTurn.followingOnMany", { n: answer.context_turns })
+                    : t("chatTurn.contextExpired")}
                 </p>
               )}
 
@@ -280,8 +283,8 @@ export function ChatTurn({
                 >
                   <MapPin className="size-3 text-accent" aria-hidden="true" />
                   {(() => {
-                    const label = intentLabel(focus.intent, answer?.user_location?.place_source === "regional_default");
-                    return isMapFocus ? `Map focused on ${label}` : `View on map — ${label}`;
+                    const label = intentLabel(t, focus.intent, answer?.user_location?.place_source === "regional_default");
+                    return t(isMapFocus ? "chatTurn.mapFocusedOn" : "chatTurn.viewOnMap", { label });
                   })()}
                 </button>
               )}
@@ -298,7 +301,7 @@ export function ChatTurn({
                 const isRedundant = verdictLine != null && answerBody.trim() === verdictLine.trim();
                 return (
                   <div className="flex flex-col gap-2.5">
-                    {!isRedundant && <FormattedResponse text={answerBody} />}
+                    {!isRedundant && <FormattedResponse text={answerBody} language={answer.detected_language} />}
                     <AnswerSpeaker
                       text={answerBody}
                       language={answer.detected_language ?? "en"}
@@ -315,7 +318,7 @@ export function ChatTurn({
                 answer.detected_language !== "en" &&
                 answer.final_vernacular_response !== answer.final_english_response && (
                   <div className="rounded-xl border border-hairline/60 bg-shelf-0/40 p-3 text-xs text-ink-muted">
-                    <span className="font-semibold text-ink-dim block mb-1.5">English translation:</span>
+                    <span className="font-semibold text-ink-dim block mb-1.5">{t("chatTurn.englishTranslation")}</span>
                     <FormattedResponse text={answer.final_english_response} />
                   </div>
               )}
@@ -345,7 +348,7 @@ export function ChatTurn({
                 (answer.citations && answer.citations.length > 0)) && (
                 <div className="flex flex-col gap-2 border-t border-hairline/50 pt-3.5">
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
-                    Sources &amp; provenance
+                    {t("chatTurn.sourcesProvenance")}
                   </span>
                   {answer.source_selections && answer.source_selections.length > 0 && (
                     <div className="flex flex-col gap-1.5">
@@ -361,7 +364,7 @@ export function ChatTurn({
                           key={i}
                           dataset={c.dataset}
                           acquisitionTimestamp={c.acquisition_timestamp}
-                          detail={`Read by ${c.agent_name}.`}
+                          detail={t("chatTurn.readBy", { agent: c.agent_name })}
                         />
                       ))}
                     </div>
@@ -374,7 +377,7 @@ export function ChatTurn({
               {focus && (
                 <div className="flex flex-wrap items-center gap-1.5 border-t border-hairline/50 pt-3.5">
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
-                    Follow-up
+                    {t("chatTurn.followUp")}
                   </span>
                   {FOLLOW_UPS[focus.intent].map((q) => (
                     <button
@@ -402,7 +405,7 @@ export function ChatTurn({
                   className="flex w-fit items-center gap-1.5 self-start rounded-lg border border-hairline/60 bg-shelf-2/50 px-2.5 py-1.5 text-[11px] text-ink-muted transition-colors hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink"
                 >
                   <PowerOff className="size-3 text-accent" aria-hidden="true" />
-                  Re-run this without any LLM
+                  {t("chatTurn.rerunNoLlm")}
                 </button>
               )}
 
@@ -410,9 +413,8 @@ export function ChatTurn({
                 <p className="flex items-start gap-1.5 rounded-lg border border-accent/40 bg-accent/5 p-2.5 text-[11px] leading-snug text-ink-muted">
                   <PowerOff className="mt-0.5 size-3 shrink-0 text-accent" aria-hidden="true" />
                   <span>
-                    <span className="font-medium text-ink">Answered with every LLM provider disabled.</span>{" "}
-                    The verdict, thresholds, boundary distance, citations and confidence above are all
-                    deterministic code — only the wording degrades to the plain verdict line.
+                    <span className="font-medium text-ink">{t("chatTurn.llmOffTitle")}</span>{" "}
+                    {t("chatTurn.llmOffBody")}
                   </span>
                 </p>
               )}
@@ -423,6 +425,19 @@ export function ChatTurn({
                 onPersonaChange={onPersonaChange}
                 onRendered={onRendered}
               />
+              <LanguageSwitch
+                queryId={answer.query_id}
+                persona={renderedAs ?? persona}
+                currentLanguage={answer.detected_language}
+                onRendered={onRendered}
+              />
+              {answer.profile_prompt && (
+                <ProfilePrompt
+                  prompt={answer.profile_prompt}
+                  location={answer.user_location}
+                  language={answer.detected_language}
+                />
+              )}
             </div>
           </Panel>
 
@@ -430,7 +445,7 @@ export function ChatTurn({
               uses, kept below the prediction response rather than above it. */}
           {answer.weather_summary && (
             <Panel
-              title="Weather"
+              title={t("chatTurn.weather")}
               action={
                 weatherCitation && (
                   <SourceChip dataset={weatherCitation.dataset} acquisitionTimestamp={weatherCitation.acquisition_timestamp} />
@@ -438,9 +453,9 @@ export function ChatTurn({
               }
             >
               <ReadoutGrid cols={4}>
-                <Readout label="Wave height" value={answer.weather_summary.wave_height_m ?? "—"} unit="m" />
+                <Readout label={t("chatTurn.waveHeight")} value={answer.weather_summary.wave_height_m ?? "—"} unit="m" />
                 <Readout
-                  label="Wind speed"
+                  label={t("chatTurn.windSpeed")}
                   value={
                     answer.weather_summary.wind_speed_ms != null
                       ? (answer.weather_summary.wind_speed_ms * 3.6).toFixed(1)
@@ -449,18 +464,18 @@ export function ChatTurn({
                   unit="km/h"
                 />
                 <Readout
-                  label="Lightning"
+                  label={t("chatTurn.lightning")}
                   value={
                     <Badge tone={answer.weather_summary.lightning_active ? "no-go" : "go"}>
-                      {answer.weather_summary.lightning_active ? "Active" : "Clear"}
+                      {answer.weather_summary.lightning_active ? t("chatTurn.active") : t("chatTurn.clear")}
                     </Badge>
                   }
                 />
                 <Readout
-                  label="Cyclone alert"
+                  label={t("chatTurn.cycloneAlert")}
                   value={
                     <Badge tone={answer.weather_summary.cyclone_alert ? "no-go" : "go"}>
-                      {answer.weather_summary.cyclone_alert ?? "None"}
+                      {answer.weather_summary.cyclone_alert ?? t("chatTurn.none")}
                     </Badge>
                   }
                 />

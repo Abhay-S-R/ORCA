@@ -24,7 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from orca.agents import sentinel
-from orca.db.models import AuditTraceLog
+from orca.db.models import AuditTraceLog, User
 from orca.db.notifications_models import Notification
 from orca.db.notifications_repo import (
     create_notification,
@@ -186,6 +186,11 @@ def run_poll_cycle(db: Session, *, escalate: EscalateFn | None = None) -> list[s
             loc = watch_location(watch)
             if loc is None:
                 continue
+            # P3.6 — the watch owner's stored language, so a proactive alert
+            # does not default to English for every subscriber regardless of
+            # who they are. `db.get` is a cheap PK lookup, once per watch per
+            # tick; missing/deleted user degrades to "en" like before.
+            owner = db.get(User, watch.user_id)
             decision = sentinel.evaluate(
                 watch_id=str(watch.id),
                 watch_type=watch.watch_type,
@@ -193,6 +198,7 @@ def run_poll_cycle(db: Session, *, escalate: EscalateFn | None = None) -> list[s
                 location_name="your watch area" if watch.watch_area is not None else "your watch point",
                 thresholds=dict(watch.thresholds or {}),
                 last_payload=_last_watch_payload(db, watch.id),
+                language=(owner.language if owner is not None else "en") or "en",
             )
             decisions.append(decision)
             if not decision.fired:

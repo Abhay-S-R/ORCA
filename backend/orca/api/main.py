@@ -15,10 +15,11 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from typing import Any, cast
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
 
 from orca import engines, intent_actions
 from orca import session as session_memory
@@ -42,18 +43,25 @@ from orca.api.trace_routes import (
     _reasoning_summary,
     record_recent_trace,
 )
+from orca.api.trace_routes import render_query as trace_routes_render_query
 from orca.api.trace_routes import (
     router as trace_router,
 )
 from orca.api.voice_routes import router as voice_router
 from orca.api.voyage_routes import router as voyage_router
 from orca.api.watches_routes import router as watches_router
+from orca.auth.rbac import get_optional_user
 from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
 from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
+from orca.db.engine import get_db
+from orca.db.models import User
+from orca.db.repositories import get_vessel_for_owner, user_home_port
 from orca.graph.graph import build_graph
+from orca.language_command import match_language_command
 from orca.llm.tiers import llm_enabled, reset_llm_call_count, set_llm_override
 from orca.logging_utils import configure_logging
 from orca.place_resolution import resolve_or_ask
+from orca.profile_prompts import profile_prompt
 from orca.query_cache import get as query_cache_get
 from orca.query_cache import resolved_key
 from orca.query_cache import store as query_cache_store
@@ -193,6 +201,7 @@ def _initial_state(
     session_history: list[dict] | None = None,
     resolution: dict | None = None,
     fix_on_land: bool = False,
+    user_language_default: str | None = None,
 ) -> ORCAState:
     return {  # type: ignore[typeddict-item]
         "session_id": session_id or "",
@@ -207,6 +216,9 @@ def _initial_state(
         # Overwritten by language_ingress_node once the graph runs — this is
         # only the value used if that node is somehow skipped.
         "normalized_english_query": query,
+        # P3.1 — a signed-in user's stored language, consulted only when the
+        # text itself carries no script signal (see language.run_ingress).
+        "user_language_default": user_language_default,
         # A real query-complexity classifier for reasoning_depth is Agent 2's
         # job (plan §9.5's rules-tier routing) and is not built yet — this
         # accepts an explicit override so DEEP-only paths (ocean_analytics'
@@ -406,6 +418,8 @@ async def _query_stream(
     resolution: dict | None = None,
     llm: bool | None = None,
     fix_on_land: bool = False,
+    user_id: uuid.UUID | None = None,
+    user_language_default: str | None = None,
 ) -> AsyncIterator[str]:
     """`on_final`, when given, is called once with the same dict that gets
     JSON-serialized into the `final_response` SSE frame — the query-cache
@@ -425,7 +439,13 @@ async def _query_stream(
     llm_calls = reset_llm_call_count()
     state = _initial_state(
         query, lat, lon, vessel_class, distress, persona, depth, place, session_id, session_history,
-        resolution, fix_on_land,
+        resolution, fix_on_land, user_language_default,
+    )
+    # P3.2 — a real `sessions` row for this chat, threaded into every
+    # audit_trace_log row below. Created once per query (idempotent — the
+    # same session_id just gets its last_seen_at touched on later turns).
+    session_uuid = _ensure_session_row(
+        session_id, user_id, persona if persona in _PERSONAS else None, user_language_default,
     )
     emitted = 0  # every graph node appends exactly one completed_nodes entry
     # AND exactly one audit_trace_log entry in the same call (see graph.py) —
@@ -670,8 +690,20 @@ async def _query_stream(
             # context is correct; carrying it invisibly is indistinguishable
             # from guessing, and leaves the user no way to say "not there".
             "inherited": _inherited_values(final_state, session_history),
+            # P3.4 — "ask at the moment it first matters." Never on a
+            # refusal or a distress response: neither is the moment to ask
+            # anything else of the caller.
+            "profile_prompt": (
+                profile_prompt(
+                    user_id=user_id,
+                    matched_intent_rows=final_state.get("matched_intent_rows") or [],
+                    place_source=(final_state.get("user_location") or {}).get("place_source"),
+                )
+                if final_state.get("query_outcome", "ANSWERED") == "ANSWERED" and not final_state.get("distress_flag")
+                else None
+            ),
         }
-        _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []))
+        _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []), session_uuid)
         if final_state.get("distress_flag"):
             _mrcc = final.get("mrcc_contact")
             _record_distress_event(final_state, _mrcc if isinstance(_mrcc, dict) else None)
@@ -716,6 +748,95 @@ async def _reset_stream() -> AsyncIterator[str]:
     })
 
 
+async def _language_change_stream(
+    language: str, session_id: str | None, history: list[dict], user: User | None,
+) -> AsyncIterator[str]:
+    """P3.13 (orca_final §15.2) — "speak to me in Telugu" changes the
+    conversation's language WITHOUT being answered as a marine question.
+    Persists the choice (this chat, and the account when signed in), then —
+    zero re-query, same contract as `POST /render` — re-renders the last
+    answered turn in this chat into the new language when there is one;
+    otherwise just confirms the switch. Never routes through Planning."""
+    if session_id:
+        try:
+            sid = uuid.UUID(session_id)
+        except ValueError:
+            sid = None
+        if sid is not None:
+            try:
+                from orca.db.engine import get_sessionmaker
+                from orca.db.repositories import set_session_language
+
+                db = get_sessionmaker()()
+                try:
+                    set_session_language(db, session_id=sid, language=language)
+                    db.commit()
+                finally:
+                    db.close()
+            except Exception:
+                logging.getLogger("orca.session").warning("session language not persisted", exc_info=True)
+    if user is not None:
+        try:
+            from orca.db.engine import get_sessionmaker
+
+            db = get_sessionmaker()()
+            try:
+                db_user = db.get(User, user.id)
+                if db_user is not None:
+                    db_user.language = language
+                    db.commit()
+            finally:
+                db.close()
+        except Exception:
+            logging.getLogger("orca.auth").warning("account language not persisted", exc_info=True)
+
+    last_turn = next((t for t in reversed(history) if t.get("query_id")), None)
+    if last_turn is not None:
+        try:
+            rendered = trace_routes_render_query(last_turn["query_id"], "fisherman", language)
+            yield _sse({
+                "type": "final_response",
+                "query_id": rendered.query_id,
+                "outcome": "LANGUAGE_CHANGED",
+                "final_english_response": rendered.final_english_response,
+                "final_vernacular_response": rendered.final_vernacular_response or rendered.final_english_response,
+                "detected_language": language,
+                "confidence_tier": rendered.confidence_tier,
+                "citations": rendered.citations,
+                "context_turns": len(history),
+                "risk_assessment": None,
+                "disclosures": [f"Switched replies to {language} — this is your last answer, re-rendered."],
+                "distress_flag": False,
+                "inherited": [],
+            })
+            return
+        except Exception:
+            logging.getLogger("orca.language").warning("language-change re-render failed; confirming only", exc_info=True)
+
+    confirmation_en = "Done — I'll reply in this language from now on."
+    try:
+        from orca.agents.language import _ALL_LANGUAGES, translate_from_english
+
+        confirmation = translate_from_english(confirmation_en, target=language) if language in _ALL_LANGUAGES else confirmation_en  # type: ignore[arg-type]
+    except RuntimeError:
+        confirmation = confirmation_en
+    yield _sse({
+        "type": "final_response",
+        "query_id": str(uuid.uuid4()),
+        "outcome": "LANGUAGE_CHANGED",
+        "final_english_response": confirmation_en,
+        "final_vernacular_response": confirmation,
+        "detected_language": language,
+        "confidence_tier": "HIGH",
+        "context_turns": len(history),
+        "inherited": [],
+        "risk_assessment": None,
+        "citations": [],
+        "disclosures": [],
+        "distress_flag": False,
+    })
+
+
 async def _remember_turns(session_id: str | None, query: str, stream: AsyncIterator[str]) -> AsyncIterator[str]:
     """Adds each answered turn to the chat's context window (orca/session.py).
     Wraps the stream query() actually returns because that is the one point a
@@ -750,12 +871,17 @@ def _record_distress_event(final_state: Mapping[str, Any], mrcc_contact: dict | 
         logging.getLogger("orca.distress").warning("distress event not queued", exc_info=True)
 
 
-def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
+def _persist_audit_trace_log(query_id: str, entries: list[dict], session_id: uuid.UUID | None = None) -> None:
     """Exit criterion 7 (Phase 2 plan §3): rows land in Postgres, not just
     ORCAState. Best-effort — a DB outage degrades to Phase-1 behaviour
     (in-memory only, shipped with the SSE response above) rather than
     failing the user-facing request; the trace itself already reached the
-    client either way."""
+    client either way.
+
+    P3.2 — `session_id` is a real `sessions.id` (see `_ensure_session_row`),
+    not the unconditional `None` this used to pass: the mapped `sessions`
+    table was otherwise dead, and the reasoning trail could not be read back
+    per-user or per-session, which is what a coastal-authority persona needs."""
     if not entries:
         return
     try:
@@ -764,13 +890,45 @@ def _persist_audit_trace_log(query_id: str, entries: list[dict]) -> None:
 
         db = get_sessionmaker()()
         try:
-            persist_trace_entries(db, query_id=query_id, session_id=None, entries=entries)
+            persist_trace_entries(db, query_id=query_id, session_id=session_id, entries=entries)
         finally:
             db.close()
     except Exception:
         # outage here must never fail the request, and there is nothing more to do
         # than degrade to Phase-1 behaviour (the trace already shipped in the SSE body).
         pass
+
+
+def _ensure_session_row(
+    session_id: str | None, user_id: uuid.UUID | None, persona: str | None, language: str | None,
+) -> uuid.UUID | None:
+    """P3.2 (`R-AUTH-2`) — a real `sessions` row for this chat. `api/main.py`
+    used to pass `session_id=None` unconditionally to `persist_trace_entries`,
+    so the mapped `sessions` table (`infra/db/001_init.sql`) was permanently
+    empty. Only /ask sends a `session_id` (a `crypto.randomUUID()` chat id —
+    `/safety`, `/reasoning` and the SOS control stay session-less); anything
+    else is left alone rather than guessed at. Best-effort, same
+    degrade-not-fail contract as `_persist_audit_trace_log`: a DB outage here
+    must not fail an answer that has already been decided."""
+    if not session_id:
+        return None
+    try:
+        sid = uuid.UUID(session_id)
+    except ValueError:
+        return None
+    try:
+        from orca.db.engine import get_sessionmaker
+        from orca.db.repositories import get_or_create_session
+
+        db = get_sessionmaker()()
+        try:
+            get_or_create_session(db, session_id=sid, user_id=user_id, persona=persona, language=language)
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        logging.getLogger("orca.session").warning("session row not persisted", exc_info=True)
+    return sid
 
 
 def _usable_fix(fix_lat: float | None, fix_lon: float | None) -> tuple[float, float] | None:
@@ -796,6 +954,7 @@ async def query(
     distress: bool = False, persona: str | None = None, depth: str | None = None,
     session_id: str | None = None, llm: str | None = None, drop: str | None = None,
     fresh: bool = False, fix_lat: OptLat = None, fix_lon: OptLon = None,
+    user: User | None = Depends(get_optional_user), db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """`llm=off` (P2.11, `R-NEW-3`) re-runs this exact query with every LLM
     provider disabled. It is the demo beat: the same question, the same
@@ -826,6 +985,14 @@ async def query(
     PUT /api/session/{id}/context once the re-run lands, which replaces it
     wholesale with the new answer in place.
     """
+    # P3.1 (`R-AUTH-1`) — an optional Bearer token. Anonymous callers (no
+    # token, or one that fails verification) get today's exact path: no
+    # login wall, nothing above can fail because of this. A verified token
+    # supplies *defaults only* — an explicit `persona`/`vessel_class` param
+    # or a place actually named in the text always wins; see below.
+    if persona is None and user is not None and user.default_persona in _PERSONAS:
+        persona = user.default_persona
+
     dropped = {d.strip() for d in (drop or "").split(",") if d.strip()}
     # An explicit lat/lon from the caller always wins — a resolved GPS fix or
     # a registered home port (Phase 2 D1) is real; a place name in free text is
@@ -869,6 +1036,17 @@ async def query(
         return StreamingResponse(_reset_stream(), media_type="text/event-stream")
 
     history = session_memory.get_turns(session_id)
+
+    # P3.13 — "speak to me in Telugu" changes the language, never answered as
+    # a marine question. Checked here, same footing as the reset phrase above
+    # and for the same reason: a distress call is never swallowed by either.
+    if not distress:
+        lang_cmd = match_language_command(q)
+        if lang_cmd is not None:
+            return StreamingResponse(
+                _language_change_stream(lang_cmd, session_id, history, user),
+                media_type="text/event-stream",
+            )
     if "intent" in dropped:
         # Turns stay (Agent 9 still reads the conversation); only the carried
         # intent is withheld from Planning.
@@ -887,6 +1065,14 @@ async def query(
     vessel_class = resolve_vessel_class(
         vessel_class, q, None if "vessel_class" in dropped else session_memory.last_vessel_class(history),
     )
+    # P3.1 — lowest precedence of all: a signed-in user's active vessel
+    # (P3.9), consulted only when nothing more specific (an explicit param, a
+    # vessel named in this question, or one remembered from this chat) gave
+    # an answer. Never overrides "and in a trawler?" or the chat's own memory.
+    if vessel_class is None and user is not None and user.active_vessel_id is not None and "vessel_class" not in dropped:
+        active_vessel = get_vessel_for_owner(db, user.active_vessel_id, user.id)
+        if active_vessel is not None:
+            vessel_class = active_vessel.vessel_class
 
     # None = follow the environment. Anything unrecognised is also None rather
     # than an error: a mistyped demo parameter must not fail a safety query.
@@ -911,8 +1097,9 @@ async def query(
         # Sent a position, and it was dropped for being inland — a different
         # situation from never having one, and Agent 9 has to be told which.
         fix_on_land = fix_lat is not None and fix_lon is not None and usable is None
+        home_port = user_home_port(user) if user is not None else None
         if resolved.place is not None and not (
-            usable is not None and resolved.place.source == "regional_default"
+            (usable is not None or home_port is not None) and resolved.place.source == "regional_default"
         ):
             lat, lon = resolved.place.lat, resolved.place.lon
             place_source = resolved.place.source
@@ -936,11 +1123,27 @@ async def query(
             (lat, lon), place_source = usable, "gps_fix"
             place_name = None
             resolution = {**(resolution or {}), "status": "resolved", "place_source": "gps_fix"}
+        elif home_port is not None and resolved.status != "ambiguous":
+            # P3.1 — a signed-in user's registered home port beats the
+            # regional default: it is a real, chosen position, just not one
+            # named in this particular question. `place_source="home_port"`
+            # keeps it distinguishable from both a named place and the
+            # anonymous default, same reasoning as `gps_fix` above.
+            # Ambiguous is excluded for the same reason it is above — "Gujarat"
+            # must keep asking, not be silently answered at the caller's own port.
+            lat, lon, place_source = home_port["lat"], home_port["lon"], "home_port"
+            place_name = None
+            resolution = {**(resolution or {}), "status": "resolved", "place_source": "home_port"}
         else:
             # Unresolvable or ambiguous: the graph will stop before any agent
             # reads this, and "regional_default" is what tells Agent 12 in the
             # meantime that it has no position for this caller (P4.16).
             lat, lon, place_source = _DEFAULT_LAT, _DEFAULT_LON, "regional_default"
+
+    # P3.1 — carried into `_query_stream` so `user_language_default` reaches
+    # `language.run_ingress` and `user_id` reaches `_ensure_session_row` (P3.2).
+    user_id = user.id if user is not None else None
+    user_language_default = user.language if user is not None else None
 
     # A distress query is never cached or coalesced onto another in-flight
     # request (phase4 plan §2.2/§2.3) — every SOS is its own, always-fresh
@@ -953,6 +1156,7 @@ async def query(
                 q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
                 session_id=session_id, session_history=history, resolution=resolution,
                 llm=llm_override, fix_on_land=fix_on_land,
+                user_id=user_id, user_language_default=user_language_default,
             )),
             media_type="text/event-stream"
         )
@@ -973,6 +1177,7 @@ async def query(
                 on_final=None if shared_key is None else (lambda final: query_cache_store(shared_key, final)),
                 session_id=session_id, session_history=history, resolution=resolution,
                 llm=llm_override, fix_on_land=fix_on_land,
+                user_id=user_id, user_language_default=user_language_default,
             ),
             media_type="text/event-stream",
         )
@@ -1006,6 +1211,7 @@ async def query(
                 on_final=None if follow_up else (lambda final: query_cache_store(cache_key, final)),
                 session_id=session_id, session_history=history, resolution=resolution,
                 llm=llm_override, fix_on_land=fix_on_land,
+                user_id=user_id, user_language_default=user_language_default,
             ):
                 yield line
 

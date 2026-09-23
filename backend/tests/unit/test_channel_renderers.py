@@ -69,17 +69,20 @@ def test_ivr_script_repeats_exactly_once_and_spells_out_verdict_words():
     assert "NO GO" in ivr.body  # underscore split into two spoken words, not "NO_GO"
 
 
-def test_non_gsm7_vernacular_text_falls_back_to_the_encodable_composed_line():
-    # Tamil/Hindi script is never GSM-7 (verified directly by
-    # is_gsm7_encodable below) — render_sms must not ship mojibake for it,
-    # so it falls back to the ASCII verdict+hazard+timestamp line rather
-    # than truncating a non-encodable string and calling it done.
+def test_non_gsm7_vernacular_text_encodes_as_ucs2_with_nothing_dropped():
+    # P3.11 (orca_final §12.2) — Tamil/Hindi script is never GSM-7 (verified
+    # directly by is_gsm7_encodable below), and render_sms must not silently
+    # fall back to the ASCII verdict+hazard line the way this used to: it
+    # encodes as UCS-2, multi-part when the text needs more than one
+    # 67-char part, with every character surviving the round trip.
     tamil_text = "எச்சரிக்கை: அலை உயரம் அதிகம்"
     assert is_gsm7_encodable(tamil_text) is False
     tamil_payload = {**_SAMPLE, "final_vernacular_response": tamil_text}
     sms = render_sms(tamil_payload, language="ta")
+    assert sms.encoding == "ucs2"
     assert sms.encodable is True
-    assert tamil_text not in sms.body
+    assert all(len(part) <= 67 for part in sms.parts)
+    assert "".join(sms.parts) == tamil_text
 
 
 def test_english_vernacular_is_gsm7_encodable():

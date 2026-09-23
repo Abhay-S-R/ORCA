@@ -39,6 +39,7 @@ type AgentSpan = { agent_name: string; status: AgentStatus };
 type Citation = { agent_name: string; dataset: string; acquisition_timestamp: string; freshness_minutes: number };
 type SafetyResponse = {
   final_vernacular_response: string;
+  detected_language?: string;
   confidence_tier: ConfidenceTier;
   risk_assessment: { status: string; go_no_go: Verdict; reason: string } | null;
   citations: Citation[];
@@ -196,7 +197,7 @@ export default function SafetyPage() {
           )}
 
           <Panel title="What ORCA is telling you">
-            <FormattedResponse text={answer.final_vernacular_response} />
+            <FormattedResponse text={answer.final_vernacular_response} language={answer.detected_language} />
           </Panel>
 
           <Panel title="Weather" action={weatherCite && <SourceChip dataset={weatherCite.dataset} acquisitionTimestamp={weatherCite.acquisition_timestamp} />}>

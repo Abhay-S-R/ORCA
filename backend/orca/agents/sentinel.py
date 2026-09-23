@@ -185,16 +185,28 @@ def detect_crossing(
     return Crossing(fired=False, severity="info", title="", reason="no change", snapshot=snapshot)
 
 
-def build_alert(watch_type: str, location_name: str, crossing: Crossing) -> dict[str, str]:
+def build_alert(watch_type: str, location_name: str, crossing: Crossing, language: str = "en") -> dict[str, str]:
     """Agent 7's tool, reused — not re-derived (exit criterion: generate_alert_payload
-    is Agent 7's, Sentinel does not own alert text)."""
+    is Agent 7's, Sentinel does not own alert text).
+
+    P3.6 (`R-PS-7`) — `language` is the watch owner's `users.language`
+    (`sentinel_runtime.run_poll_cycle` reads it before calling `evaluate`).
+    A language with no verified voice output (anything outside
+    `risk_assessment._ALERT_VERIFIED_LANGUAGES`) still gets an alert, in
+    English, with `language_fallback` naming what was asked for and why —
+    principle 3 (degrade loudly): no proactive alert at all is worse than
+    one in the wrong language, but a silent substitution is a lie."""
     severity_word = "danger" if crossing.severity == "danger" else "warning"
-    return risk_assessment.generate_alert_payload(
-        hazard_type=crossing.title,
-        severity=severity_word,
-        location=location_name,
-        language="en",  # localisation is Agent 1's egress job, per Ground Rule 1
-    )
+    try:
+        return risk_assessment.generate_alert_payload(
+            hazard_type=crossing.title, severity=severity_word, location=location_name, language=language,
+        )
+    except NotImplementedError:
+        payload = risk_assessment.generate_alert_payload(
+            hazard_type=crossing.title, severity=severity_word, location=location_name, language="en",
+        )
+        payload["language_fallback"] = language
+        return payload
 
 
 def now_utc_iso() -> str:
@@ -228,6 +240,7 @@ def evaluate(
     thresholds: dict[str, float],
     last_payload: dict[str, Any] | None,
     vessel_class: str | None = None,
+    language: str = "en",
     check: Callable[..., WatchSnapshot] | None = None,
 ) -> WatchDecision:
     """`check` is injectable so tests supply a deterministic snapshot instead
@@ -245,7 +258,7 @@ def evaluate(
             title="", body="", alert_payload={}, snapshot_payload=snapshot.as_payload(),
         )
 
-    alert = build_alert(watch_type, location_name, crossing)
+    alert = build_alert(watch_type, location_name, crossing, language=language)
     return WatchDecision(
         watch_id=watch_id,
         query_id=query_id,

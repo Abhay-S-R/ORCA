@@ -11,6 +11,7 @@ import { PasswordInput } from "../components/PasswordInput";
 import { Card } from "../components/Panel";
 import { OrcaMark } from "../nav";
 import { register, signInWithPassword, useAuth } from "../lib/auth";
+import { useT } from "../i18n/useT";
 
 type Mode = "sign_in" | "register";
 
@@ -24,6 +25,7 @@ function nextPath(): string {
 export default function LoginPage() {
   const router = useRouter();
   const auth = useAuth();
+  const t = useT();
   const [mode, setMode] = useState<Mode>("sign_in");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -60,20 +62,18 @@ export default function LoginPage() {
       <div className="flex flex-col items-center gap-2 text-center">
         <OrcaMark className="size-8" />
         <h1 className="text-lg font-semibold tracking-tight text-ink">
-          {registering ? "Create your ORCA account" : "Sign in to ORCA"}
+          {registering ? t("login.createTitle") : t("login.signInTitle")}
         </h1>
         <p className="text-xs text-ink-muted">
-          {registering
-            ? "Keep your chats, watches and alerts across devices."
-            : "Your chats, watches and alerts, on any device."}
+          {registering ? t("login.createSubtitle") : t("login.signInSubtitle")}
         </p>
       </div>
 
-      <div role="tablist" aria-label="Account" className="grid grid-cols-2 gap-1 rounded-lg border border-hairline bg-shelf-2/60 p-1">
+      <div role="tablist" aria-label={t("login.accountTabs")} className="grid grid-cols-2 gap-1 rounded-lg border border-hairline bg-shelf-2/60 p-1">
         {(
           [
-            ["sign_in", "Sign in"],
-            ["register", "Create account"],
+            ["sign_in", t("common.signIn")],
+            ["register", t("common.createAccount")],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -94,7 +94,7 @@ export default function LoginPage() {
       <Card>
         <form onSubmit={handleSubmit}>
           {registering && (
-            <Field label="Name" hint="optional — how ORCA greets you">
+            <Field label={t("login.name")} hint={t("login.nameHint")}>
               {(id) => (
                 <input
                   id={id}
@@ -107,7 +107,7 @@ export default function LoginPage() {
               )}
             </Field>
           )}
-          <Field label="Phone or email" hint={registering ? "a 10-digit mobile number works, e.g. 98765 43210" : undefined}>
+          <Field label={t("login.phoneOrEmail")} hint={registering ? t("login.phoneHint") : undefined}>
             {(id) => (
               <input
                 id={id}
@@ -120,7 +120,7 @@ export default function LoginPage() {
               />
             )}
           </Field>
-          <Field label="Password" hint={registering ? "at least 8 characters" : undefined}>
+          <Field label={t("login.password")} hint={registering ? t("login.passwordHint") : undefined}>
             {(id) => (
               <PasswordInput
                 id={id}
@@ -141,11 +141,11 @@ export default function LoginPage() {
           <Button type="submit" variant="primary" className="w-full" disabled={pending}>
             {pending
               ? registering
-                ? "Creating account…"
-                : "Signing in…"
+                ? t("login.creatingAccount")
+                : t("login.signingIn")
               : registering
-                ? "Create account"
-                : "Sign in"}
+                ? t("common.createAccount")
+                : t("common.signIn")}
           </Button>
         </form>
       </Card>

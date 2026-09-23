@@ -35,6 +35,12 @@ _GSM7_SET = set(_GSM7_BASIC)
 _SMS_MAX_CHARS = 160
 _USSD_MAX_CHARS = 182
 
+# P3.11 (orca_final §12.2) — UCS-2 SMS budget: 70 chars fit in one part; a
+# concatenated (multi-part, UDH-framed) message drops to 67 per part because
+# the User Data Header eats into the same 140-octet PDU.
+_SMS_UCS2_SINGLE = 70
+_SMS_UCS2_CONCAT = 67
+
 
 @dataclass(frozen=True)
 class RenderedMessage:
@@ -42,6 +48,13 @@ class RenderedMessage:
     body: str
     truncated: bool
     encodable: bool  # False = the target channel cannot carry this text as-is (e.g. non-GSM-7 SMS)
+    parts: tuple[str, ...] = ()  # P3.11 — every part, in order; len 1 for a
+    # single-part message (parts[0] == body). Always populated for "sms".
+    encoding: str = "gsm7"  # "gsm7" | "ucs2"
+    romanized: str | None = None  # P3.11 — a GSM-7 romanized variant for
+    # handsets with poor Indic font rendering, or None when not applicable
+    # (English body) or unavailable (Bhashini unreachable, no local rung —
+    # this is disclosed by its absence, never silently substituted).
 
 
 def is_gsm7_encodable(text: str) -> bool:
@@ -80,24 +93,69 @@ def render_web(payload: dict[str, Any]) -> dict[str, Any]:
     return dict(payload)
 
 
+def _ucs2_parts(text: str) -> list[str]:
+    if len(text) <= _SMS_UCS2_SINGLE:
+        return [text]
+    return [text[i : i + _SMS_UCS2_CONCAT] for i in range(0, len(text), _SMS_UCS2_CONCAT)]
+
+
+def _romanized_variant(vernacular: str, language: str) -> str | None:
+    """P3.11 — Bhashini Transliteration (same language, Latin script), with
+    NO local fallback beyond the English line: a best-effort romanization
+    invented without a model would be exactly the un-vetted content
+    principle 1 forbids. Absence (`None`) is the honest result when
+    Bhashini is unreachable, not a guess dressed up as one."""
+    try:
+        from orca.agents import bhashini
+
+        # ULCA's transliteration contract: sourceLanguage is the Indic
+        # language, targetLanguage "en" means "romanize to Latin script" —
+        # there is no separate "<lang>_Latn" code in the ULCA language table.
+        return bhashini.transliterate(vernacular, language, "en")
+    except Exception:
+        return None
+
+
 def render_sms(payload: dict[str, Any], *, language: str = "en") -> RenderedMessage:
-    """<=160 GSM-7 chars: verdict + one hazard + timestamp (plan §4.9). The
-    vernacular text is used only when it is itself GSM-7 encodable; any
-    Tamil/Devanagari (or other non-Latin-script) vernacular response is
-    never GSM-7, so this always falls back to the ASCII verdict+hazard+
-    timestamp line for those languages rather than truncating or
-    transmitting an un-decodable string and calling it done. `encodable`
-    reflects the body actually returned, not the vernacular text that was
-    considered and rejected."""
+    """SMS rendering (plan §4.9, extended P3.11 orca_final §12.2):
+    - GSM-7 fits in the original <=160-char single part, unchanged.
+    - Non-GSM-7 (any Indic vernacular) is UCS-2, multi-part when needed
+      (`_SMS_UCS2_SINGLE`/`_SMS_UCS2_CONCAT`), NEVER dropped to the ASCII
+      verdict+hazard line the way this used to silently do — "nothing
+      dropped" is the point's own Done-when.
+    - A romanized (GSM-7) variant rides alongside for handsets with poor
+      Indic font rendering, produced by Bhashini Transliteration; `None`
+      when Bhashini cannot be reached (disclosed by absence).
+    Severity token, value+unit, place and time all come from the same
+    `_verdict_and_hazard`/`_timestamp` helpers as before — masking numbers
+    and IMBL/PFZ around translation happens once, upstream, in
+    `orca.agents.language._translate_with_rung` (P3.8), not duplicated here.
+    """
     verdict, hazard = _verdict_and_hazard(payload)
     ts = _timestamp(payload)
     vernacular = payload.get("final_vernacular_response") if language != "en" else None
-    body = f"ORCA {verdict}: {hazard}. {ts}"
+
     if vernacular and is_gsm7_encodable(vernacular):
         body = vernacular[:_SMS_MAX_CHARS]
+        truncated = len(vernacular) > _SMS_MAX_CHARS
+        return RenderedMessage(
+            channel="sms", body=body, truncated=truncated, encodable=True, parts=(body,), encoding="gsm7",
+        )
+    if vernacular:
+        # Not GSM-7 — UCS-2 multi-part, not a fallback to English.
+        parts = _ucs2_parts(vernacular)
+        return RenderedMessage(
+            channel="sms", body=parts[0], truncated=False, encodable=True,
+            parts=tuple(parts), encoding="ucs2", romanized=_romanized_variant(vernacular, language),
+        )
+
+    body = f"ORCA {verdict}: {hazard}. {ts}"
     truncated = len(body) > _SMS_MAX_CHARS
     body = body[:_SMS_MAX_CHARS]
-    return RenderedMessage(channel="sms", body=body, truncated=truncated, encodable=is_gsm7_encodable(body))
+    return RenderedMessage(
+        channel="sms", body=body, truncated=truncated, encodable=is_gsm7_encodable(body),
+        parts=(body,), encoding="gsm7",
+    )
 
 
 _NUMERAL_WORDS = {"0": "zero", "1": "one", "2": "two", "3": "three", "4": "four", "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "nine"}

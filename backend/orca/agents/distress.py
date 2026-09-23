@@ -35,10 +35,68 @@ from orca.state import ORCAState
 # Each phrase confirmed via a real dictionary/translation source while writing
 # this — not transliterated from memory. See the module docstring: this is a
 # starter list, not a validated one.
+#
+# P3.7 (2026-09-22, Claude/agent pass) — widened en/ta/hi and added kn/bn/mr,
+# each checked against Shabdkosh/Glosbe/Cambridge Dictionary the same way the
+# original ta/hi/ml/te entries were. This is STILL NOT the native-speaker
+# review the point requires ("Reviewer: Dev R (native Tamil), sign-off
+# recorded... with the date") — no such sign-off exists for ANY language
+# here, Tamil included, and none is claimed. Logged BLOCKED, not DONE — see
+# docs/DLC_implementation_log.md.
 _DISTRESS_PATTERNS: dict[str, list[str]] = {
-    "en": ["sinking", "taking on water", "man overboard", "mayday", "capsizing", "capsized", "drowning", "sos", "help"],
-    "ta": ["மூழ்குகிறது", "படகு மூழ்குகிறது", "மூழ்கிவிட்டேன்", "உதவி"],  # sinking / boat is sinking / I have drowned / help
-    "hi": ["बचाओ", "डूब रहा", "डूब रही", "नाव डूब रही है"],  # save me / is drowning (m/f) / the boat is sinking
+    "en": [
+        "sinking", "taking on water", "man overboard", "mayday", "capsizing", "capsized",
+        "drowning", "sos", "help", "engine failure", "lost at sea", "adrift", "no fuel",
+        "boat is going down", "we are sinking", "send help", "distress",
+    ],
+    "ta": [
+        "மூழ்குகிறது", "படகு மூழ்குகிறது", "மூழ்கிவிட்டேன்", "உதவி",  # sinking / boat is sinking / I have drowned / help
+        "படகு கவிழ்ந்தது",       # boat capsized
+        "காப்பாற்றுங்கள்",        # save/rescue [us]
+        "எனக்கு உதவி வேண்டும்",   # I need help
+        "படகு மூழ்கிக்கொண்டிருக்கிறது",  # the boat is sinking (progressive)
+        "இயந்திரம் பழுது",       # engine failure
+        "எரிபொருள் இல்லை",      # no fuel
+        "கடலில் தொலைந்துவிட்டோம்",  # lost at sea
+    ],
+    "hi": [
+        "बचाओ", "डूब रहा", "डूब रही", "नाव डूब रही है",  # save me / is drowning (m/f) / the boat is sinking
+        "नाव पलट गई",           # boat capsized
+        "मदद चाहिए",            # need help
+        "इंजन खराब हो गया",      # engine failed
+        "ईंधन खत्म",            # out of fuel
+        "समुद्र में फंस गए",       # stranded at sea
+    ],
+    # Verified against Shabdkosh (Kannada-English) / Glosbe while writing this.
+    "kn": [
+        "ಮುಳುಗುತ್ತಿದೆ",         # (it) is sinking
+        "ದೋಣಿ ಮುಳುಗುತ್ತಿದೆ",     # boat is sinking
+        "ಸಹಾಯ ಮಾಡಿ",           # please help
+        "ಸಹಾಯ",                # help
+        "ದೋಣಿ ಮಗುಚಿತು",         # boat capsized
+        "ನನ್ನನ್ನು ರಕ್ಷಿಸಿ",        # save me
+        "ಎಂಜಿನ್ ಕೆಟ್ಟುಹೋಗಿದೆ",     # engine has failed
+    ],
+    # Verified against Glosbe (Bengali-English) / Cambridge Dictionary while writing this.
+    "bn": [
+        "ডুবে যাচ্ছে",           # sinking
+        "নৌকা ডুবে যাচ্ছে",       # boat is sinking
+        "সাহায্য করুন",          # please help
+        "সাহায্য",              # help
+        "নৌকা উল্টে গেছে",       # boat capsized
+        "আমাকে বাঁচাও",          # save me
+        "ইঞ্জিন বিকল",           # engine failure
+    ],
+    # Verified against Glosbe (Marathi-English) / Shabdkosh while writing this.
+    "mr": [
+        "बुडत आहे",             # sinking
+        "होडी बुडत आहे",         # boat is sinking
+        "मदत करा",              # please help
+        "मदत",                  # help
+        "होडी उलटली",           # boat capsized
+        "मला वाचवा",            # save me
+        "इंजिन बंद पडले",         # engine has stopped/failed
+    ],
     # Verified against Shabdkosh (English-Malayalam / Malayalam-English) while
     # writing this — same "checked against a real source" bar as ta/hi above.
     "ml": [
@@ -125,6 +183,53 @@ _MEDICAL_PATTERNS: dict[str, list[str]] = {
         "ఊపిరి ఆడటం లేదు",     # cannot breathe
         "డాక్టర్ కావాలి",        # need a doctor
     ],
+    # P3.7 — same "checked against a real dictionary source, not
+    # native-reviewed" standard as every list above.
+    "kn": [
+        "ಗಾಯ",                # injury
+        "ಗಾಯಗೊಂಡಿದ್ದಾನೆ",       # he is injured
+        "ರಕ್ತ ಸೋರುತ್ತಿದೆ",       # bleeding
+        "ಪ್ರಜ್ಞೆ ತಪ್ಪಿದೆ",         # lost consciousness
+        "ಹೃದಯಾಘಾತ",           # heart attack
+        "ಉಸಿರಾಡಲು ಆಗುತ್ತಿಲ್ಲ",    # cannot breathe
+        "ವೈದ್ಯರು ಬೇಕು",         # need a doctor
+    ],
+    "bn": [
+        "আঘাত",               # injury
+        "আহত হয়েছে",          # he/she is injured
+        "রক্ত পড়ছে",           # bleeding
+        "অজ্ঞান",              # unconscious
+        "হার্ট অ্যাটাক",         # heart attack
+        "শ্বাস নিতে পারছে না",   # cannot breathe
+        "ডাক্তার দরকার",        # need a doctor
+    ],
+    "mr": [
+        "जखम",                # injury
+        "जखमी झाला",          # he is injured
+        "रक्तस्त्राव होत आहे",     # bleeding
+        "बेशुद्ध",              # unconscious
+        "हृदयविकाराचा झटका",    # heart attack
+        "श्वास घेता येत नाही",    # cannot breathe
+        "डॉक्टर हवा",           # need a doctor
+    ],
+}
+
+# P3.5 (`R-PS-2`) — the offline rung for romanized Indic. A Latin-script
+# distress message ("help", spoken and typed in Tamil sounds, no Tamil
+# script) is invisible to the two tables above AND to Bhashini when the
+# network is down — the exact border-crossing scenario the point exists for.
+# ONLY the two words picked as unambiguous enough to ship without a native
+# reviewer are here (Hindi "bachao" is the one Hindi distress word every
+# speaker of the language recognizes on sight, romanized or not; Tamil
+# "udhavi" is the standard ISO-15919-adjacent romanization of உதவி taught in
+# every Tamil-as-a-second-language course). This is deliberately NOT an
+# attempt at a full romanized phrase list — transliteration has no single
+# standard and a wrong guess here is a false SOS or a missed one — so it
+# stays this short until a native speaker (P3.7's same reviewers) confirms
+# more are safe to add. Matched whole-word, same reasoning as _MEDICAL_PATTERNS.
+_ROMANIZED_DISTRESS_PATTERNS: dict[str, list[str]] = {
+    "hi": ["bachao"],
+    "ta": ["udhavi"],
 }
 
 
@@ -226,6 +331,14 @@ def detect_distress_signal(text: str, ui_control_triggered: bool = False) -> dic
         for phrase in phrases:
             if _matches(text, phrase):
                 return {"is_distress": True, "distress_type": "medical_pattern", "matched_language": lang, "matched_phrase": phrase}
+
+    # P3.5 — romanized Indic, checked last (narrowest list, whole-word only,
+    # same guard as _MEDICAL_PATTERNS so "bachaoge" or "udhavikkaran" cannot
+    # false-fire on a word that merely contains the romanized root).
+    for lang, phrases in _ROMANIZED_DISTRESS_PATTERNS.items():
+        for phrase in phrases:
+            if _matches(text, phrase):
+                return {"is_distress": True, "distress_type": "romanized_pattern", "matched_language": lang, "matched_phrase": phrase}
 
     return {"is_distress": False, "distress_type": None, "matched_language": None, "matched_phrase": None}
 

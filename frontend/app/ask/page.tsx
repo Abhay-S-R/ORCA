@@ -16,6 +16,7 @@ import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Compass, Fish, History, Maximize2, MapPin, Minimize2, PanelLeftOpen, Plus, ShieldCheck, Waves, Wind } from "lucide-react";
 import { Button } from "../components/Button";
+import { SavedLocationChips } from "../components/SavedLocationChips";
 import { Skeleton } from "../components/States";
 import { useVoiceInput } from "../components/VoiceInput";
 import { useAuth } from "../lib/auth";
@@ -26,6 +27,7 @@ import { ChatTurn } from "./ChatTurn";
 import { ChatHistoryRail, CollapsedChatRail, iconButtonClass } from "./ChatHistoryRail";
 import { accountStore, browserStore, chatTitle } from "./chatStore";
 import { useAskThread, type InheritedValue, type Turn } from "./useAskThread";
+import { useT } from "../i18n/useT";
 
 const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapView), {
   ssr: false,
@@ -56,6 +58,7 @@ export default function AskPage() {
   const { persona } = usePersona();
   const reduceMotion = useReducedMotion();
   const auth = useAuth();
+  const t = useT();
   const store = auth.status === "loading" ? null : auth.status === "signed_in" ? accountStore : browserStore;
   const [query, setQuery] = useState("");
   const [mapCollapsed, setMapCollapsed] = useState(false);
@@ -130,9 +133,23 @@ export default function AskPage() {
     }
   }
 
-  function submit(q: string, options?: { llm?: "off"; drop?: string[] }) {
+  function submit(q: string, options?: { llm?: "off"; drop?: string[]; position?: { lat: number; lon: number } }) {
     ask(q, options);
     setQuery("");
+  }
+
+  // P3.10 — the most recent answer's resolved position, offered as what a
+  // "+" tap on the saved-location chips bookmarks. A regional default isn't
+  // a place the user chose, so it doesn't qualify (same exclusion
+  // distressMarkers above already applies for the same reason).
+  const lastResolvedLocation = useMemo(() => {
+    const t = [...turns].reverse().find((x) => x.answer?.user_location && x.answer.user_location.place_source !== "regional_default");
+    const loc = t?.answer?.user_location;
+    return loc ? { lat: loc.lat, lon: loc.lon } : null;
+  }, [turns]);
+
+  function askSavedLocation(loc: { name: string; lat: number; lon: number }) {
+    submit(`Is it safe near ${loc.name}?`, { position: { lat: loc.lat, lon: loc.lon } });
   }
 
   // Whether the backend SHOULD still be holding context for turn `i`. Turns
@@ -186,7 +203,7 @@ export default function AskPage() {
       onClick={() => setDrawerOpen(true)}
       aria-haspopup="dialog"
     >
-      Chats
+      {t("common.chats")}
     </Button>
   );
 
@@ -233,7 +250,7 @@ export default function AskPage() {
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Chat history"
+            aria-label={t("ask.chatHistoryDialog")}
             className="h-full w-[min(20rem,88vw)] border-r border-hairline bg-shelf-1 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -252,12 +269,13 @@ export default function AskPage() {
                 ORCA INTELLIGENCE CONSOLE // VHF &amp; SATELLITE
               </span>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">Ask about conditions at sea</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">{t("ask.heading")}</h1>
             <p className="mt-1.5 text-sm sm:text-base leading-relaxed text-ink-muted">
-              Ask in plain English, Tamil, Hindi, or any Indian regional language (multilingual). ORCA evaluates live ocean weather, maritime boundary standoff, depth contours, and fishing advisories with full citation provenance.
+              {t("ask.subheading")}
             </p>
           </div>
 
+          <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} />
           <Composer
             value={query}
             onChange={setQuery}
@@ -278,14 +296,14 @@ export default function AskPage() {
                   <button
                     type="button"
                     onClick={() => collapseRail(false)}
-                    aria-label="Show chat history"
-                    title="Chats"
+                    aria-label={t("common.chats")}
+                    title={t("common.chats")}
                     className={`${iconButtonClass} hidden self-center lg:grid`}
                   >
                     <PanelLeftOpen className="size-3.5" aria-hidden="true" />
                   </button>
                 )}
-                <h1 className="shrink-0 text-xs font-bold uppercase tracking-wider text-ink-dim">Ask ORCA</h1>
+                <h1 className="shrink-0 text-xs font-bold uppercase tracking-wider text-ink-dim">{t("ask.title")}</h1>
                 {firstQuestion && (
                   <span className="truncate text-xs text-ink-muted" title={firstQuestion}>
                     {/* The live title comes from the rail's list; the first
@@ -297,7 +315,7 @@ export default function AskPage() {
               <div className="flex shrink-0 items-center gap-2">
                 {saveFailed && (
                   <span role="status" className="text-[11px] text-caution">
-                    Not saved yet — retrying
+                    {t("ask.notSaved")}
                   </span>
                 )}
                 {historyButton}
@@ -305,15 +323,15 @@ export default function AskPage() {
                   <button
                     type="button"
                     onClick={() => setMapCollapsed(false)}
-                    aria-label="Expand map"
-                    title="Map"
+                    aria-label={t("ask.expandMap")}
+                    title={t("nav.map")}
                     className={iconButtonClass}
                   >
                     <Maximize2 className="size-3.5" aria-hidden="true" />
                   </button>
                 )}
                 <Button variant="ghost" icon={<Plus className="size-3.5" />} onClick={newChat}>
-                  New chat
+                  {t("common.newChat")}
                 </Button>
               </div>
             </div>
@@ -353,6 +371,7 @@ export default function AskPage() {
               <div ref={threadBottomRef} />
             </div>
 
+            <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} />
             <Composer
               value={query}
               onChange={setQuery}
@@ -383,7 +402,7 @@ export default function AskPage() {
               <button
                 type="button"
                 onClick={() => setMapCollapsed(true)}
-                aria-label="Collapse map"
+                aria-label={t("ask.collapseMap")}
                 aria-expanded={true}
                 className="absolute top-2 left-2 z-10 flex size-7 items-center justify-center rounded-lg border border-hairline/80 bg-shelf-1/90 text-ink-dim shadow-sm backdrop-blur-sm transition-colors hover:border-ocean-cyan/60 hover:text-ocean-cyan"
               >

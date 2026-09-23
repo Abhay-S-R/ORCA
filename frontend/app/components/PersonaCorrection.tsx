@@ -9,16 +9,24 @@ import { useState } from "react";
 import { Button } from "./Button";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
+import { LANGUAGES, fontClassForLanguage, type LangCode } from "../i18n/languages";
+import { useLanguage } from "../language/context";
+import { useT } from "../i18n/useT";
 
-const CORRECTABLE: { id: Persona; label: string }[] = [
-  { id: "fisherman", label: "Fisherman" },
-  { id: "commercial_navigator", label: "Navigator" },
-  { id: "researcher", label: "Researcher" },
-  { id: "coastal_authority", label: "Authority" },
+const CORRECTABLE: { id: Persona; labelKey: string }[] = [
+  { id: "fisherman", labelKey: "personaCorrection.fisherman" },
+  { id: "commercial_navigator", labelKey: "personaCorrection.navigator" },
+  { id: "researcher", labelKey: "personaCorrection.researcher" },
+  { id: "coastal_authority", labelKey: "personaCorrection.authority" },
 ];
 
 export type RenderResult = {
   final_english_response: string;
+  // P3.13 — set only when the render request carried a `language`; absent
+  // (or null, when Bhashini/IndicTrans2 couldn't reach it) means the
+  // caller should keep showing the English text, not blank it out.
+  final_vernacular_response?: string | null;
+  language?: string | null;
   confidence_tier: string;
   citations: { agent_name: string; dataset: string; acquisition_timestamp: string }[];
 };
@@ -34,6 +42,7 @@ export function PersonaCorrection({
   onRendered: (result: RenderResult) => void;
   onPersonaChange: (p: Persona) => void;
 }) {
+  const t = useT();
   const [pending, setPending] = useState<Persona | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,7 +62,7 @@ export function PersonaCorrection({
       onRendered(data);
       onPersonaChange(persona);
     } catch {
-      setError("Could not re-render for that persona — the original answer is still shown.");
+      setError(t("personaCorrection.error"));
     } finally {
       setPending(null);
     }
@@ -61,7 +70,7 @@ export function PersonaCorrection({
 
   return (
     <div className="mt-3 border-t border-hairline pt-3">
-      <p className="mb-1.5 text-xs font-medium text-ink-dim">I&apos;m actually a…</p>
+      <p className="mb-1.5 text-xs font-medium text-ink-dim">{t("personaCorrection.imActually")}</p>
       <div className="flex flex-wrap gap-1.5">
         {CORRECTABLE.filter((p) => p.id !== currentPersona).map((p) => (
           <Button
@@ -71,7 +80,69 @@ export function PersonaCorrection({
             disabled={pending !== null}
             onClick={() => correct(p.id)}
           >
-            {pending === p.id ? "Rendering…" : p.label}
+            {pending === p.id ? t("personaCorrection.rendering") : t(p.labelKey)}
+          </Button>
+        ))}
+      </div>
+      {error && <p className="mt-1.5 text-xs text-no-go">{error}</p>}
+    </div>
+  );
+}
+
+// P3.13 (orca_final §15.2) — "speak to me in Telugu" as a tap, not just a
+// typed command: same zero-re-query contract as PersonaCorrection above,
+// through the same `/render` endpoint, now extended to take a `language`.
+export function LanguageSwitch({
+  queryId,
+  persona,
+  currentLanguage,
+  onRendered,
+}: {
+  queryId: string | undefined;
+  persona: Persona;
+  currentLanguage: string | null | undefined;
+  onRendered: (result: RenderResult) => void;
+}) {
+  const { setLanguage } = useLanguage();
+  const t = useT();
+  const [pending, setPending] = useState<LangCode | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!queryId) return null;
+
+  async function switchTo(lang: LangCode) {
+    setPending(lang);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/render`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query_id: queryId, persona, language: lang }),
+      });
+      if (!res.ok) throw new Error(`render failed: ${res.status}`);
+      const data: RenderResult = await res.json();
+      onRendered(data);
+      setLanguage(lang);
+    } catch {
+      setError(t("personaCorrection.languageError"));
+    } finally {
+      setPending(null);
+    }
+  }
+
+  return (
+    <div className="mt-3 border-t border-hairline pt-3">
+      <p className="mb-1.5 text-xs font-medium text-ink-dim">{t("personaCorrection.speakToMeIn")}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {LANGUAGES.filter((l) => l.code !== currentLanguage).map((l) => (
+          <Button
+            key={l.code}
+            variant="ghost"
+            className={`px-2.5 py-1.5 text-xs ${fontClassForLanguage(l.code)}`}
+            disabled={pending !== null}
+            onClick={() => switchTo(l.code)}
+          >
+            {pending === l.code ? "…" : l.native}
           </Button>
         ))}
       </div>

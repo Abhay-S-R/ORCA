@@ -16,6 +16,7 @@
 import type React from "react";
 import { AlertTriangle, Eraser, HelpCircle, MapPin } from "lucide-react";
 import { Panel } from "../components/Panel";
+import { useT } from "../i18n/useT";
 import type { FinalResponse } from "./useAskThread";
 
 export function DisclosureBanner({ disclosures }: { disclosures?: string[] }) {
@@ -32,10 +33,10 @@ export function DisclosureBanner({ disclosures }: { disclosures?: string[] }) {
   );
 }
 
-const HEADING: Record<string, string> = {
-  OUT_OF_SCOPE: "Not something ORCA can answer",
-  NEEDS_PLACE: "Which place do you mean?",
-  OUT_OF_RANGE: "Outside what ORCA holds",
+const HEADING_KEY: Record<string, string> = {
+  OUT_OF_SCOPE: "disclosures.outOfScope",
+  NEEDS_PLACE: "disclosures.needsPlace",
+  OUT_OF_RANGE: "disclosures.outOfRange",
 };
 
 export function RefusalCard({
@@ -50,6 +51,7 @@ export function RefusalCard({
   // an icon that the plain title would drop.
   actions?: React.ReactNode;
 }) {
+  const t = useT();
   const outcome = answer.outcome ?? "ANSWERED";
   const candidates = answer.place_resolution?.candidates ?? [];
   const body = answer.final_vernacular_response || answer.final_english_response;
@@ -61,7 +63,7 @@ export function RefusalCard({
         <div className="flex items-start justify-between gap-3">
           <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink">
             <Icon className="size-4 shrink-0 text-caution" aria-hidden="true" />
-            {HEADING[outcome] ?? "ORCA did not answer this"}
+            {t(HEADING_KEY[outcome] ?? "disclosures.default")}
           </p>
           {actions}
         </div>
@@ -72,7 +74,7 @@ export function RefusalCard({
         {candidates.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 border-t border-hairline/50 pt-3">
             <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
-              Ask about
+              {t("disclosures.askAbout")}
             </span>
             {candidates.map((c) => (
               <button
@@ -90,7 +92,7 @@ export function RefusalCard({
         {outcome === "OUT_OF_SCOPE" && (
           <div className="flex flex-wrap items-center gap-1.5 border-t border-hairline/50 pt-3">
             <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
-              Try
+              {t("disclosures.try")}
             </span>
             {["Is it safe to go to sea tomorrow off Thoothukudi?", "Where is the nearest fishing zone?"].map((q) => (
               <button

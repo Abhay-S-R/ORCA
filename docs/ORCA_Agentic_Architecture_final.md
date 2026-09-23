@@ -463,6 +463,10 @@ class ORCAState(TypedDict):
     raw_user_query: str
     normalized_english_query: str
     detected_language: str
+    user_language_default: Optional[str]   # NEW P3.1 — a signed-in user's `users.language`,
+                                            # used only when script detection finds no Indic
+                                            # codepoint at all (empty/short text); a language
+                                            # actually detected in the text always wins.
 
     session_history: List[Dict[str, Any]]           # prior turns (query, resolved bbox/time,
                                                       # persona, verdict) for follow-up resolution

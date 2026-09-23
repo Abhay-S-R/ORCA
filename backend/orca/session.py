@@ -221,6 +221,10 @@ def turn_from_final(query: str, final: dict[str, Any]) -> dict[str, Any]:
     coalesced follower) produces, so all three remember identically."""
     return {
         "query": query,
+        # P3.13 — which trace row this turn's answer came from, so a later
+        # "speak to me in Telugu" can re-render THIS answer (Reporting only,
+        # no re-query) instead of only being able to confirm the switch.
+        "query_id": final.get("query_id"),
         # English, since that is what Planning and Agent 9's prompt read — a
         # Tamil follow-up is still resolved against the English history.
         "english_query": final.get("normalized_english_query") or query,

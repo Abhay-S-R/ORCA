@@ -44,12 +44,26 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     display_name: Mapped[str | None] = mapped_column(Text)
     role: Mapped[str] = mapped_column(user_role_enum, nullable=False, server_default="user")
-    default_persona: Mapped[str] = mapped_column(Text, nullable=False, server_default="unresolved")
+    # P3.4 bug found: mapped as Text, the DB column is the `persona` enum —
+    # same latent defect as SessionRow.persona below, and for the same
+    # reason nothing caught it: nothing wrote `default_persona` from Python
+    # until P3.4's `PUT /api/profile/persona` (`UPDATE ... ::VARCHAR` against
+    # an enum column, rejected by Postgres). Fixed at the one mapping, not
+    # patched at the write site.
+    default_persona: Mapped[str] = mapped_column(persona_enum, nullable=False, server_default="unresolved")
     language: Mapped[str] = mapped_column(Text, nullable=False, server_default="en")
     # SENSITIVE — never returned to another user (plan §5.5).
     home_port: Mapped[str | None] = mapped_column(Geometry("POINT", srid=4326))
     home_port_name: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(account_status_enum, nullable=False, server_default="active")
+    # 007_vessel_operational.sql (P3.9) — orca_final §15.3: several vessels,
+    # one active. NULL until the owner has at least one vessel and picks one.
+    active_vessel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vessels.id", ondelete="SET NULL")
+    )
+    # {"start": "22:00", "end": "06:00", "tz": "Asia/Kolkata"} or NULL (no
+    # quiet hours set) — P5.22 reads this to hold a non-critical alert.
+    quiet_hours: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
@@ -66,6 +80,12 @@ class Vessel(Base):
     draft_m: Mapped[float | None] = mapped_column(Numeric(4, 2))
     length_m: Mapped[float | None] = mapped_column(Numeric(5, 2))
     crew_size: Mapped[int | None] = mapped_column(SmallInteger)
+    # 007_vessel_operational.sql (P3.9) — NULL means the dependent feature
+    # (worthwhileness P5.8, fuel economics P5.9, R-NEW-14 thresholds) says
+    # MISSING rather than assuming a value nobody gave it.
+    cruise_speed_kn: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    fuel_burn_lph: Mapped[float | None] = mapped_column(Numeric(6, 2))
+    engine_count: Mapped[int | None] = mapped_column(SmallInteger)
     # SENSITIVE — last known position (plan §5.5).
     last_position: Mapped[str | None] = mapped_column(Geometry("POINT", srid=4326))
     last_position_at: Mapped[datetime | None]
@@ -139,4 +159,19 @@ class AuditTraceLog(Base):
     status: Mapped[str] = mapped_column(execution_status_enum, nullable=False, server_default="ok")
     error_detail: Mapped[str | None] = mapped_column(Text)
     latency_ms: Mapped[int | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+
+
+class SavedLocation(Base):
+    """007_vessel_operational.sql (P3.10) — a signed-in user's bookmarked
+    places, one tap above the /ask composer for today's verdict at that spot.
+    Distinct from `users.home_port` (exactly one) and a Sentinel watch (P5.17
+    promotes one of these; it does not replace this table)."""
+
+    __tablename__ = "saved_locations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[str] = mapped_column(Geometry("POINT", srid=4326), nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))

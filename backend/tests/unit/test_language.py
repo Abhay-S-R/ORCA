@@ -22,6 +22,19 @@ from orca.state import ORCAState
 
 _TOOLKIT_PRESENT = importlib.util.find_spec("IndicTransToolkit") is not None
 
+
+def _disable_bhashini(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests exercise the registered-backend / no-backend rungs
+    specifically (`_translate_with_rung`'s fallthrough), not whichever rung
+    happens to answer first — with real `BHASHINI_*` credentials in `.env`
+    (P3.8, live since 2026-09-23), the Bhashini rung now answers before
+    either, so it's forced to fail the same way it does when unconfigured or
+    unreachable, and the test goes back to exercising the rung it names."""
+    def _unreachable(*_a: object, **_kw: object) -> str:
+        raise RuntimeError("bhashini disabled for this test")
+
+    monkeypatch.setattr("orca.agents.bhashini.nmt", _unreachable)
+
 _HF_HUB = Path.home() / ".cache" / "huggingface" / "hub"
 _INDICTRANS2_WEIGHTS_PRESENT = (
     _TOOLKIT_PRESENT
@@ -77,7 +90,8 @@ def test_translate_from_english_is_identity_when_target_is_english() -> None:
     assert translate_from_english("hello", "en") == "hello"
 
 
-def test_translate_raises_without_a_registered_backend() -> None:
+def test_translate_raises_without_a_registered_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    _disable_bhashini(monkeypatch)
     with pytest.raises(RuntimeError):
         translate_to_english("வணக்கம்", "ta")
 
@@ -87,6 +101,7 @@ def test_registered_backend_is_used(monkeypatch: pytest.MonkeyPatch) -> None:
         def translate(self, text: str, source: str, target: str) -> str:
             return f"[{source}->{target}] {text}"
 
+    _disable_bhashini(monkeypatch)
     monkeypatch.setattr("orca.agents.language._backend", _EchoBackend())
     assert translate_to_english("வணக்கம்", "ta") == "[ta->en] வணக்கம்"
 
@@ -105,6 +120,7 @@ def _state(**overrides) -> ORCAState:
 # --- run_ingress / run_egress (mocked backend — fast, CI-safe) --------------
 
 def test_run_ingress_translates_tamil_and_sets_detected_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    _disable_bhashini(monkeypatch)
     monkeypatch.setattr("orca.agents.language._backend", _EchoBackend())
     result = run_ingress(_state(raw_user_query="வணக்கம்"))
     assert result.outputs["detected_language"] == "ta"
@@ -120,10 +136,11 @@ def test_run_ingress_english_query_passes_through_unchanged(monkeypatch: pytest.
     assert result.outputs["normalized_english_query"] == "Is it safe today?"
 
 
-def test_run_ingress_degrades_not_crashes_without_a_backend() -> None:
+def test_run_ingress_degrades_not_crashes_without_a_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     # No backend registered — must not raise out of the graph node, must
     # pass the raw text through so Planning's no-match fallback (not a crash)
     # is what the user sees.
+    _disable_bhashini(monkeypatch)
     result = run_ingress(_state(raw_user_query="வணக்கம்"))
     assert result.status == "degraded"
     assert result.outputs["normalized_english_query"] == "வணக்கம்"
@@ -131,6 +148,7 @@ def test_run_ingress_degrades_not_crashes_without_a_backend() -> None:
 
 
 def test_run_egress_translates_english_response_to_detected_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    _disable_bhashini(monkeypatch)
     monkeypatch.setattr("orca.agents.language._backend", _EchoBackend())
     result = run_egress(_state(detected_language="ta", final_english_response="GO: all clear."))
     assert result.outputs["final_vernacular_response"] == "[en->ta] GO: all clear."
@@ -142,7 +160,8 @@ def test_run_egress_english_query_stays_english(monkeypatch: pytest.MonkeyPatch)
     assert result.outputs["final_vernacular_response"] == "GO: all clear."
 
 
-def test_run_egress_degrades_to_english_without_a_backend() -> None:
+def test_run_egress_degrades_to_english_without_a_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    _disable_bhashini(monkeypatch)
     result = run_egress(_state(detected_language="hi", final_english_response="GO: all clear."))
     assert result.status == "degraded"
     assert result.outputs["final_vernacular_response"] == "GO: all clear."  # degraded to English, not crashed

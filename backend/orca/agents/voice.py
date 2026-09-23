@@ -49,6 +49,7 @@ import re
 import time
 import wave
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, Protocol
 
 from orca.agents.language import Language
@@ -78,6 +79,8 @@ class TranscriptionResult:
     detected_language: Language | None  # the ASR's own audio-based language
     # ID, exposed as a cross-check against text-based detect_language() per
     # plan §4 D1 Day 16 — never a silent override of it.
+    service_id: str | None = None  # P3.8 — Bhashini's chosen serviceId, for
+    # the "Bhashini ASR · <serviceId>" engine tag; None on the local rung.
 
 
 class AsrBackend(Protocol):
@@ -89,45 +92,50 @@ class TtsBackend(Protocol):
 
 
 def _bhashini_configured() -> bool:
-    return bool(
-        os.environ.get("BHASHINI_USER_ID")
-        and os.environ.get("BHASHINI_ULCA_API_KEY")
-        and os.environ.get("BHASHINI_INFERENCE_API_KEY")
-    )
+    from orca.agents.bhashini import bhashini_configured
+
+    return bhashini_configured()
 
 
 class BhashiniAsrBackend:
     """Registered ahead of the local rung (plan §2 backend table), skipped
     when the credential is absent — which, per .env.example's own comment,
-    it is as of this writing. No fabricated endpoint call: there is no
-    integration to fake here, only a gate that gets out of the way the
-    moment the three BHASHINI_* env vars are actually populated (checked
-    live via _bhashini_configured(), not assumed absent)."""
+    it is as of this writing. P3.8 — the HTTP call itself lives in
+    orca/agents/bhashini.py (one client, shared with NMT/TTS/transliteration/
+    TLD); this class is only the credential gate plus the shape adapter into
+    TranscriptionResult."""
 
     def transcribe(self, audio: bytes, language_hint: Language | None) -> TranscriptionResult:
-        if not _bhashini_configured():
+        from orca.agents import bhashini
+
+        if not bhashini.bhashini_configured():
             raise RuntimeError(
                 "Bhashini ASR not configured (BHASHINI_USER_ID / BHASHINI_ULCA_API_KEY / "
                 "BHASHINI_INFERENCE_API_KEY empty — access pending per .env.example)."
             )
-        raise RuntimeError(
-            "Bhashini credentials are present but the ASR HTTP call is not wired up yet "
-            "— only the credential gate exists; the actual endpoint integration lands when "
-            "portal access is confirmed working end to end, not before."
+        transcript, confidence = bhashini.asr(audio, language_hint or "en")
+        service_id = bhashini._pipeline_config("asr", language_hint or "en").get("serviceId")
+        return TranscriptionResult(
+            transcript=transcript,
+            # ULCA does not always report a per-utterance confidence; a
+            # missing one degrades to the low-confidence threshold's own
+            # "show for confirmation" behaviour rather than an invented 1.0.
+            confidence=confidence if confidence is not None else LOW_CONFIDENCE_THRESHOLD,
+            rung="bhashini",
+            detected_language=language_hint,
+            service_id=service_id,
         )
 
 
 class BhashiniTtsBackend:
     def speak(self, text: str, language: Language) -> bytes:
-        if not _bhashini_configured():
+        from orca.agents import bhashini
+
+        if not bhashini.bhashini_configured():
             raise RuntimeError(
                 "Bhashini TTS not configured (BHASHINI_* env vars empty — access pending per .env.example)."
             )
-        raise RuntimeError(
-            "Bhashini credentials are present but the TTS HTTP call is not wired up yet "
-            "— only the credential gate exists; the actual endpoint integration lands when "
-            "portal access is confirmed working end to end, not before."
-        )
+        return bhashini.tts(text, language)
 
 
 class FasterWhisperBackend:
@@ -284,9 +292,35 @@ def speech_to_text(audio: bytes, language_hint: Language | None = None) -> Trans
 _tts_cache: dict[str, tuple[bytes, TtsRung]] = {}
 _TTS_CACHE_MAX = 32
 
+# P3.8 (2) — a Bhashini-synthesized clip surviving a process restart, so the
+# offline border-crossing demo can speak a pre-rendered alert with no
+# network AND no local TTS model loaded, not just no network. `data/` stays
+# gitignored (plan principle 4) — this is a runtime cache, not a fixture.
+_DISK_CACHE_DIR = Path(os.environ.get("ORCA_DATA_ROOT", "data")) / "tts_cache"
+
 
 def _tts_cache_key(text: str, language: Language) -> str:
     return hashlib.sha256(f"{language}:{text}".encode()).hexdigest()[:16]
+
+
+def _disk_cache_path(key: str) -> Path:
+    return _DISK_CACHE_DIR / f"{key}.wav"
+
+
+def _load_from_disk(key: str) -> bytes | None:
+    path = _disk_cache_path(key)
+    try:
+        return path.read_bytes() if path.exists() else None
+    except OSError:
+        return None  # a locked/unreadable cache file degrades to re-synthesis, never a crash
+
+
+def _save_to_disk(key: str, audio: bytes) -> None:
+    try:
+        _DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        _disk_cache_path(key).write_bytes(audio)
+    except OSError:
+        logger.warning("TTS disk cache write failed for key %s (non-fatal)", key, exc_info=True)
 
 
 def text_to_speech(text: str, language: Language) -> tuple[bytes | None, TtsRung]:
@@ -295,12 +329,19 @@ def text_to_speech(text: str, language: Language) -> tuple[bytes | None, TtsRung
     "unavailable") rather than raising, so the voice UI degrades to
     text-only playback instead of a broken request.
 
-    Results are cached in-memory so repeated clicks on the same verdict
-    return instantly without re-running inference."""
+    Results are cached in-memory (repeated clicks, same process) and on
+    disk (P3.8 — survives a restart, and is what `POST /voice/prefetch`
+    persisting the alert vocabulary actually means)."""
     key = _tts_cache_key(text, language)
     if key in _tts_cache:
         logger.info("TTS cache hit for key %s", key)
         return _tts_cache[key]
+    from_disk = _load_from_disk(key)
+    if from_disk is not None:
+        logger.info("TTS disk cache hit for key %s", key)
+        result = (from_disk, "bhashini")  # only Bhashini clips are persisted (see below)
+        _tts_cache[key] = result
+        return result
 
     t0 = time.monotonic()
     for backend in _tts_backends:
@@ -313,6 +354,11 @@ def text_to_speech(text: str, language: Language) -> tuple[bytes | None, TtsRung
                 oldest = next(iter(_tts_cache))
                 del _tts_cache[oldest]
             _tts_cache[key] = (audio, rung)
+            if rung == "bhashini":
+                # Only Bhashini clips go to disk: MMS-TTS is already a local
+                # model, so caching its output on disk buys nothing offline
+                # that keeping the model loaded doesn't already give for free.
+                _save_to_disk(key, audio)
             logger.info("TTS synthesis completed in %.1fs (rung=%s), cached as %s", time.monotonic() - t0, rung, key)
             return audio, rung
         except (RuntimeError, OSError):

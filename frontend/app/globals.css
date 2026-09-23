@@ -53,6 +53,16 @@
   --font-serif: var(--font-fraunces), Georgia, serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
   --font-tamil: var(--font-noto-tamil), var(--font-barlow), sans-serif;
+  /* P3.12 — one Noto family per remaining core script, same pattern as
+     Tamil above, so a vernacular answer in any of the ten languages has a
+     real font loaded regardless of what the handset has installed. */
+  --font-devanagari: var(--font-noto-devanagari), var(--font-barlow), sans-serif;
+  --font-telugu: var(--font-noto-telugu), var(--font-barlow), sans-serif;
+  --font-malayalam: var(--font-noto-malayalam), var(--font-barlow), sans-serif;
+  --font-kannada: var(--font-noto-kannada), var(--font-barlow), sans-serif;
+  --font-bengali: var(--font-noto-bengali), var(--font-barlow), sans-serif;
+  --font-gujarati: var(--font-noto-gujarati), var(--font-barlow), sans-serif;
+  --font-oriya: var(--font-noto-oriya), var(--font-barlow), sans-serif;
 
   --blur-glass: 12px;
 }

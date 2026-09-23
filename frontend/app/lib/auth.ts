@@ -27,7 +27,12 @@ export type Profile = {
   identifier: string | null;
   display_name: string | null;
   role: "user" | "authority" | "admin";
+  default_persona: string;
   language: string;
+  home_port: { lat: number; lon: number } | null;
+  home_port_name: string | null;
+  active_vessel_id: string | null;
+  quiet_hours: { start: string; end: string; tz: string } | null;
 };
 
 type TokenPair = { access_token: string; refresh_token: string };
@@ -171,10 +176,16 @@ export function signInWithPassword(identifier: string, password: string): Promis
 }
 
 export function register(identifier: string, password: string, displayName: string): Promise<AuthResult> {
+  // P3.13 — a signed-out language choice (../language/context.tsx's
+  // localStorage) becomes the new account's `users.language`, so a visitor
+  // who already picked Tamil before signing up doesn't have to pick it
+  // again from English defaults.
+  const language = read("orca.language") ?? undefined;
   return authenticate("/api/register", {
     identifier,
     password,
     display_name: displayName.trim() || null,
+    ...(language ? { language } : {}),
   });
 }
 
@@ -202,6 +213,17 @@ export function signOut(): void {
 // useAuth — shared signed-in state for components.
 
 let profileFor: { token: string; promise: Promise<Profile | null> } | null = null;
+
+// P3.4/P3.13 bug found: loadProfile() below caches its result per-token, so
+// a profile *mutation* (PUT /api/profile/persona, /language, ...) with no
+// token change left every useAuth() consumer reading the stale value —
+// the onboarding wizard's own gate (AppChrome) re-read "unresolved" right
+// after setting "fisherman" and bounced straight back to /onboarding. Any
+// code that PUTs to /api/profile/* must call this afterwards.
+export function invalidateProfile(): void {
+  profileFor = null;
+  announce();
+}
 
 function loadProfile(): Promise<Profile | null> {
   const token = getToken();

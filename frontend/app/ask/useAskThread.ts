@@ -149,6 +149,15 @@ export type FinalResponse = {
     candidates?: { name: string; lat: number; lon: number }[];
     disclosure?: string | null;
   } | null;
+  // P3.4 — "ask at the moment it first matters." Signed-in only; null on
+  // every anonymous answer and once the account already has an answer for
+  // the one field this particular question would have used.
+  profile_prompt?: {
+    field: "vessel_class" | "home_port";
+    question: string;
+    input_type: "choice" | "confirm";
+    options?: { value: string; label: string }[];
+  } | null;
 };
 
 // One run of a question. A turn starts with exactly one; "try again" adds
@@ -394,7 +403,7 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
   // "Carried over" chip, sent as `drop=place,vessel_class,intent`. The backend
   // refuses to inherit exactly those, at the point each is inherited; the
   // question itself is sent unchanged.
-  function ask(q: string, options?: { llm?: "off"; drop?: string[] }) {
+  function ask(q: string, options?: { llm?: "off"; drop?: string[]; position?: { lat: number; lon: number } }) {
     if (!q.trim()) return;
     sourceRef.current?.close();
 
@@ -433,11 +442,19 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     const sessionParam = `&session_id=${encodeURIComponent(sessionId)}`;
     const llmParam = options?.llm === "off" ? "&llm=off" : "";
     const dropParam = options?.drop?.length ? `&drop=${encodeURIComponent(options.drop.join(","))}` : "";
+    // P3.10 — a saved-location chip's own coordinates, an explicit position
+    // that beats both the query text and the ambient GPS fix (api/main.py:
+    // `lat`/`lon` given at all skips text/fix resolution entirely) — the
+    // one case where a chip's own stored spot must win even indoors or over
+    // a text place name it doesn't share the gazetteer's spelling of.
+    const positionParam = options?.position
+      ? `&lat=${options.position.lat}&lon=${options.position.lon}`
+      : "";
     void restoring.current.then(() => {
       // The user may have switched chats while the context was restoring.
       if (chatIdRef.current !== sessionId) return;
       const es = new EventSource(
-        `${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${geoParam}${llmParam}${dropParam}`,
+        `${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${positionParam || geoParam}${llmParam}${dropParam}`,
       );
       sourceRef.current = es;
       es.onmessage = (ev) => {
@@ -563,7 +580,12 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
             answer: {
               ...t.answer,
               final_english_response: result.final_english_response,
-              final_vernacular_response: undefined, // /render is English-only (translation stays at the edge, Agent 1)
+              // P3.13 — a persona-only re-render (no `language` in the
+              // request) still returns no vernacular text, same as before;
+              // a language switch's translated text (or `null` on a
+              // Bhashini/IndicTrans2 miss, degrading to English) replaces it.
+              final_vernacular_response: result.final_vernacular_response ?? undefined,
+              detected_language: result.language ?? t.answer.detected_language,
               confidence_tier: result.confidence_tier as ConfidenceTier,
               citations: result.citations,
             },
