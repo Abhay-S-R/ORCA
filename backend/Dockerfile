@@ -8,9 +8,9 @@ RUN apt-get update && apt-get install --no-install-recommends -y build-essential
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-# ponytail: split runtime from dev/CI deps if the image size becomes a problem;
-# one file is fine while the backend is this small.
-RUN pip install --no-cache-dir -r requirements.txt
+# Pre-install CPU-only PyTorch to prevent downloading 10+ GB of CUDA wheels on Linux:
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
 
 COPY orca ./orca
 
