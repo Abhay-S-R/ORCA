@@ -16,7 +16,7 @@ official advisory. The Ocean Analytics Agent may present it only with that frami
 
 Method
 ------
-1. Mean sea-surface temperature over the HYCOM forecast window (1/16 deg), pilot bbox.
+1. Mean sea-surface temperature over the INCOIS OSF forecast window (1/12 deg), pilot bbox.
 2. Thermal front strength = |grad SST| in degC/km. Fish aggregate along fronts, where
    convergence concentrates nutrients and prey; this is the dominant PFZ predictor.
 3. Depth sampled from GEBCO and restricted to the mid-shelf band. ICAR-CMFRI's
@@ -31,6 +31,7 @@ Method
 Usage:  python scripts/build_pfz_fallback.py
 """
 
+import glob
 import json
 import os
 import warnings
@@ -44,7 +45,33 @@ from shapely.geometry import Point, shape
 from shapely.prepared import prep
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HYCOM_NC = os.path.join(ROOT, "data/incois_osf_pfz/osf_hycom/RSMC_hycom_20260830.nc")
+
+
+def _newest_sst():
+    """Newest SST_NIO_<date>.nc, the daily surface-temperature field.
+
+    This used to name `RSMC_hycom_20260830.nc` outright, which froze the whole
+    layer to one August snapshot and pinned a 9.85 GB file that nothing else
+    read. That bundle carried `TEMP` on six depth levels; INCOIS has since
+    retired it and `refresh_osf_forecasts.py` now fetches only `UVEL`/`VVEL`,
+    so the August file was also the last copy of `TEMP` anywhere on disk.
+
+    Only the surface level was ever used here (`TEMP[:, 0]`), and that is
+    exactly what `SST_NIO_<date>.nc` carries, on the same 4-D
+    `(time, depth, LAT, LON)` layout over a superset of the pilot box. Globbing
+    for the newest one means this rebuilds with the daily refresh instead of
+    needing a file that can no longer be re-downloaded.
+    """
+    found = sorted(glob.glob(os.path.join(
+        ROOT, "data/incois_osf_pfz/osf_hycom/SST_NIO_*.nc")))
+    if not found:
+        raise FileNotFoundError(
+            "no SST_NIO_*.nc in data/incois_osf_pfz/osf_hycom "
+            "— run scripts/refresh_osf_forecasts.py")
+    return found[-1]
+
+
+SST_NC = _newest_sst()
 GEBCO_NC = os.path.join(ROOT, "data/tier1/bathymetry/"
                               "gebco_2026_n10.5_s7.5_w77.5_e80.5.nc")
 MPA_GEOJSON = os.path.join(ROOT, "data/tier1/boundaries/india_marine_mpas.geojson")
@@ -65,20 +92,28 @@ PILOT_PORTS = {
 FRONT_PERCENTILE = 90.0
 # Mid-shelf band in metres (GEBCO elevation is negative below sea level).
 DEPTH_MIN_M, DEPTH_MAX_M = 15.0, 120.0
-# Discard specks: a zone must span at least this many grid cells (~1 cell = 4.6 km).
-MIN_ZONE_CELLS = 3
+# Discard specks: a zone must cover at least this much area. Expressed in km2
+# rather than in grid cells because the cell size is now whatever the source
+# field uses — the old "3 cells" assumed a fixed 4.6 km HYCOM cell, and silently
+# meant four times the area once the 1/12 deg SST_NIO grid replaced it. The
+# value is the area those 3 cells covered, so the physical threshold is
+# unchanged. At 1/12 deg a single cell already exceeds it.
+MIN_ZONE_AREA_KM2 = 3 * 4.63 * 4.63
 
 GEOD = Geod(ellps="WGS84")
 
 
 def load_sst_fronts():
     """Mean SST and thermal front strength (degC/km) over the pilot bbox."""
-    ds = xr.open_dataset(HYCOM_NC, engine="scipy", decode_times=False)
+    ds = xr.open_dataset(SST_NC, engine="scipy", decode_times=False)
     lats, lons = ds["LAT"].values, ds["LON"].values
     iy = np.where((lats >= PILOT_BBOX["lat_min"]) & (lats <= PILOT_BBOX["lat_max"]))[0]
     ix = np.where((lons >= PILOT_BBOX["lon_min"]) & (lons <= PILOT_BBOX["lon_max"]))[0]
 
-    block = ds["TEMP"].values[:, 0, iy[0]:iy[-1] + 1, ix[0]:ix[-1] + 1]
+    # Index 0 of the depth axis is the surface. SST_NIO has a single depth
+    # level, so this is a no-op there; it is kept explicit because the field it
+    # replaced (HYCOM TEMP) had six, and the surface is the only one wanted.
+    block = ds["SST"].values[:, 0, iy[0]:iy[-1] + 1, ix[0]:ix[-1] + 1]
     sub_lat, sub_lon = lats[iy], lons[ix]
     n_steps = block.shape[0]
 
@@ -99,11 +134,11 @@ def load_sst_fronts():
     front[~np.isfinite(mean_sst)] = np.nan
 
     ds.close()
-    return sub_lat, sub_lon, mean_sst, front, n_steps
+    return sub_lat, sub_lon, mean_sst, front, n_steps, dlat_km * dlon_km
 
 
 def sample_depth(target_lat, target_lon):
-    """Sample GEBCO elevation onto the HYCOM grid by nearest neighbour."""
+    """Sample GEBCO elevation onto the model grid by nearest neighbour."""
     g = xr.open_dataset(GEBCO_NC, engine="scipy")
     glat, glon = g["lat"].values, g["lon"].values
     elev = g["elevation"].values
@@ -130,8 +165,14 @@ def load_no_take_zones():
     return zones
 
 
-def build_zones(lats, lons, mean_sst, front, depth, no_take):
-    """Group frontal, mid-shelf, unrestricted cells into contiguous candidate zones."""
+def build_zones(lats, lons, mean_sst, front, depth, no_take, cell_km2):
+    """Group frontal, mid-shelf, unrestricted cells into contiguous candidate zones.
+
+    `cell_km2` comes from the source grid rather than a constant, so the speck
+    filter and the reported areas stay physical if the field is ever swapped
+    again.
+    """
+    min_cells = max(1, round(MIN_ZONE_AREA_KM2 / cell_km2))
     valid = np.isfinite(mean_sst) & np.isfinite(front)
     in_depth = valid & (depth >= DEPTH_MIN_M) & (depth <= DEPTH_MAX_M)
 
@@ -146,7 +187,7 @@ def build_zones(lats, lons, mean_sst, front, depth, no_take):
     for label_id in range(1, count + 1):
         cells = labels == label_id
         n_cells = int(cells.sum())
-        if n_cells < MIN_ZONE_CELLS:
+        if n_cells < min_cells:
             continue
         yy, xx = np.nonzero(cells)
         clat = float(lats[yy].mean())
@@ -161,7 +202,7 @@ def build_zones(lats, lons, mean_sst, front, depth, no_take):
             "centroid_lat": round(clat, 5),
             "centroid_lon": round(clon, 5),
             "cell_count": n_cells,
-            "approx_area_km2": round(n_cells * 4.63 * 4.63, 1),
+            "approx_area_km2": round(n_cells * cell_km2, 1),
             "mean_front_strength_c_per_km": round(float(front[cells].mean()), 4),
             "max_front_strength_c_per_km": round(float(front[cells].max()), 4),
             "mean_sst_c": round(float(mean_sst[cells].mean()), 2),
@@ -170,7 +211,7 @@ def build_zones(lats, lons, mean_sst, front, depth, no_take):
         })
 
     zones.sort(key=lambda z: z["mean_front_strength_c_per_km"], reverse=True)
-    return zones, threshold
+    return zones, threshold, min_cells
 
 
 def port_vectors(zone_lat, zone_lon):
@@ -197,9 +238,10 @@ def main():
     print("PFZ fallback layer for the pilot region (derived proxy, not an advisory)")
     print("=" * 78)
 
-    lats, lons, mean_sst, front, n_steps = load_sst_fronts()
-    print("HYCOM subset : %d x %d cells @ %.3f deg, %d forecast steps"
-          % (len(lats), len(lons), abs(lats[1] - lats[0]), n_steps))
+    lats, lons, mean_sst, front, n_steps, cell_km2 = load_sst_fronts()
+    print("SST source   : %s" % os.path.basename(SST_NC))
+    print("model subset : %d x %d cells @ %.3f deg (%.1f km2/cell), %d forecast steps"
+          % (len(lats), len(lons), abs(lats[1] - lats[0]), cell_km2, n_steps))
     print("SST          : %.2f .. %.2f degC (%.0f%% wet)"
           % (np.nanmin(mean_sst), np.nanmax(mean_sst),
              100 * np.isfinite(mean_sst).mean()))
@@ -209,10 +251,12 @@ def main():
     print("bathymetry   : GEBCO sampled onto model grid")
     print("geofences    : %d usable MPA polygons loaded" % len(no_take))
 
-    zones, threshold = build_zones(lats, lons, mean_sst, front, depth, no_take)
+    zones, threshold, min_cells = build_zones(
+        lats, lons, mean_sst, front, depth, no_take, cell_km2)
     print("front cutoff : p%.0f = %.4f degC/km" % (FRONT_PERCENTILE, threshold or 0))
-    print("zones found  : %d (>= %d cells, depth %.0f-%.0f m, outside no-take MPAs)"
-          % (len(zones), MIN_ZONE_CELLS, DEPTH_MIN_M, DEPTH_MAX_M))
+    print("zones found  : %d (>= %d cells = %.0f km2, depth %.0f-%.0f m, "
+          "outside no-take MPAs)"
+          % (len(zones), min_cells, MIN_ZONE_AREA_KM2, DEPTH_MIN_M, DEPTH_MAX_M))
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     payload = {
@@ -228,8 +272,8 @@ def main():
             "by ORCA for use only when INCOIS publishes no advisory for the sector. "
             "Any response built on it must say so and must carry LOW-DATA confidence."),
         "method": {
-            "sst_source": "INCOIS HYCOM RSMC forecast, surface layer, mean over "
-                          "%d forecast steps" % n_steps,
+            "sst_source": "INCOIS Ocean State Forecast %s, surface layer, mean over "
+                          "%d forecast steps" % (os.path.basename(SST_NC), n_steps),
             "front_metric": "magnitude of horizontal SST gradient, degC/km",
             "front_threshold_percentile": FRONT_PERCENTILE,
             "front_threshold_value_c_per_km": round(threshold, 4) if threshold else None,
@@ -240,17 +284,28 @@ def main():
                 "the mid-shelf; this band encodes that published prior."),
             "exclusions": "Zones whose centroid falls inside a geofence-usable MPA "
                           "polygon are removed.",
-            "minimum_zone_cells": MIN_ZONE_CELLS,
+            "minimum_zone_area_km2": round(MIN_ZONE_AREA_KM2, 1),
+            "minimum_zone_cells": min_cells,
+            "grid_cell_area_km2": round(cell_km2, 2),
         },
         "limitations": [
             (
                 "Thermal fronts alone; no chlorophyll term. The available MOSDAC OCM-3 "
                 "chlorophyll files are from March 2026 and at 25 km, too stale and too "
-                "coarse to combine with a current 1/16 deg SST field."
+                "coarse to combine with a current 1/12 deg SST field."
             ),
             (
                 "Front strength is computed from a model forecast, not a satellite "
                 "retrieval, so it does not reproduce INCOIS's operational product."
+            ),
+            # ponytail: 1/12 deg is the finest field that refreshes daily. If
+            # sharper fronts are ever needed, the upgrade path is the MOSDAC
+            # INSAT-3DR daily SST already on disk at ~4 km, which costs an HDF5
+            # reader and a regrid rather than a redesign.
+            (
+                "Resolved at the 1/12 degree grid of the source field, so zones are "
+                "coarse and weak fronts that a finer field would separate may merge. "
+                "Zone boundaries are indicative, not surveyed lines."
             ),
             (
                 "Unvalidated against catch data; ranking indicates relative frontal "

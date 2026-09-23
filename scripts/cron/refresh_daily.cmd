@@ -4,6 +4,9 @@ REM Scheduled by docs/Guide/ORCA_Data_Refresh_Cron_Guide.md. Exits 1 if any sour
 REM in breach afterwards, so Task Scheduler's Last Run Result is the alarm.
 cd /d "%~dp0..\.."
 set PY=backend\.venv\Scripts\python.exe
+REM Gazetteer aliases include Tamil script; a cp1252 console kills the job
+REM mid-run and the freshness gate never gets to report. Affects stdout only.
+set PYTHONIOENCODING=utf-8
 
 %PY% scripts\refresh_osf_forecasts.py
 %PY% scripts\extract_osf_pilot.py

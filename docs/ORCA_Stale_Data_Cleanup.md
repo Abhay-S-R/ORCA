@@ -1,7 +1,12 @@
 # ORCA — Stale Data Cleanup Register
 
 **Status:** advisory. Nothing in this document has been deleted.
-**Audited:** 2026-09-19, against `data/` as it stood that morning (26,020 files, 21.72 GB).
+**Audited:** 2026-09-19. **Re-verified against live disk 2026-09-22**, after the daily and weekly
+refresh jobs were run end to end; `data/` now holds 26,449 files, 22.35 GB. Every entry below was
+re-checked file by file on that date — all 43 files in §1 are still present and still unreferenced,
+and the sizes are unchanged (§1 totals 9.51 GB decimal / 8.86 GiB, which is the same bytes counted
+two ways). Three things did change, and they are marked **[2026-09-22]** where they appear: §1.8 is
+new, §5 has shifted by one run, and both wiring problems in §6 are now fixed.
 **Grounded in:** `docs/ORCA_PS_SIH26176_Problem_Statement.md` (canonical), `docs/ORCA_Data_Freshness_Contract.md`
 (which defines LIVE / DAILY / WEEKLY / STATIC), and `docs/ORCA_SIH26176_AllIndia_Dataset_Coverage_Guide.md`
 (which records what each file is wired to).
@@ -118,37 +123,77 @@ The pre-procurement placeholder `fetch_gaja.py` writes when CDS credentials are 
 download (`era5_gaja_20181112_20181118.nc`) sits beside it, and `orca/replay/gaja.py:5` says in so
 many words that the stub "sits alongside, unused".
 
+### 1.8 `bhuvan_15days_marine_manifest.json` — 11 KB **[2026-09-22, new]**
+
+```
+data/tier3/bhuvan/bhuvan_15days_marine_manifest.json
+```
+
+**This entry moved here from §4, because the code moved.** On 2026-09-19 this was the file
+`load_bhuvan_wms_services()` actually read, which is why the audit told you to leave it alone. The
+wiring bug in §6.1 has since been fixed the other way round: `refresh_bhuvan_manifest.py` now writes
+the `core_wms_services` catalogue into `bhuvan_manifest.json` — the file the freshness contract has
+always watched — and the reader was repointed at it. `local_catalog("bhuvan_wms")` returns 4 services
+from the monitored file.
+
+That leaves this one genuinely orphaned. A repo-wide grep finds it in exactly three places, all of
+them prose explaining the history: a comment in `agents/visualization.py:118`, the docstring in
+`data/analytics_loaders.py:448`, and the module docstring of `scripts/refresh_bhuvan_manifest.py:10`.
+No code opens it. It is 11 KB, so deleting it buys nothing but tidiness — it is listed for
+correctness, not for space.
+
 ---
 
-## 2. Blocked — do not delete until the code moves first
+## 2. ~~Blocked — do not delete until the code moves first~~ — **UNBLOCKED 2026-09-22**
 
 ### `RSMC_hycom_20260830.nc` — 10,582 MB
 
 `data/incois_osf_pfz/osf_hycom/RSMC_hycom_20260830.nc`
 
-**This is the single largest file in `data/` — half the total — and it is the one you must not
-delete today.** It is tempting precisely because it is huge and dated August. Two things pin it:
+**Safe to delete.** The code that pinned it has been moved. The original finding and the two
+reasons it was blocked are kept below, followed by what was actually done.
 
-1. **It is hardcoded.** `scripts/build_pfz_fallback.py:47` names this exact file and reads `TEMP`
-   from it (line 81) to compute the thermal-front proxy that answers "where are the fishing zones"
-   on days when INCOIS publishes no advisory for a clouded sector.
-2. **It is the last copy of five variables.** The current refresh
-   (`scripts/refresh_osf_forecasts.py`) fetches only `UVEL`/`VVEL`, so `RSMC_hycom_20260917.nc` is
-   83 MB and carries currents alone. `TEMP`, `SALN`, `SSH`, `MLD`, `TCHP` and `TEMP_CT` exist
-   nowhere else on disk. `extract_osf_pilot.py:221` already documents this: those variables "came
-   with the retired RSMC_hycom bundle and have no current public equivalent here."
+> **This is the single largest file in `data/` — half the total — and it is the one you must not
+> delete today.** It is tempting precisely because it is huge and dated August. Two things pin it:
 
-**To unblock it:** re-point `build_pfz_fallback.py` at `SST_NIO_20260917.nc`, which carries `SST`
-on a 337 × 481 grid over 0–28 °N / 60–100 °E — a superset of the pilot box (7.5–10.5 °N,
-77–80.5 °E) and the same 1/12° spacing the fallback already assumes. Re-run the builder, confirm
-`pfz_fallback_pilot_region.geojson` still resolves, and only then delete. That frees 10.58 GB and
-also makes the fallback refreshable instead of frozen to one August snapshot.
+> 1. **It is hardcoded.** `scripts/build_pfz_fallback.py:47` names this exact file and reads `TEMP`
+>    from it (line 81) to compute the thermal-front proxy that answers "where are the fishing zones"
+>    on days when INCOIS publishes no advisory for a clouded sector.
+> 2. **It is the last copy of five variables.** The current refresh
+>    (`scripts/refresh_osf_forecasts.py`) fetches only `UVEL`/`VVEL`, so `RSMC_hycom_20260917.nc` is
+>    83 MB and carries currents alone. `TEMP`, `SALN`, `SSH`, `MLD`, `TCHP` and `TEMP_CT` exist
+>    nowhere else on disk. `extract_osf_pilot.py:221` already documents this: those variables "came
+>    with the retired RSMC_hycom bundle and have no current public equivalent here."
 
-Until someone does that work, this file stays.
+**That work is done [2026-09-22].** `build_pfz_fallback.py` no longer names any file: it globs for
+the newest `SST_NIO_*.nc` and reads `SST`, so the fallback now rebuilds with the daily refresh
+instead of being frozen to one August snapshot. Reason 2 stops mattering because reason 1 was the
+only thing reading `TEMP` — being the last copy of a variable no code reads is not a reason to keep
+10.58 GB.
+
+Two things changed with it, both because the grid is no longer a fixed assumption. The speck filter
+is now `MIN_ZONE_AREA_KM2` (the area the old "3 cells" covered at HYCOM's 4.63 km spacing) divided
+by the source grid's actual cell area, so the physical threshold survives a grid swap instead of
+silently quadrupling. And the reported `approx_area_km2` uses that same measured cell area rather
+than two hardcoded constants.
+
+**Honest caveat, because the output is not identical.** `SST_NIO` is 1/12° where HYCOM was about
+1/24°, so zones are blockier, front strengths roughly halve (p90 cutoff 0.0419 → 0.0224 °C/km) and
+3 of the 6 zones are single-cell — still above the 64.3 km² threshold, but only just. Zone
+*positions* are not comparable before and after, because the month changed as well as the grid.
+What was verified is that the schema is unchanged (no keys added or removed, feature property keys
+identical, geometry types `{Point}`, `LOW_DATA` tier preserved in `orca_metadata`) and that the
+builder produces 6 usable zones with the August file absent. The upgrade path, if the blockiness
+ever matters, is MOSDAC INSAT-3DR SST at roughly 4 km; it is recorded as a `ponytail:` comment in
+the builder's limitations block.
+
+**Proof it is deletable:** the file was renamed out of the way and the suite re-run. Builder ran (6
+zones), `orca.data.freshness` reported `28 sources | 0 breach(es)`, unit suite **700 passed, 1
+skipped**. It was then restored byte-for-byte — an agent does not delete these.
 
 ---
 
-## 3. Your judgement — unused, but not an exact duplicate
+## 3. Your judgement — unused, but not an exact duplicate — **no code change needed**
 
 ### `etopo_all_india_real.nc` — 12.4 MB
 
@@ -167,6 +212,12 @@ It is still safe to delete — nothing reads it, and ETOPO is only the *fallback
 (GEBCO 2026 at 15″ is preferred, `geospatial.py:369`) — but you are discarding 0.56% of cells
 that disagree with the copy you keep, not a byte-identical twin. Flagged so the call is yours.
 
+**Re-checked 2026-09-22 with the file staged out of `data/`:** no code change was required, and
+none was made. `scripts/verify_gazetteer_at_sea.py` — the heaviest bathymetry consumer — reported
+`203 entries checked: 203 at sea, 0 no GEBCO coverage, 0 ON LAND`, confirming that the depth path
+resolves on GEBCO and never falls through to this file. Freshness and the unit suite were clean
+with it absent.
+
 ---
 
 ## 4. Looks stale, is not — leave these alone
@@ -183,8 +234,8 @@ than N days" sweep, and every one of them is load-bearing.
 | `pfz/pfz_parsed_webgis.json`, `pfz_webgis_links.json`, `pfz_webgis_text.txt`, `*_master.json`, `pfz_fallback_pilot_region.json` | Scraper intermediates and JSON twins of files also stored as CSV/GeoJSON | Coverage Guide §170 keeps them **as provenance** — they evidence where a scraped advisory came from. Deliberate, not accidental. |
 | `tier1/bathymetry/gebco_2026_n10.5_s7.5_w77.5_e80.5.nc` | Superseded by the 101 MB national GEBCO extract | Still the pilot-box fallback (`geospatial.py:350`) **and** the grid `build_pfz_fallback.py:48` reads for its depth filter. |
 | `tier1/bathymetry/etopo_south_india_bathymetry.nc` | Older, smaller, regional | Wired as `ETOPO_PILOT_FILE` (`geospatial.py:40`). |
-| `tier1/tiles/bathymetry/{7,8}/**` — 41 tiles dated 2026-09-03 | Older than the other 491 tiles in the same pyramid | Same zoom levels, inside the live pyramid. They are tiles the later run did not rewrite. Deleting them punches holes in the map. **Never delete individual tiles — regenerate the whole pyramid or leave it.** |
-| `tier3/bhuvan/bhuvan_15days_marine_manifest.json` | Dated 2026-08-30, and a newer `bhuvan_manifest.json` sits beside it | This is the one code actually reads (`analytics_loaders.py:417`). See the wiring bug in §6 — the newer file is the orphan, but fixing that is a code change, not a deletion. |
+| ~~`tier1/tiles/bathymetry/{7,8}/**` — 41 tiles dated 2026-09-03~~ **[2026-09-22: resolved, nothing to decide]** | Older than the other 491 tiles in the same pyramid | **Gone, and not by deletion.** These were orphans: tiles from an earlier build that a later, re-scoped build left behind because `generate_layer_tiles` wrote straight into the live directory and only then overwrote `meta.json`. The writer now renders into a `.building` sibling and swaps atomically, and the pyramid was rebuilt. Verified 2026-09-22: **490 PNGs on disk = 490 in `meta.json`**, zooms 5–8, 0 tiles predating the rebuild, 0 stray `.building`/`.old` directories. The advice in this row still stands for the future — never hand-delete tiles, regenerate the pyramid. |
+| ~~`tier3/bhuvan/bhuvan_15days_marine_manifest.json`~~ **[2026-09-22: moved to §1.8]** | Dated 2026-08-30, and a newer `bhuvan_manifest.json` sits beside it | **This row is now wrong and is kept only to show why.** It was correct on 2026-09-19: this was the file the reader opened. The §6.1 wiring bug was fixed by moving the catalogue into `bhuvan_manifest.json` and repointing the reader, so this file is no longer read by anything. See §1.8. |
 | `tier1/boundaries/2011_Dist.{dbf,prj,shx}` | Tiny files next to a 10 MB `.shp` | Shapefile sidecars. A `.shp` without its `.dbf` and `.shx` is unreadable. All four or none. |
 | `incois_osf_pfz/south_india_marine_grid.{csv,geojson}`, `dataset_manifest.json` | Dated 2026-08-30 | The grid is rung 2 of `nearest_osf_point_forecast`; the manifest carries the **INCOIS CC-BY 4.0 licence**, recorded nowhere else in the repo. Deleting it deletes ORCA's right to cite the data. |
 
@@ -192,7 +243,15 @@ than N days" sweep, and every one of them is load-bearing.
 
 ## 5. Optional — previous-run granules
 
-`RSMC_hycom_20260915.nc`, `SST_NIO_20260915.nc`, `rsmc_combined_ww3_20260915.nc` — 427 MB.
+**[2026-09-22: this section has shifted by one run.]** The daily job has since fetched the **20260921** set, so there are now three dated runs on disk (0915, 0917, 0921) where the audit saw two. Under this section's own "keep one previous run" rule the *current* previous run is **0917**, and the 0915 set has dropped to two runs back:
+
+`RSMC_hycom_20260915.nc`, `SST_NIO_20260915.nc`, `rsmc_combined_ww3_20260915.nc` — 427 MB (408 MiB), **now eligible**.
+
+Re-verified 2026-09-22 against all three questions in §8. No code names them: the only grep hit for `20260915` is a fixture string inside `refresh_osf_forecasts.py`'s own self-check assertion, not a file read. Every reader takes the newest of a glob and would now pick 0921 — `voyage.py:80` and `geospatial.py:462` both `sorted(...)[-1]`, `generate_pan_india_waves.py:33` uses `max(...)`, `extract_osf_pilot.py:41-42` uses `_newest`. And they are not a last copy: 0917 and 0921 carry the same six WW3 variables and the same `UVEL`/`VVEL`. Keeping 0917 preserves the insurance policy this section exists for.
+
+The original text follows, and still applies to whichever run is the most recent one back:
+
+~~`RSMC_hycom_20260915.nc`, `SST_NIO_20260915.nc`, `rsmc_combined_ww3_20260915.nc` — 427 MB.~~
 
 Superseded by the 17 September run and not read. **Recommendation: keep them.** One previous run
 is a cheap insurance policy against a refresh landing a corrupt or truncated file, which is not
@@ -204,19 +263,43 @@ The same logic applies to the September MOSDAC granules that are not the newest
 
 ---
 
-## 6. Two wiring problems this audit surfaced
+## 6. Two wiring problems this audit surfaced — **both fixed 2026-09-22**
 
-Neither is a deletion. Both are worth a ticket.
+Neither was a deletion, which is why this section existed separately. Both have now been fixed in
+code; the original text of each is kept so the reasoning is still readable.
 
-1. **The Bhuvan manifest refresh writes a file nobody reads.**
+1. ~~**The Bhuvan manifest refresh writes a file nobody reads.**~~ **FIXED 2026-09-22.** The fix went
+   into the writer, not the freshness entry: repointing the contract at the file the reader opened
+   would have looked like a one-line rename and silently broken it, because the two manifests have
+   **different schemas** — `bhuvan_manifest.json` had no `core_wms_services` key at all, so the
+   reader would have returned `[]` with a green badge above it. `refresh_bhuvan_manifest.py` now
+   owns a `WMS_SERVICES` constant for the four OGC endpoints in use and writes them into
+   `bhuvan_manifest.json`, and `load_bhuvan_wms_services()` reads that same file. One file is now
+   written, monitored and read. Verified: `local_catalog("bhuvan_wms")` returns 4 services. The
+   file this orphaned is §1.8. Original finding:
+
+   > **The Bhuvan manifest refresh writes a file nobody reads.**
    `scripts/refresh_bhuvan_manifest.py:60` writes `bhuvan_manifest.json`, but
    `analytics_loaders.load_bhuvan_wms_services()` reads `bhuvan_15days_marine_manifest.json`.
    So the refresh script runs, succeeds, and changes nothing the app sees — while the file the app
    does read has not been updated since 30 August. One of the two names has to move.
 
-2. **`_cmems_newest()` picks by mtime, not content date.** Described in §1.5. Deleting the two
-   stale granules removes today's exposure; switching the selector to
-   `content_date_from_name()` removes the class of bug.
+2. ~~**`_cmems_newest()` picks by mtime, not content date.**~~ **FIXED 2026-09-22.** Described in
+   §1.5. Deleting the two stale granules would have removed only today's exposure; the selector
+   itself now sorts on `content_date_from_name()` — the same parser the freshness contract grades
+   these files with — so the SST fallback rung and the badge above it can no longer disagree, and
+   restoring a backup can no longer reorder the directory into serving August data as current.
+
+   One wrinkle worth recording, because the obvious version of this fix is wrong and was caught
+   only by running it: sorting undated filenames *oldest* regresses the selection. CMEMS ships the
+   rolling near-real-time product under a fixed undated name (`cmems_thetao_india_nrt.nc`) and
+   archives snapshots under dated ones, so an undated file is current by construction and must sort
+   **newest** — otherwise the September archive beats today's NRT data. mtime survives only as a
+   tiebreak. Guarded by `tests/unit/test_loaders.py::test_cmems_picks_the_current_file_even_if_a_stale_one_was_written_last`, which backdates the
+   August extract's mtime to now and asserts the NRT file still wins.
+
+   **This does not retire §1.5.** The two superseded granules are still unread and still deletable;
+   they are simply no longer a trap.
 
 ---
 
@@ -224,14 +307,29 @@ Neither is a deletion. Both are worth a ticket.
 
 | Tier | What | Files | Size |
 |---|---|---:|---:|
-| §1 | Safe to delete — verified unused | 43 | **9.51 GB** |
-| §2 | Blocked on a code change (`RSMC_hycom_20260830.nc`) | 1 | 10.58 GB |
+| §1 | Safe to delete — verified unused | 44 | **9.51 GB** |
+| §2 | ~~Blocked on a code change~~ **unblocked, safe to delete** (`RSMC_hycom_20260830.nc`) | 1 | 10.58 GB |
 | §3 | Unused, not an exact duplicate (`etopo_all_india_real.nc`) | 1 | 0.01 GB |
-| §5 | Previous run — recommended keep | 3 | 0.43 GB |
-| | **`data/` today** | 26,020 | **21.72 GB** |
+| §5 | Two runs back (0915) — **now eligible [2026-09-22]** | 3 | 0.43 GB |
+| §5 | One run back (0917) — recommended keep | 3 | 0.43 GB |
+| | **`data/` on 2026-09-19** | 26,020 | 21.72 GB |
+| | **`data/` today (2026-09-22, after both refresh jobs)** | 26,449 | **22.35 GB** |
 
-Acting on §1 alone takes `data/` from 21.72 GB to about 12.2 GB. Doing the §2 code change as well
-takes it to roughly 1.6 GB.
+Acting on §1 alone takes `data/` from 22.35 GB to about 12.8 GB; adding the now-eligible 0915 run
+from §5 takes off a further 0.43 GB. §2's code change is done, so §1 + §2 + §3 + the 0915 run is a
+single pass that takes `data/` to roughly **2.2 GB** — 49 files, 19.12 GiB freed.
+
+**All 49 were proved deletable together, not one at a time [2026-09-22].** They were moved out of
+`data/` into a staging directory in one operation and the checks re-run against a tree that looked
+exactly as it will after the deletion: `orca.data.freshness` → `28 sources | 0 breach(es)`,
+`build_pfz_fallback.py` → 6 zones written, `verify_gazetteer_at_sea.py` → `203 at sea, 0 ON LAND`,
+unit suite → **700 passed, 1 skipped**. Every file was then moved back. Checking them one at a time
+would not have caught a consumer that silently falls back from one deleted file to another; this
+does.
+
+**The §1 file count is 44, not 43+1:** §1.8 was added and nothing was removed, because all 43
+original files were re-confirmed present and unreferenced on 2026-09-22. The GB figure is unchanged
+because §1.8 is 11 KB.
 
 ---
 

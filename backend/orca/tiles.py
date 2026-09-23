@@ -20,6 +20,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -138,6 +139,15 @@ def generate_layer_tiles(
     than written — a 404 for those XYZ coordinates renders as "nothing
     there" in MapLibre, which is correct and saves a pyramid's worth of
     empty PNGs.
+
+    Built into a sibling `.building` directory and swapped in at the end, the
+    same way `generate_tiles.generate_wave_height_forecast_tiles` does it. Two
+    reasons, and the second is why it lives here rather than in the caller:
+    an interrupted run leaves the previous good pyramid live instead of a
+    half-written one, and a rebuild whose source bounds shrank cannot leave
+    the old build's now-out-of-bounds tiles behind. That second case is not
+    hypothetical — it left 41 orphan z7/z8 tiles under `bathymetry/` that
+    `meta.json` did not count and the map never requested.
     """
     # Explicit, not auto-detected — rioxarray's CF-convention sniffing needs
     # standard_name attrs our source grids (plain "lat"/"lon" dims, no CF
@@ -156,6 +166,9 @@ def generate_layer_tiles(
     lon_max, lat_max = float(da.lon.max()), float(da.lat.max())
     bounds = (lon_min, lat_min, lon_max, lat_max)
 
+    build_dir = out_dir.parent / f"{out_dir.name}.building"
+    shutil.rmtree(build_dir, ignore_errors=True)
+
     tile_count = 0
     with XarrayReader(da) as src:
         for z in range(zoom_range[0], zoom_range[1] + 1):
@@ -168,7 +181,7 @@ def generate_layer_tiles(
                 if not cell_valid.any():
                     continue  # all-land / all-out-of-bounds tile — skip, see docstring
                 rgba = _colorize_tile(display, cell_valid, data_min, data_max, cmap)
-                tile_path = out_dir / str(z) / str(t.x) / f"{t.y}.png"
+                tile_path = build_dir / str(z) / str(t.x) / f"{t.y}.png"
                 tile_path.parent.mkdir(parents=True, exist_ok=True)
                 Image.fromarray(rgba, mode="RGBA").save(tile_path)
                 tile_count += 1
@@ -182,8 +195,16 @@ def generate_layer_tiles(
         "color_ramp": {"palette": f"cmocean-{cmap_name}", "data_min": data_min, "data_max": data_max, "unit": unit},
         "tile_count": tile_count,
     }
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+
+    old_dir = out_dir.parent / f"{out_dir.name}.old"
+    shutil.rmtree(old_dir, ignore_errors=True)
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    if out_dir.exists():
+        out_dir.rename(old_dir)
+    build_dir.rename(out_dir)
+    shutil.rmtree(old_dir, ignore_errors=True)
     return meta
 
 

@@ -32,6 +32,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from orca.data.freshness import content_date_from_name
 from orca.data.loaders import DATA_DIR
 
 SST_DIR = DATA_DIR / "tier3" / "mosdac" / "Sea surface temp"
@@ -218,10 +219,26 @@ def _cmems_newest(name_contains: str) -> Path | None:
     three different products now live in this directory, and a bare glob
     picks whichever sorts last — which would hand the chlorophyll file to the
     SST reader the first time a filename changes.
+
+    Newest means the date in the filename, not the mtime. mtime records when
+    the bytes landed on this machine, so restoring a backup or re-copying the
+    directory reorders it and can serve August data as today's — the trap
+    recorded in `docs/ORCA_Stale_Data_Cleanup.md` §1.5/§6.2. The filename
+    carries the date the data actually describes, and `content_date_from_name`
+    is the same parser the freshness contract already grades these files with,
+    so the SST fallback rung and the badge over it can no longer disagree.
+
+    A name with no date in it sorts *newest*, not oldest. That is not a
+    fallback, it is the convention: CMEMS ships a rolling near-real-time file
+    under a fixed name (`cmems_thetao_india_nrt.nc`) and archives snapshots
+    under dated ones, so the undated file is current by construction and any
+    dated file beside it is a superseded extract. Sorting it oldest would pick
+    the September archive over today's NRT data. mtime survives only as a
+    tiebreak between files that are otherwise indistinguishable.
     """
     files = sorted(
         (p for p in CMEMS_DIR.glob("cmems_*.nc") if name_contains in p.name),
-        key=lambda p: p.stat().st_mtime,
+        key=lambda p: (content_date_from_name(p.name) or "9999-99-99", p.stat().st_mtime),
     )
     return files[-1] if files else None
 
