@@ -54,6 +54,8 @@ export function AccountMenu() {
   }
 
   const name = displayNameOf(auth.profile);
+  const identifier = auth.profile?.identifier && auth.profile.identifier !== name ? auth.profile.identifier : null;
+
   return (
     <div ref={root} className="relative">
       <button
@@ -61,63 +63,81 @@ export function AccountMenu() {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1.5 rounded border border-hairline bg-shelf-2/80 p-0.5 text-[11px] sm:pr-1.5 font-medium tracking-wide text-ink shadow-sm transition-all hover:border-ocean-cyan/50 hover:bg-shelf-3/80"
+        className="inline-flex items-center gap-2 rounded-lg border border-hairline/80 bg-shelf-2/80 p-1 text-[11px] sm:pr-2 font-medium tracking-wide text-ink shadow-sm transition-all hover:border-ocean-cyan/50 hover:bg-shelf-3/90 focus:outline-none"
       >
-        <span className="grid size-5 place-items-center rounded-sm bg-ocean-cyan text-[9px] font-bold text-on-accent" aria-hidden="true">
+        <span className="grid size-5.5 place-items-center rounded-md bg-ocean-cyan text-[10px] font-bold text-on-accent shadow-xs" aria-hidden="true">
           {initials(name)}
         </span>
-        <span className="hidden max-w-28 truncate md:inline">{name}</span>
+        <span className="hidden max-w-28 truncate font-semibold md:inline">{name}</span>
         <span className="sr-only md:hidden">Account</span>
-        {/* Initials only on a phone: the status bar has no room to spare there. */}
-        <ChevronDown className="hidden size-3 text-ink-dim sm:block" aria-hidden="true" />
+        <ChevronDown className={`hidden size-3 text-ink-dim transition-transform duration-200 sm:block ${open ? "rotate-180 text-ocean-cyan" : ""}`} aria-hidden="true" />
       </button>
 
       {open && (
         <div
           role="menu"
-          className="glass absolute top-full right-0 z-50 mt-1.5 w-56 rounded-lg p-1.5 text-xs shadow-xl"
+          className="glass absolute top-full right-0 z-50 mt-2 w-72 rounded-2xl border border-hairline-strong/80 bg-shelf-1/95 p-3 text-xs shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-150"
         >
-          <div className="border-b border-hairline/60 px-2 pt-1 pb-2">
-            <p className="truncate font-semibold text-ink">{name}</p>
-            {auth.profile?.identifier && auth.profile.identifier !== name && (
-              <p className="truncate font-mono text-[10px] text-ink-dim">{auth.profile.identifier}</p>
-            )}
-            {auth.profile && auth.profile.role !== "user" && (
-              <p className="mt-1 inline-block rounded border border-accent/40 px-1 font-mono text-[9px] tracking-wider text-accent uppercase">
-                {auth.profile.role}
-              </p>
-            )}
+          {/* Header Profile Section */}
+          <div className="flex items-center gap-3 rounded-xl border border-hairline/60 bg-shelf-2/60 p-2.5 shadow-inner">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-ocean-cyan text-xs font-extrabold text-on-accent shadow-sm">
+              {initials(name)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-1">
+                <p className="truncate font-bold text-ink text-sm leading-tight">{name}</p>
+                {auth.profile && auth.profile.role !== "user" && (
+                  <span className="shrink-0 rounded-full border border-accent/40 bg-accent/10 px-1.5 py-0.2 font-mono text-[9px] font-bold tracking-wider text-accent uppercase">
+                    {auth.profile.role}
+                  </span>
+                )}
+              </div>
+              {identifier && (
+                <p className="truncate font-mono text-[10px] text-ink-dim mt-0.5">{identifier}</p>
+              )}
+            </div>
           </div>
-          {/* P4.1 — persona moved out of the status bar (a rendering hint,
-              not a page in its own right) and into the account it belongs
-              to. The live per-answer switch still lives on the answer card
-              itself (PersonaCorrection), which re-renders without re-asking;
-              this is the standing default for new questions. */}
-          <div className="mt-1 flex items-center justify-between gap-2 px-2 py-1.5">
-            <span className="text-ink-dim">Viewing as</span>
-            <PersonaSelector />
+
+          {/* Viewing Persona Selector Card */}
+          <div className="mt-2.5 rounded-xl border border-hairline/60 bg-shelf-2/30 p-2.5 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
+                Viewing Persona
+              </span>
+              <span className="size-1.5 rounded-full bg-ocean-cyan" />
+            </div>
+            <div className="w-full">
+              <PersonaSelector />
+            </div>
           </div>
-          <Link
-            role="menuitem"
-            href="/watches"
-            onClick={() => setOpen(false)}
-            className="mt-1 flex items-center gap-2 rounded-md px-2 py-1.5 text-ink-muted hover:bg-shelf-2 hover:text-ink"
-          >
-            <Eye className="size-3.5" aria-hidden="true" />
-            My watches
-          </Link>
-          <button
-            role="menuitem"
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              signOut();
-            }}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-ink-muted hover:bg-shelf-2 hover:text-no-go"
-          >
-            <LogOut className="size-3.5" aria-hidden="true" />
-            Sign out
-          </button>
+
+          <div className="my-2 border-t border-hairline/60" />
+
+          {/* Navigation Links */}
+          <div className="space-y-0.5">
+            <Link
+              role="menuitem"
+              href="/watches"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 font-medium text-ink-muted transition-colors hover:bg-shelf-2 hover:text-ink"
+            >
+              <Eye className="size-4 text-ocean-cyan" aria-hidden="true" />
+              <span>My watches</span>
+            </Link>
+
+            <button
+              role="menuitem"
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                signOut();
+              }}
+              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left font-medium text-ink-muted transition-colors hover:bg-no-go/10 hover:text-no-go"
+            >
+              <LogOut className="size-4" aria-hidden="true" />
+              <span>Sign out</span>
+            </button>
+          </div>
         </div>
       )}
     </div>
