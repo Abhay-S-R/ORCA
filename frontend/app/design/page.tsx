@@ -252,11 +252,10 @@ export default function DesignPage() {
               </Field>
             </div>
             <div>
-              <LayerToggle label="Boundaries" swatch="#22617f" checked={layer} onChange={setLayer} />
-              <LayerToggle label="Depth shading" swatch="#7fd4e8" heavy checked={false} onChange={() => {}} />
+              <LayerToggle label="Boundaries" checked={layer} onChange={setLayer} />
+              <LayerToggle label="Depth shading" heavy checked={false} onChange={() => {}} />
               <LayerToggle
                 label="Wind field"
-                swatch="#f0468c"
                 checked={false}
                 onChange={() => {}}
                 disabled

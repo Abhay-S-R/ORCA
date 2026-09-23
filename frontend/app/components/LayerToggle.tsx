@@ -10,7 +10,6 @@ export function LayerToggle({
   label,
   checked,
   onChange,
-  swatch,
   heavy = false,
   disabled = false,
   disabledReason,
@@ -18,7 +17,6 @@ export function LayerToggle({
   label: string;
   checked: boolean;
   onChange: (next: boolean) => void;
-  swatch?: string;
   heavy?: boolean;
   disabled?: boolean;
   disabledReason?: string;
@@ -37,13 +35,6 @@ export function LayerToggle({
         onChange={(e) => onChange(e.target.checked)}
         className="size-3.5 shrink-0 accent-[var(--color-accent)]"
       />
-      {swatch && (
-        <span
-          aria-hidden="true"
-          className="size-2 shrink-0 rounded-full"
-          style={{ backgroundColor: swatch }}
-        />
-      )}
       <span className={`flex-1 ${checked ? "text-ink" : "text-ink-muted"}`}>{label}</span>
       {heavy && (
         <span className="text-[10px] text-ink-dim" title="Heavy layer — counts against the mobile limit of 2">
