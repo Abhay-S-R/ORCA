@@ -1822,33 +1822,28 @@ export function MapView({
                     </div>
                     <LayerToggle
                       label="Boundaries"
-                      swatch={CHART.eez}
                       checked={layers.boundaries}
                       onChange={(v) => setLayers((s) => ({ ...s, boundaries: v }))}
                     />
                     <LayerToggle
                       label="Treaty boundary lines (IMBL)"
-                      swatch={CHART.accent}
                       checked={layers.boundaryLines}
                       onChange={(v) => setLayers((s) => ({ ...s, boundaryLines: v }))}
                     />
                     <LayerToggle
                       label="Fishing zones (PFZ)"
-                      swatch={CHART.pfz}
                       checked={layers.pfz}
                       onChange={(v) => setLayers((s) => ({ ...s, pfz: v }))}
                     />
                     {getToken() && (
                       <LayerToggle
                         label="My watch badges"
-                        swatch={CHART.caution}
                         checked={layers.watchBadges}
                         onChange={(v) => setLayers((s) => ({ ...s, watchBadges: v }))}
                       />
                     )}
                     <LayerToggle
                       label="Cyclone track & cone (GDACS)"
-                      swatch={CHART.noGo}
                       checked={layers.cyclone}
                       disabled={cyclone !== null && !cyclone.available}
                       disabledReason={cyclone?.note}
@@ -1856,14 +1851,12 @@ export function MapView({
                     />
                     <LayerToggle
                       label="Seamarks (Port Buoys & Lights)"
-                      swatch={CHART.ink}
                       checked={layers.seamarks}
                       onChange={(v) => setLayers((s) => ({ ...s, seamarks: v }))}
                     />
                     {rasterLayers.some((l) => !l.forecast_frames?.length) && (
                       <LayerToggle
                         label="Depth shading (India Coast)"
-                        swatch={CHART.eezNear}
                         heavy
                         checked={layers.srvBathymetry}
                         onChange={(v) => toggleHeavy("srvBathymetry", v)}
@@ -1872,7 +1865,6 @@ export function MapView({
                     {forecastLayer && (
                       <LayerToggle
                         label="Wave height forecast"
-                        swatch={CHART.accent}
                         heavy
                         checked={layers.waveForecast}
                         onChange={(v) => toggleHeavy("waveForecast", v)}
@@ -1881,7 +1873,6 @@ export function MapView({
                     {currentVectors && currentVectors.length > 0 && (
                       <LayerToggle
                         label="Surface currents"
-                        swatch={CHART.pfz}
                         heavy
                         checked={layers.currents}
                         onChange={(v) => toggleHeavy("currents", v)}
@@ -1894,7 +1885,6 @@ export function MapView({
                             ? `Wind (${windAcquisitionDate})`
                             : "Wind (ScatSat)"
                         }
-                        swatch="#e8b25a"
                         heavy
                         checked={layers.wind}
                         onChange={(v) => toggleHeavy("wind", v)}
