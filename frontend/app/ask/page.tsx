@@ -466,13 +466,11 @@ export default function AskPage() {
               </button>
             )}
 
-            {/* Depth shading + surface currents on by default (plan §9) — the
-                only Ask-specific default; /map and /voyage keep their own tuned
-                defaults via the same `initialLayers` prop. */}
+            {/* Wind currents + surface currents on by default — clean map presentation */}
             <div className="h-full w-full">
               <MapView
                 className="h-full w-full"
-                initialLayers={{ srvBathymetry: true, currents: true }}
+                initialLayers={{ wind: true, currents: true }}
                 queryFocus={activeFocus}
                 distressMarkers={distressMarkers}
                 showLayerPanel={false}

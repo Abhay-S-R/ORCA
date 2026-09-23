@@ -257,9 +257,9 @@ export type QueryFocus = {
 const QUERY_INTENT_LAYERS: Partial<Record<QueryFocus["intent"], readonly string[]>> = {
   fishing: ["pfz"],
   boundary: ["boundaries", "boundaryLines"],
-  current: ["currents"],
-  wave: ["waveForecast"],
-  safety: ["waveForecast", "boundaries"],
+  current: ["wind", "currents"],
+  wave: ["waveForecast", "wind"],
+  safety: ["wind", "currents", "boundaries"],
 };
 
 export function MapView({
