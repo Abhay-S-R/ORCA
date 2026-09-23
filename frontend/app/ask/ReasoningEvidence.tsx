@@ -16,7 +16,7 @@
 //
 // None of these fetch anything or compute a number. Every value is one the
 // backend already decided; rendering it is the whole point.
-import { AlertTriangle, CheckCheck, GitBranch, X } from "lucide-react";
+import { AlertTriangle, CheckCheck, GitBranch, Timer, X } from "lucide-react";
 import type { InheritedValue, Reconciliation, RoutingSummary, FinalResponse } from "./useAskThread";
 import { formatAgentLabel } from "../components/AgentPill";
 
@@ -63,6 +63,21 @@ export function RoutingLine({
           {routing.agents_dispatched} {routing.agents_dispatched === 1 ? "agent" : "agents"} dispatched
         </span>
       </span>
+
+      {/* P2.10 — `agent_time_ms` is a SUM of spans, not wall clock: the three
+          specialists run in parallel, so it overstates elapsed time rather
+          than flattering it. Labelled as agent time for exactly that reason. */}
+      {latency && latency.agent_time_ms > 0 && (
+        <span className="inline-flex items-center gap-1.5" title="Sum of every agent's own run time. The specialists run in parallel, so elapsed time is less than this.">
+          <Timer className="size-3 shrink-0" aria-hidden="true" />
+          <span className="font-mono">{(latency.agent_time_ms / 1000).toFixed(1)}s agent time</span>
+          {latency.slowest && (
+            <span className="text-ink-dim/80">
+              · slowest {formatAgentLabel(latency.slowest.agent_name)} {Math.round(latency.slowest.latency_ms)}ms
+            </span>
+          )}
+        </span>
+      )}
 
       {llmCalls != null && (
         <span className="font-mono" title="Provider calls actually made for this query — measured, not estimated.">
