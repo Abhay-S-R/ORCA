@@ -16,13 +16,6 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - name: Free runner disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
