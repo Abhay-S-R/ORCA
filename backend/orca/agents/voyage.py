@@ -473,7 +473,14 @@ def _grid_wave_heights(lats: list[float], lons: list[float], eta_estimate: datet
 
     lat_idx = xr.DataArray(lats, dims="grid_lat")
     lon_idx = xr.DataArray(lons, dims="grid_lon")
-    hs = ds["HS"].isel(TIME=step).sel(IOXAXIS=lon_idx, IOYAXIS=lat_idx, method="nearest").values
+    # .load() forces this one time-step out of the file before the vectorized
+    # .sel() below: left lazy, xarray's scipy backend (this file is netCDF3 —
+    # GEBCO's netCDF4 backend is unaffected) mis-resolves two same-length
+    # fancy indexers passed together, returning wrong data or raising
+    # IndexError — reliably for a bbox spanning ~7+ degrees of longitude
+    # (west coast to east coast), coincidentally never for the short hops
+    # this was tested against.
+    hs = ds["HS"].isel(TIME=step).load().sel(IOXAXIS=lon_idx, IOYAXIS=lat_idx, method="nearest").values
 
     out: list[list[float | None]] = []
     for i, lat in enumerate(lats):
