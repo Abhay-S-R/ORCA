@@ -58,6 +58,8 @@ type Tide = {
   station_name: string; tidal_state: string; range_m: number | null; spring_neap: string;
   next_high: { when: string; height_m: number } | null; next_low: { when: string; height_m: number } | null;
   datum: string;
+  fell_back: boolean;
+  source_provenance: { dataset: string; acquisition_timestamp: string };
   // The heights above are PREDICTED (astronomical). This is what an INCOIS
   // gauge actually measured, carried alongside rather than blended in — the
   // residual between them is a surge or a set-up, not an error in the table.
@@ -313,6 +315,20 @@ export default function VoyagePage() {
                   unit="UTC"
                 />
               </ReadoutGrid>
+
+              {/* The SOI table needs no caveat — it's computed fresh every
+                  call. The Stormglass fallback is a dated external pull, so
+                  it gets the same "acquired when" chip route_layer already
+                  carries (docs/ORCA_Stale_Data_Policy.md §6). */}
+              {tide.fell_back && (
+                <div className="mt-2">
+                  <SourceChip
+                    dataset={tide.source_provenance.dataset}
+                    acquisitionTimestamp={tide.source_provenance.acquisition_timestamp}
+                    detail="Stormglass fallback — SOI has no chart-datum table here, or its published window has run out."
+                  />
+                </div>
+              )}
 
               {/* Predicted vs observed. Shown only when a gauge is actually
                   in range — INCOIS runs 6 nationally, so most of the coast

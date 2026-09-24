@@ -372,6 +372,9 @@ RECENCY_BANDS: dict[str, tuple[int, int]] = {
     # are WEEKLY-classed: double PFZ's DAILY bands, same ratio as the classes.
     "mosdac_open_chl": (7, 14),
     "copernicus_cmems": (7, 14),
+    # INCOIS's own RSMC combined WW3 / HYCOM runs — DAILY-classed, same as PFZ.
+    "incois_osf_ww3": (3, 7),
+    "incois_osf_hycom": (3, 7),
 }
 
 RecencyBand = Literal["fresh", "hint", "history"]

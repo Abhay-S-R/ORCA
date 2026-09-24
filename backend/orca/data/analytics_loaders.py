@@ -149,6 +149,28 @@ def load_stormglass_tide_events(station_code: str) -> list[dict[str, Any]]:
     return events
 
 
+def load_stormglass_cache_date(station_code: str) -> str | None:
+    """The day this station's cached Stormglass pull actually covers from
+    (`meta.start`), or None if there is no cache. Tide predictions are
+    astronomical and do not go wrong the way an old satellite frame does, so
+    this is not banded fresh/hint/history like PFZ — but the pull itself is a
+    dated external fetch, and `predict_tides` uses this so a stale cache is
+    never reported as fetched "now" (docs/ORCA_Stale_Data_Policy.md §6)."""
+    port = _stormglass_stem(station_code)
+    if port is None:
+        return None
+    path = STORMGLASS_DIR / f"stormglass_tides_{port}.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    start = (raw.get("meta") or {}).get("start")
+    return start[:10] if isinstance(start, str) and start else None
+
+
 # --- PFZ -----------------------------------------------------------------
 #
 # docs/ORCA_Stale_Data_Policy.md: a sector INCOIS could not see today (cloud)

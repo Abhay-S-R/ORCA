@@ -45,6 +45,12 @@ def test_predict_tides_falls_to_stormglass_when_soi_is_down():
     # heights are MSL-relative and are NOT the SOI chart-datum numbers.
     assert t.datum == "mean sea level"
     assert "mean sea level" in t.confidence.rationale
+    # Stale-data policy §6: the Stormglass rung is a dated external pull, so
+    # its acquisition_timestamp is the cache's own vintage, not the query
+    # time WHEN would otherwise supply.
+    cached = oa.al.load_stormglass_cache_date(t.station_code)
+    if cached:
+        assert t.source_provenance.acquisition_timestamp[:10] == cached
 
 
 def test_predict_tides_low_data_when_whole_cascade_is_down():
@@ -151,6 +157,10 @@ def test_wind_anomaly_carries_its_baseline_or_names_the_gap(monkeypatch):
 def test_osf_fast_path_prefers_points_then_grid_then_declines():
     at_port = oa.nearest_osf_point_forecast(*THOOTHUKUDI)
     assert at_port["available"] and at_port["wave"]["significant_wave_height_m"] is not None
+    # Stale-data policy: each product carries its own age off its own
+    # forecast_time, not a shared "fetched at" stamp.
+    assert at_port["wave"]["band"] in ("fresh", "hint", "history")
+    assert at_port["ocean"]["band"] in ("fresh", "hint", "history")
 
     # Goa is outside the 8 extracted points but inside the 0.5 deg grid.
     goa = oa.nearest_osf_point_forecast(15.4, 73.5)

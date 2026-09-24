@@ -37,6 +37,7 @@ from orca.agents import geospatial
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.data import analytics_loaders as al
 from orca.data import satellite_loaders as sl
+from orca.data.freshness import recency
 from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
 from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
 from orca.state import ORCAState
@@ -317,6 +318,16 @@ def predict_tides(
         confidence = Confidence(score="HIGH", rationale=f"SOI 2026 predicted tide table, station {code}")
 
     src = events[0]["source"] if events else "Survey of India 2026 Tide Tables"
+    # The SOI table is held locally and computed fresh every call, so "now" is
+    # its honest acquisition time. The Stormglass rung is a dated external
+    # pull — reporting it as fetched "now" would hide how old that pull is,
+    # even though the predictions it contains stay valid until their window
+    # runs out (docs/ORCA_Stale_Data_Policy.md §6).
+    acquired = when
+    if fell_back:
+        cached = al.load_stormglass_cache_date(code)
+        if cached:
+            acquired = datetime.fromisoformat(cached).replace(tzinfo=timezone.utc)
     return TidePrediction(
         station_code=code,
         station_name=station["station_name"],
@@ -329,7 +340,7 @@ def predict_tides(
         fell_back=fell_back,
         source_provenance=SourceProvenance(
             dataset=f"{src} (station {code})",
-            acquisition_timestamp=when.isoformat().replace("+00:00", "Z"),
+            acquisition_timestamp=acquired.isoformat().replace("+00:00", "Z"),
             freshness_minutes=0,  # astronomical prediction — the table does not go stale
         ),
         confidence=confidence,
@@ -1089,11 +1100,16 @@ def nearest_osf_point_forecast(lat: float, lon: float) -> dict[str, Any]:
         km = _km_between(lat, lon, nearest["lat"], nearest["lon"])
         if km > _OSF_POINT_MAX_KM:
             continue
+        # Stale-data policy: `forecast_time` is the step nearest "now" at the
+        # moment `extract_osf_pilot.py` last ran, so its own age is the age of
+        # that run — a source id per product, same DAILY bands as PFZ.
+        source_id = "incois_osf_ww3" if product == "ww3" else "incois_osf_hycom"
         best[product] = {
             "location": nearest.get("location"),
             "base_port": nearest.get("base_port"),
             "distance_km": round(km, 1),
             "forecast_time": nearest.get("forecast_time"),
+            **recency(source_id, (nearest.get("forecast_time") or "")[:10]),
             **{k: v for k, v in nearest.items()
                if k not in ("lat", "lon", "location", "base_port", "forecast_time",
                             "target_lat", "target_lon", "grid_lat", "grid_lon")},
