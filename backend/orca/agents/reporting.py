@@ -310,7 +310,20 @@ CRITICAL RULES:
    zone far?" against it, and don't repeat what was already said unless asked. You may
    refer back to it naturally (e.g. "unlike this morning's caution...") — but never let
    it override today's deterministic verdict or the location stated above, and never
-   re-use a number from it: every figure you give comes from MEASURED TELEMETRY above.{critique_rule}"""
+   re-use a number from it: every figure you give comes from MEASURED TELEMETRY above.
+9. Dated data. Items in MEASURED TELEMETRY may carry valid_for, age_days, band and expired
+   (a sector's latest_advisory carries the same). band "fresh" and expired False: current,
+   state it plainly. Otherwise it is the most recent copy ORCA holds, NOT today's: give its
+   date and age in days, say it is the latest available, and for band "hint" or "history"
+   say it is a pointer to where conditions were, not a current position. Never present an
+   old item as current, and never leave it out just because it is old — an old advisory is
+   still the best information there is. A sector with no advisory today but a
+   latest_advisory: say today's reason (e.g. cloud cover), then give the latest one.
+10. Distances have an origin. A nearest fishing zone's distance_km and compass are measured
+   from its measured_from — say so ("32 km WSW of Mangalore"). Its landing_center is only
+   INCOIS's landmark for the zone; if you name it, use incois_reference for its distance
+   ("INCOIS lists it as 52-57 km NW of Kunzhathur"). Never pair one origin's distance or
+   direction with the other's place name.{critique_rule}"""
 
     try:
         narrative = client.complete([{"role": "user", "content": prompt}]).strip()

@@ -491,13 +491,42 @@ class NearestPFZ:
     longitude: float | None
     valid_for: str | None
     sector_id: str | None
+    # docs/ORCA_Stale_Data_Policy.md — the advisory's age, so no surface can
+    # present a cloud-season zone as today's. None when nothing was found.
+    age_days: int | None = None
+    band: str | None = None  # fresh | hint | history
+    expired: bool | None = None
+    max_km: float | None = None  # the reach the search was capped at
+    # INCOIS's own landmark description of the zone ("52-57 km NW of
+    # Kunzhathur"). A different origin from distance_km/compass, which are
+    # ORCA's, measured from the queried point — kept apart so no answer can
+    # read "32 km WSW of Kunzhathur", a distance from one place and a name
+    # from another.
+    incois_reference: str | None = None
 
 
-def nearest_pfz(lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON, *, sector_id: str | None = None) -> NearestPFZ:
-    """Closest INCOIS PFZ advisory node to a point, with distance, true
-    bearing and 16-point compass heading — 'which way and how far', the only
-    form of this answer usable from a boat."""
-    rows = al.load_pfz_master()
+# Beyond this a "nearest" zone is on another coast: the 906 km Betul answer to
+# "PFZs near Rameswaram". None within reach is the honest result past it.
+# ponytail: one fixed reach for every boat; per-vessel reach (cruise speed)
+# is what /zones' fisherman view already computes if this needs to follow it.
+PFZ_MAX_REACH_KM = 150.0
+
+
+def nearest_pfz(
+    lat: float = _DEFAULT_LAT,
+    lon: float = _DEFAULT_LON,
+    *,
+    sector_id: str | None = None,
+    max_km: float = PFZ_MAX_REACH_KM,
+) -> NearestPFZ:
+    """Closest INCOIS PFZ advisory node to a point within `max_km`, with
+    distance, true bearing and 16-point compass heading — 'which way and how
+    far', the only form of this answer usable from a boat.
+
+    Searches every sector's *latest* advisory (analytics_loaders.load_pfz_latest),
+    not only today's file: a cloud-covered sector still has zones, and the
+    result carries their age so the caller says how old they are."""
+    rows = al.load_pfz_latest()
     if sector_id:
         rows = [r for r in rows if r.get("sector_id") == sector_id]
     parsed: list[tuple[float, dict[str, Any]]] = []
@@ -506,9 +535,11 @@ def nearest_pfz(lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON, *, sector_
             plat, plon = float(r["latitude_dd"]), float(r["longitude_dd"])
         except (KeyError, ValueError):
             continue
-        parsed.append((_km_between(lat, lon, plat, plon), r))
+        dist = _km_between(lat, lon, plat, plon)
+        if dist <= max_km:
+            parsed.append((dist, r))
     if not parsed:
-        return NearestPFZ(False, None, None, None, None, None, None, None, None, sector_id)
+        return NearestPFZ(False, None, None, None, None, None, None, None, None, sector_id, max_km=max_km)
     dist_km, row = min(parsed, key=lambda t: t[0])
     plat, plon = float(row["latitude_dd"]), float(row["longitude_dd"])
     bearing, _ = geospatial.bearing_and_distance(lat, lon, plat, plon)
@@ -523,7 +554,19 @@ def nearest_pfz(lat: float = _DEFAULT_LAT, lon: float = _DEFAULT_LON, *, sector_
         longitude=plon,
         valid_for=row.get("valid_for"),
         sector_id=row.get("sector_id"),
+        age_days=row.get("age_days"),
+        band=row.get("band"),
+        expired=row.get("expired"),
+        max_km=max_km,
+        incois_reference=_incois_reference(row),
     )
+
+
+def _incois_reference(row: dict[str, Any]) -> str | None:
+    landing, dist, direction = row.get("landing_center"), row.get("distance_km"), row.get("direction")
+    if not (landing and dist and direction):
+        return None
+    return f"{dist} km {direction} of {landing}"
 
 
 def score_pfz_persistence(
@@ -548,12 +591,13 @@ def score_pfz_persistence(
     snapshot per morning, so the window fills itself; until it does, this says
     so rather than scoring 0/3 and labelling the result TRANSIENT.
     """
-    cutoff = (_now() - timedelta(days=window_days)).strftime("%Y%m%d")
-    archived = al.available_pfz_history_dates()
+    cutoff = (_now() - timedelta(days=window_days)).strftime("%Y-%m-%d")
+    by_date = al.pfz_advisories_by_date()
+    archived = list(by_date)
     dates = [d for d in archived if d >= cutoff]
     hits = 0
     for date in dates:
-        nodes = al.load_pfz_history_advisories(date)
+        nodes = by_date[date]
         near = False
         for node in nodes:
             if sector_id and node.get("sector_id") != sector_id:
@@ -602,6 +646,7 @@ def sector_status(sector_id: str = _PILOT_SECTOR) -> dict[str, Any]:
     result that reads as an ORCA failure (data audit C-2)."""
     status = al.load_pfz_sector_status()
     names = status.get("sector_names", {})
+    latest = _latest_advisory(sector_id)
     for sec in status.get("sectors", []):
         if sec.get("sector_id") == sector_id:
             return {
@@ -612,6 +657,7 @@ def sector_status(sector_id: str = _PILOT_SECTOR) -> dict[str, Any]:
                 "node_count": sec.get("node_count", 0),
                 "valid_for": sec.get("valid_for"),
                 "is_data_gap": sec.get("status") not in ("HAS_ADVISORY", None),
+                "latest_advisory": latest,
             }
     return {
         "sector_id": sector_id,
@@ -621,6 +667,24 @@ def sector_status(sector_id: str = _PILOT_SECTOR) -> dict[str, Any]:
         "node_count": 0,
         "valid_for": None,
         "is_data_gap": True,
+        "latest_advisory": latest,
+    }
+
+
+def _latest_advisory(sector_id: str) -> dict[str, Any] | None:
+    """The sector's most recent advisory ORCA holds, whatever today's status
+    says — so "no data today (cloud)" can go on to "last advisory 19 Sep, 34
+    km out" instead of stopping. None only when the sector has never had one."""
+    rows = [r for r in al.load_pfz_latest() if r.get("sector_id") == sector_id]
+    if not rows:
+        return None
+    first = rows[0]
+    return {
+        "valid_for": first.get("valid_for"),
+        "node_count": len(rows),
+        "age_days": first.get("age_days"),
+        "band": first.get("band"),
+        "expired": first.get("expired"),
     }
 
 
@@ -1340,13 +1404,22 @@ def run(state: ORCAState) -> AgentResult:
         },
         "nearest_pfz": {
             "found": near.found,
-            "landing_center": near.landing_center,
+            # distance_km / bearing / compass are ORCA's, from THIS point;
+            # the landing centre is INCOIS's landmark, with its own distance
+            # in incois_reference. Named so the two cannot be recombined.
+            "measured_from": loc.get("place_name") or f"{lat:.2f}, {lon:.2f}",
             "distance_km": near.distance_km,
             "bearing_deg": near.bearing_deg,
             "compass": near.compass,
+            "landing_center": near.landing_center,
+            "incois_reference": near.incois_reference,
             "depth_m": near.depth_m,
             "coordinates": [near.longitude, near.latitude] if near.found else None,
             "valid_for": near.valid_for,
+            "age_days": near.age_days,
+            "band": near.band,
+            "expired": near.expired,
+            "max_km": near.max_km,
         },
         "pfz_persistence": {k: v for k, v in persistence.items() if k != "confidence"},
         "sector_status": sec_status,
@@ -1365,16 +1438,21 @@ def run(state: ORCAState) -> AgentResult:
     contributing = [tide.confidence]
     if near.found:
         compass_str = f" ({near.compass})" if near.compass else ""
-        contributing.append(Confidence(score="HIGH", rationale=f"Active INCOIS PFZ advisory at {near.distance_km} km{compass_str}"))
-    elif near.sector_id:
-        contributing.append(Confidence(score="MEDIUM", rationale=f"No PFZ advisory within sector {near.sector_id}"))
+        # An old advisory is still shown (stale-data policy) but is worth less:
+        # zones follow SST/chlorophyll fronts that move within days.
+        score = {"fresh": "HIGH", "hint": "MEDIUM"}.get(near.band or "", "LOW_DATA")
+        age = "" if near.band == "fresh" else f", issued {near.valid_for} ({near.age_days} d old)"
+        contributing.append(Confidence(score=score, rationale=f"INCOIS PFZ advisory at {near.distance_km} km{compass_str}{age}"))
     else:
-        contributing.append(Confidence(score="LOW_DATA", rationale="No PFZ advisory data found"))
+        contributing.append(Confidence(score="MEDIUM", rationale=f"No PFZ advisory within {near.max_km:.0f} km in any advisory ORCA holds"))
 
-    # Multi-day persistence is an analytical trend: if multi-day history is present (>= 2 days),
-    # it contributes to overall confidence; if only 1 snapshot exists, it is indicative
-    # and recorded on pfz_persistence without degrading live operational safety.
-    if persistence.get("days_on_record", 0) >= 2:
+    # Multi-day persistence is an analytical trend: it grades the answer only
+    # once it has enough days to score (label PERSISTENT/TRANSIENT). An
+    # INDICATIVE result — too few archived runs — is still reported on
+    # pfz_persistence, but a thin archive says nothing about today's sea, so it
+    # must not drag the verdict to LOW_DATA. (The old ">= 2 days" gate did
+    # exactly that for 2-4 days, since scoring itself starts at 5.)
+    if persistence["label"] != "INDICATIVE":
         contributing.append(persistence["confidence"])
 
     # Gridded SST/chlorophyll correlation is a specialized oceanographic layer (D3 seam).

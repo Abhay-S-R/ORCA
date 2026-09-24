@@ -36,6 +36,9 @@ class AnthropicProvider:
             yield from s.text_stream
 
 
+_TIMEOUT_MS = 15_000
+
+
 class GeminiProvider:
     def __init__(self) -> None:
         # modern official vendor SDK — confined to this file. mypy sees `google`
@@ -47,7 +50,16 @@ class GeminiProvider:
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             raise KeyError("Neither GEMINI_API_KEY nor GOOGLE_API_KEY is set in environment")
-        self._client = genai.Client(api_key=api_key)
+        # The SDK default is no timeout at all: a stalled gemini-3.5-flash-lite
+        # request held Planning's one intent-confirmation call for 94.9 s
+        # (measured 2026-09-24; the same call normally answers in 1.2 s). Every
+        # caller already degrades on LLMUnavailable, and an httpx ReadTimeout
+        # classifies as "provider unavailable (timeout)" in tiers.py, so a cap
+        # is all this needs. httpx applies it per read, so a long stream whose
+        # chunks keep arriving is not cut off.
+        # ponytail: one cap for every tier; per-tier timeouts if "deep"
+        # completions ever legitimately exceed it.
+        self._client = genai.Client(api_key=api_key, http_options=genai.types.HttpOptions(timeout=_TIMEOUT_MS))
 
     def complete(self, messages: list[dict[str, str]], *, model: str, **kw: Any) -> str:
         if not messages:

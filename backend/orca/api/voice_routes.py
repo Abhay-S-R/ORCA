@@ -44,14 +44,42 @@ def _coerce_language_hint(value: str | None) -> Language | None:
     return value if value in _VALID_LANGUAGES else None  # type: ignore[return-value]
 
 
+def _partial_transcript(blob: bytes, language: Language | None) -> TranscribeResponse:
+    """Live caption while the user is still speaking — Bhashini only, no
+    VAD/denoiser/punctuation, and no local fallback: faster-whisper takes
+    ~8 s on CPU, so a partial from it would land after the user had stopped
+    talking. An empty caption is the honest result when Bhashini is down;
+    the final (non-partial) call on stop still walks every rung."""
+    from orca.agents import bhashini
+
+    try:
+        if language is None:
+            raise bhashini.BhashiniError("partial ASR needs an explicit language")
+        transcript, _confidence = bhashini.asr(blob, language, clean=False)
+    except bhashini.BhashiniError:
+        return TranscribeResponse(transcript="", confidence=0.0, rung="unavailable", detected_language=None, needs_confirmation=True)
+    return TranscribeResponse(
+        transcript=transcript, confidence=LOW_CONFIDENCE_THRESHOLD, rung="bhashini",
+        detected_language=language, needs_confirmation=False,
+    )
+
+
 @router.post("/transcribe")
 async def transcribe(
-    audio: UploadFile = File(...), language_hint: str | None = Form(default=None),
+    audio: UploadFile = File(...),
+    language_hint: str | None = Form(default=None),
+    partial: bool = Form(default=False),
 ) -> TranscribeResponse:
     blob = await audio.read()
     if not blob:
         raise HTTPException(status_code=422, detail="empty audio upload")
-    result = speech_to_text(blob, language_hint=_coerce_language_hint(language_hint))
+    language = _coerce_language_hint(language_hint)
+    # Both paths block on HTTP / CPU inference — off the event loop, or one
+    # user's 8 s faster-whisper fallback stalls every other request, live
+    # partials included.
+    if partial:
+        return await asyncio.to_thread(_partial_transcript, blob, language)
+    result = await asyncio.to_thread(speech_to_text, blob, language)
     low_confidence = result.rung == "unavailable" or result.confidence < LOW_CONFIDENCE_THRESHOLD
     # P3.7 — checked only when confidence is already low: a confident
     # transcript containing a distress word is an ordinary query about

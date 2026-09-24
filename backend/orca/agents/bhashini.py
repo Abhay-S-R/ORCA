@@ -141,10 +141,34 @@ def _inference(config: dict[str, Any], pipeline_task: dict[str, Any], input_data
         raise BhashiniError(f"Bhashini inference call failed: {exc}") from exc
 
 
-def asr(audio: bytes, source_lang: str) -> tuple[str, float | None]:
-    """Voice in: ASR. Returns (transcript, confidence-if-reported)."""
+def _audio_format(audio: bytes) -> str:
+    # Dhruva returns a bare 500 when `audioFormat` is omitted for anything but
+    # WAV — confirmed live 2026-09-23: the browser's MediaRecorder WebM/Opus
+    # failed on every call until declared. RIFF is our own TTS output and the
+    # test fixtures; everything else is the browser's recording.
+    # ponytail: WAV/WebM only — Safari's MP4 recording still 500s and falls
+    # through to the local rung; sniff `ftyp` here if Safari voice matters.
+    return "wav" if audio[:4] == b"RIFF" else "webm"
+
+
+def asr(audio: bytes, source_lang: str, *, clean: bool = True) -> tuple[str, float | None]:
+    """Voice in: ASR. Returns (transcript, confidence-if-reported).
+
+    `clean` runs Bhashini's VAD + denoiser before recognition and ITN +
+    punctuation after it (inline pre/post-processors on the ASR task — the
+    default pipeline rejects them as standalone taskTypes). Live partials pass
+    `clean=False`: VAD trims the half-spoken last word of a mid-sentence
+    clip, and the processors add ~0.5-1 s a live caption cannot afford."""
     config = _pipeline_config("asr", source_lang)
-    task = {"taskType": "asr", "config": {"language": {"sourceLanguage": source_lang}, "serviceId": config["serviceId"]}}
+    asr_config: dict[str, Any] = {
+        "language": {"sourceLanguage": source_lang},
+        "serviceId": config["serviceId"],
+        "audioFormat": _audio_format(audio),
+    }
+    if clean:
+        asr_config["preProcessors"] = ["vad", "denoiser"]
+        asr_config["postProcessors"] = ["itn", "punctuation"]
+    task = {"taskType": "asr", "config": asr_config}
     payload = {"audio": [{"audioContent": base64.b64encode(audio).decode("ascii")}]}
     data = _inference(config, task, payload)
     try:
@@ -264,6 +288,7 @@ if __name__ == "__main__":
     # database.
     from orca.db import engine as _  # noqa: F401  (triggers load_dotenv)
 
+    assert _audio_format(b"RIFF....WAVE") == "wav" and _audio_format(bytes.fromhex("1a45dfa3")) == "webm"
     if bhashini_configured():
         # Live round-trip, all four confirmed-working services (2026-09-23):
         # translation, TTS, ASR-on-that-TTS-audio, and transliteration.

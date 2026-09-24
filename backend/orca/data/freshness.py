@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -356,8 +356,50 @@ def acquisition_date(payload: dict[str, Any], path: Path) -> str:
     return ""
 
 
+# --- recency bands (docs/ORCA_Stale_Data_Policy.md) -------------------------
+#
+# The class above says what we are *obliged* to hold. This says how to present
+# what we *do* hold when it misses that obligation: shown, with its age, rather
+# than dropped. Cloud over a sector hides the fish from the satellite; it does
+# not remove them. (fresh ≤ first, hint ≤ second, older is history.) Datasets
+# are added here one at a time as the policy doc's rollout tracker is worked.
+RECENCY_BANDS: dict[str, tuple[int, int]] = {
+    "incois_pfz": (3, 7),
+}
+
+RecencyBand = Literal["fresh", "hint", "history"]
+_IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def today_ist() -> date:
+    """INCOIS dates its advisories in IST; the day boundary is theirs, not UTC's."""
+    return datetime.now(_IST).date()
+
+
+def recency(source_id: str, valid_for: str, today: date | None = None) -> dict[str, Any]:
+    """Age, band and expiry of one dated item. `valid_for` is the date the item
+    is valid for (YYYY-MM-DD); an unparseable one is reported as history rather
+    than guessed fresh."""
+    today = today or today_ist()
+    try:
+        valid = date.fromisoformat(valid_for[:10])
+    except (TypeError, ValueError):
+        return {"age_days": None, "band": "history", "expired": True}
+    age = (today - valid).days
+    fresh_max, hint_max = RECENCY_BANDS[source_id]
+    band: RecencyBand = "fresh" if age <= fresh_max else "hint" if age <= hint_max else "history"
+    return {"age_days": max(age, 0), "band": band, "expired": valid < today}
+
+
 if __name__ == "__main__":  # smallest check that fails if the logic breaks
     import tempfile
+
+    d = date(2026, 9, 24)
+    assert recency("incois_pfz", "2026-09-24", d) == {"age_days": 0, "band": "fresh", "expired": False}
+    assert recency("incois_pfz", "2026-09-23", d) == {"age_days": 1, "band": "fresh", "expired": True}
+    assert recency("incois_pfz", "2026-09-19", d)["band"] == "hint"
+    assert recency("incois_pfz", "2026-09-02", d)["band"] == "history"
+    assert recency("incois_pfz", "", d)["band"] == "history"
 
     now = datetime(2026, 9, 18, 12, 0, tzinfo=timezone.utc)
     with tempfile.TemporaryDirectory() as tmp:

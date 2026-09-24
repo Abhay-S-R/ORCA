@@ -86,29 +86,38 @@ def test_source_decision_walks_the_declared_cascade():
     assert "fallback" in body["narrative"].lower()
 
 
-def test_pfz_layer_never_mixes_advisory_days(tmp_path, monkeypatch):
-    """A PFZ advisory is a location for *one* day, and the map draws every
-    feature identically, so a collection holding two days reads as one.
-
-    `build_all_india_pfz.py` used to append 54 invented points stamped
-    `valid_for: 2026-09-02` under INCOIS's name; the freshness check passed on
-    the strength of the fresh half and the whole file was served. The builder no
-    longer writes them, but `data/` is gitignored so other clones still hold the
-    mixed file — hence the guard sits in the loader, where every consumer passes.
-    """
-    import json
+def test_pfz_layer_keeps_every_sectors_latest_advisory_labelled_by_age(tmp_path, monkeypatch):
+    """docs/ORCA_Stale_Data_Policy.md. A sector cloud-covered today keeps its
+    last clear day's zones on the map, each labelled with its own age — it used
+    to be dropped, which emptied the east coast whenever only Maharashtra and
+    Goa were cloud-free. Archive snapshots are grouped by `valid_for`, so a
+    folder named by scrape day and a re-scrape of one advisory count once."""
+    from datetime import date
 
     from orca.data import analytics_loaders as al
 
-    mixed = {"type": "FeatureCollection", "features": [
-        {"properties": {"valid_for": "2026-09-19", "sector_id": "SEC005"}},
-        {"properties": {"valid_for": "2026-09-02", "sector_id": "SEC001"}},
-    ]}
-    national = tmp_path / "all_india_pfz_advisories.geojson"
-    national.write_text(json.dumps(mixed), encoding="utf-8")
-    (tmp_path / "incois_pfz_live_advisories.geojson").write_text(
-        json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
-    monkeypatch.setattr(al, "PFZ_DIR", tmp_path)
+    header = ["sector_id,latitude_dd,longitude_dd,valid_for"]
 
-    served = al.load_pfz_live_geojson()["features"]
-    assert [f["properties"]["sector_id"] for f in served] == ["SEC005"]
+    def csv_text(*rows: str) -> str:
+        return "\n".join(header + list(rows)) + "\n"
+
+    (tmp_path / "incois_pfz_live_advisories_master.csv").write_text(
+        csv_text("SEC002,19.0,72.5,2026-09-23"), encoding="utf-8")
+    for folder, rows in {
+        "20260922": ("SEC002,19.0,72.5,2026-09-23",),  # scrape-day name, same advisory
+        "20260918": ("SEC002,18.0,72.6,2026-09-19", "SEC006,9.07,79.09,2026-09-19"),
+        "20260901": ("SEC006,9.5,79.4,2026-09-02",),
+    }.items():
+        (tmp_path / "history" / folder).mkdir(parents=True)
+        (tmp_path / "history" / folder / "advisories.csv").write_text(csv_text(*rows), encoding="utf-8")
+    monkeypatch.setattr(al, "PFZ_DIR", tmp_path)
+    monkeypatch.setattr(al, "PFZ_HISTORY_DIR", tmp_path / "history")
+
+    assert list(al.pfz_advisories_by_date()) == ["2026-09-02", "2026-09-19", "2026-09-23"]
+    served = {
+        f["properties"]["sector_id"]: f["properties"]
+        for f in al.load_pfz_live_geojson(today=date(2026, 9, 24))["features"]
+    }
+    assert served["SEC002"]["valid_for"] == "2026-09-23" and served["SEC002"]["band"] == "fresh"
+    assert served["SEC006"]["valid_for"] == "2026-09-19" and served["SEC006"]["band"] == "hint"
+    assert served["SEC006"]["expired"] is True and served["SEC006"]["age_days"] == 5

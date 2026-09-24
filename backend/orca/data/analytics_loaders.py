@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import csv
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -150,21 +150,66 @@ def load_stormglass_tide_events(station_code: str) -> list[dict[str, Any]]:
 
 
 # --- PFZ -----------------------------------------------------------------
+#
+# docs/ORCA_Stale_Data_Policy.md: a sector INCOIS could not see today (cloud)
+# keeps its most recent advisory, labelled by age — the zone did not stop
+# existing because the satellite lost sight of it.
 
-def available_pfz_history_dates() -> list[str]:
-    """YYYYMMDD directory names under pfz/history/, oldest first."""
-    if not PFZ_HISTORY_DIR.is_dir():
-        return []
-    return sorted(p.name for p in PFZ_HISTORY_DIR.iterdir() if p.is_dir() and p.name.isdigit())
-
-
-def load_pfz_history_advisories(date: str) -> list[dict[str, Any]]:
-    """One history snapshot's advisory nodes (pfz/history/<date>/advisories.csv)."""
-    path = PFZ_HISTORY_DIR / date / "advisories.csv"
+def _read_csv(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     with open(path, encoding="utf-8", newline="") as f:
         return list(csv.DictReader(f))
+
+
+def pfz_advisories_by_date() -> dict[str, list[dict[str, Any]]]:
+    """Every PFZ node ORCA holds, grouped by the advisory's own `valid_for`
+    date, oldest first.
+
+    Keyed by `valid_for`, never by the history folder's name: the scraper used
+    to name folders after the scrape day, which is the evening *before* the
+    advisory's date, and two scrapes of one advisory then read as two days. A
+    node seen in several snapshots of the same date is kept once."""
+    snapshots = [PFZ_DIR / "incois_pfz_live_advisories_master.csv"]
+    if PFZ_HISTORY_DIR.is_dir():
+        snapshots += sorted(p / "advisories.csv" for p in PFZ_HISTORY_DIR.iterdir() if p.is_dir())
+    by_date: dict[str, list[dict[str, Any]]] = {}
+    seen: set[tuple[str, str, str]] = set()
+    for path in snapshots:
+        for row in _read_csv(path):
+            valid_for = (row.get("valid_for") or "").strip()
+            key = (valid_for, row.get("latitude_dd", ""), row.get("longitude_dd", ""))
+            if not valid_for or key in seen:
+                continue
+            seen.add(key)
+            by_date.setdefault(valid_for, []).append(row)
+    return dict(sorted(by_date.items()))
+
+
+def load_pfz_latest(today: date | None = None) -> list[dict[str, Any]]:
+    """Each sector's most recent advisory — every node of that sector's newest
+    `valid_for` — with `age_days`, `band` and `expired` attached from
+    freshness.recency. Sectors with an advisory today contribute today's nodes;
+    cloud-covered ones contribute their last clear day's, labelled as such."""
+    from orca.data.freshness import recency
+
+    latest: dict[str, tuple[str, list[dict[str, Any]]]] = {}
+    for valid_for, rows in pfz_advisories_by_date().items():  # ascending, so newer overwrites
+        per_sector: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            per_sector.setdefault(row.get("sector_id") or "", []).append(row)
+        for sector_id, sector_rows in per_sector.items():
+            latest[sector_id] = (valid_for, sector_rows)
+    out: list[dict[str, Any]] = []
+    for valid_for, rows in latest.values():
+        tag = recency("incois_pfz", valid_for, today)
+        out.extend({**row, **tag} for row in rows)
+    return out
+
+
+def load_pfz_history_advisories(date: str) -> list[dict[str, Any]]:
+    """One advisory date's nodes (`valid_for` == `date`, YYYY-MM-DD)."""
+    return pfz_advisories_by_date().get(date, [])
 
 
 def load_pfz_sector_status(date: str | None = None) -> dict[str, Any]:
@@ -180,75 +225,26 @@ def load_pfz_sector_status(date: str | None = None) -> dict[str, Any]:
         return json.load(f)
 
 
-def load_pfz_master() -> list[dict[str, Any]]:
-    """The flattened master advisory list with decimal-degree coordinates."""
-    path = PFZ_DIR / "incois_pfz_live_advisories_master.csv"
-    if not path.exists():
-        return []
-    with open(path, encoding="utf-8", newline="") as f:
-        return list(csv.DictReader(f))
+def load_pfz_live_geojson(today: date | None = None) -> dict[str, Any]:
+    """Every sector's latest advisory as GeoJSON, each feature carrying its own
+    `age_days` / `band` / `expired` so the map styles old zones as old.
 
-
-def _pfz_valid_for(doc: dict[str, Any]) -> str:
-    """Newest `valid_for` across a PFZ FeatureCollection, "" when it has none."""
-    dates = {
-        f.get("properties", {}).get("valid_for", "")
-        for f in doc.get("features", ())
-    }
-    return max((d for d in dates if d), default="")
-
-
-def load_pfz_live_geojson() -> dict[str, Any]:
-    """All INCOIS advisory points as GeoJSON — national coverage when it is at
-    least as current as the live scrape, otherwise the live scrape.
-
-    The national file (`build_all_india_pfz.py`) covers more sectors, so it is
-    preferred — but on `valid_for`, never on mere existence. It used to be picked
-    whenever it was on disk, which meant a national build from 2026-09-02 was
-    served in preference to a live scrape from 09-17: sixteen-day-old advisories,
-    nationwide, with nothing saying so (R-INDIA-3 / R-FRESH-2).
-    """
-    all_india = PFZ_DIR / "all_india_pfz_advisories.geojson"
-    live = PFZ_DIR / "incois_pfz_live_advisories.geojson"
-
-    def _read(path: Path) -> dict[str, Any] | None:
-        if not path.exists():
-            return None
+    This used to drop every feature older than the collection's newest day, so
+    a day when only Maharashtra and Goa were cloud-free emptied the rest of the
+    coast. Dropping was the wrong fix for "old served as today": the answer is
+    to serve it *labelled*, which is what the per-feature band does."""
+    features = []
+    for row in load_pfz_latest(today):
         try:
-            with open(path, encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, json.JSONDecodeError):
-            return None
-
-    national, live_doc = _read(all_india), _read(live)
-    if national is None:
-        return _newest_day_only(live_doc or {"type": "FeatureCollection", "features": []})
-    if live_doc is None:
-        return _newest_day_only(national)
-    chosen = national if _pfz_valid_for(national) >= _pfz_valid_for(live_doc) else live_doc
-    return _newest_day_only(chosen)
-
-
-def _newest_day_only(doc: dict[str, Any]) -> dict[str, Any]:
-    """Drop features older than the collection's own newest `valid_for`.
-
-    `_pfz_valid_for` takes the *newest* date in a file, so a collection holding
-    both today's advisories and a previous day's passes the freshness check on
-    the strength of the fresh half and is then served whole — the map draws
-    every point the same way, and a sector whose only features are old reads as
-    advised today. `build_all_india_pfz.py` used to produce exactly that. The
-    builder no longer does, but `data/` is gitignored, so every clone has its own
-    files and some still hold the mixed version: the guard belongs here, where
-    all consumers pass, rather than only in the script that writes the file.
-    """
-    features = doc.get("features") or []
-    newest = _pfz_valid_for(doc)
-    if not newest:
-        return doc
-    kept = [f for f in features if (f.get("properties", {}).get("valid_for") or "") == newest]
-    if len(kept) == len(features):
-        return doc
-    return {**doc, "features": kept}
+            lon, lat = float(row["longitude_dd"]), float(row["latitude_dd"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [lon, lat]},
+            "properties": row,
+        })
+    return {"type": "FeatureCollection", "name": "incois_pfz_latest_per_sector", "features": features}
 
 
 # --- catch statistics --------------------------------------------------------

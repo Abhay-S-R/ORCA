@@ -70,7 +70,18 @@ type Sector = {
   node_count: number;
   valid_for: string | null;
   is_data_gap: boolean;
+  // Stale-data policy: the sector's most recent advisory ORCA holds, even
+  // when today's status is a gap — null only if it has never had one.
+  latest_advisory: Recency & { valid_for: string; node_count: number } | null;
 };
+
+type Recency = { age_days: number | null; band: "fresh" | "hint" | "history" | null; expired: boolean | null };
+
+// "issued 19 Sep · 5 days old" — the age every stale zone carries on this page.
+function ageLabel(validFor: string | null, r: Recency): string | null {
+  if (!validFor || r.band === "fresh" || r.age_days == null) return null;
+  return `issued ${validFor} · ${r.age_days} day${r.age_days === 1 ? "" : "s"} old`;
+}
 
 type ZonesResponse = {
   measured_from: string; // "registered home port" | "supplied position"
@@ -88,7 +99,8 @@ type ZonesResponse = {
     longitude: number | null;
     valid_for: string | null;
     sector_id: string | null;
-  };
+    max_km: number | null;
+  } & Recency;
   persistence: {
     score: number | null;
     label: string;
@@ -177,6 +189,17 @@ export default function ZonesPage() {
                 <Readout label={t("zones.validFor")} value={data.sector_status.valid_for ?? "—"} />
               </ReadoutGrid>
             )}
+            {/* A gap today is not an empty sector: its last clear-sky advisory
+                still stands, shown with its age rather than hidden. */}
+            {data.sector_status.is_data_gap && data.sector_status.latest_advisory && (
+              <p className="mt-2 text-xs text-ink-muted">
+                Latest advisory for this sector: {data.sector_status.latest_advisory.valid_for},{" "}
+                {data.sector_status.latest_advisory.node_count} zones —{" "}
+                {ageLabel(data.sector_status.latest_advisory.valid_for, data.sector_status.latest_advisory) ??
+                  "still current"}
+                . Shown on the map, faded by age.
+              </p>
+            )}
             {data.sector_status.is_data_gap && data.sector_status.nearest_advisory_out_of_sector && (
               <p className="mt-2 text-xs text-ink-dim">
                 {t("zones.nearestAdvisoryNeighbour")}
@@ -238,6 +261,12 @@ export default function ZonesPage() {
                   {data.nearest_pfz.compass} {data.nearest_pfz.bearing_deg}° · {data.nearest_pfz.distance_km} km
                 </span>
               </div>
+              {ageLabel(data.nearest_pfz.valid_for, data.nearest_pfz) && (
+                <p className="mb-2 text-xs text-caution">
+                  Older advisory — {ageLabel(data.nearest_pfz.valid_for, data.nearest_pfz)}. Zones move
+                  with the fronts, so treat it as where fish were, not where they are.
+                </p>
+              )}
 
               {/* P4.4 / orca_final §9.1a — Small Vessel view: is this zone
                   within a realistic day trip for the vessel actually on

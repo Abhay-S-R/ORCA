@@ -274,7 +274,9 @@ def _reasoning_summary(
             dist = pfz.get("distance_km")
             compass = pfz.get("compass") or ""
             compass_str = f" {compass}" if compass else ""
-            pfz_str = f" · Nearest PFZ: {dist} km{compass_str}"
+            age = pfz.get("age_days")
+            age_str = f" (issued {pfz.get('valid_for')}, {age} d old)" if pfz.get("band") not in (None, "fresh") else ""
+            pfz_str = f" · Nearest PFZ: {dist} km{compass_str}{age_str}"
         elif isinstance(pfz, dict) and pfz.get("distance_km") is not None:
             pfz_str = f" · Nearest PFZ: {pfz.get('distance_km')} km"
         return f"Tide: {tide_desc}{pfz_str}"

@@ -97,3 +97,30 @@ def test_real_tts_then_asr_round_trip_produces_a_nonempty_transcript(monkeypatch
     assert result.rung == "faster_whisper"
     assert result.transcript.strip() != ""
     assert 0.0 <= result.confidence <= 1.0
+
+
+def test_partial_transcribe_never_falls_back_to_the_slow_local_rung(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A live caption from faster-whisper (~8 s on CPU) would land after the
+    # user stopped talking — partials are Bhashini or nothing.
+    from fastapi.testclient import TestClient
+
+    from orca.agents import bhashini
+    from orca.api.voice_routes import router
+
+    def _bhashini_down(*_a: object, **_kw: object) -> None:
+        raise bhashini.BhashiniError("down")
+
+    def _whisper_must_not_run(*_a: object, **_kw: object) -> None:
+        raise AssertionError("partial fell through to the local rung")
+
+    monkeypatch.setattr(bhashini, "asr", _bhashini_down)
+    monkeypatch.setattr("orca.api.voice_routes.speech_to_text", _whisper_must_not_run)
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    app.include_router(router)
+    res = TestClient(app).post(
+        "/voice/transcribe", files={"audio": ("q.webm", b"\x1aE\xdf\xa3")}, data={"language_hint": "kn", "partial": "true"},
+    )
+    assert res.status_code == 200
+    assert res.json()["transcript"] == "" and res.json()["rung"] == "unavailable"

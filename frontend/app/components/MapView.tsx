@@ -57,6 +57,11 @@ type PfzProperties = {
   distance_km?: string | number;
   depth_m?: string | number;
   valid_for?: string;
+  // docs/ORCA_Stale_Data_Policy.md — every zone carries its own age; a
+  // cloud-covered sector shows its last clear day's zones, labelled old.
+  age_days?: number;
+  band?: "fresh" | "hint" | "history";
+  expired?: boolean;
   source?: string;
   approx_area_km2?: number;
   mean_sst_c?: number;
@@ -693,6 +698,11 @@ export function MapView({
         clusterMaxZoom: 4.5,
         clusterMinPoints: 3,
         clusterRadius: 48,
+        // 2 fresh, 1 hint, 0 history — a cluster looks as current as its
+        // freshest zone, so one old point never greys out a live group.
+        clusterProperties: {
+          freshest: ["max", ["match", ["get", "band"], "fresh", 2, "hint", 1, 0]],
+        },
       });
       m.addSource("route", { type: "geojson", data: EMPTY as never });
       m.addSource("watch-badges", { type: "geojson", data: EMPTY as never });
@@ -813,6 +823,12 @@ export function MapView({
       m.addImage("pfz-marker", buildPfzFishIcon(pfzIconTheme(basemapRef.current, false)), {
         pixelRatio: 2,
       });
+      if (m.hasImage("pfz-marker-old")) {
+        m.removeImage("pfz-marker-old");
+      }
+      m.addImage("pfz-marker-old", buildPfzFishIcon(pfzIconTheme(basemapRef.current, false, true)), {
+        pixelRatio: 2,
+      });
 
       // 3+ nearby advisories collapse into one cluster circle (supercluster,
       // built into the GeoJSON source below) rather than a pile of
@@ -823,12 +839,15 @@ export function MapView({
         source: "pfz",
         filter: ["has", "point_count"],
         layout: {
-          "icon-image": "pfz-marker",
+          "icon-image": ["case", ["==", ["get", "freshest"], 0], "pfz-marker-old", "pfz-marker"],
           // Same fish, sized by how many zones it stands for — one symbol
           // vocabulary for the layer instead of a marker and an unrelated
           // counter bubble.
           "icon-size": ["step", ["get", "point_count"], 0.66, 5, 0.78, 15, 0.92],
           "icon-allow-overlap": true,
+        },
+        paint: {
+          "icon-opacity": ["match", ["get", "freshest"], 2, 1, 1, 0.55, 0.8],
         },
       });
       m.addLayer({
@@ -857,9 +876,31 @@ export function MapView({
         source: "pfz",
         filter: ["!", ["has", "point_count"]],
         layout: {
-          "icon-image": "pfz-marker",
+          // Stale-data policy bands: fresh is the normal fish, a "hint" (a few
+          // days old) is the same fish faded, "history" is a grey fish. Old
+          // zones stay on the map — cloud hid them, it did not remove them —
+          // but they never look like today's.
+          "icon-image": ["case", ["==", ["get", "band"], "history"], "pfz-marker-old", "pfz-marker"],
           "icon-size": ["interpolate", ["linear"], ["zoom"], 4, 0.46, 7, 0.62, 11, 0.8],
           "icon-allow-overlap": true,
+          // The age, readable without a click. Optional, so it gives way
+          // rather than piling up where zones are dense.
+          "text-field": [
+            "case",
+            ["all", ["has", "age_days"], ["!=", ["get", "band"], "fresh"]],
+            ["concat", ["to-string", ["get", "age_days"]], " d"],
+            "",
+          ],
+          "text-font": ["Open Sans Regular"],
+          "text-size": 10,
+          "text-offset": [0, 1.3],
+          "text-optional": true,
+        },
+        paint: {
+          "icon-opacity": ["match", ["get", "band"], "hint", 0.55, "history", 0.8, 1],
+          "text-color": "#ffffff",
+          "text-halo-color": "rgba(4, 16, 26, 0.85)",
+          "text-halo-width": 1.2,
         },
       });
 
@@ -1537,6 +1578,9 @@ export function MapView({
     const m = map.current;
     if (!ready || !m || !m.hasImage("pfz-marker")) return;
     m.updateImage("pfz-marker", buildPfzFishIcon(pfzIconTheme(basemap, layers.waveForecast)));
+    if (m.hasImage("pfz-marker-old")) {
+      m.updateImage("pfz-marker-old", buildPfzFishIcon(pfzIconTheme(basemap, layers.waveForecast, true)));
+    }
     // The count under a cluster is part of the same symbol; it flips with it
     // rather than staying white on a white basemap.
     if (m.getLayer("pfz-cluster-count")) {
@@ -1738,9 +1782,16 @@ export function MapView({
                   <p className="mt-1 font-mono text-[11px] font-semibold text-ink-muted truncate">
                     {selectedPfz.valid_for ? String(selectedPfz.valid_for) : "Current cycle"}
                   </p>
-                  <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-go/30 bg-go/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-go">
-                    <span className="size-1 rounded-full bg-go animate-pulse" /> Active
-                  </span>
+                  {selectedPfz.expired ? (
+                    <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-caution/40 bg-caution/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-caution">
+                      <span className="size-1 rounded-full bg-caution" /> Expired
+                      {selectedPfz.age_days != null && ` · ${selectedPfz.age_days} d ago`}
+                    </span>
+                  ) : (
+                    <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-go/30 bg-go/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-go">
+                      <span className="size-1 rounded-full bg-go animate-pulse" /> Active
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -2361,9 +2412,9 @@ type PfzIconTheme = {
  *  currently painting colour across that water. The hue stays in the PFZ
  *  green family either way — only value and halo change, so the symbol never
  *  starts meaning something else. */
-function pfzIconTheme(basemap: BasemapId, busyWater: boolean): PfzIconTheme {
+function pfzIconTheme(basemap: BasemapId, busyWater: boolean, old = false): PfzIconTheme {
   const dark = basemap === "satellite";
-  return dark
+  const theme = dark
     ? {
         // Deep water: the line work goes PALE and the halo near-black. Dark
         // strokes on dark imagery lose the fins and tail entirely — the body
@@ -2386,6 +2437,9 @@ function pfzIconTheme(basemap: BasemapId, busyWater: boolean): PfzIconTheme {
         line: "#032a1a",
         lineWidth: 1.6,
       };
+  // "history" band — same silhouette and halo, the colour drained out, so it
+  // reads as the same kind of thing, no longer current.
+  return old ? { ...theme, bodyTop: "#b7c0c6", bodyBottom: "#6b767d" } : theme;
 }
 
 function buildPfzFishIcon(theme: PfzIconTheme): ImageData {

@@ -177,6 +177,21 @@ def test_wind_rose_bins_all_sixteen_compass_points():
             assert b in petal
 
 
+def test_an_indicative_persistence_does_not_grade_the_agent(monkeypatch: pytest.MonkeyPatch):
+    # 4 archived days: too few to score, so persistence reports INDICATIVE /
+    # LOW_DATA — and that must stay a note, not the agent's confidence. It
+    # used to count from 2 days on, pulling every answer to LOW_DATA.
+    indicative = {
+        "score": 0.0, "label": "INDICATIVE", "days_present": 0, "days_on_record": 4,
+        "window_days": 7, "days_archived_total": 5, "radius_km": 25.0,
+        "confidence": oa.Confidence(score="LOW_DATA", rationale="only 4 PFZ snapshot(s)"),
+    }
+    monkeypatch.setattr(oa, "score_pfz_persistence", lambda *a, **kw: indicative)
+    result = oa.run({"user_location": {"lat": 21.08, "lon": 70.1}, "raw_user_query": "conditions at mangrol"})
+    assert "PFZ snapshot" not in result.confidence.rationale
+    assert result.outputs["pfz_persistence"]["label"] == "INDICATIVE"
+
+
 def test_persistence_confidence_tracks_days_on_record():
     p = oa.score_pfz_persistence(*THOOTHUKUDI, sector_id="SEC007")
     # The archive grows by one directory every time the scraper runs, so the
@@ -336,3 +351,33 @@ def test_tide_roster_is_national_and_never_mislabels_the_datum():
             assert t.fell_back is True and t.confidence.score == "MEDIUM", code
         else:
             assert t.datum == "chart datum (LAT)", code
+
+
+def test_nearest_pfz_is_capped_at_reach_and_carries_the_advisory_age(monkeypatch: pytest.MonkeyPatch):
+    # "PFZs near Rameswaram" answered with Betul, 906 km away on another coast.
+    far_and_fresh = {"sector_id": "SEC003", "latitude_dd": "15.1", "longitude_dd": "73.9",
+                     "valid_for": "2026-09-23", "age_days": 1, "band": "fresh", "expired": True}
+    near_and_old = {"sector_id": "SEC006", "latitude_dd": "9.07", "longitude_dd": "79.09",
+                    "valid_for": "2026-09-19", "age_days": 5, "band": "hint", "expired": True}
+    monkeypatch.setattr(oa.al, "load_pfz_latest", lambda: [far_and_fresh, near_and_old])
+    near = oa.nearest_pfz(9.29, 79.31)
+    assert near.found and near.sector_id == "SEC006" and near.distance_km < 50
+    assert (near.valid_for, near.age_days, near.band) == ("2026-09-19", 5, "hint")
+
+    monkeypatch.setattr(oa.al, "load_pfz_latest", lambda: [far_and_fresh])
+    assert oa.nearest_pfz(9.29, 79.31).found is False
+
+
+def test_nearest_pfz_keeps_orcas_distance_and_incois_landmark_apart(monkeypatch: pytest.MonkeyPatch):
+    # "pfzs near mangalore" was narrated as "32 km WSW of Kunzhathur": ORCA's
+    # distance from Mangalore paired with INCOIS's landmark, whose own
+    # distance to the zone is 52-57 km NW. Each origin travels with its own.
+    zone = {"sector_id": "SEC004", "latitude_dd": "12.747778", "longitude_dd": "74.373333",
+            "landing_center": "Kunzhathur", "direction": "NW", "distance_km": "52-57",
+            "valid_for": "2026-09-19", "age_days": 5, "band": "hint", "expired": True}
+    monkeypatch.setattr(oa.al, "load_pfz_latest", lambda: [zone])
+    out = oa.run({"user_location": {"lat": 12.85, "lon": 74.65, "place_name": "mangalore"},
+                  "raw_user_query": "pfzs near mangalore"}).outputs["nearest_pfz"]
+    assert out["measured_from"] == "mangalore" and out["compass"] == "WSW"
+    assert out["incois_reference"] == "52-57 km NW of Kunzhathur"
+    assert (out["age_days"], out["band"], out["expired"]) == (5, "hint", True)

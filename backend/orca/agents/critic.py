@@ -281,8 +281,18 @@ def build_facts_block(state: ORCAState) -> str:
         "inside_marine_protected_area": geo.get("mpa_violation"),
         # A fishing zone's distance, NOT the boundary's: named so they cannot be confused.
         "nearest_fishing_zone_distance_km": pfz.get("distance_km") if found else None,
+        "nearest_fishing_zone_distance_measured_from": pfz.get("measured_from") if found else None,
+        # INCOIS's own landmark wording — a separate origin; a narrative that
+        # pairs the distance above with this landmark's name is wrong.
+        "nearest_fishing_zone_incois_reference": pfz.get("incois_reference") if found else None,
         "nearest_fishing_zone_direction": pfz.get("compass") if found else None,
         "nearest_fishing_zone_depth_m": pfz.get("depth_m") if found else None,
+        # Stale-data policy: the zone's own date and age, so a narrative that
+        # says "issued 19 Sep, 5 days old" is confirmable, and one that calls
+        # it current is contradicted.
+        "nearest_fishing_zone_advisory_date": pfz.get("valid_for") if found else None,
+        "nearest_fishing_zone_age_days": pfz.get("age_days") if found else None,
+        "nearest_fishing_zone_advisory_expired": pfz.get("expired") if found else None,
         "tidal_state": tide.get("tidal_state"),
         "next_high_tide_height_m": next_high.get("height_m"),
         "next_high_tide_in_hours": next_high.get("in_hours"),

@@ -99,6 +99,10 @@ type PfzData = {
   bearing_deg?: number | null;
   landing_center?: string;
   depth_m?: number | null;
+  valid_for?: string | null;
+  age_days?: number | null;
+  band?: "fresh" | "hint" | "history" | null;
+  max_km?: number | null;
 };
 type SectorStatusData = {
   status?: string;
@@ -187,7 +191,7 @@ export function formatPfzData(raw: unknown): { value: string; unit?: string; hin
   }
 
   if (data.found === false || (data.distance_km == null && !data.landing_center)) {
-    return { value: "None", hint: "No advisories in range" };
+    return { value: "None", hint: data.max_km ? `No advisory within ${Math.round(data.max_km)} km` : "No advisories in range" };
   }
 
   const dist = data.distance_km != null ? Number(data.distance_km).toFixed(1) : "—";
@@ -195,7 +199,9 @@ export function formatPfzData(raw: unknown): { value: string; unit?: string; hin
   const center = data.landing_center || "";
   const depth = data.depth_m ? `${data.depth_m}m depth` : "";
 
-  const hintParts = [compass, center, depth].filter(Boolean);
+  // Stale-data policy: an old zone is still the answer, with its age attached.
+  const age = data.band && data.band !== "fresh" && data.age_days != null ? `issued ${data.valid_for}, ${data.age_days} d old` : "";
+  const hintParts = [compass, center, depth, age].filter(Boolean);
 
   return {
     value: dist,

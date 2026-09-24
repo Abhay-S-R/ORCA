@@ -6,6 +6,14 @@
 // a safety query is a safety incident, not a UX annoyance (plan §6 D1 Day 16).
 // Full keyboard operation: space starts/stops recording, escape cancels.
 //
+// While recording, the audio so far is re-sent every ~1.5 s as a `partial`
+// (Bhashini only, ~1 s round trip) so the words appear in the speaker's own
+// script as they talk; stop sends the whole clip once more, cleaned (VAD,
+// denoiser, punctuation), and that final text is what gets confirmed. The
+// spoken language is its own choice, defaulting to the navbar's — Bhashini
+// ASR needs it named, and someone reading the UI in English may still speak
+// Kannada.
+//
 // Split in two so the mic sits beside the Ask button while the waveform/
 // confirm UI renders below the form — both views share one `useVoiceInput`
 // state so there's still exactly one recording pipeline.
@@ -13,12 +21,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Mic, Square, X } from "lucide-react";
 import { Button } from "./Button";
 import { API_BASE } from "../lib/apiBase";
+import { LANGUAGES, fontClassForLanguage } from "../i18n/languages";
 
 type VoiceState = "idle" | "recording" | "transcribing" | "confirming" | "error";
+
+const PARTIAL_INTERVAL_MS = 1500;
+
+async function postTranscribe(blob: Blob, language: string, partial: boolean) {
+  const form = new FormData();
+  form.append("audio", blob, "query.webm");
+  form.append("language_hint", language);
+  if (partial) form.append("partial", "true");
+  const res = await fetch(`${API_BASE}/voice/transcribe`, { method: "POST", body: form });
+  if (!res.ok) throw new Error(`transcribe failed: ${res.status}`);
+  return res.json();
+}
 
 export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTranscriptConfirmed: (text: string) => void; languageHint?: string }) {
   const [state, setState] = useState<VoiceState>("idle");
   const [transcript, setTranscript] = useState("");
+  const [liveTranscript, setLiveTranscript] = useState("");
+  const [spokenLanguage, setSpokenLanguage] = useState(languageHint ?? "en");
   const [needsConfirmation, setNeedsConfirmation] = useState(false);
   const [level, setLevel] = useState(0); // 0-1 live amplitude, drives the waveform bars
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +51,24 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const partialTimerRef = useRef<number | null>(null);
+  // Bumped on every start/stop/cancel so a partial still in flight from an
+  // earlier recording can't overwrite the caption of the current one.
+  const sessionRef = useRef(0);
+
+  // A navbar change resets the spoken language to it as a fresh default;
+  // a manual pick holds until the navbar changes again.
+  const [prevHint, setPrevHint] = useState(languageHint);
+  if (languageHint !== prevHint) {
+    setPrevHint(languageHint);
+    if (languageHint) setSpokenLanguage(languageHint);
+  }
+
+  const stopPartials = useCallback(() => {
+    if (partialTimerRef.current) window.clearInterval(partialTimerRef.current);
+    partialTimerRef.current = null;
+    sessionRef.current += 1;
+  }, []);
 
   const stopWaveform = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -53,26 +94,19 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
       streamRef.current = stream;
       const recorder = new MediaRecorder(stream);
       chunksRef.current = [];
+      setLiveTranscript("");
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = async () => {
+        stopPartials();
         releaseStream();
         stopWaveform();
         setLevel(0);
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
         setState("transcribing");
         try {
-          const form = new FormData();
-          form.append("audio", blob, "query.webm");
-          // Always send when set — Bhashini needs an explicit source language to
-          // pick the right ASR model. Omitting it (even for "en") causes Bhashini
-          // to skip to FasterWhisper auto-detection, which is the right fallback
-          // when the user hasn't chosen a language explicitly.
-          if (languageHint) form.append("language_hint", languageHint);
-          const res = await fetch(`${API_BASE}/voice/transcribe`, { method: "POST", body: form });
-          if (!res.ok) throw new Error(`transcribe failed: ${res.status}`);
-          const data = await res.json();
+          const data = await postTranscribe(blob, spokenLanguage, false);
           if (!data.transcript) {
             setState("error");
             setError("Could not hear you — try again.");
@@ -87,8 +121,29 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
         }
       };
       mediaRecorderRef.current = recorder;
-      recorder.start();
+      // Timesliced so chunks accumulate while recording; every prefix of
+      // them is a decodable WebM (the header is in the first chunk), which
+      // is what lets a partial be "everything said so far".
+      recorder.start(250);
       setState("recording");
+
+      const session = ++sessionRef.current;
+      let inFlight = false;
+      let sentChunks = 0;
+      partialTimerRef.current = window.setInterval(async () => {
+        if (inFlight || chunksRef.current.length === sentChunks) return;
+        inFlight = true;
+        sentChunks = chunksRef.current.length;
+        try {
+          const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+          const data = await postTranscribe(blob, spokenLanguage, true);
+          if (session === sessionRef.current && data.transcript) setLiveTranscript(data.transcript);
+        } catch {
+          /* a dropped caption is fine — the final pass on stop is what counts */
+        } finally {
+          inFlight = false;
+        }
+      }, PARTIAL_INTERVAL_MS);
 
       // Web Audio live waveform — a single time-domain amplitude read per
       // frame is enough to show "it is listening"; this never claims to be
@@ -112,13 +167,14 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
       setState("error");
       setError("Microphone access was denied or is unavailable.");
     }
-  }, [releaseStream, stopWaveform]);
+  }, [releaseStream, stopWaveform, stopPartials, spokenLanguage]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
   }, []);
 
   const cancel = useCallback(() => {
+    stopPartials();
     if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.onstop = null;
       mediaRecorderRef.current.stop();
@@ -128,13 +184,15 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
     setLevel(0);
     setState("idle");
     setTranscript("");
+    setLiveTranscript("");
     setError(null);
-  }, [releaseStream, stopWaveform]);
+  }, [releaseStream, stopWaveform, stopPartials]);
 
   useEffect(() => () => {
+    stopPartials();
     stopWaveform();
     releaseStream();
-  }, [stopWaveform, releaseStream]);
+  }, [stopWaveform, releaseStream, stopPartials]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -167,6 +225,9 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
     state,
     transcript,
     setTranscript,
+    liveTranscript,
+    spokenLanguage,
+    setSpokenLanguage,
     needsConfirmation,
     level,
     error,
@@ -186,11 +247,32 @@ export type VoiceInputState = ReturnType<typeof useVoiceInput>;
 // other persona gets the design system's normal-size, outline-until-active
 // control.
 export function VoiceMicButton({ voice, isFisherman = false }: { voice: VoiceInputState; isFisherman?: boolean }) {
-  const { state, startRecording, stopRecording } = voice;
+  const { state, startRecording, stopRecording, spokenLanguage, setSpokenLanguage } = voice;
   const isRecording = state === "recording";
   const size = isFisherman ? "h-[52px] w-[52px]" : "h-[38px] w-[38px]";
   const iconSize = isFisherman ? "size-5" : "size-3.5";
   return (
+    <>
+    {/* Spoken language, separate from the navbar's reading language. */}
+    <label htmlFor="voice-language" className="sr-only">
+      Language you will speak
+    </label>
+    <select
+      id="voice-language"
+      value={spokenLanguage}
+      onChange={(e) => setSpokenLanguage(e.target.value)}
+      disabled={isRecording || state === "transcribing"}
+      title="Language you will speak"
+      className={`shrink-0 cursor-pointer rounded-lg border border-hairline bg-shelf-2/70 px-2 text-ink-muted transition-colors hover:border-ocean-cyan/50 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 ${
+        isFisherman ? "h-[52px] text-base" : "h-[38px] text-xs"
+      } ${fontClassForLanguage(spokenLanguage)}`}
+    >
+      {LANGUAGES.map((l) => (
+        <option key={l.code} value={l.code}>
+          {l.native}
+        </option>
+      ))}
+    </select>
     <button
       type="button"
       aria-label={isRecording ? "Stop recording" : "Ask by voice — space bar also works"}
@@ -207,13 +289,15 @@ export function VoiceMicButton({ voice, isFisherman = false }: { voice: VoiceInp
       {isRecording ? <Square className={iconSize} /> : <Mic className={iconSize} />}
       <span className="sr-only">{isRecording ? "Stop recording" : "Ask by voice"}</span>
     </button>
+    </>
   );
 }
 
 // Waveform / transcribing / confirm-transcript UI — renders below the form
 // while VoiceMicButton stays up beside Ask.
 export function VoiceInputPanel({ voice }: { voice: VoiceInputState }) {
-  const { state, transcript, setTranscript, needsConfirmation, level, error, confirm, cancel } = voice;
+  const { state, transcript, setTranscript, liveTranscript, spokenLanguage, needsConfirmation, level, error, confirm, cancel } = voice;
+  const scriptFont = fontClassForLanguage(spokenLanguage);
 
   if (state === "idle") return null;
 
@@ -231,7 +315,13 @@ export function VoiceInputPanel({ voice }: { voice: VoiceInputState }) {
         </div>
       )}
 
-      {state === "transcribing" && <span className="text-xs text-ink-muted">Transcribing…</span>}
+      {(state === "recording" || state === "transcribing") && (
+        <p aria-live="polite" className={`min-h-[1.25rem] text-sm text-ink ${scriptFont}`}>
+          {liveTranscript || <span className="text-ink-dim">{state === "recording" ? "Listening…" : ""}</span>}
+        </p>
+      )}
+
+      {state === "transcribing" && <span className="text-xs text-ink-muted">Finalizing…</span>}
 
       {state === "confirming" && (
         <div className="rounded-md border border-hairline bg-shelf-1/60 p-2.5">
@@ -244,7 +334,7 @@ export function VoiceInputPanel({ voice }: { voice: VoiceInputState }) {
             value={transcript}
             onChange={(e) => setTranscript(e.target.value)}
             rows={2}
-            className="w-full resize-none rounded border border-hairline bg-shelf-1/60 px-2 py-1.5 text-sm text-ink"
+            className={`w-full resize-none rounded border border-hairline bg-shelf-1/60 px-2 py-1.5 text-sm text-ink ${scriptFont}`}
           />
           <div className="mt-2 flex gap-2">
             <Button type="button" variant="primary" className="text-xs" icon={<Check className="size-3.5" />} onClick={confirm}>

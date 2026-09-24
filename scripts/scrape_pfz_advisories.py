@@ -336,7 +336,13 @@ def write_outputs(rows, sector_status, vernacular, sector_names, now, stamp):
         json.dump(status_doc, fh, ensure_ascii=False, indent=1)
 
     # Archive this run so repeated runs accumulate the persistence time-series.
-    run_dir = os.path.join(HISTORY_DIR, stamp)
+    # Named by the advisory's own date, not the scrape day: INCOIS publishes in
+    # the evening for the next day, so a scrape-day name filed every advisory
+    # one day early, and a re-scrape of the same advisory became a second "day".
+    # Loaders group by `valid_for` anyway (analytics_loaders.pfz_advisories_by_date);
+    # this keeps the folder names honest for anyone reading the directory.
+    valid_dates = sorted({r["valid_for"] for r in rows if r.get("valid_for")})
+    run_dir = os.path.join(HISTORY_DIR, valid_dates[-1].replace("-", "") if valid_dates else stamp)
     os.makedirs(run_dir, exist_ok=True)
     _write_csv(os.path.join(run_dir, "advisories.csv"), rows, fields)
     with open(os.path.join(run_dir, "sector_status.json"), "w", encoding="utf-8") as fh:
