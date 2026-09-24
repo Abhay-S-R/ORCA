@@ -105,6 +105,12 @@ def set_quiet_hours(db: Session, user: User, quiet_hours: dict | None) -> User:
     return user
 
 
+def set_typical_departure_hour(db: Session, user: User, hour: int | None) -> User:
+    user.typical_departure_hour = hour
+    db.flush()
+    return user
+
+
 # --------------------------------------------------------------------------
 # vessels — every function below takes owner_user_id and filters by it;
 # there is no vessel-lookup-by-id-alone function in this module on purpose.

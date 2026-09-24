@@ -5,7 +5,7 @@
 // enabled state is a text token AND the toggle position.
 import { useState } from "react";
 import { Bell, BellOff, Trash2 } from "lucide-react";
-import { Badge } from "./Badge";
+import { Badge, type BadgeTone } from "./Badge";
 import { Readout, ReadoutGrid } from "./Readout";
 import { deleteWatch, updateWatch, watchHistory, type OrcaNotification, type Watch } from "../lib/watches";
 
@@ -17,6 +17,24 @@ const TYPE_LABEL: Record<string, string> = {
   geofence_approach: "Boundary approach",
   pfz_shift: "Fishing-zone shift",
 };
+
+// P5.6/P5.18 — the same graded bands `orca.agents.sentinel._GEOFENCE_BANDS`
+// fires on, so a boundary-approach watch reads as a warning ladder rather
+// than a bare distance the viewer has to already know how to interpret.
+const GEOFENCE_BANDS: { name: string; cut: string; tone: BadgeTone }[] = [
+  { name: "Advisory", cut: "12–6 nm", tone: "accent" },
+  { name: "Watch", cut: "6–3 nm", tone: "cyan" },
+  { name: "Warning", cut: "3–1 nm", tone: "caution" },
+  { name: "Critical", cut: "≤1 nm", tone: "no-go" },
+];
+
+function bandTone(band: string | undefined): BadgeTone {
+  if (band === "CRITICAL") return "no-go";
+  if (band === "WARNING") return "caution";
+  if (band === "WATCH") return "cyan";
+  if (band === "ADVISORY") return "accent";
+  return "neutral";
+}
 
 export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -102,6 +120,21 @@ export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => v
         />
       </ReadoutGrid>
 
+      {watch.watch_type === "geofence_approach" && (
+        <div className="mt-3 rounded-lg border border-hairline/60 bg-shelf-2/30 p-2.5">
+          <p className="mb-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
+            Fires on entering — or clearing — any band
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {GEOFENCE_BANDS.map((b) => (
+              <Badge key={b.name} tone={b.tone}>
+                {b.name} <span className="font-normal opacity-80">{b.cut}</span>
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
       {thresholdEntries.length > 0 && (
         <dl className="mt-3 flex flex-wrap gap-2 text-[11px]">
           {thresholdEntries.map(([k, v]) => (
@@ -124,16 +157,22 @@ export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => v
       {history !== null && (
         <ul className="mt-2 flex flex-col gap-1.5">
           {history.length === 0 && <li className="text-[11px] text-ink-dim">No alerts have fired for this watch.</li>}
-          {history.map((n) => (
-            <li key={n.id} className="rounded-sm border border-hairline bg-shelf-1/60 p-2 text-[11px]">
-              <p className="font-medium text-ink">{n.title}</p>
-              <p className="text-ink-muted">{n.body}</p>
-              <p className="mt-0.5 text-ink-dim" data-readout>
-                {new Date(n.created_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC
-                {n.status !== "sent" && <span className="ml-2 text-caution">SIMULATED</span>}
-              </p>
-            </li>
-          ))}
+          {history.map((n) => {
+            const snapshot = (n.rendered_payload as { snapshot?: { band?: string } } | undefined)?.snapshot;
+            return (
+              <li key={n.id} className="rounded-sm border border-hairline bg-shelf-1/60 p-2 text-[11px]">
+                <p className="flex items-center gap-1.5 font-medium text-ink">
+                  {n.title}
+                  {snapshot?.band && <Badge tone={bandTone(snapshot.band)}>{snapshot.band}</Badge>}
+                </p>
+                <p className="text-ink-muted">{n.body}</p>
+                <p className="mt-0.5 text-ink-dim" data-readout>
+                  {new Date(n.created_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC
+                  {n.status !== "sent" && <span className="ml-2 text-caution">SIMULATED</span>}
+                </p>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

@@ -62,7 +62,7 @@ from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph
 
-from orca import engines, place_resolution, reconcile
+from orca import engines, place_resolution, query_cache, reconcile
 from orca.agents import (
     critic,
     distress,
@@ -83,9 +83,14 @@ from orca.trace import run_traced_node
 # Boundary names geospatial.py actually loaded these under (checked against
 # the real GeoJSON `name` properties, not assumed) — see plan §4 S5 exit
 # note: "The IMBL distance is the single highest-consequence number in the
-# product." There is no dedicated IMBL treaty-line geometry in the data;
-# the Sri Lanka EEZ boundary is the practical stand-in in this region, named
-# explicitly here rather than left implicit in a magic string at the call site.
+# product." P5.5: the treaty-line dataset (32 features — Pakistan, Bangladesh,
+# Sri Lanka, Maldives, Myanmar/Thailand/Indonesia) is on disk and read via
+# geospatial.nearest_boundary_line(), which names whichever line is actually
+# nearest — a position off Sir Creek now reads the Pakistan line instead of a
+# Sri Lanka distance that has nothing to do with it. The Sri Lanka EEZ polygon
+# stays only as the fallback if that line file is ever absent from a fresh
+# clone (its own geodesic distance, computed the same way containment checks
+# always were).
 _IMBL_PROXY_BOUNDARY = "Sri Lankan Exclusive Economic Zone"
 _MPA_BOUNDARY = "Gulf of Mannar Marine National Park"
 
@@ -361,6 +366,12 @@ def marine_data_discovery_run(state: ORCAState) -> AgentResult:
     file or an out-of-range value drops that rung and the cascade moves on,
     named on this span rather than discovered later as a blank field.
     """
+    from orca import demo_fixtures
+
+    pinned = demo_fixtures.fixture_result(state, "marine_data_discovery")
+    if pinned is not None:
+        return pinned
+
     from orca.agents import discovery
     from orca.contracts import SourceProvenance, coerce_reasoning_depth
 
@@ -562,6 +573,12 @@ def geospatial_run(state: ORCAState) -> AgentResult:
     an agent-level wrapper matching the S1-S3 convention. This is that
     wrapper, kept in graph.py rather than geospatial.py so the adapter (see
     below) sits next to the graph that actually needs this exact shape."""
+    from orca import demo_fixtures
+
+    pinned = demo_fixtures.fixture_result(state, "geospatial")
+    if pinned is not None:
+        return pinned
+
     from orca.contracts import SourceProvenance, coerce_reasoning_depth
 
     location = state.get("user_location") or {}
@@ -575,8 +592,24 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         # conservative_or's contract applies: absent input, named, never guessed.
         raise ValueError("user_location is missing lat/lon — the caller must resolve a position before the graph runs")
 
-    imbl = geospatial.check_boundary_proximity(lat, lon, _IMBL_PROXY_BOUNDARY)
+    line = geospatial.nearest_boundary_line(lat, lon)
+    if line is not None:
+        imbl_distance_nm = line["distance_nm"]
+        imbl_alert_level = line["alert_level"]
+        imbl_boundary_name = line["line_name"]
+        imbl_between = line["between"]
+        imbl_confidence_note = f"nearest of 32 treaty lines: {line['line_name']}"
+    else:
+        # india_maritime_boundary_lines.geojson absent from this clone — the
+        # EEZ-polygon proxy this replaced, never a fabricated number.
+        fallback = geospatial.check_boundary_proximity(lat, lon, _IMBL_PROXY_BOUNDARY)
+        imbl_distance_nm = fallback.distance_nm
+        imbl_alert_level = fallback.alert_level
+        imbl_boundary_name = _IMBL_PROXY_BOUNDARY
+        imbl_between = None
+        imbl_confidence_note = f"treaty-line dataset absent, fell back to {_IMBL_PROXY_BOUNDARY} proxy"
     mpa = geospatial.check_boundary_proximity(lat, lon, _MPA_BOUNDARY)
+    ban = geospatial.fishing_ban_status(lat, lon)
 
     return AgentResult(
         agent_name="geospatial",
@@ -587,10 +620,13 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         # was resolved from the query or fell back to the regional default.
         inputs_consumed={"lat": lat, "lon": lon, "user_location": dict(location)},
         outputs={
-            "imbl_distance_nm": imbl.distance_nm,
-            "imbl_alert_level": imbl.alert_level,
+            "imbl_distance_nm": imbl_distance_nm,
+            "imbl_alert_level": imbl_alert_level,
+            "imbl_boundary_name": imbl_boundary_name,
+            "imbl_between": imbl_between,
             "mpa_violation": mpa.alert_level == "INSIDE",
             "mpa_alert_level": mpa.alert_level,
+            "fishing_ban": ban,
             "dataset": "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA (via Agent 6)",
         },
         source_provenance=SourceProvenance(
@@ -603,24 +639,39 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         # Real geometry, not a stub — but geodesic distance to a coarse
         # boundary proxy (not the literal IMBL treaty line) stays MEDIUM
         # until that's independently verified (plan §4 S5 exit note).
-        confidence=Confidence(score="MEDIUM", rationale=f"Real boundary check against {_IMBL_PROXY_BOUNDARY} (IMBL proxy) and {_MPA_BOUNDARY}"),
+        confidence=Confidence(score="MEDIUM", rationale=f"Real boundary check — {imbl_confidence_note} — and {_MPA_BOUNDARY}"),
         # Boundary geometry is STATIC-class reference data; coverage is whether
         # both proximity checks returned a distance.
         freshness_class="STATIC",
         data_age_minutes=0,
         fallback_depth=0,
-        coverage=(sum(1 for c in (imbl, mpa) if c.distance_nm == c.distance_nm), 2),  # NaN != NaN
+        coverage=(sum(1 for d in (imbl_distance_nm, mpa.distance_nm) if d is not None), 2),
     )
 
 
 def geospatial_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("geospatial", geospatial_run, state)
     _attach_discovery(entry, state, ("boundary",))
-    return {
+    update: dict[str, Any] = {
         "geospatial_data": {**result.outputs, "confidence": _scored(result, entry)},
         "audit_trace_log": [entry],
         "completed_nodes": ["geospatial"],
     }
+    # P5.5 — a REGULATORY constraint, not a safety one (fishing_ban_status's
+    # own docstring: it never becomes a NO_GO by itself, and never a GO
+    # either). It is stated regardless of location whenever the uniform ban
+    # is in force and actually reaches this position (outside the 12 NM
+    # state-waters carve-out) — the answer below must not omit it just
+    # because the physical verdict came back GO.
+    ban = (result.outputs or {}).get("fishing_ban") or {}
+    if ban.get("available") and ban.get("in_ban_period") and ban.get("applies_here"):
+        file_number = (ban.get("order") or {}).get("file_number", "")
+        update["disclosures"] = [
+            f"REGULATORY: uniform seasonal fishing ban in force on the {ban.get('coast')} coast "
+            f"({ban.get('window', '')}{', ' + file_number if file_number else ''}) — this applies "
+            "regardless of the sea-state verdict below."
+        ]
+    return update
 
 
 def risk_assessment_node(state: ORCAState) -> dict:
@@ -654,6 +705,35 @@ def risk_assessment_node(state: ORCAState) -> dict:
         )]
         return update
     status = (result.outputs or {}).get("status")
+    weather_data = state.get("weather_data") or {}
+    # P6.11 (orca_final §4.6) — CAUTION_MISSING_DATA with an entirely empty
+    # weather_data means every source in the cascade failed, not just one
+    # field: "insufficient data" is honest but useless next to a real,
+    # if aging, verdict for the same spot. Try that before accepting the
+    # empty one. Gated on weather_data specifically (not ocean/geospatial
+    # gaps) because that is the one agent whose cascade this system treats
+    # as "every live source", per P2.4/P2.6's own reconciliation logic.
+    if status == "CAUTION_MISSING_DATA" and not weather_data:
+        location = state.get("user_location") or {}
+        lat, lon = location.get("lat"), location.get("lon")
+        cached = (
+            query_cache.get_last_known_verdict(float(lat), float(lon), state.get("vessel_class"))
+            if lat is not None and lon is not None else None
+        )
+        if cached:
+            import datetime as _dt
+
+            computed_at = _dt.datetime.fromisoformat(cached["computed_at"])
+            age_minutes = round((_dt.datetime.now(_dt.timezone.utc) - computed_at).total_seconds() / 60)
+            age_text = f"{age_minutes} min" if age_minutes < 120 else f"{round(age_minutes / 60, 1)} h"
+            cached_verdict = cached["risk_assessment"]
+            update["risk_assessment"] = {**cached_verdict, "status": f"{cached_verdict.get('status', 'SAFE')}_CACHED"}
+            update["confidence_tier"] = "LOW_DATA"
+            update["disclosures"] = [
+                f"Live data unavailable right now. This is ORCA's last computed verdict for this "
+                f"location, from {age_text} ago — not a fresh read of current conditions."
+            ]
+            return update
     if status in ("CAUTION_STALE_DATA", "CAUTION_MISSING_DATA"):
         update["disclosures"] = [result.outputs.get("reason", status)]
     # P2.4 — the reconciliation rows travel on their own state field rather
@@ -672,7 +752,52 @@ def risk_assessment_node(state: ORCAState) -> dict:
     said = reconcile.statements(reconciliation)
     if said:
         update["disclosures"] = [*update.get("disclosures", []), *said]
+    # P5.8 — safe is not the same claim as worthwhile. A GO with the sector
+    # cloud-suppressed and the nearest PFZ far away is technically correct
+    # and practically useless; say so instead of leaving a fisherman to read
+    # a bare "GO" as "there's fish nearby today". Only on a real GO — a
+    # CAUTION/NO_GO already carries its own reason and doesn't need this one
+    # competing for attention above it.
+    if (result.outputs or {}).get("go_no_go") == "GO":
+        worthwhile_note = _worthwhileness_disclosure(state.get("ocean_data") or {})
+        if worthwhile_note:
+            update["disclosures"] = [*update.get("disclosures", []), worthwhile_note]
+    # P6.11 — this query's weather data was real, so its verdict is worth
+    # keeping as the next outage's fallback. Never stores a verdict that was
+    # itself a P6.11 fallback (that branch already returned above) or one
+    # computed on missing data (status check below), so a fallback can never
+    # become the source for the next fallback.
+    if weather_data and status not in ("CAUTION_MISSING_DATA", "CAUTION_STALE_DATA"):
+        location = state.get("user_location") or {}
+        lat, lon = location.get("lat"), location.get("lon")
+        if lat is not None and lon is not None:
+            query_cache.store_last_known_verdict(float(lat), float(lon), state.get("vessel_class"), update["risk_assessment"])
     return update
+
+
+# P5.8 — a fixed, disclosed cut for "reachable today", not a per-vessel reach
+# calculation (that is the `/zones` cruise-speed filter, a frontend-only
+# feature with no cruise speed threaded into this backend state yet). Named
+# in the disclosure text itself rather than hidden in a silent comparison.
+_PFZ_DAY_TRIP_KM = 50.0
+
+
+def _worthwhileness_disclosure(ocean: dict[str, Any]) -> str | None:
+    sector = ocean.get("sector_status") or {}
+    if not sector.get("is_data_gap"):
+        return None  # a real advisory (or a genuinely empty one) needs no caveat
+    reason = "cloud cover" if sector.get("status") == "NO_DATA_CLOUD_COVER" else "no advisory on record for your sector today"
+    near = ocean.get("nearest_pfz") or {}
+    if not near.get("found"):
+        return f"Safe to sail. But there is no fishing advisory for your sector today ({reason}), and none was found nearby either."
+    distance = near.get("distance_km")
+    if isinstance(distance, (int, float)) and distance > _PFZ_DAY_TRIP_KM:
+        compass = f" ({near['compass']})" if near.get("compass") else ""
+        return (
+            f"Safe to sail. But no fishing advisory for your sector today ({reason}), and the "
+            f"nearest is {distance:.0f} km away{compass} — not a realistic day trip."
+        )
+    return None
 
 
 # P2.12 (orca_final §4.1, §24) — the constraints that make the rest of a

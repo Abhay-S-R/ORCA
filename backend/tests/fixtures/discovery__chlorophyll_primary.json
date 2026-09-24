@@ -19,15 +19,17 @@
       "mosdac_open_chl",
       "nasa_ocean_color",
       "copernicus_cmems",
+      "noaa_coastwatch",
       "mosdac_nrt_chl"
     ],
     "dataset": "MOSDAC Open Data \u2014 EOS-06 OCM-3 Chlorophyll-a",
     "fallback_chain": [
       "mosdac_open_chl",
       "nasa_ocean_color",
-      "copernicus_cmems"
+      "copernicus_cmems",
+      "noaa_coastwatch"
     ],
-    "reason": "MOSDAC Open Data \u2014 EOS-06 OCM-3 Chlorophyll-a chosen over NASA Ocean Color \u2014 MODIS-Aqua / VIIRS NRT for 'chlorophyll': ~24 h old vs ~12 h old, Tier gap \u2014 higher authority tier.",
+    "reason": "MOSDAC Open Data \u2014 EOS-06 OCM-3 Chlorophyll-a chosen over NOAA CoastWatch ERDDAP \u2014 MUR SST / VIIRS-MODIS chlorophyll for 'chlorophyll': ~24 h old vs ~24 h old, same Tier 1 authority \u2014 freshness decided it.",
     "source_id": "mosdac_open_chl"
   },
   "query_id": "fixture-chlorophyll-primary",

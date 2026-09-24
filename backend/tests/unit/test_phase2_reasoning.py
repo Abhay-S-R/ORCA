@@ -681,6 +681,50 @@ def test_the_verdict_dict_never_carries_the_reconciliation_rows() -> None:
     assert ra  # imported for the patch target's module only
 
 
+def test_all_sources_down_falls_back_to_the_last_known_verdict_with_its_age() -> None:
+    """P6.11 (orca_final §4.6) — when `weather_data` is entirely empty (every
+    source in the cascade failed, not just one field) and risk_assessment's
+    own honest answer is CAUTION_MISSING_DATA, a real prior verdict for the
+    same spot is a more useful answer than "insufficient data" — forced to
+    LOW-DATA, with its age stated, never presented as a fresh read."""
+    from orca import query_cache
+
+    lat, lon = 8.80, 78.30  # matches _state()'s own user_location
+    key = query_cache.last_known_key(lat, lon, None)
+    query_cache.store_last_known_verdict(lat, lon, None, {"status": "SAFE", "go_no_go": "GO", "reason": "clear"})
+    try:
+        fake = MagicMock(outputs={"status": "CAUTION_MISSING_DATA", "reason": "no live source reachable"})
+        fake.confidence = MagicMock(score="LOW_DATA")
+        with patch.object(g, "run_traced_node", return_value=(fake, {"agent_name": "risk_assessment"})):
+            update = g.risk_assessment_node(_state(weather_data={}))  # type: ignore[arg-type]
+        assert update["confidence_tier"] == "LOW_DATA"
+        assert update["risk_assessment"]["status"] == "SAFE_CACHED"
+        assert update["risk_assessment"]["go_no_go"] == "GO"
+        assert "last computed verdict" in update["disclosures"][0]
+        assert "ago" in update["disclosures"][0]
+    finally:
+        query_cache.redis_client().delete(key)
+
+
+def test_a_missing_data_verdict_with_no_prior_cached_answer_stays_honest() -> None:
+    """The mirror case — nothing to fall back to — must not silently invent
+    one; the ordinary CAUTION_MISSING_DATA disclosure still fires."""
+    from orca.cache import redis_client
+    from orca import query_cache
+
+    lat, lon = -1.23, -4.56  # a spot nothing in this suite has ever cached
+    redis_client().delete(query_cache.last_known_key(lat, lon, None))
+
+    fake = MagicMock(outputs={"status": "CAUTION_MISSING_DATA", "reason": "no live source reachable"})
+    fake.confidence = MagicMock(score="LOW_DATA")
+    with patch.object(g, "run_traced_node", return_value=(fake, {"agent_name": "risk_assessment"})):
+        update = g.risk_assessment_node(
+            _state(weather_data={}, user_location={"lat": lat, "lon": lon, "place_name": "x", "place_source": "explicit"})
+        )  # type: ignore[arg-type]
+    assert update["risk_assessment"]["status"] == "CAUTION_MISSING_DATA"
+    assert update["disclosures"] == ["no live source reachable"]
+
+
 def test_reporting_skips_a_second_critic_pass_once_the_reinvocation_budget_is_spent() -> None:
     """After critic -> specialist -> reporting, the router used to send the query back to the
     Critic, whose second pass was then immediately routed to egress by the budget check: a

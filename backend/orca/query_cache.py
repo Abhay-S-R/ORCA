@@ -65,3 +65,50 @@ def store(key: str, response: dict[str, Any]) -> None:
         client.setex(key, TTL_SECONDS, json.dumps(response, default=str))
     except Exception as exc:
         logger.warning("query_cache: failed to store %s (%s)", key, exc)
+
+
+# P6.11 (orca_final §4.6) — "when every weather source fails, return the
+# last computed verdict for that place, with its age, forced to LOW-DATA,
+# rather than a verdict built on nothing." A separate, long-lived key from
+# `resolved_key`'s 30-minute near-duplicate cache above: that TTL is fixed to
+# the tightest safety-relevant cadence (lightning, ~30 min) on purpose, so it
+# is gone long before it would be useful as a last resort. 7 days is a
+# judgement call, not a spec number: long enough that a multi-hour outage
+# (the case this exists for) still has something to fall back to, short
+# enough that "last known good" cannot silently mean "from last month."
+LAST_KNOWN_TTL_SECONDS = 7 * 24 * 3600
+
+
+def last_known_key(lat: float, lon: float, vessel_class: str | None) -> str:
+    """Location-only key (no query text, no persona/depth) — unlike
+    `resolved_key`, this is not about deduplicating one phrasing of one
+    question; it is "the last real verdict ORCA computed anywhere near here,"
+    which two different questions at the same spot should both be able to
+    fall back to. Same 3-decimal (~111 m) rounding as `resolved_key`."""
+    raw = json.dumps({"lat": round(lat, 3), "lon": round(lon, 3), "vessel_class": vessel_class or ""}, sort_keys=True)
+    return f"orca:last_known_verdict:{hashlib.sha256(raw.encode()).hexdigest()[:20]}"
+
+
+def store_last_known_verdict(lat: float, lon: float, vessel_class: str | None, risk_assessment: dict[str, Any]) -> None:
+    """Called after every query whose weather data was real (never after an
+    outage response itself — that would let a degraded answer become the
+    fallback for the next one). `computed_at` is stamped here, once, rather
+    than derived from Redis TTL math at read time."""
+    import datetime as _dt
+
+    try:
+        client = redis_client()
+        payload = {"risk_assessment": risk_assessment, "computed_at": _dt.datetime.now(_dt.timezone.utc).isoformat()}
+        client.setex(last_known_key(lat, lon, vessel_class), LAST_KNOWN_TTL_SECONDS, json.dumps(payload, default=str))
+    except Exception as exc:
+        logger.warning("query_cache: failed to store last-known verdict (%s)", exc)
+
+
+def get_last_known_verdict(lat: float, lon: float, vessel_class: str | None) -> dict[str, Any] | None:
+    try:
+        client = redis_client()
+        cached = client.get(last_known_key(lat, lon, vessel_class))
+    except Exception as exc:
+        logger.warning("query_cache: last-known verdict lookup failed (%s)", exc)
+        return None
+    return json.loads(cached) if cached is not None else None  # type: ignore[no-any-return]

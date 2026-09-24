@@ -29,6 +29,7 @@ LOW_DATA and names the gap.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -347,6 +348,47 @@ def predict_tides(
     )
 
 
+def predicted_height_at(lat: float, lon: float, when: datetime) -> dict[str, Any] | None:
+    """Astronomical tide height at an arbitrary instant, cosine-interpolated
+    between the SoI table's bracketing high/low events.
+
+    P5.3 (`R-NEW-7`): the gauge reading and the astronomical prediction for
+    the same station and hour are both already on disk and were never
+    compared. `predict_tides` only names the *next* extreme, not a
+    continuous curve, so it cannot answer "what height was predicted at
+    14:07" — this does, with the standard half-cosine approximation between
+    two known extremes (no harmonic constituents on disk yet; that is
+    P5.14's pyTMD/FES2022 scope).
+
+    None when `when` falls outside the bracket the table actually covers —
+    no estimate is produced past the table's real edges, since that is
+    exactly the fabricated-value failure this cross-check exists to avoid.
+    """
+    station = nearest_station(lat, lon)
+    code = station["station_code"]
+    events = sorted(
+        (e for e in al.load_soi_tide_events() if e["station_code"] == code),
+        key=lambda e: e["when"],
+    )
+    before = [e for e in events if e["when"] <= when]
+    after = [e for e in events if e["when"] > when]
+    if not before or not after:
+        return None
+    e1, e2 = before[-1], after[0]
+    span_s = (e2["when"] - e1["when"]).total_seconds()
+    if span_s <= 0:
+        return None
+    frac = (when - e1["when"]).total_seconds() / span_s
+    height = e1["height_m"] + (e2["height_m"] - e1["height_m"]) * (1 - math.cos(math.pi * frac)) / 2
+    return {
+        "station_code": code,
+        "station_name": station["station_name"],
+        "predicted_height_m": round(height, 3),
+        "datum": "chart datum (LAT)",
+        "method": "half-cosine interpolation between SoI 2026 bracketing extremes",
+    }
+
+
 # --- part 1: SST / chlorophyll correlation + anomaly ----------------------
 
 def detect_anomaly(value: float, baseline_mean: float, baseline_std: float) -> dict[str, Any]:
@@ -381,17 +423,24 @@ def _freshest(*grids: dict[str, Any] | None) -> dict[str, Any] | None:
 
 def _sst_grid(bbox: dict[str, float] | None) -> dict[str, Any] | None:
     """SST source cascade: ISRO INSAT-3D (national mission data, the answer
-    this product should give) against CMEMS, freshest wins, and D3's
-    normalized fixture only when neither archive reads."""
-    return (_freshest(sl.load_insat_sst(bbox), sl.load_cmems_sst(bbox))
-            or al.load_ocean_grid_fixture("sst"))
+    this product should give) against CMEMS, freshest wins; NOAA CoastWatch
+    (P5.2, live) only when neither archive on disk reads at all — a live
+    fetch is the last rung, not a competitor to freshness-ranked local
+    files — and D3's normalized fixture when nothing else reads either."""
+    local = _freshest(sl.load_insat_sst(bbox), sl.load_cmems_sst(bbox))
+    if local is not None:
+        return local
+    return sl.load_coastwatch_sst(bbox) or al.load_ocean_grid_fixture("sst")
 
 
 def _chl_grid(bbox: dict[str, float] | None) -> dict[str, Any] | None:
     """Chlorophyll cascade, same rule: EOS-06 OCM-3 first by authority, CMEMS
-    gap-free NRT when it is the fresher of the two."""
-    return (_freshest(sl.load_eos06_chl(bbox), sl.load_cmems_chl(bbox))
-            or al.load_ocean_grid_fixture("chl"))
+    gap-free NRT when it is the fresher of the two, NOAA CoastWatch (P5.2,
+    live) only when neither local archive reads."""
+    local = _freshest(sl.load_eos06_chl(bbox), sl.load_cmems_chl(bbox))
+    if local is not None:
+        return local
+    return sl.load_coastwatch_chl(bbox) or al.load_ocean_grid_fixture("chl")
 
 
 def correlate_sst_chlorophyll(bbox: dict[str, float] | None = None) -> dict[str, Any]:
@@ -915,10 +964,10 @@ def _live_gauge_observation(lat: float, lon: float) -> dict[str, Any] | None:
     one from a pressure reading.
     """
     in_range = [
-        (code, name, _km_between(lat, lon, glat, glon))
+        (code, name, glat, glon, _km_between(lat, lon, glat, glon))
         for code, name, glat, glon in IOC_GAUGES
     ]
-    code, name, km = min(in_range, key=lambda g: g[2])
+    code, name, glat, glon, km = min(in_range, key=lambda g: g[4])
     if km > _TIDE_GAUGE_MAX_KM:
         return None  # caller decides between the cached roster and altimetry
 
@@ -927,6 +976,34 @@ def _live_gauge_observation(lat: float, lon: float) -> dict[str, Any] | None:
         return None
     level_m, observed_at = reading
     age_min = (datetime.now(timezone.utc) - observed_at).total_seconds() / 60.0
+
+    # P5.3 (`R-NEW-7`) — the observed-versus-predicted cross-check. Both
+    # numbers were already on disk and never compared. `predicted_height_at`
+    # is keyed to the GAUGE's own position (glat/glon), not the caller's —
+    # the prediction has to be for the same station the reading came from.
+    predicted = predicted_height_at(glat, glon, observed_at)
+    predicted_m = predicted["predicted_height_m"] if predicted else None
+    anomaly_m = round(level_m - predicted_m, 3) if predicted_m is not None else None
+    unavailable = ["water_temp_c", "tsunami_trigger_state"]
+    if predicted_m is None:
+        unavailable = ["predicted_astronomical_m", "sea_level_anomaly_m", *unavailable]
+
+    # A divergence beyond this floors confidence one tier — same rule P2.4
+    # applies to the wave/wind reconciliation, second variable (P5.3). Not a
+    # measured constant: a disclosed cut wide enough to clear the datum-offset
+    # caveat above and still catch a genuine storm-surge-magnitude anomaly.
+    _ANOMALY_TOLERANCE_M = 0.3
+    diverged = anomaly_m is not None and abs(anomaly_m) > _ANOMALY_TOLERANCE_M
+    confidence = (
+        Confidence(
+            score="MEDIUM",
+            rationale=(f"observed-vs-predicted residual at {name} is {anomaly_m:+.2f} m, "
+                       f"beyond the {_ANOMALY_TOLERANCE_M:.1f} m tolerance — reduced one tier"),
+        )
+        if diverged else
+        Confidence(score="HIGH", rationale=f"live gauge reading at {name}, {km:.0f} km away, {age_min:.0f} min old")
+    )
+
     return {
         "available": True,
         "source_kind": "in_situ_gauge",
@@ -934,22 +1011,28 @@ def _live_gauge_observation(lat: float, lon: float) -> dict[str, Any] | None:
         "station_name": name,
         "distance_km": round(km, 1),
         "observed_level_m": round(level_m, 4),
-        "predicted_astronomical_m": None,
-        "sea_level_anomaly_m": None,
+        "predicted_astronomical_m": predicted_m,
+        "sea_level_anomaly_m": anomaly_m,
+        # IOC publishes sea level against the gauge's own local station zero,
+        # not necessarily the SoI table's chart datum (LAT) — so this residual
+        # can carry a fixed per-station offset alongside any real surge. A
+        # sustained, growing anomaly is the storm-surge-setup signal the plan
+        # calls out; a single reading's exact value should not be over-read.
+        "anomaly_datum_caveat": (
+            None if predicted_m is None else
+            "residual is against SoI chart datum (LAT); the gauge's own reference "
+            "may carry a fixed offset from that datum — read a sustained trend, "
+            "not one instant"
+        ),
         "water_temp_c": None,
         "sensor_type": "pressure (prs)",
         "status": "OPERATIONAL",
         "tsunami_trigger_state": None,
-        "fields_unavailable": ["predicted_astronomical_m", "sea_level_anomaly_m",
-                               "water_temp_c", "tsunami_trigger_state"],
+        "fields_unavailable": unavailable,
         "observed_at_utc": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "observation_age_minutes": round(age_min, 1),
         "dataset": "IOC/UNESCO Sea Level Monitoring — Indian gauge network (live)",
-        "confidence": Confidence(
-            score="HIGH",
-            rationale=(f"live gauge reading at {name}, {km:.0f} km away, "
-                       f"{age_min:.0f} min old"),
-        ),
+        "confidence": confidence,
     }
 
 
@@ -1065,6 +1148,70 @@ def wind_anomaly(lat: float, lon: float) -> dict[str, Any]:
         "confidence": Confidence(
             score="MEDIUM",
             rationale=f"{stats['n_days']}-day ERA5 reference period at {port} — a monthly baseline, not a seasonal climatology",
+        ),
+    }
+
+
+# P5.25 (`R-EDGE-2`, orca_final §9.2/§18.1) — "was last week rougher?" needs
+# an actual value on a specific past date, not the mean/std `wind_anomaly`
+# already reads. `wind_speed_10m_max` is the only per-day variable the
+# cached ERA5 extract carries (no stored daily wave-height history exists on
+# disk — WW3 point extracts are forecast-only, never archived) — the answer
+# says which variable it is rather than implying it covers wave height too.
+_HISTORICAL_DAYS_BACK = {"last month": 30, "a month ago": 30, "last week": 7, "a week ago": 7}
+_DEFAULT_HISTORICAL_DAYS_BACK = 7
+
+
+def historical_comparison(lat: float, lon: float, query: str) -> dict[str, Any]:
+    """Compare a referenced past date's ERA5 wind peak against today's
+    forecast peak, at the nearest port with a cached archive. Outside the
+    archive's actual span, an honest refusal naming that span — never a
+    guessed value for a date ORCA does not hold."""
+    from datetime import timedelta
+
+    from orca.data.loaders import CACHED_WEATHER_PORTS, cached_weather_path, load_json
+
+    coords = {p: c for p in CACHED_WEATHER_PORTS if (c := _port_latlon(p)) is not None}
+    if not coords:
+        return {"available": False, "statement": "No cached weather archive on disk to compare against."}
+    port = min(coords, key=lambda p: _km_between(lat, lon, *coords[p]))
+
+    baseline = al.load_era5_baseline(port)
+    daily = al.load_era5_daily_series(port)
+    if baseline is None or daily is None:
+        return {"available": False, "statement": f"No ERA5 archive is cached for {port} — nothing to compare against."}
+
+    query_lower = query.lower()
+    days_back = next((n for phrase, n in _HISTORICAL_DAYS_BACK.items() if phrase in query_lower), _DEFAULT_HISTORICAL_DAYS_BACK)
+    target_date = (_now() - timedelta(days=days_back)).date().isoformat()
+
+    dates = daily.get("time") or []
+    if target_date not in dates:
+        return {
+            "available": False,
+            "statement": f"The ERA5 archive for {port} covers {baseline['period_start']}..{baseline['period_end']} "
+                         f"only — {target_date} is outside that window.",
+        }
+    past_value = (daily.get("wind_speed_10m_max") or [None] * len(dates))[dates.index(target_date)]
+    speeds = [v for v in (load_json(cached_weather_path(port)).get("hourly", {}).get("wind_speed_10m") or []) if v is not None]
+    today_value = max(float(v) for v in speeds) if speeds else None
+    if past_value is None or today_value is None:
+        return {"available": False, "statement": f"Wind data for {port} on one of the two dates is missing."}
+
+    comparison = "rougher" if past_value > today_value else ("calmer" if past_value < today_value else "about the same")
+    return {
+        "available": True,
+        "port": port,
+        "variable": "wind_speed_10m_max",
+        "target_date": target_date,
+        "past_value": round(float(past_value), 1),
+        "today_value": round(today_value, 1),
+        "comparison": comparison,
+        "dataset": baseline["dataset"],
+        "statement": (
+            f"{target_date} at {port} (ERA5 archive): peak wind {float(past_value):.1f} km/h. "
+            f"Today's forecast peak: {today_value:.1f} km/h. {target_date} was {comparison} — wind only, "
+            "no stored daily wave-height history exists to compare."
         ),
     }
 
@@ -1193,11 +1340,20 @@ def _state_landings_record(place: str, district_years: int) -> dict[str, Any]:
         None,
     )
     if match is None:
+        # P5.10 (R-INDIA-5, catch half) — name what IS on record, not just what
+        # isn't: "why has Kakinada declined" must read as "I have landings
+        # data for these four districts; Kakinada is not among them", never
+        # a trend quietly reasoned from the national/state aggregate as if it
+        # were local to a place that has none.
+        covered = sorted({r["District_Sector"] for r in al.load_fish_landings()})
         return {
             "district": place,
             "verdict": "insufficient data",
-            "detail": f"only {district_years} year(s) of landings on record for '{place}', "
-                      "and no CMFRI state estimate covers it either",
+            "detail": (
+                f"I have landings data for these {len(covered)} districts: {', '.join(covered)}. "
+                f"'{place}' is not among them (only {district_years} year(s) on record for it), "
+                "and no CMFRI state estimate covers it either."
+            ),
             "factors": [],
             "confidence": Confidence(score="LOW_DATA", rationale="fewer than 3 years of catch data"),
         }
@@ -1367,6 +1523,12 @@ def run(state: ORCAState) -> AgentResult:
     (plan §3.4). Always returns tide + nearest-PFZ + sector status; adds the
     productivity diagnosis when the query is a 'why has catch declined' one
     or reasoning_depth is DEEP."""
+    from orca import demo_fixtures
+
+    pinned = demo_fixtures.fixture_result(state, "ocean_analytics")
+    if pinned is not None:
+        return pinned
+
     loc = state.get("user_location") or {}
     lat = loc.get("lat", _DEFAULT_LAT)
     lon = loc.get("lon", _DEFAULT_LON)
@@ -1490,6 +1652,14 @@ def run(state: ORCAState) -> AgentResult:
     # exactly that for 2-4 days, since scoring itself starts at 5.)
     if persistence["label"] != "INDICATIVE":
         contributing.append(persistence["confidence"])
+
+    # P5.3 — a real gauge reading diverging from its own station's prediction
+    # by more than the disclosed tolerance floors confidence here too, the
+    # same rule P2.4 applies to the wave/wind reconciliation (second
+    # variable). Altimetry's own confidence already reflects a coarser
+    # measurement and is left alone; only a genuine in-situ divergence counts.
+    if gauge.get("source_kind") == "in_situ_gauge" and gauge.get("confidence") is not None:
+        contributing.append(gauge["confidence"])
 
     # Gridded SST/chlorophyll correlation is a specialized oceanographic layer (D3 seam).
     # If the user specifically asks about ocean temperature/colour, or if gridded data is available,

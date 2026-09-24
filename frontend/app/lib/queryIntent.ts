@@ -3,17 +3,19 @@
 // waiting on a backend field that doesn't exist — Agent 9 returns facts, not
 // a map-focus hint. Keyword matching only: good enough to pick an emphasis,
 // not a routing decision anything depends on for correctness.
-export type QueryIntent = "fishing" | "boundary" | "safety" | "current" | "wave" | "general";
+export type QueryIntent = "fishing" | "boundary" | "safety" | "current" | "wave" | "wind" | "general";
 
 const FISHING = /\bfish(ing)?\b|\bpfz\b|\btrawl|\bcatch\b|landing centre|landing center|\bsst\b|sea surface temp|\btemperature\b|thermal front|chlorophyll/i;
 const BOUNDARY = /\bboundary\b|\bimbl\b|\bborder\b|\beez\b|international maritime/i;
-const CURRENT = /\bcurrents?\b|\bdrift\b|\bset and drift\b/i;
+const WIND = /\bwind\b|\bgust(s)?\b|\bbeaufort\b|\bknots?\b|\bbreeze\b|\bwind speed\b|\bwind direction\b/i;
+const CURRENT = /\bcurrents?\b|\bdrift\b|\bset and drift\b|\bsurface current/i;
 const WAVE = /\bwaves?\b|\bswell\b|\bwave height\b/i;
 const SAFETY = /\bsafe\b|\bsafety\b|go out|\bcaution\b|\bstorm\b|\bcyclone\b/i;
 
 export function classifyQueryIntent(query: string): QueryIntent {
   if (FISHING.test(query)) return "fishing";
   if (BOUNDARY.test(query)) return "boundary";
+  if (WIND.test(query)) return "wind";
   if (CURRENT.test(query)) return "current";
   if (WAVE.test(query)) return "wave";
   if (SAFETY.test(query)) return "safety";
@@ -29,6 +31,7 @@ export const INTENT_LABEL_KEY: Record<QueryIntent, string> = {
   safety: "intentLabel.safety",
   current: "intentLabel.current",
   wave: "intentLabel.wave",
+  wind: "intentLabel.wind",
   general: "intentLabel.general",
 };
 

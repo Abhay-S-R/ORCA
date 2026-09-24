@@ -191,6 +191,85 @@ def render_ussd(payload: dict[str, Any]) -> RenderedMessage:
     return RenderedMessage(channel="ussd", body=body, truncated=truncated, encodable=is_gsm7_encodable(body))
 
 
+# --------------------------------------------------------------------------
+# P6.10 — the remaining renderers. Every one below is rendered + simulated
+# only (channels/dispatcher.py's WhatsAppDispatcher/etc. raise, same as the
+# existing SMSDispatcher/IVRDispatcher): nothing here transmits, and nothing
+# anywhere renders a simulated send as delivered.
+# --------------------------------------------------------------------------
+
+_MAP_CARD_BASE_URL = "https://orca.local/map"  # ponytail: a placeholder origin; swap for the real deployed frontend URL once one exists
+
+
+def render_whatsapp(payload: dict[str, Any]) -> RenderedMessage:
+    """Text body (no GSM-7/160-char limit — WhatsApp is UTF-8, effectively
+    unlimited for a safety message this short) plus a map-card reference: a
+    plain URL pointing at the query's own position, since a WhatsApp
+    Business template message renders a URL as a tappable rich-preview card
+    without this codebase needing to generate the preview image itself."""
+    verdict, hazard = _verdict_and_hazard(payload)
+    ts = _timestamp(payload)
+    location = payload.get("user_location") or {}
+    lat, lon = location.get("lat"), location.get("lon")
+    card_url = f"{_MAP_CARD_BASE_URL}?lat={lat}&lon={lon}" if lat is not None and lon is not None else _MAP_CARD_BASE_URL
+    body = f"*ORCA {verdict}*\n{hazard}.\nIssued {ts}.\nView on the chart: {card_url}"
+    return RenderedMessage(channel="whatsapp", body=body, truncated=False, encodable=True)
+
+
+def render_missed_call_callback(payload: dict[str, Any], *, home_port_name: str | None = None, cache_age_minutes: int | None = None) -> RenderedMessage:
+    """The IVR script played back when a fisherman gives a missed call to
+    ORCA's number and it calls back (orca_final §12.4) — served from
+    whatever advisory is already cached for the caller's registered home
+    port, never a live fetch triggered by the call itself (a callback has
+    to start speaking in well under the time a fresh multi-source cascade
+    takes). The age is spoken FIRST, before the verdict, so "this is old"
+    is heard before "this is safe" ever could be mistaken for current."""
+    verdict, hazard = _verdict_and_hazard(payload)
+    place = home_port_name or "your home port"
+    age_clause = (
+        f"This advisory is {_spell_numerals(str(cache_age_minutes))} minutes old. "
+        if cache_age_minutes is not None else "This is the most recently cached advisory. "
+    )
+    verdict_spoken = " ".join(verdict.split("_"))
+    sentence = f"{age_clause}ORCA advisory for {place}. Verdict: {verdict_spoken}. Hazard: {_spell_numerals(hazard)}."
+    script = f"{sentence} To hear this again, stay on the line. Otherwise, goodbye."
+    return RenderedMessage(channel="missed_call", body=script, truncated=False, encodable=True)
+
+
+def render_vhf(payload: dict[str, Any]) -> RenderedMessage:
+    """A VHF Channel 16 safety-broadcast script, in the fixed protocol form
+    every mariner is trained to recognise (ITU-R M.1171 "Securite" opening,
+    said three times, sender identified, message, close) — not a generic
+    TTS sentence, because the opening words are themselves the signal that
+    tells a listening bridge to pay attention."""
+    verdict, hazard = _verdict_and_hazard(payload)
+    location = payload.get("resolved_place_name") or "the reported position"
+    body = (
+        "Securite, securite, securite.\n"
+        "This is ORCA Marine Safety Advisory.\n"
+        f"{verdict}. {hazard}, near {location}.\n"
+        "Mariners in the area are advised to proceed with caution and monitor this channel.\n"
+        "Out."
+    )
+    return RenderedMessage(channel="vhf", body=body, truncated=False, encodable=True)
+
+
+_BOARD_MAX_CHARS = 120  # ponytail: a guessed physical-board budget (no real hardware spec on hand) — narrow it once a real harbour display's character grid is known
+
+
+def render_harbour_board(payload: dict[str, Any]) -> RenderedMessage:
+    """A harbour LED/split-flap display board: a handful of short,
+    high-contrast-readable lines, GSM-7 only (the character sets these
+    boards actually carry are a subset even of GSM-7 in practice, but GSM-7
+    is the same conservative floor `render_sms` already enforces, not a new
+    one invented for this channel)."""
+    verdict, hazard = _verdict_and_hazard(payload)
+    body = f"ORCA {verdict}\n{hazard}"
+    truncated = len(body) > _BOARD_MAX_CHARS
+    body = body[:_BOARD_MAX_CHARS]
+    return RenderedMessage(channel="harbour_board", body=body, truncated=truncated, encodable=is_gsm7_encodable(body))
+
+
 if __name__ == "__main__":
     sample = {
         "risk_assessment": {"go_no_go": "CAUTION", "reason": "wave height elevated"},
@@ -218,5 +297,18 @@ if __name__ == "__main__":
 
     assert is_gsm7_encodable("Hello 123") is True
     assert is_gsm7_encodable("வணக்கம்") is False  # Tamil — correctly not GSM-7
+
+    whatsapp = render_whatsapp({**sample, "user_location": {"lat": 8.8, "lon": 78.1}})
+    assert "78.1" in whatsapp.body and "CAUTION" in whatsapp.body
+
+    callback = render_missed_call_callback(sample, home_port_name="Thoothukudi", cache_age_minutes=12)
+    assert callback.body.startswith("This advisory is one  two")  # age spoken first, digits spelled out
+    assert "Thoothukudi" in callback.body
+
+    vhf = render_vhf(sample)
+    assert vhf.body.lower().count("securite") == 3 and vhf.body.strip().endswith("Out.")
+
+    board = render_harbour_board(sample)
+    assert len(board.body) <= _BOARD_MAX_CHARS and board.encodable
 
     print("channel renderers self-check ok")

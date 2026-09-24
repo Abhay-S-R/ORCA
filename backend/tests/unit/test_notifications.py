@@ -11,6 +11,7 @@ broadcast with status 'degraded' for a SIMULATED channel.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import text
@@ -33,8 +34,8 @@ from orca.db.notifications_repo import (
     mark_notification_read,
     unread_count,
 )
-from orca.db.repositories import create_user
-from orca.sentinel_runtime import run_poll_cycle
+from orca.db.repositories import create_user, set_home_port, set_typical_departure_hour
+from orca.sentinel_runtime import _due_pre_dawn_briefings, run_poll_cycle
 
 
 def _clear_stale_sentinel_lock(session: Session) -> None:
@@ -184,6 +185,43 @@ def test_unchanged_calm_conditions_produce_zero_notifications(db: Session, monke
     monkeypatch.setattr(sentinel, "cheap_check", lambda *a, **k: _calm())
     run_poll_cycle(db)
     run_poll_cycle(db)
+    assert list_notifications_for_user(db, u) == []
+
+
+# --- R-NEW-16 pre-dawn departure briefing -----------------------------------
+
+def test_pre_dawn_briefing_fires_once_at_local_lead_time_then_stays_silent(db: Session, monkeypatch):
+    from orca.db.models import User
+
+    u = _user(db)
+    user = db.get(User, u)
+    set_home_port(db, user, 8.8, 78.14, "Thoothukudi")
+    set_typical_departure_hour(db, user, 6)  # briefing due 2h before -> 04:00 IST
+    db.commit()
+
+    monkeypatch.setattr(sentinel, "cheap_check", lambda *a, **k: _calm(go_no_go="CAUTION", wave_height_m=2.2, reason="building swell"))
+
+    # 2026-09-23T00:00:00Z == 05:30 IST -- past the 04:00 IST lead time.
+    now = datetime(2026, 9, 23, 0, 0, tzinfo=timezone.utc)
+    sent = _due_pre_dawn_briefings(db, now=now)
+    db.commit()
+    assert sent == 1
+    notes = list_notifications_for_user(db, u)
+    assert len(notes) == 1
+    assert "Pre-dawn briefing" in notes[0].title
+    assert notes[0].severity == "warning"  # CAUTION -> warning
+
+    # Same local day again -- no second digest (no-spam, same discipline as watches).
+    sent_again = _due_pre_dawn_briefings(db, now=now + timedelta(hours=1))
+    db.commit()
+    assert sent_again == 0
+    assert len(list_notifications_for_user(db, u)) == 1
+
+
+def test_pre_dawn_briefing_skips_users_without_home_port_or_hour(db: Session):
+    u = _user(db)
+    now = datetime(2026, 9, 23, 0, 0, tzinfo=timezone.utc)
+    assert _due_pre_dawn_briefings(db, now=now) == 0
     assert list_notifications_for_user(db, u) == []
 
 

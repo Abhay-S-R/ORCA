@@ -40,6 +40,13 @@ class ORCAState(TypedDict):
     target_time_window: dict[str, str]
     user_location: dict[str, Any] | None
     vessel_class: str | None  # required by Agent 7's vessel-class threshold deltas (§4.6)
+    # P6.6 — set only by `/demo`. Present -> marine_data_discovery,
+    # weather_intelligence, ocean_analytics and geospatial each return a
+    # pinned prior real reading (orca/demo_fixtures.py) instead of fetching
+    # live, so a scenario's verdict survives whatever the weather is doing on
+    # demo day. None on every ordinary query — every one of those four checks
+    # it first and falls through to its normal live path when it is absent.
+    demo_scenario: str | None
 
     discovery_data: dict[str, Any]
     weather_data: dict[str, Any]

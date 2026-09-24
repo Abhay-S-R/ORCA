@@ -6,10 +6,10 @@ Phase 3's (Agent 11) to map when they're first read from Python.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from geoalchemy2 import Geometry
-from sqlalchemy import DateTime, ForeignKey, Numeric, SmallInteger, Text, text
+from sqlalchemy import Date, DateTime, ForeignKey, Numeric, SmallInteger, Text, text
 from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -64,6 +64,11 @@ class User(Base):
     # {"start": "22:00", "end": "06:00", "tz": "Asia/Kolkata"} or NULL (no
     # quiet hours set) — P5.22 reads this to hold a non-critical alert.
     quiet_hours: Mapped[dict | None] = mapped_column(JSONB)
+    # 009_pre_dawn_briefing.sql (R-NEW-16) — local 24h hour this user typically
+    # departs, or NULL (feature off). `last_pre_dawn_briefing_date` is the
+    # local calendar date Sentinel last sent the digest, so it fires once a day.
+    typical_departure_hour: Mapped[int | None] = mapped_column(SmallInteger)
+    last_pre_dawn_briefing_date: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
@@ -89,6 +94,27 @@ class Vessel(Base):
     # SENSITIVE — last known position (plan §5.5).
     last_position: Mapped[str | None] = mapped_column(Geometry("POINT", srid=4326))
     last_position_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+
+
+class Voyage(Base):
+    """008_phase5_watches_voyages.sql (P5.20) — a saved passage plan. The
+    route watch it may be promoted to (P5.17) is a `sentinel_subscriptions`
+    row; `watch_id` here is the pointer, never the other way around, so
+    deleting the watch never deletes the plan itself."""
+
+    __tablename__ = "voyages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    vessel_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("vessels.id", ondelete="SET NULL"))
+    name: Mapped[str | None] = mapped_column(Text)
+    # SENSITIVE — same class as watch_point/watch_area (001 comment): a
+    # voyage plan is a place and a time a person goes to sea.
+    route: Mapped[str] = mapped_column(Geometry("LINESTRING", srid=4326), nullable=False)
+    departure_at: Mapped[datetime] = mapped_column(nullable=False)
+    watch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("sentinel_subscriptions.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 

@@ -27,7 +27,9 @@ feedback_kind_enum = ENUM(
     "helpful", "not_accurate", "report_issue", name="feedback_kind", create_type=False,
 )
 notification_status_enum = ENUM(
-    "sent", "simulated", "failed", name="notification_status", create_type=False,
+    # "held" added 008_phase5_watches_voyages.sql (P5.22) — a non-critical
+    # alert waiting out the recipient's quiet hours.
+    "sent", "simulated", "failed", "held", name="notification_status", create_type=False,
 )
 
 
@@ -50,6 +52,10 @@ class SentinelSubscription(Base):
     escalation: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'"))
     enabled: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
     last_fired_at: Mapped[datetime | None]
+    # 008_phase5_watches_voyages.sql (P5.17) — when this watch is next due.
+    # Set to now() on every poll (base interval), or sooner when the last
+    # reading was close to firing (adaptive cadence).
+    next_poll_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
@@ -68,6 +74,9 @@ class Notification(Base):
     status: Mapped[str] = mapped_column(notification_status_enum, nullable=False, server_default="sent")
     rendered_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'"))
     read_at: Mapped[datetime | None]
+    # 008_phase5_watches_voyages.sql (P5.22) — non-NULL only on a
+    # `status="held"` row: the instant its quiet-hours window ends.
+    deliver_after: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 

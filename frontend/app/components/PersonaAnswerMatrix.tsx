@@ -30,6 +30,7 @@ const INTENT_TITLE: Record<QueryIntent, string> = {
   boundary: "Maritime Boundary Standoff",
   current: "Surface Current Outlook",
   wave: "Wave & Swell Outlook",
+  wind: "Wind Speed & Direction",
   general: "Marine Conditions Summary",
 };
 const INTENT_ICON: Record<QueryIntent, typeof ShieldCheck> = {
@@ -38,6 +39,7 @@ const INTENT_ICON: Record<QueryIntent, typeof ShieldCheck> = {
   boundary: Compass,
   current: Waves,
   wave: Waves,
+  wind: Cloud,
   general: ShieldCheck,
 };
 const VERDICT_ICON: Record<Verdict, typeof CheckCircle2> = {

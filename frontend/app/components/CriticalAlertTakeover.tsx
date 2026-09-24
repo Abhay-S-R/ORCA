@@ -72,13 +72,18 @@ export function CriticalAlertTakeover() {
         </p>
       )}
       {condition.kind === "cyclone" && <p className="text-lg">Return to port immediately. Do not proceed to sea.</p>}
-      {/* Reciprocal heading and time-to-boundary are P5.6 additions to this
-          same component — Sentinel's cheap check has no boundary bearing
-          today, so this never claims one it does not have. */}
-      <p className="max-w-md text-sm text-on-accent/80">
-        A precise heading back to clear water is not yet computed on this build — steer away from your last
-        heading and consult your chart.
-      </p>
+      {/* Reciprocal heading — P6.7's scripted scenario supplies it (its own
+          sentinel.geofence_check() call already has the bearing); the live
+          query path's hazard_breakdown does not carry a boundary bearing
+          yet, so this never invents one when reciprocalHeadingDeg is absent. */}
+      {condition.kind === "boundary" && condition.reciprocalHeadingDeg != null ? (
+        <p className="text-lg font-semibold">Turn to {condition.reciprocalHeadingDeg.toFixed(0)}° to head back to clear water.</p>
+      ) : (
+        <p className="max-w-md text-sm text-on-accent/80">
+          A precise heading back to clear water is not yet computed on this build — steer away from your last
+          heading and consult your chart.
+        </p>
+      )}
       <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
         <Link
           href="tel:1554"

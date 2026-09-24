@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from orca import resilience
+
 logger = logging.getLogger(__name__)
 
 AuthorityTier = Literal["TIER1", "TIER2", "TIER3"]
@@ -87,6 +89,12 @@ SOURCE_REGISTRY: tuple[DataSource, ...] = (
                ("sar_station", "emergency_contact")),
     DataSource("dof_fishing_ban", "Department of Fisheries uniform annual fishing-ban order", "TIER1", 0,
                ("fishing_ban",)),
+    # P5.2 — real gridded values over plain HTTP (no key, no registration),
+    # the failover rung after MOSDAC and CMEMS both fail. GIBS is deliberately
+    # NOT here: it serves rendered map *imagery*, never a value (2026-09-19
+    # stack correction) — a map imagery layer, not a discovery source.
+    DataSource("noaa_coastwatch", "NOAA CoastWatch ERDDAP — MUR SST / VIIRS-MODIS chlorophyll", "TIER1", 1440,
+               ("sst", "chlorophyll")),
     # --- Tier 2: free registration ---
     DataSource("copernicus_cmems", "Copernicus Marine Service (CMEMS) reanalysis", "TIER2", 7200,
                ("sst", "current_speed", "current_direction", "sea_surface_height", "wave_spectrum",
@@ -110,10 +118,10 @@ _TIER_ORDER: dict[AuthorityTier, int] = {"TIER1": 0, "TIER2": 1, "TIER3": 2}
 # this map has no declared fallback (a static reference dataset that does not
 # go down the same way a live API does).
 FALLBACK_CASCADES: dict[str, tuple[str, ...]] = {
-    "mosdac_nrt_sst": ("mosdac_open_sst", "copernicus_cmems"),
-    "mosdac_nrt_chl": ("mosdac_open_chl", "nasa_ocean_color", "copernicus_cmems"),
-    "mosdac_open_sst": ("copernicus_cmems",),
-    "mosdac_open_chl": ("nasa_ocean_color", "copernicus_cmems"),
+    "mosdac_nrt_sst": ("mosdac_open_sst", "copernicus_cmems", "noaa_coastwatch"),
+    "mosdac_nrt_chl": ("mosdac_open_chl", "nasa_ocean_color", "copernicus_cmems", "noaa_coastwatch"),
+    "mosdac_open_sst": ("copernicus_cmems", "noaa_coastwatch"),
+    "mosdac_open_chl": ("nasa_ocean_color", "copernicus_cmems", "noaa_coastwatch"),
     "incois_pfz": ("bhuvan_wms",),  # then the local sector CSV — see load_pfz_advisories
     "open_meteo_marine": ("incois_osf_ww3", "stormglass_tides"),
     "soi_tide_tables": ("stormglass_tides", "incois_tide_gauge"),
@@ -187,10 +195,13 @@ def select_source_with_fallback(
     """Deterministic priority cascade for `data_type`, honouring both the
     tier/freshness ranking and the Architecture §12.1 fallback chains.
 
-    `down` is the set of source ids currently known-unavailable (circuit
-    breaker tripped, live fetch failed). The picker walks: best-ranked
-    source → its declared cascade → next-best source, skipping anything in
-    `down`, and narrates the comparison it actually made.
+    `down` is the set of source ids currently known-unavailable, explicitly
+    passed by the caller. A source whose in-process circuit breaker
+    (P5.27, `orca.resilience`) has tripped from repeated failures is skipped
+    the same way without the caller having to name it — `validate_arrival`
+    feeds that breaker. The picker walks: best-ranked source → its declared
+    cascade → next-best source, skipping anything down or breaker-open, and
+    narrates the comparison it actually made.
 
     Returns None only when nothing in the catalog covers `data_type` at all.
     """
@@ -215,7 +226,7 @@ def select_source_with_fallback(
             if s is not None and s not in try_order and data_type in s.covers:
                 try_order.append(s)
 
-    live = [s for s in try_order if s.id not in down]
+    live = [s for s in try_order if s.id not in down and not resilience.circuit_open(s.id)]
     if not live:
         return None
     chosen = live[0]
@@ -354,6 +365,10 @@ def validate_arrival(source_id: str) -> ArrivalCheck:
 
     A probe that raises is a failed arrival, not a crashed query — the whole
     point is to fall through the cascade rather than take the request down.
+    Every result (pass or fail) feeds the P5.27 circuit breaker, so a source
+    that keeps failing its arrival check stops being re-tried as the primary
+    pick on every query once it has tripped — `select_source_with_fallback`
+    reads the same breaker.
     """
     probe = _ARRIVAL_PROBES.get(source_id)
     if probe is None:
@@ -361,7 +376,11 @@ def validate_arrival(source_id: str) -> ArrivalCheck:
     try:
         ok, detail = probe()
     except Exception as exc:  # an unreadable file IS the failure being detected
-        return ArrivalCheck(source_id, checked=True, ok=False, detail=f"unreadable: {type(exc).__name__}: {exc}")
+        ok, detail = False, f"unreadable: {type(exc).__name__}: {exc}"
+    if ok:
+        resilience.record_success(source_id)
+    else:
+        resilience.record_failure(source_id)
     return ArrivalCheck(source_id, checked=True, ok=ok, detail=detail)
 
 

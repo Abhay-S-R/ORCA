@@ -1,0 +1,1414 @@
+{
+  "marine_data_discovery": {
+    "inputs_consumed": {
+      "data_types": [
+        "wave_height",
+        "wind_speed",
+        "boundary",
+        "lightning",
+        "cyclone",
+        "pfz",
+        "tide",
+        "catch_statistics"
+      ],
+      "matched_intent_rows": [
+        "SAFETY_CHECK"
+      ]
+    },
+    "outputs": {
+      "source_selections": [
+        {
+          "data_type": "wave_height",
+          "chosen": "open_meteo_marine",
+          "chosen_dataset": "Open-Meteo Marine API / ECMWF WAM Blend",
+          "narrative": "Open-Meteo Marine API / ECMWF WAM Blend chosen over INCOIS Ocean State Forecast (WaveWatch III) for 'wave_height': ~60 min old vs ~6 h old, same Tier 1 authority — freshness decided it.",
+          "considered": [
+            "open_meteo_marine",
+            "incois_osf_ww3"
+          ],
+          "fallback_chain": [
+            "open_meteo_marine",
+            "incois_osf_ww3",
+            "stormglass_tides"
+          ],
+          "arrival": {
+            "checked": false,
+            "ok": true,
+            "detail": "live source — validated on fetch, not before it"
+          },
+          "rejected": [],
+          "fell_through": false
+        },
+        {
+          "data_type": "wind_speed",
+          "chosen": "open_meteo_marine",
+          "chosen_dataset": "Open-Meteo Marine API / ECMWF WAM Blend",
+          "narrative": "Open-Meteo Marine API / ECMWF WAM Blend chosen over MOSDAC Registered NRT — Scatterometer ocean winds for 'wind_speed': ~60 min old vs ~3 h old, Tier gap — higher authority tier.",
+          "considered": [
+            "open_meteo_marine",
+            "mosdac_nrt_wind"
+          ],
+          "fallback_chain": [
+            "open_meteo_marine",
+            "incois_osf_ww3",
+            "stormglass_tides"
+          ],
+          "arrival": {
+            "checked": false,
+            "ok": true,
+            "detail": "live source — validated on fetch, not before it"
+          },
+          "rejected": [],
+          "fell_through": false
+        },
+        {
+          "data_type": "boundary",
+          "chosen": "unep_wcmc_wdpa",
+          "chosen_dataset": "UNEP-WCMC WDPA / OSM (marine boundaries)",
+          "narrative": "UNEP-WCMC WDPA / OSM (marine boundaries) chosen over Marine Regions VLIZ EEZ / IMBL dataset for 'boundary': static reference vs static reference, same Tier 1 authority — freshness decided it.",
+          "considered": [
+            "unep_wcmc_wdpa",
+            "marineregions_eez"
+          ],
+          "fallback_chain": [
+            "unep_wcmc_wdpa"
+          ],
+          "arrival": {
+            "checked": true,
+            "ok": true,
+            "detail": "boundary geometry acquired 2026-08-30T14:53:15.288Z"
+          },
+          "rejected": [],
+          "fell_through": false
+        },
+        {
+          "data_type": "lightning",
+          "chosen": "damini_lightning",
+          "chosen_dataset": "IMD Damini Lightning Nowcast",
+          "narrative": "IMD Damini Lightning Nowcast selected: only source in the catalog covering 'lightning' (Tier 1, ~10 min old).",
+          "considered": [
+            "damini_lightning"
+          ],
+          "fallback_chain": [
+            "damini_lightning"
+          ],
+          "arrival": {
+            "checked": false,
+            "ok": true,
+            "detail": "live source — validated on fetch, not before it"
+          },
+          "rejected": [],
+          "fell_through": false
+        },
+        {
+          "data_type": "cyclone",
+          "chosen": "ndma_sachet",
+          "chosen_dataset": "NDMA SACHET / IMD CAP alert feed",
+          "narrative": "NDMA SACHET / IMD CAP alert feed selected: only source in the catalog covering 'cyclone' (Tier 1, ~15 min old).",
+          "considered": [
+            "ndma_sachet"
+          ],
+          "fallback_chain": [
+            "ndma_sachet"
+          ],
+          "arrival": {
+            "checked": false,
+            "ok": true,
+            "detail": "live source — validated on fetch, not before it"
+          },
+          "rejected": [],
+          "fell_through": false
+        },
+        {
+          "data_type": "pfz",
+          "chosen": "incois_pfz",
+          "chosen_dataset": "INCOIS Potential Fishing Zone advisories",
+          "narrative": "INCOIS Potential Fishing Zone advisories selected: only source in the catalog covering 'pfz' (Tier 1, ~24 h old).",
+          "considered": [
+            "incois_pfz"
+          ],
+          "fallback_chain": [
+            "incois_pfz",
+            "bhuvan_wms"
+          ],
+          "arrival": {
+            "checked": true,
+            "ok": true,
+            "detail": "6 PFZ advisory feature(s) on disk"
+          },
+          "rejected": [],
+          "fell_through": false
+        },
+        {
+          "data_type": "tide",
+          "chosen": "soi_tide_tables",
+          "chosen_dataset": "Survey of India 2026 Annual Tide Tables",
+          "narrative": "Survey of India 2026 Annual Tide Tables chosen over Stormglass.io Marine API — tide extremes for 'tide': static reference vs ~6 h old, Tier gap — higher authority tier.",
+          "considered": [
+            "soi_tide_tables",
+            "stormglass_tides"
+          ],
+          "fallback_chain": [
+            "soi_tide_tables",
+            "stormglass_tides",
+            "incois_tide_gauge"
+          ],
+          "arrival": {
+            "checked": true,
+            "ok": true,
+            "detail": "138 tide events, heights within range"
+          },
+          "rejected": [],
+          "fell_through": false
+        },
+        {
+          "data_type": "catch_statistics",
+          "chosen": "datagov_catch",
+          "chosen_dataset": "data.gov.in Marine Fish Landings & species trends",
+          "narrative": "data.gov.in Marine Fish Landings & species trends chosen over ICAR-CMFRI long-term landing archives & stock assessment for 'catch_statistics': static reference vs static reference, Tier gap — higher authority tier.",
+          "considered": [
+            "datagov_catch",
+            "icar_cmfri"
+          ],
+          "fallback_chain": [
+            "datagov_catch",
+            "icar_cmfri"
+          ],
+          "arrival": {
+            "checked": false,
+            "ok": true,
+            "detail": "live source — validated on fetch, not before it"
+          },
+          "rejected": [],
+          "fell_through": false
+        }
+      ],
+      "unusable_data_types": [],
+      "fell_through": []
+    },
+    "source_provenance": {
+      "dataset": "ORCA source catalog (Agent 3) — Architecture §12.1 cascades",
+      "acquisition_timestamp": "",
+      "freshness_minutes": 0
+    },
+    "confidence_score": 100,
+    "confidence_detail": {
+      "score": 100,
+      "label": "HIGH",
+      "rule_label": "HIGH",
+      "rule_rationale": "Primary source available for all 8 data types",
+      "capped_by_rule_label": false,
+      "factors": [
+        {
+          "factor": "status",
+          "value": 1.0,
+          "detail": "ok"
+        },
+        {
+          "factor": "data_age",
+          "value": null,
+          "detail": "not measured"
+        },
+        {
+          "factor": "fallback",
+          "value": null,
+          "detail": "not measured"
+        },
+        {
+          "factor": "coverage",
+          "value": 1.0,
+          "detail": "8/8 expected readings present"
+        }
+      ]
+    },
+    "status": "ok"
+  },
+  "geospatial": {
+    "inputs_consumed": {
+      "lat": 8.9,
+      "lon": 78.5,
+      "user_location": {
+        "lat": 8.9,
+        "lon": 78.5,
+        "place_name": null,
+        "place_source": "explicit"
+      },
+      "discovery_decision": {
+        "boundary": {
+          "chosen": "unep_wcmc_wdpa",
+          "narrative": "UNEP-WCMC WDPA / OSM (marine boundaries) chosen over Marine Regions VLIZ EEZ / IMBL dataset for 'boundary': static reference vs static reference, same Tier 1 authority — freshness decided it."
+        }
+      }
+    },
+    "outputs": {
+      "imbl_distance_nm": 5.018,
+      "imbl_alert_level": "CLEAR",
+      "imbl_boundary_name": "India Straight Baseline",
+      "imbl_between": [
+        "India",
+        null
+      ],
+      "mpa_violation": false,
+      "mpa_alert_level": "CLEAR",
+      "fishing_ban": {
+        "available": true,
+        "distance_to_nearest_eez_edge_nm": 11.101,
+        "order": {
+          "file_number": "j-2103035/1/2026-Fy (E-27594)",
+          "order_date": "2026-03-16",
+          "issuing_authority": "Department of Fisheries, Ministry of Fisheries, Animal Husbandry and Dairying, Government of India",
+          "legal_basis": "Rule 14(e), Sustainable Harnessing of Fisheries in the Exclusive Economic Zone Rules, 2025, under the Territorial Waters, Continental Shelf, Exclusive Economic Zone and Other Maritime Zones Act, 1976",
+          "wp_post_id": 17168,
+          "pdf_url": "https://dof.gov.in/static/uploads/2026/03/effe936ad06ebd01aaa12990dbb7e7d5.pdf",
+          "applies_to": "all fishing vessels in the Indian EEZ BEYOND territorial waters",
+          "exemption": "traditional non-motorized units are exempted"
+        },
+        "in_ban_period": false,
+        "coast": "east",
+        "next_window": "2026-04-15 to 2026-06-14",
+        "applies_here": false,
+        "note": "No uniform EEZ fishing ban in force on this date for this coast."
+      },
+      "dataset": "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA (via Agent 6)"
+    },
+    "source_provenance": {
+      "dataset": "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA",
+      "acquisition_timestamp": "2026-08-30T14:53:15.288Z",
+      "freshness_minutes": 0
+    },
+    "confidence_score": 74,
+    "confidence_detail": {
+      "score": 74,
+      "label": "MEDIUM",
+      "rule_label": "MEDIUM",
+      "rule_rationale": "Real boundary check — nearest of 32 treaty lines: India Straight Baseline — and Gulf of Mannar Marine National Park",
+      "capped_by_rule_label": true,
+      "factors": [
+        {
+          "factor": "status",
+          "value": 1.0,
+          "detail": "ok"
+        },
+        {
+          "factor": "data_age",
+          "value": 1.0,
+          "detail": "STATIC source — age does not apply"
+        },
+        {
+          "factor": "fallback",
+          "value": 1.0,
+          "detail": "primary source"
+        },
+        {
+          "factor": "coverage",
+          "value": 1.0,
+          "detail": "2/2 expected readings present"
+        }
+      ]
+    },
+    "status": "ok"
+  },
+  "ocean_analytics": {
+    "inputs_consumed": {
+      "lat": 8.9,
+      "lon": 78.5,
+      "when": "2026-09-24T04:42:01.774300Z",
+      "sector_id": "SEC006"
+    },
+    "outputs": {
+      "tide": {
+        "station_code": "TUT",
+        "station_name": "V.O. Chidambaranar Port (Thoothukudi / Tuticorin)",
+        "next_high": {
+          "when": "2026-09-24T07:47:00Z",
+          "height_m": 0.92,
+          "in_hours": 3.1
+        },
+        "next_low": {
+          "when": "2026-09-24T14:05:00Z",
+          "height_m": 0.39,
+          "in_hours": 9.4
+        },
+        "tidal_state": "RISING",
+        "range_m": 0.53,
+        "spring_neap": "MID→NEAP",
+        "datum": "chart datum (LAT)",
+        "fell_back": false,
+        "dataset": "Survey of India / Stormglass Calibrated Harmonic (station TUT)",
+        "observed_cross_check": {
+          "available": true,
+          "source_kind": "satellite_altimetry",
+          "station_id": null,
+          "station_name": null,
+          "sea_level_anomaly_m": 0.045,
+          "absolute_dynamic_topography_m": 0.84,
+          "observed_level_m": null,
+          "predicted_astronomical_m": null,
+          "tsunami_trigger_state": null,
+          "observed_at_ist": null,
+          "acquisition_timestamp": "2026-09-22T00:00:00Z",
+          "dataset": "Copernicus Marine (CMEMS) SEALEVEL_GLO_PHY_L4_NRT_008_046 — DUACS sla/adt (0.125 deg)",
+          "provenance": {
+            "dataset": "Copernicus Marine (CMEMS) SEALEVEL_GLO_PHY_L4_NRT_008_046 — DUACS sla/adt (0.125 deg)",
+            "authority_tier": "T2",
+            "source_file": "cmems_ssh_india_nrt.nc",
+            "acquisition_timestamp": "2026-09-22T00:00:00Z",
+            "freshness_minutes": 3162,
+            "native_units": "m",
+            "operations": [
+              "physical_range_mask",
+              "radius_crop",
+              "cell_mean"
+            ]
+          },
+          "note": "no live IOC gauge within 150 km reporting right now; substituted satellite altimetry, which is an anomaly against a multi-year mean sea surface, not a residual against a tide prediction"
+        }
+      },
+      "nearest_pfz": {
+        "found": true,
+        "landing_center": "Betul",
+        "distance_km": 880.8,
+        "bearing_deg": 322,
+        "compass": "NW",
+        "depth_m": "74-79",
+        "coordinates": [
+          73.414444,
+          15.093889
+        ],
+        "valid_for": "2026-09-23"
+      },
+      "pfz_persistence": {
+        "score": 0.0,
+        "label": "INDICATIVE",
+        "days_present": 0,
+        "days_on_record": 3,
+        "window_days": 7,
+        "days_archived_total": 5,
+        "radius_km": 25.0
+      },
+      "sector_status": {
+        "sector_id": "SEC006",
+        "sector_name": "SOUTH TAMILNADU",
+        "status": "NO_DATA_CLOUD_COVER",
+        "message": "No data available for this sector due to excessive cloud cover",
+        "node_count": 0,
+        "valid_for": null,
+        "is_data_gap": true,
+        "nearest_advisory_out_of_sector": true
+      },
+      "sst_chlorophyll_correlation": {
+        "available": true,
+        "pearson_r": -0.092,
+        "relationship": "weak inverse correlation",
+        "n_samples": 6185,
+        "grid_resolution_deg": 0.25,
+        "acquisition_gap": null,
+        "sst_provenance": {
+          "dataset": "MOSDAC INSAT-3DR IMAGER L3B daily SST",
+          "authority_tier": "T1",
+          "source_file": "3RIMG_22SEP2026_0015_L3B_SST_DLY_V02R00.h5",
+          "acquisition_timestamp": "2026-09-22T00:00:00Z",
+          "freshness_minutes": 3162,
+          "native_units": "K",
+          "operations": [
+            "fill_mask",
+            "kelvin_to_celsius",
+            "physical_range_mask",
+            "bbox_crop"
+          ]
+        },
+        "chl_provenance": {
+          "dataset": "MOSDAC EOS-06 OCM-3 L4 chlorophyll-a (25 km)",
+          "authority_tier": "T1",
+          "source_file": "E06OCML4AC_20260922_25km_v1.0.1.nc",
+          "acquisition_timestamp": "2026-09-22T00:00:00Z",
+          "freshness_minutes": 3162,
+          "native_units": "mg m-3",
+          "operations": [
+            "longitude_wrap",
+            "physical_range_mask",
+            "bbox_crop"
+          ]
+        }
+      },
+      "wind_rose": {
+        "available": true,
+        "port": "gulf of mannar",
+        "hours_counted": 168,
+        "bins": [
+          "calm_0_5",
+          "moderate_5_10",
+          "strong_10_plus"
+        ],
+        "petals": [
+          {
+            "compass": "N",
+            "calm_0_5": 0,
+            "moderate_5_10": 0,
+            "strong_10_plus": 0
+          },
+          {
+            "compass": "NNE",
+            "calm_0_5": 0,
+            "moderate_5_10": 0,
+            "strong_10_plus": 0
+          },
+          {
+            "compass": "NE",
+            "calm_0_5": 0,
+            "moderate_5_10": 0,
+            "strong_10_plus": 0
+          },
+          {
+            "compass": "ENE",
+            "calm_0_5": 0,
+            "moderate_5_10": 0,
+            "strong_10_plus": 0
+          },
+          {
+            "compass": "E",
+            "calm_0_5": 0,
+            "moderate_5_10": 0,
+            "strong_10_plus": 0
+          },
+          {
+            "compass": "ESE",
+            "calm_0_5": 0,
+            "moderate_5_10": 0,
+            "strong_10_plus": 0
+          },
+          {
+            "compass": "SE",
+            "calm_0_5": 0,
+            "moderate_5_10": 0,
+            "strong_10_plus": 0
+          },
+          {
+            "compass": "SSE",
+            "calm_0_5": 0,
+            "moderate_5_10": 0,
+            "strong_10_plus": 0
+          },
+          {
+            "compass": "S",
+            "calm_0_5": 4,
+            "moderate_5_10": 16,
+            "strong_10_plus": 2
+          },
+          {
+            "compass": "SSW",
+            "calm_0_5": 3,
+            "moderate_5_10": 19,
+            "strong_10_plus": 20
+          },
+          {
+            "compass": "SW",
+            "calm_0_5": 10,
+            "moderate_5_10": 73,
+            "strong_10_plus": 18
+          },
+          {
+            "compass": "WSW",
+            "calm_0_5": 3,
+            "moderate_5_10": 0,
+            "strong_10_plus": 0
+          },
+          {
+            "compass": "W",
+            "calm_0_5": 0,
+            "moderate_5_10": 0,
+            "strong_10_plus": 0
+          },
+          {
+            "compass": "WNW",
+            "calm_0_5": 0,
+            "moderate_5_10": 0,
+            "strong_10_plus": 0
+          },
+          {
+            "compass": "NW",
+            "calm_0_5": 0,
+            "moderate_5_10": 0,
+            "strong_10_plus": 0
+          },
+          {
+            "compass": "NNW",
+            "calm_0_5": 0,
+            "moderate_5_10": 0,
+            "strong_10_plus": 0
+          }
+        ],
+        "dataset": "Open-Meteo Forecast API (cached, port=gulf of mannar)"
+      },
+      "wind_anomaly": {
+        "available": true,
+        "nearest_port": "gulf of mannar",
+        "variable": "wind_speed_10m_max",
+        "units": "km/h",
+        "observed_peak": 43.1,
+        "baseline_mean": 32.533,
+        "baseline_std": 4.983,
+        "baseline_label": "ERA5 reanalysis daily baseline, 2026-08-18..2026-09-16 (30 days)",
+        "baseline_days": 30,
+        "z": 2.12,
+        "anomalous": true,
+        "direction": "above",
+        "dataset": "Open-Meteo ERA5 archive (reanalysis daily aggregates)"
+      },
+      "osf_point_forecast": {
+        "available": true,
+        "wave": {
+          "location": "Thoothukudi Offshore",
+          "base_port": "Thoothukudi",
+          "distance_km": 31.2,
+          "forecast_time": "2026-09-23T09:00:00Z",
+          "significant_wave_height_m": 0.98,
+          "mean_wave_direction_deg": 168.9,
+          "mean_wave_period_s": 3.78,
+          "peak_wave_period_s": 5.51,
+          "wind_u_ms": 3.908,
+          "wind_v_ms": 6.232,
+          "wind_speed_ms": 7.356,
+          "wind_dir_from_deg": 212.1
+        },
+        "ocean": {
+          "location": "Thoothukudi Offshore",
+          "base_port": "Thoothukudi",
+          "distance_km": 27.5,
+          "forecast_time": "2026-09-23T07:30:00Z",
+          "sea_surface_temp_c": 28.673,
+          "salinity_psu": null,
+          "u_current_ms": 0.1059,
+          "v_current_ms": -0.0332,
+          "ocean_current_speed_ms": 0.111,
+          "current_dir_to_deg": 107.4,
+          "mixed_layer_depth_m": null,
+          "sea_surface_height_m": null
+        },
+        "dataset": "INCOIS Ocean State Forecast — WW3 waves + HYCOM currents (pre-extracted point series)"
+      },
+      "source_selections": [
+        {
+          "data_type": "pfz",
+          "chosen": "incois_pfz",
+          "chosen_dataset": "INCOIS Potential Fishing Zone advisories",
+          "narrative": "INCOIS Potential Fishing Zone advisories selected: only source in the catalog covering 'pfz' (Tier 1, ~24 h old).",
+          "considered": [
+            "incois_pfz"
+          ],
+          "fallback_chain": [
+            "incois_pfz",
+            "bhuvan_wms"
+          ],
+          "decided_by": "marine_data_discovery"
+        },
+        {
+          "data_type": "tide",
+          "chosen": "soi_tide_tables",
+          "chosen_dataset": "Survey of India 2026 Annual Tide Tables",
+          "narrative": "Survey of India 2026 Annual Tide Tables chosen over Stormglass.io Marine API — tide extremes for 'tide': static reference vs ~6 h old, Tier gap — higher authority tier.",
+          "considered": [
+            "soi_tide_tables",
+            "stormglass_tides"
+          ],
+          "fallback_chain": [
+            "soi_tide_tables",
+            "stormglass_tides",
+            "incois_tide_gauge"
+          ],
+          "decided_by": "marine_data_discovery"
+        },
+        {
+          "data_type": "catch_statistics",
+          "chosen": "datagov_catch",
+          "chosen_dataset": "data.gov.in Marine Fish Landings & species trends",
+          "narrative": "data.gov.in Marine Fish Landings & species trends chosen over ICAR-CMFRI long-term landing archives & stock assessment for 'catch_statistics': static reference vs static reference, Tier gap — higher authority tier.",
+          "considered": [
+            "datagov_catch",
+            "icar_cmfri"
+          ],
+          "fallback_chain": [
+            "datagov_catch",
+            "icar_cmfri"
+          ],
+          "decided_by": "marine_data_discovery"
+        }
+      ],
+      "sector_disclosure": null
+    },
+    "source_provenance": {
+      "dataset": "INCOIS PFZ advisories + Survey of India 2026 tide tables (Agent 5)",
+      "acquisition_timestamp": "2026-09-24T04:42:01.774300Z",
+      "freshness_minutes": 0
+    },
+    "confidence_score": 39,
+    "confidence_detail": {
+      "score": 39,
+      "label": "LOW_DATA",
+      "rule_label": "LOW_DATA",
+      "rule_rationale": "SOI 2026 predicted tide table, station TUT; Active INCOIS PFZ advisory at 880.8 km (NW); only 3 PFZ snapshot(s) in the last 7 days (5 on record in total) — persistence needs a run of days, and 5 is the shortest run this will score; 6185 co-located SST/chlorophyll cells at 0.25 deg",
+      "capped_by_rule_label": true,
+      "factors": [
+        {
+          "factor": "status",
+          "value": 1.0,
+          "detail": "ok"
+        },
+        {
+          "factor": "data_age",
+          "value": null,
+          "detail": "not measured"
+        },
+        {
+          "factor": "fallback",
+          "value": null,
+          "detail": "not measured"
+        },
+        {
+          "factor": "coverage",
+          "value": 0.75,
+          "detail": "3/4 expected readings present"
+        }
+      ]
+    },
+    "status": "ok"
+  },
+  "weather_intelligence": {
+    "inputs_consumed": {
+      "lat": 8.9,
+      "lon": 78.5,
+      "discovery_decision": {
+        "wave_height": {
+          "chosen": "open_meteo_marine",
+          "narrative": "Open-Meteo Marine API / ECMWF WAM Blend chosen over INCOIS Ocean State Forecast (WaveWatch III) for 'wave_height': ~60 min old vs ~6 h old, same Tier 1 authority — freshness decided it."
+        },
+        "wind_speed": {
+          "chosen": "open_meteo_marine",
+          "narrative": "Open-Meteo Marine API / ECMWF WAM Blend chosen over MOSDAC Registered NRT — Scatterometer ocean winds for 'wind_speed': ~60 min old vs ~3 h old, Tier gap — higher authority tier."
+        },
+        "lightning": {
+          "chosen": "damini_lightning",
+          "narrative": "IMD Damini Lightning Nowcast selected: only source in the catalog covering 'lightning' (Tier 1, ~10 min old)."
+        },
+        "cyclone": {
+          "chosen": "ndma_sachet",
+          "narrative": "NDMA SACHET / IMD CAP alert feed selected: only source in the catalog covering 'cyclone' (Tier 1, ~15 min old)."
+        }
+      }
+    },
+    "outputs": {
+      "hourly": [
+        {
+          "time": "2026-09-24T00:00:00Z",
+          "wave_height": 1.38,
+          "wave_period": 8.65,
+          "swell_wave_height": 0.9,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 6.777777777777777,
+          "wind_gusts_10m": 8.694444444444445
+        },
+        {
+          "time": "2026-09-24T01:00:00Z",
+          "wave_height": 1.38,
+          "wave_period": 8.6,
+          "swell_wave_height": 0.92,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 6.75,
+          "wind_gusts_10m": 8.88888888888889
+        },
+        {
+          "time": "2026-09-24T02:00:00Z",
+          "wave_height": 1.4,
+          "wave_period": 8.6,
+          "swell_wave_height": 0.94,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 6.361111111111111,
+          "wind_gusts_10m": 8.805555555555555
+        },
+        {
+          "time": "2026-09-24T03:00:00Z",
+          "wave_height": 1.4,
+          "wave_period": 8.55,
+          "swell_wave_height": 0.96,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 6.444444444444444,
+          "wind_gusts_10m": 8.38888888888889
+        },
+        {
+          "time": "2026-09-24T04:00:00Z",
+          "wave_height": 1.42,
+          "wave_period": 8.45,
+          "swell_wave_height": 0.96,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 6.888888888888889,
+          "wind_gusts_10m": 8.88888888888889
+        },
+        {
+          "time": "2026-09-24T05:00:00Z",
+          "wave_height": 1.46,
+          "wave_period": 8.3,
+          "swell_wave_height": 0.98,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 7.833333333333333,
+          "wind_gusts_10m": 10.388888888888888
+        },
+        {
+          "time": "2026-09-24T06:00:00Z",
+          "wave_height": 1.48,
+          "wave_period": 8.15,
+          "swell_wave_height": 0.98,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 7.833333333333333,
+          "wind_gusts_10m": 10.11111111111111
+        },
+        {
+          "time": "2026-09-24T07:00:00Z",
+          "wave_height": 1.52,
+          "wave_period": 8.0,
+          "swell_wave_height": 1.0,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 8.805555555555555,
+          "wind_gusts_10m": 11.694444444444445
+        },
+        {
+          "time": "2026-09-24T08:00:00Z",
+          "wave_height": 1.58,
+          "wave_period": 7.85,
+          "swell_wave_height": 1.04,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 6.333333333333333,
+          "wind_gusts_10m": 11.38888888888889
+        },
+        {
+          "time": "2026-09-24T09:00:00Z",
+          "wave_height": 1.62,
+          "wave_period": 7.75,
+          "swell_wave_height": 1.06,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 5.916666666666667,
+          "wind_gusts_10m": 7.888888888888888
+        },
+        {
+          "time": "2026-09-24T10:00:00Z",
+          "wave_height": 1.66,
+          "wave_period": 7.65,
+          "swell_wave_height": 1.1,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 5.75,
+          "wind_gusts_10m": 7.388888888888889
+        },
+        {
+          "time": "2026-09-24T11:00:00Z",
+          "wave_height": 1.68,
+          "wave_period": 7.6,
+          "swell_wave_height": 1.16,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 6.416666666666667,
+          "wind_gusts_10m": 8.11111111111111
+        },
+        {
+          "time": "2026-09-24T12:00:00Z",
+          "wave_height": 1.72,
+          "wave_period": 7.55,
+          "swell_wave_height": 1.2,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 5.249999999999999,
+          "wind_gusts_10m": 8.11111111111111
+        },
+        {
+          "time": "2026-09-24T13:00:00Z",
+          "wave_height": 1.72,
+          "wave_period": 7.5,
+          "swell_wave_height": 1.18,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 6.861111111111111,
+          "wind_gusts_10m": 8.38888888888889
+        },
+        {
+          "time": "2026-09-24T14:00:00Z",
+          "wave_height": 1.7,
+          "wave_period": 7.5,
+          "swell_wave_height": 1.18,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 7.361111111111111,
+          "wind_gusts_10m": 9.388888888888888
+        },
+        {
+          "time": "2026-09-24T15:00:00Z",
+          "wave_height": 1.7,
+          "wave_period": 7.55,
+          "swell_wave_height": 1.16,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 7.222222222222222,
+          "wind_gusts_10m": 9.5
+        },
+        {
+          "time": "2026-09-24T16:00:00Z",
+          "wave_height": 1.64,
+          "wave_period": 7.65,
+          "swell_wave_height": 1.16,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 7.555555555555555,
+          "wind_gusts_10m": 9.805555555555555
+        },
+        {
+          "time": "2026-09-24T17:00:00Z",
+          "wave_height": 1.58,
+          "wave_period": 7.75,
+          "swell_wave_height": 1.16,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 7.111111111111112,
+          "wind_gusts_10m": 9.805555555555555
+        },
+        {
+          "time": "2026-09-24T18:00:00Z",
+          "wave_height": 1.52,
+          "wave_period": 7.85,
+          "swell_wave_height": 1.16,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 6.944444444444445,
+          "wind_gusts_10m": 9.305555555555555
+        },
+        {
+          "time": "2026-09-24T19:00:00Z",
+          "wave_height": 1.48,
+          "wave_period": 7.95,
+          "swell_wave_height": 1.14,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 7.222222222222222,
+          "wind_gusts_10m": 9.305555555555555
+        },
+        {
+          "time": "2026-09-24T20:00:00Z",
+          "wave_height": 1.46,
+          "wave_period": 8.0,
+          "swell_wave_height": 1.1,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 7.083333333333333,
+          "wind_gusts_10m": 9.61111111111111
+        },
+        {
+          "time": "2026-09-24T21:00:00Z",
+          "wave_height": 1.42,
+          "wave_period": 8.05,
+          "swell_wave_height": 1.08,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 7.027777777777778,
+          "wind_gusts_10m": 9.305555555555555
+        },
+        {
+          "time": "2026-09-24T22:00:00Z",
+          "wave_height": 1.4,
+          "wave_period": 8.1,
+          "swell_wave_height": 1.06,
+          "ocean_current_velocity": 0.08333333333333333,
+          "wind_speed_10m": 6.75,
+          "wind_gusts_10m": 9.305555555555555
+        },
+        {
+          "time": "2026-09-24T23:00:00Z",
+          "wave_height": 1.38,
+          "wave_period": 8.15,
+          "swell_wave_height": 1.06,
+          "ocean_current_velocity": 0.08333333333333333,
+          "wind_speed_10m": 6.194444444444445,
+          "wind_gusts_10m": 8.88888888888889
+        },
+        {
+          "time": "2026-09-25T00:00:00Z",
+          "wave_height": 1.36,
+          "wave_period": 8.15,
+          "swell_wave_height": 1.04,
+          "ocean_current_velocity": 0.08333333333333333,
+          "wind_speed_10m": 5.916666666666667,
+          "wind_gusts_10m": 8.194444444444445
+        },
+        {
+          "time": "2026-09-25T01:00:00Z",
+          "wave_height": 1.36,
+          "wave_period": 8.2,
+          "swell_wave_height": 1.04,
+          "ocean_current_velocity": 0.05555555555555556,
+          "wind_speed_10m": 6.194444444444445,
+          "wind_gusts_10m": 8.194444444444445
+        },
+        {
+          "time": "2026-09-25T02:00:00Z",
+          "wave_height": 1.36,
+          "wave_period": 8.2,
+          "swell_wave_height": 1.04,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 5.777777777777778,
+          "wind_gusts_10m": 8.194444444444445
+        },
+        {
+          "time": "2026-09-25T03:00:00Z",
+          "wave_height": 1.36,
+          "wave_period": 8.15,
+          "swell_wave_height": 1.04,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 5.472222222222222,
+          "wind_gusts_10m": 7.694444444444444
+        },
+        {
+          "time": "2026-09-25T04:00:00Z",
+          "wave_height": 1.42,
+          "wave_period": 8.0,
+          "swell_wave_height": 0.94,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 6.916666666666666,
+          "wind_gusts_10m": 8.61111111111111
+        },
+        {
+          "time": "2026-09-25T05:00:00Z",
+          "wave_height": 1.46,
+          "wave_period": 7.75,
+          "swell_wave_height": 0.82,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 7.555555555555555,
+          "wind_gusts_10m": 9.694444444444445
+        },
+        {
+          "time": "2026-09-25T06:00:00Z",
+          "wave_height": 1.52,
+          "wave_period": 7.5,
+          "swell_wave_height": 0.72,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 8.777777777777779,
+          "wind_gusts_10m": 11.194444444444443
+        },
+        {
+          "time": "2026-09-25T07:00:00Z",
+          "wave_height": 1.66,
+          "wave_period": 7.25,
+          "swell_wave_height": 0.74,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 9.527777777777777,
+          "wind_gusts_10m": 11.888888888888888
+        },
+        {
+          "time": "2026-09-25T08:00:00Z",
+          "wave_height": 1.78,
+          "wave_period": 7.05,
+          "swell_wave_height": 0.76,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 10.222222222222221,
+          "wind_gusts_10m": 12.888888888888888
+        },
+        {
+          "time": "2026-09-25T09:00:00Z",
+          "wave_height": 1.92,
+          "wave_period": 6.9,
+          "swell_wave_height": 0.78,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 10.611111111111112,
+          "wind_gusts_10m": 13.694444444444443
+        },
+        {
+          "time": "2026-09-25T10:00:00Z",
+          "wave_height": 1.96,
+          "wave_period": 6.95,
+          "swell_wave_height": 1.02,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 7.916666666666666,
+          "wind_gusts_10m": 13.61111111111111
+        },
+        {
+          "time": "2026-09-25T11:00:00Z",
+          "wave_height": 1.98,
+          "wave_period": 7.1,
+          "swell_wave_height": 1.24,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 7.25,
+          "wind_gusts_10m": 10.194444444444445
+        },
+        {
+          "time": "2026-09-25T12:00:00Z",
+          "wave_height": 2.02,
+          "wave_period": 7.25,
+          "swell_wave_height": 1.48,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 9.777777777777779,
+          "wind_gusts_10m": 12.305555555555554
+        },
+        {
+          "time": "2026-09-25T13:00:00Z",
+          "wave_height": 1.96,
+          "wave_period": 7.3,
+          "swell_wave_height": 1.44,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 10.416666666666666,
+          "wind_gusts_10m": 13.38888888888889
+        },
+        {
+          "time": "2026-09-25T14:00:00Z",
+          "wave_height": 1.9,
+          "wave_period": 7.35,
+          "swell_wave_height": 1.38,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 9.11111111111111,
+          "wind_gusts_10m": 13.88888888888889
+        },
+        {
+          "time": "2026-09-25T15:00:00Z",
+          "wave_height": 1.84,
+          "wave_period": 7.45,
+          "swell_wave_height": 1.34,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 7.277777777777778,
+          "wind_gusts_10m": 11.888888888888888
+        },
+        {
+          "time": "2026-09-25T16:00:00Z",
+          "wave_height": 1.76,
+          "wave_period": 7.55,
+          "swell_wave_height": 1.28,
+          "ocean_current_velocity": 0.19444444444444442,
+          "wind_speed_10m": 6.444444444444444,
+          "wind_gusts_10m": 9.388888888888888
+        },
+        {
+          "time": "2026-09-25T17:00:00Z",
+          "wave_height": 1.7,
+          "wave_period": 7.7,
+          "swell_wave_height": 1.24,
+          "ocean_current_velocity": 0.19444444444444442,
+          "wind_speed_10m": 7.25,
+          "wind_gusts_10m": 9.194444444444445
+        },
+        {
+          "time": "2026-09-25T18:00:00Z",
+          "wave_height": 1.62,
+          "wave_period": 7.9,
+          "swell_wave_height": 1.18,
+          "ocean_current_velocity": 0.19444444444444442,
+          "wind_speed_10m": 7.972222222222221,
+          "wind_gusts_10m": 10.388888888888888
+        },
+        {
+          "time": "2026-09-25T19:00:00Z",
+          "wave_height": 1.58,
+          "wave_period": 8.1,
+          "swell_wave_height": 1.18,
+          "ocean_current_velocity": 0.19444444444444442,
+          "wind_speed_10m": 7.472222222222221,
+          "wind_gusts_10m": 10.305555555555555
+        },
+        {
+          "time": "2026-09-25T20:00:00Z",
+          "wave_height": 1.54,
+          "wave_period": 8.35,
+          "swell_wave_height": 1.16,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 6.944444444444445,
+          "wind_gusts_10m": 9.694444444444445
+        },
+        {
+          "time": "2026-09-25T21:00:00Z",
+          "wave_height": 1.5,
+          "wave_period": 8.6,
+          "swell_wave_height": 1.16,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 6.499999999999999,
+          "wind_gusts_10m": 9.0
+        },
+        {
+          "time": "2026-09-25T22:00:00Z",
+          "wave_height": 1.48,
+          "wave_period": 8.8,
+          "swell_wave_height": 1.08,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 6.388888888888888,
+          "wind_gusts_10m": 8.5
+        },
+        {
+          "time": "2026-09-25T23:00:00Z",
+          "wave_height": 1.44,
+          "wave_period": 8.95,
+          "swell_wave_height": 1.02,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 6.194444444444445,
+          "wind_gusts_10m": 8.38888888888889
+        },
+        {
+          "time": "2026-09-26T00:00:00Z",
+          "wave_height": 1.42,
+          "wave_period": 9.1,
+          "swell_wave_height": 0.94,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 6.361111111111111,
+          "wind_gusts_10m": 8.38888888888889
+        },
+        {
+          "time": "2026-09-26T01:00:00Z",
+          "wave_height": 1.42,
+          "wave_period": 9.2,
+          "swell_wave_height": 0.94,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 5.75,
+          "wind_gusts_10m": 8.305555555555555
+        },
+        {
+          "time": "2026-09-26T02:00:00Z",
+          "wave_height": 1.44,
+          "wave_period": 9.3,
+          "swell_wave_height": 0.92,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 5.444444444444445,
+          "wind_gusts_10m": 7.694444444444444
+        },
+        {
+          "time": "2026-09-26T03:00:00Z",
+          "wave_height": 1.44,
+          "wave_period": 9.4,
+          "swell_wave_height": 0.92,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 5.361111111111112,
+          "wind_gusts_10m": 7.194444444444444
+        },
+        {
+          "time": "2026-09-26T04:00:00Z",
+          "wave_height": 1.42,
+          "wave_period": 9.6,
+          "swell_wave_height": 0.86,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 5.416666666666667,
+          "wind_gusts_10m": 7.388888888888889
+        },
+        {
+          "time": "2026-09-26T05:00:00Z",
+          "wave_height": 1.42,
+          "wave_period": 9.8,
+          "swell_wave_height": 0.8,
+          "ocean_current_velocity": 0.19444444444444442,
+          "wind_speed_10m": 4.777777777777778,
+          "wind_gusts_10m": 7.111111111111112
+        },
+        {
+          "time": "2026-09-26T06:00:00Z",
+          "wave_height": 1.4,
+          "wave_period": 9.85,
+          "swell_wave_height": 0.74,
+          "ocean_current_velocity": 0.19444444444444442,
+          "wind_speed_10m": 5.944444444444444,
+          "wind_gusts_10m": 7.5
+        },
+        {
+          "time": "2026-09-26T07:00:00Z",
+          "wave_height": 1.44,
+          "wave_period": 9.7,
+          "swell_wave_height": 0.74,
+          "ocean_current_velocity": 0.19444444444444442,
+          "wind_speed_10m": 8.277777777777779,
+          "wind_gusts_10m": 10.194444444444445
+        },
+        {
+          "time": "2026-09-26T08:00:00Z",
+          "wave_height": 1.5,
+          "wave_period": 9.4,
+          "swell_wave_height": 0.76,
+          "ocean_current_velocity": 0.19444444444444442,
+          "wind_speed_10m": 9.694444444444445,
+          "wind_gusts_10m": 12.305555555555554
+        },
+        {
+          "time": "2026-09-26T09:00:00Z",
+          "wave_height": 1.54,
+          "wave_period": 9.2,
+          "swell_wave_height": 0.76,
+          "ocean_current_velocity": 0.22222222222222224,
+          "wind_speed_10m": 9.833333333333332,
+          "wind_gusts_10m": 12.61111111111111
+        },
+        {
+          "time": "2026-09-26T10:00:00Z",
+          "wave_height": 1.58,
+          "wave_period": 9.15,
+          "swell_wave_height": 0.88,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 10.083333333333332,
+          "wind_gusts_10m": 12.888888888888888
+        },
+        {
+          "time": "2026-09-26T11:00:00Z",
+          "wave_height": 1.6,
+          "wave_period": 9.2,
+          "swell_wave_height": 1.0,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 9.222222222222223,
+          "wind_gusts_10m": 12.805555555555555
+        },
+        {
+          "time": "2026-09-26T12:00:00Z",
+          "wave_height": 1.64,
+          "wave_period": 9.25,
+          "swell_wave_height": 1.12,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 8.0,
+          "wind_gusts_10m": 11.61111111111111
+        },
+        {
+          "time": "2026-09-26T13:00:00Z",
+          "wave_height": 1.66,
+          "wave_period": 9.2,
+          "swell_wave_height": 1.08,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 6.972222222222222,
+          "wind_gusts_10m": 10.194444444444445
+        },
+        {
+          "time": "2026-09-26T14:00:00Z",
+          "wave_height": 1.68,
+          "wave_period": 9.15,
+          "swell_wave_height": 1.02,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 11.055555555555555,
+          "wind_gusts_10m": 14.0
+        },
+        {
+          "time": "2026-09-26T15:00:00Z",
+          "wave_height": 1.7,
+          "wave_period": 9.2,
+          "swell_wave_height": 0.98,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 9.916666666666668,
+          "wind_gusts_10m": 14.0
+        },
+        {
+          "time": "2026-09-26T16:00:00Z",
+          "wave_height": 1.66,
+          "wave_period": 9.35,
+          "swell_wave_height": 0.94,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 7.416666666666666,
+          "wind_gusts_10m": 12.805555555555555
+        },
+        {
+          "time": "2026-09-26T17:00:00Z",
+          "wave_height": 1.62,
+          "wave_period": 9.65,
+          "swell_wave_height": 0.92,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 7.361111111111111,
+          "wind_gusts_10m": 9.61111111111111
+        },
+        {
+          "time": "2026-09-26T18:00:00Z",
+          "wave_height": 1.58,
+          "wave_period": 9.95,
+          "swell_wave_height": 0.88,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 7.361111111111111,
+          "wind_gusts_10m": 9.388888888888888
+        },
+        {
+          "time": "2026-09-26T19:00:00Z",
+          "wave_height": 1.54,
+          "wave_period": 10.4,
+          "swell_wave_height": 0.88,
+          "ocean_current_velocity": 0.1388888888888889,
+          "wind_speed_10m": 8.416666666666666,
+          "wind_gusts_10m": 10.805555555555555
+        },
+        {
+          "time": "2026-09-26T20:00:00Z",
+          "wave_height": 1.48,
+          "wave_period": 10.9,
+          "swell_wave_height": 0.88,
+          "ocean_current_velocity": 0.16666666666666666,
+          "wind_speed_10m": 7.444444444444445,
+          "wind_gusts_10m": 10.694444444444445
+        },
+        {
+          "time": "2026-09-26T21:00:00Z",
+          "wave_height": 1.44,
+          "wave_period": 11.3,
+          "swell_wave_height": 0.88,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 6.388888888888888,
+          "wind_gusts_10m": 9.5
+        },
+        {
+          "time": "2026-09-26T22:00:00Z",
+          "wave_height": 1.42,
+          "wave_period": 11.6,
+          "swell_wave_height": 0.9,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 7.333333333333333,
+          "wind_gusts_10m": 9.305555555555555
+        },
+        {
+          "time": "2026-09-26T23:00:00Z",
+          "wave_height": 1.4,
+          "wave_period": 11.8,
+          "swell_wave_height": 0.9,
+          "ocean_current_velocity": 0.11111111111111112,
+          "wind_speed_10m": 7.472222222222221,
+          "wind_gusts_10m": 9.61111111111111
+        }
+      ],
+      "lightning_active": false,
+      "imd_nowcast": {
+        "alerts": [
+          {
+            "district": "Aryankavu",
+            "event_category": "Rain",
+            "severity": "Watch",
+            "severity_color": "yellow",
+            "events": "Light Rain",
+            "distance_km": 148.6,
+            "effective_start_time": "Sun Aug 30 19:00:00 IST 2026",
+            "effective_end_time": "Sun Aug 30 22:00:00 IST 2026"
+          }
+        ],
+        "alert_count": 1,
+        "lightning_flagged": false,
+        "expired": true,
+        "window_end": "2026-08-30T22:00:00+05:30",
+        "radius_km": 150.0
+      },
+      "imd_nowcast_dataset": "IMD district convective nowcast (cached snapshot, tier1/hazards)",
+      "lightning_source_agreement": "single_source",
+      "cyclone_alert": null,
+      "acquisition_timestamp": "2026-09-24T04:42:01.775315Z",
+      "dataset": "Open-Meteo Marine API + Forecast API (live)",
+      "freshness_minutes": 0
+    },
+    "source_provenance": {
+      "dataset": "Open-Meteo Marine API + Forecast API (live)",
+      "acquisition_timestamp": "2026-09-24T04:42:01.775315Z",
+      "freshness_minutes": 0
+    },
+    "confidence_score": 74,
+    "confidence_detail": {
+      "score": 74,
+      "label": "MEDIUM",
+      "rule_label": "MEDIUM",
+      "rule_rationale": "weather=Live Open-Meteo Marine + Forecast APIs, matching target window; lightning=Live proxy source, not the authoritative Damini feed (unverified, §1.2); cyclone=Live government CAP feed; imd_nowcast=cached IMD nowcast window closed 2026-08-30 16:30Z — historical, not current",
+      "capped_by_rule_label": true,
+      "factors": [
+        {
+          "factor": "status",
+          "value": 1.0,
+          "detail": "ok"
+        },
+        {
+          "factor": "data_age",
+          "value": 1.0,
+          "detail": "0 min old, within LIVE window"
+        },
+        {
+          "factor": "fallback",
+          "value": 1.0,
+          "detail": "primary source"
+        },
+        {
+          "factor": "coverage",
+          "value": 1.0,
+          "detail": "2/2 expected readings present"
+        }
+      ]
+    },
+    "status": "ok"
+  }
+}

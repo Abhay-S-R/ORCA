@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime, timezone
 from typing import Any, cast
 
 from geoalchemy2.shape import from_shape, to_shape
@@ -20,6 +21,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
+from orca.db.models import User
 from orca.db.notifications_models import AdvisoryFeedback, Notification, SentinelSubscription
 
 # Namespace for pg_advisory_lock keys — two arbitrary constants so Sentinel's
@@ -106,16 +108,47 @@ def delete_watch(db: Session, watch: SentinelSubscription) -> None:
     db.flush()
 
 
-def list_enabled_watches(db: Session) -> list[SentinelSubscription]:
-    """Every enabled watch across all users — Sentinel's monitored-location
-    list. The only cross-user query in this module, and it is used solely by
-    the background loop, never by a request handler."""
-    return list(db.execute(select(SentinelSubscription).where(SentinelSubscription.enabled)).scalars())
+def list_enabled_watches(db: Session, *, now: datetime | None = None) -> list[SentinelSubscription]:
+    """Every enabled watch that is actually due — Sentinel's monitored-
+    location list. The only cross-user query in this module, and it is used
+    solely by the background loop, never by a request handler.
+
+    P5.17 — filtered by `next_poll_at` rather than every enabled watch every
+    tick: adaptive cadence (a watch close to firing gets a shorter interval,
+    `sentinel_runtime.FAST_POLL_INTERVAL_SECONDS`) only means anything if the
+    watches that are NOT due get skipped rather than re-checked anyway.
+    """
+    cutoff = now or datetime.now(timezone.utc)
+    return list(
+        db.execute(
+            select(SentinelSubscription).where(
+                SentinelSubscription.enabled, SentinelSubscription.next_poll_at <= cutoff
+            )
+        ).scalars()
+    )
+
+
+def users_with_departure_hour_set(db: Session) -> list[User]:
+    """R-NEW-16 — every user who has opted into a pre-dawn departure
+    briefing and has a home port to check it against. `typical_departure_hour`
+    is the only gate: a user with neither set never appears here."""
+    return list(
+        db.execute(
+            select(User).where(User.typical_departure_hour.is_not(None), User.home_port.is_not(None))
+        ).scalars()
+    )
 
 
 def mark_watch_fired(db: Session, watch_id: uuid.UUID) -> None:
     db.execute(
         text("UPDATE sentinel_subscriptions SET last_fired_at = now() WHERE id = :id"), {"id": watch_id}
+    )
+
+
+def set_next_poll_at(db: Session, watch_id: uuid.UUID, when: datetime) -> None:
+    """P5.17 — adaptive cadence's write side; `list_enabled_watches` is the read side."""
+    db.execute(
+        text("UPDATE sentinel_subscriptions SET next_poll_at = :t WHERE id = :id"), {"t": when, "id": watch_id}
     )
 
 
@@ -148,6 +181,7 @@ def create_notification(
     watch_id: uuid.UUID | None = None,
     query_id: uuid.UUID | None = None,
     rendered_payload: dict[str, Any] | None = None,
+    deliver_after: datetime | None = None,
 ) -> Notification:
     n = Notification(
         user_id=user_id,
@@ -159,10 +193,25 @@ def create_notification(
         channel=channel,
         status=status,
         rendered_payload=rendered_payload or {},
+        # P5.22 — non-NULL only for a `status="held"` row: when quiet hours
+        # let it through. NULL for every immediately-sent/simulated row.
+        deliver_after=deliver_after,
     )
     db.add(n)
     db.flush()
     return n
+
+
+def list_due_held_notifications(db: Session, *, now: datetime | None = None) -> list[Notification]:
+    """P5.22 — every held notification whose quiet-hours window has ended,
+    across all users; the Sentinel loop flushes these each tick the same way
+    it evaluates watches."""
+    cutoff = now or datetime.now(timezone.utc)
+    return list(
+        db.execute(
+            select(Notification).where(Notification.status == "held", Notification.deliver_after <= cutoff)
+        ).scalars()
+    )
 
 
 def list_notifications_for_user(

@@ -6,7 +6,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Eye, LogIn, LogOut } from "lucide-react";
+import { ChevronDown, Eye, LogIn, LogOut, Settings } from "lucide-react";
 import { displayNameOf, signOut, useAuth } from "../lib/auth";
 import { PersonaSelector } from "../persona/PersonaSelector";
 
@@ -115,6 +115,16 @@ export function AccountMenu() {
 
           {/* Navigation Links */}
           <div className="space-y-0.5">
+            <Link
+              role="menuitem"
+              href="/profile"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 font-medium text-ink-muted transition-colors hover:bg-shelf-2 hover:text-ink"
+            >
+              <Settings className="size-4 text-ocean-cyan" aria-hidden="true" />
+              <span>Profile</span>
+            </Link>
+
             <Link
               role="menuitem"
               href="/watches"

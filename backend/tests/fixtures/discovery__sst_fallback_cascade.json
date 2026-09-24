@@ -21,12 +21,14 @@
     "considered": [
       "mosdac_open_sst",
       "copernicus_cmems",
+      "noaa_coastwatch",
       "mosdac_nrt_sst"
     ],
     "dataset": "Copernicus Marine Service (CMEMS) reanalysis",
     "fallback_chain": [
       "mosdac_open_sst",
-      "copernicus_cmems"
+      "copernicus_cmems",
+      "noaa_coastwatch"
     ],
     "reason": "Copernicus Marine Service (CMEMS) reanalysis selected as fallback for 'sst': MOSDAC Open Data \u2014 INSAT-3DR L3 SST (daily) unavailable (mosdac_nrt_sst, mosdac_open_sst); dropped 1 rung(s) down the declared cascade (Tier 2, ~5 d old). Confidence lowered accordingly.",
     "source_id": "copernicus_cmems"

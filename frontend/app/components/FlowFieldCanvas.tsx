@@ -114,7 +114,14 @@ class VectorGrid {
     const p01 = this.grid[r1][c0];
     const p11 = this.grid[r1][c1];
 
-    if (!p00 && !p10 && !p01 && !p11) return null;
+    // Require the nearest cell to have ocean data — if it's land/missing,
+    // bilinear averaging with 0s would produce phantom vectors right at the
+    // coast, drawing streamlines over land. Also require at least 2 of the
+    // 4 neighbors to be valid so we never "invent" flow from a single point.
+    const nearestCell = p00; // c0,r0 is always the floor-nearest cell
+    if (!nearestCell) return null;
+    const validCount = [p00, p10, p01, p11].filter(Boolean).length;
+    if (validCount < 2) return null;
 
     const fx = c - c0;
     const fy = r - r0;
@@ -128,7 +135,7 @@ class VectorGrid {
     const v = v0 * (1 - fy) + v1 * fy;
 
     const speed = Math.hypot(u, v);
-    if (speed < 0.005) return null;
+    if (speed < 0.01) return null;
 
     return { u, v, speed };
   }
@@ -356,11 +363,48 @@ export function FlowFieldCanvas({
           }
         };
 
+        // Build a water-only clip region from MapLibre's rendered water features.
+        // This prevents any particle line from appearing over land — the canvas
+        // only draws inside the projected polygon geometry of the ocean/sea layer.
+        const buildWaterClip = () => {
+          try {
+            const features = map.queryRenderedFeatures(undefined, {
+              layers: ["water"],
+            });
+            if (!features.length) return false;
+            ctx.beginPath();
+            for (const f of features) {
+              const geom = f.geometry as { type: string; coordinates: unknown[] };
+              if (geom.type !== "Polygon" && geom.type !== "MultiPolygon") continue;
+              const rings: number[][][] =
+                geom.type === "Polygon"
+                  ? (geom.coordinates as number[][][])
+                  : (geom.coordinates as number[][][][]).flat();
+              for (const ring of rings) {
+                if (!ring.length) continue;
+                const first = map.project([ring[0][0], ring[0][1]]);
+                ctx.moveTo(first.x, first.y);
+                for (let ri = 1; ri < ring.length; ri++) {
+                  const pt = map.project([ring[ri][0], ring[ri][1]]);
+                  ctx.lineTo(pt.x, pt.y);
+                }
+                ctx.closePath();
+              }
+            }
+            ctx.clip();
+            return true;
+          } catch {
+            return false;
+          }
+        };
+
         // 1. Currents — a clean water-blue, thin enough to read as threads
         // of flow rather than a bold overlay competing with the depth ramp.
         // pxPerFrame tuned down from the original [0.7,1.4,2.2] to read as a
         // steady, professional drift rather than a fast/chaotic sprint.
         if (currentGrid) {
+          ctx.save();
+          buildWaterClip();
           drawField(currentGrid, currentParticles, {
             maxSpeed: 1.2,
             haloRgb: "rgba(4, 20, 28, 0.28)",
@@ -369,11 +413,14 @@ export function FlowFieldCanvas({
             widths: [0.55, 0.8, 1.15],
             pxPerFrame: [0.28, 0.55, 0.85],
           });
+          ctx.restore();
         }
 
         // 2. Wind — archived ScatSat, kept visually distinct (amber) from
         // live currents so the two are never mistaken for one field.
         if (windGrid) {
+          ctx.save();
+          buildWaterClip();
           drawField(windGrid, windParticles, {
             maxSpeed: 12,
             haloRgb: "rgba(4, 20, 28, 0.24)",
@@ -382,6 +429,7 @@ export function FlowFieldCanvas({
             widths: [0.5, 0.7, 1.0],
             pxPerFrame: [0.25, 0.48, 0.75],
           });
+          ctx.restore();
         }
       }
 

@@ -4,8 +4,9 @@
 // chart to drop origin/destination (or type coordinates), and ORCA returns a
 // per-leg classified route: the same hazard cascade `/safety` runs for a
 // single point, walked along the whole passage at each leg's own ETA.
-import { useEffect, useRef, useState } from "react";
-import { Anchor, AlertTriangle, MapPin, Navigation } from "lucide-react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Anchor, AlertTriangle, Bell, BellOff, Download, MapPin, Navigation, Printer, Save, Trash2 } from "lucide-react";
 import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
@@ -17,6 +18,8 @@ import { Readout, ReadoutGrid } from "../components/Readout";
 import { SourceChip } from "../components/SourceChip";
 import { ErrorState } from "../components/States";
 import { VerdictBadge } from "../components/VerdictBadge";
+import { getToken } from "../lib/auth";
+import { createVoyage, deleteVoyage, listVoyages, promoteVoyage, unpromoteVoyage, type Voyage } from "../lib/voyages";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -32,6 +35,11 @@ type PointCheck = { on_land: boolean; shallow_hazard: boolean; depth_m: number |
 type Segment = {
   segment_id: string; start: [number, number]; end: [number, number]; distance_nm: number;
   eta: string; hazard_class: string; status: "CLEAR" | "CAUTION" | "BLOCKED"; detail: string;
+  depth_m: number | null; wave_height_m: number | null;
+};
+type NearestSafeHarbour = {
+  name: string; kind: string; latitude: number; longitude: number;
+  bearing_deg: number; distance_nm: number; eta_hours: number | null;
 };
 type SourceProvenance = { dataset: string; acquisition_timestamp: string; freshness_minutes: number };
 type VoyagePlanResponse = {
@@ -53,6 +61,13 @@ type VoyagePlanResponse = {
   draft_m: number;
   draft_source: "supplied" | "assumed_deepest_of_class";
   draft_disclosure: string | null;
+  // P5.24 — the rest of the voyage outputs: nearest safe harbour off the
+  // destination (from the same ICG station roster distress calls use) and
+  // a fuel estimate that only appears when the request supplied a burn
+  // rate — an honest gap, not a guessed number.
+  nearest_safe_harbour: NearestSafeHarbour | null;
+  fuel_burn_lph: number | null;
+  fuel_estimate_liters: number | null;
 };
 type Tide = {
   station_name: string; tidal_state: string; range_m: number | null; spring_neap: string;
@@ -96,7 +111,57 @@ function pointWarning(check: { on_land: boolean; shallow_hazard: boolean } | nul
   return null;
 }
 
-export default function VoyagePage() {
+// P5.7 (§8.4) — GPX/CSV export of the waypoint table. The plan already
+// carries every field either format needs, so this is a pure client-side
+// serialization of state already on screen, not a second server round-trip.
+function planToGpx(plan: VoyagePlanResponse): string {
+  const points = [
+    { lat: plan.origin[0], lon: plan.origin[1], name: "Origin", cmt: "" },
+    ...plan.segments.map((s) => ({
+      lat: s.end[0], lon: s.end[1], name: s.segment_id,
+      cmt: `${s.hazard_class} (${s.status}) — ${s.detail}`, time: s.eta,
+    })),
+  ];
+  const rtepts = points
+    .map((p) => {
+      const time = "time" in p && p.time ? `<time>${p.time}</time>` : "";
+      return `      <rtept lat="${p.lat}" lon="${p.lon}"><name>${p.name}</name>${time}<cmt>${p.cmt}</cmt></rtept>`;
+    })
+    .join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="ORCA" xmlns="http://www.topografix.com/GPX/1/1">
+  <rte>
+    <name>ORCA voyage ${plan.voyage_id}</name>
+    <desc>${plan.verdict}: ${plan.verdict_reason}</desc>
+${rtepts}
+  </rte>
+</gpx>`;
+}
+
+function planToCsv(plan: VoyagePlanResponse): string {
+  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const header = "leg,start_lat,start_lon,end_lat,end_lon,distance_nm,eta_utc,hazard_class,status,ukc_m,wave_height_m,detail";
+  const rows = plan.segments.map((s) => {
+    const ukc = s.depth_m != null ? (s.depth_m - plan.draft_m).toFixed(1) : "";
+    return [
+      s.segment_id, s.start[0], s.start[1], s.end[0], s.end[1], s.distance_nm.toFixed(2), s.eta,
+      s.hazard_class, s.status, ukc, s.wave_height_m ?? "", escape(s.detail),
+    ].join(",");
+  });
+  return [header, ...rows].join("\n");
+}
+
+function downloadText(filename: string, content: string, mime: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function VoyageContent() {
+  const searchParams = useSearchParams();
   const [mode, setMode] = useState<"origin" | "destination">("origin");
   const [origin, setOrigin] = useState<LatLon | null>(null);
   const [destination, setDestination] = useState<LatLon | null>(null);
@@ -112,11 +177,91 @@ export default function VoyagePage() {
   // P1.2 — the "correct it in one tap" target for the assumed-draft banner.
   const draftRef = useRef<HTMLInputElement>(null);
   const [departure, setDeparture] = useState("");
+  // P5.24 — fuel-burn rate is optional and per-vessel; left blank, the plan
+  // states the total is missing rather than guessing a rate.
+  const [fuelBurnLph, setFuelBurnLph] = useState("");
 
   const [plan, setPlan] = useState<VoyagePlanResponse | null>(null);
   const [tide, setTide] = useState<Tide | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // P5.20 UI — saved voyages. The backend (`/api/voyages`, promote-to-watch)
+  // has been done and API-only since P5.20's own entry; this is the
+  // frontend half that entry named as still missing.
+  const [signedIn, setSignedIn] = useState(false);
+  const [savedVoyages, setSavedVoyages] = useState<Voyage[] | null>(null);
+  const [savingVoyage, setSavingVoyage] = useState(false);
+  const [voyageBusyId, setVoyageBusyId] = useState<string | null>(null);
+
+  const loadSavedVoyages = useCallback(() => {
+    if (!getToken()) return;
+    listVoyages().then(setSavedVoyages).catch(() => setSavedVoyages([]));
+  }, []);
+
+  useEffect(() => {
+    const sync = () => setSignedIn(!!getToken());
+    sync();
+    window.addEventListener("orca:auth", sync);
+    return () => window.removeEventListener("orca:auth", sync);
+  }, []);
+
+  useEffect(() => {
+    if (signedIn) {
+      loadSavedVoyages();
+      return;
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing stale data on sign-out, not synchronizing external state
+    setSavedVoyages(null);
+  }, [signedIn, loadSavedVoyages]);
+
+  async function saveVoyage() {
+    if (!plan) return;
+    setSavingVoyage(true);
+    try {
+      await createVoyage({
+        name: `${plan.origin[0].toFixed(2)},${plan.origin[1].toFixed(2)} → ${plan.destination[0].toFixed(2)},${plan.destination[1].toFixed(2)}`,
+        route: [
+          { lat: plan.origin[0], lon: plan.origin[1] },
+          ...plan.segments.map((s) => ({ lat: s.end[0], lon: s.end[1] })),
+        ],
+        departure_at: plan.departure_time,
+      });
+      loadSavedVoyages();
+    } finally {
+      setSavingVoyage(false);
+    }
+  }
+
+  function loadSavedVoyage(v: Voyage) {
+    const first = v.route[0];
+    const last = v.route[v.route.length - 1];
+    setOrigin({ lat: first.lat, lon: first.lon });
+    setDestination({ lat: last.lat, lon: last.lon });
+    setOriginCheck(null);
+    setDestinationCheck(null);
+  }
+
+  async function togglePromote(v: Voyage) {
+    setVoyageBusyId(v.id);
+    try {
+      if (v.watch_id) await unpromoteVoyage(v.id);
+      else await promoteVoyage(v.id);
+      loadSavedVoyages();
+    } finally {
+      setVoyageBusyId(null);
+    }
+  }
+
+  async function removeSavedVoyage(id: string) {
+    setVoyageBusyId(id);
+    try {
+      await deleteVoyage(id);
+      loadSavedVoyages();
+    } finally {
+      setVoyageBusyId(null);
+    }
+  }
 
   // A ROUTE question on /ask links here with its endpoints already resolved
   // (?from=lat,lon&to=lat,lon — P5.29). Pins only; the user still presses Plan.
@@ -146,9 +291,7 @@ export default function VoyagePage() {
       .catch(() => {});
   }
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!origin || !destination) return;
+  async function runPlan(o: LatLon, d: LatLon) {
     setLoading(true);
     setError(null);
     setPlan(null);
@@ -158,11 +301,12 @@ export default function VoyagePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          origin_lat: origin.lat, origin_lon: origin.lon,
-          destination_lat: destination.lat, destination_lon: destination.lon,
+          origin_lat: o.lat, origin_lon: o.lon,
+          destination_lat: d.lat, destination_lon: d.lon,
           vessel_class: vesselClass, speed_kn: speedKn,
           draft_m: draftM ? Number(draftM) : null,
           departure_time: departure ? new Date(departure).toISOString() : null,
+          fuel_burn_lph: fuelBurnLph ? Number(fuelBurnLph) : null,
         }),
       });
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
@@ -170,7 +314,7 @@ export default function VoyagePage() {
       setPlan(data);
       // Berthing window at the destination — same tide predictor `/safety`'s
       // sibling ocean-analytics surfaces already use, just pointed here.
-      fetch(`${API_BASE}/api/tides?lat=${destination.lat}&lon=${destination.lon}`)
+      fetch(`${API_BASE}/api/tides?lat=${d.lat}&lon=${d.lon}`)
         .then((r) => r.json())
         .then(setTide)
         .catch(() => {});
@@ -180,6 +324,34 @@ export default function VoyagePage() {
       setLoading(false);
     }
   }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!origin || !destination) return;
+    await runPlan(origin, destination);
+  }
+
+  // P6.9 (orca_final §29.2) — `/demo`'s depth-blocked-detour scenario card
+  // deep-links here with a pinned origin/destination rather than duplicating
+  // this page's map/segment-table rendering: bathymetry is static, so the
+  // same coordinates always cross the same shallow bank and always need the
+  // same detour, with no fixture-pinning required (unlike scenario 1's
+  // live-weather fixtures).
+  const autoRanRef = useRef(false);
+  useEffect(() => {
+    if (autoRanRef.current) return;
+    const oLat = searchParams.get("origin_lat"), oLon = searchParams.get("origin_lon");
+    const dLat = searchParams.get("destination_lat"), dLon = searchParams.get("destination_lon");
+    if (!oLat || !oLon || !dLat || !dLon) return;
+    autoRanRef.current = true;
+    const o = { lat: Number(oLat), lon: Number(oLon) };
+    const d = { lat: Number(dLat), lon: Number(dLon) };
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the URL only exists after mount, same rationale as line 274 above
+    setOrigin(o);
+    setDestination(d);
+    void runPlan(o, d);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately one-shot on mount, not on every origin/destination edit
+  }, [searchParams]);
 
   const pins: Pin[] = [
     ...(origin ? [{ lat: origin.lat, lon: origin.lon, label: "Origin", color: "#2f6f74" }] : []),
@@ -194,9 +366,9 @@ export default function VoyagePage() {
         lede="Tap the chart to drop an origin and destination, or type coordinates. ORCA classifies every leg — shallows, boundaries, protected areas, rough sea and lightning — at that leg's own arrival time, not just conditions right now."
       />
 
-      <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
+      <div className="grid gap-6 lg:grid-cols-[380px_1fr] print:block">
         <div className="flex flex-col gap-4">
-          <Panel title="Route" dense>
+          <Panel title="Route" dense className="print:hidden">
             <form onSubmit={submit} className="flex flex-col gap-1">
               <div className="mb-2.5 flex gap-2">
                 <Button
@@ -279,6 +451,14 @@ export default function VoyagePage() {
                   )}
                 </Field>
               </div>
+              <Field label="Fuel burn (optional)" hint="L/h — leave blank to skip the estimate">
+                {(id) => (
+                  <input
+                    id={id} type="number" min={0.1} step={0.1} value={fuelBurnLph} placeholder="L/h"
+                    onChange={(e) => setFuelBurnLph(e.target.value)} className={inputClass}
+                  />
+                )}
+              </Field>
 
               <Button
                 type="submit" variant="primary" className="mt-1"
@@ -289,6 +469,39 @@ export default function VoyagePage() {
               </Button>
             </form>
           </Panel>
+
+          {signedIn && savedVoyages && savedVoyages.length > 0 && (
+            <Panel title="Saved voyages" dense>
+              <ul className="flex flex-col gap-2">
+                {savedVoyages.map((v) => (
+                  <li key={v.id} className="flex items-center justify-between gap-2 rounded-lg border border-hairline/70 px-2.5 py-2 text-xs">
+                    <button type="button" onClick={() => loadSavedVoyage(v)} className="min-w-0 flex-1 text-left">
+                      <span className="block truncate font-medium text-ink">{v.name ?? v.id}</span>
+                      <span className="text-[10px] text-ink-dim">{new Date(v.departure_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC</span>
+                    </button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button" variant="ghost" disabled={voyageBusyId === v.id}
+                        icon={v.watch_id ? <BellOff className="size-3.5" aria-hidden="true" /> : <Bell className="size-3.5" aria-hidden="true" />}
+                        onClick={() => togglePromote(v)}
+                        title={v.watch_id ? "Stop watching this voyage" : "Watch this voyage for hazards"}
+                      >
+                        {v.watch_id ? "Watched" : "Watch"}
+                      </Button>
+                      <Button
+                        type="button" variant="ghost" disabled={voyageBusyId === v.id}
+                        icon={<Trash2 className="size-3.5" aria-hidden="true" />}
+                        onClick={() => removeSavedVoyage(v.id)}
+                        aria-label="Delete saved voyage"
+                      >
+                        <span className="sr-only">Delete</span>
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          )}
 
           {tide && (
             <Panel title={`Berthing window — ${tide.station_name}`}>
@@ -415,7 +628,7 @@ export default function VoyagePage() {
 
         <div className="flex flex-col gap-4">
           <MapView
-            className="h-[440px] min-h-[380px] lg:h-[500px] w-full rounded-2xl shadow-xl ring-1 ring-hairline overflow-hidden"
+            className="h-[440px] min-h-[380px] lg:h-[500px] w-full rounded-2xl shadow-xl ring-1 ring-hairline overflow-hidden print:hidden"
             defaultCollapsedSounding={true}
             showLayerPanel={false}
             showRegionSwitcher={false}
@@ -499,9 +712,63 @@ export default function VoyagePage() {
                 />
               )}
 
+              {/* P5.24 — nearest safe harbour (the closest ICG rescue
+                  station to the destination, same roster a distress call
+                  uses) and the fuel-burn estimate, which stays an honest
+                  MISSING rather than a guess when no burn rate was given. */}
+              <Panel title="Passage summary">
+                <ReadoutGrid cols={plan.nearest_safe_harbour ? 4 : 2}>
+                  <Readout label="Total distance" value={plan.segments.reduce((sum, s) => sum + s.distance_nm, 0).toFixed(1)} unit="nm" />
+                  <Readout
+                    label="Fuel estimate"
+                    value={plan.fuel_estimate_liters != null ? plan.fuel_estimate_liters.toFixed(0) : "MISSING"}
+                    unit={plan.fuel_estimate_liters != null ? "L" : undefined}
+                    hint={plan.fuel_estimate_liters == null ? "No burn rate supplied" : `at ${plan.fuel_burn_lph} L/h`}
+                  />
+                  {plan.nearest_safe_harbour && (
+                    <>
+                      <Readout
+                        label="Nearest safe harbour"
+                        value={plan.nearest_safe_harbour.name}
+                        hint={plan.nearest_safe_harbour.kind}
+                      />
+                      <Readout
+                        label="Bearing / distance"
+                        value={`${plan.nearest_safe_harbour.bearing_deg.toFixed(0)}° / ${plan.nearest_safe_harbour.distance_nm.toFixed(1)} nm`}
+                        hint={plan.nearest_safe_harbour.eta_hours != null ? `~${plan.nearest_safe_harbour.eta_hours.toFixed(1)} h at cruise speed` : undefined}
+                      />
+                    </>
+                  )}
+                </ReadoutGrid>
+              </Panel>
+
               <Panel
                 title="Waypoints"
-                action={routeProvenance && <SourceChip dataset={routeProvenance.dataset} acquisitionTimestamp={routeProvenance.acquisition_timestamp || new Date().toISOString()} />}
+                action={
+                  <div className="flex items-center gap-2.5 print:hidden">
+                    {routeProvenance && <SourceChip dataset={routeProvenance.dataset} acquisitionTimestamp={routeProvenance.acquisition_timestamp || new Date().toISOString()} />}
+                    <Button
+                      type="button" variant="ghost" icon={<Download className="size-3.5" aria-hidden="true" />}
+                      onClick={() => downloadText(`orca-voyage-${plan.voyage_id}.gpx`, planToGpx(plan), "application/gpx+xml")}
+                    >
+                      GPX
+                    </Button>
+                    <Button
+                      type="button" variant="ghost" icon={<Download className="size-3.5" aria-hidden="true" />}
+                      onClick={() => downloadText(`orca-voyage-${plan.voyage_id}.csv`, planToCsv(plan), "text/csv")}
+                    >
+                      CSV
+                    </Button>
+                    <Button type="button" variant="ghost" icon={<Printer className="size-3.5" aria-hidden="true" />} onClick={() => window.print()}>
+                      Print
+                    </Button>
+                    {signedIn && (
+                      <Button type="button" variant="ghost" icon={<Save className="size-3.5" aria-hidden="true" />} onClick={saveVoyage} disabled={savingVoyage}>
+                        {savingVoyage ? "Saving" : "Save voyage"}
+                      </Button>
+                    )}
+                  </div>
+                }
               >
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
@@ -510,6 +777,8 @@ export default function VoyagePage() {
                         <th className="pb-2 pr-3 font-medium">Leg</th>
                         <th className="pb-2 pr-3 font-medium">Distance</th>
                         <th className="pb-2 pr-3 font-medium">ETA (UTC)</th>
+                        <th className="pb-2 pr-3 font-medium">UKC</th>
+                        <th className="pb-2 pr-3 font-medium">Hs</th>
                         <th className="pb-2 pr-3 font-medium">Status</th>
                         <th className="pb-2 font-medium">Detail</th>
                       </tr>
@@ -522,6 +791,10 @@ export default function VoyagePage() {
                           <td className="py-1.5 pr-3" data-readout>
                             {new Date(s.eta).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })}
                           </td>
+                          <td className="py-1.5 pr-3" data-readout>
+                            {s.depth_m != null ? `${(s.depth_m - plan.draft_m).toFixed(1)}m` : "—"}
+                          </td>
+                          <td className="py-1.5 pr-3" data-readout>{s.wave_height_m != null ? `${s.wave_height_m.toFixed(1)}m` : "—"}</td>
                           <td className="py-1.5 pr-3">
                             <Badge tone={STATUS_TONE[s.status]}>{s.hazard_class}</Badge>
                           </td>
@@ -537,5 +810,13 @@ export default function VoyagePage() {
         </div>
       </div>
     </PageBody>
+  );
+}
+
+export default function VoyagePage() {
+  return (
+    <Suspense fallback={null}>
+      <VoyageContent />
+    </Suspense>
   );
 }

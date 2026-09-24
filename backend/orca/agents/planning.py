@@ -92,6 +92,48 @@ ROUTING_TABLE: tuple[RoutingRow, ...] = (
         ("change my home port", "update my boat", "my profile", "register my boat", "change my vessel", "my account"),
         (),
     ),
+    # --- P5.9 scenario shapes: the six the PS implies beyond a bare verdict ---
+    RoutingRow(
+        "WORTHWHILENESS",
+        ("worth going", "worth it", "worth the fuel", "worth the trip", "worth a trip", "any point going",
+         "any fish nearby", "point in going"),
+        ("marine_data_discovery", "weather_intelligence", "ocean_analytics", "risk_assessment", "visualization"),
+    ),
+    RoutingRow(
+        "TIMING",
+        ("when should i leave", "best time to go", "best time to leave", "what time should i leave",
+         "when is it safe to leave", "when can i go"),
+        ("marine_data_discovery", "weather_intelligence", "ocean_analytics", "risk_assessment", "visualization"),
+    ),
+    RoutingRow(
+        "COUNTERFACTUAL",
+        ("what if i wait", "what if i leave later", "what about this evening", "what about tomorrow instead",
+         "if i go later", "if i wait until"),
+        ("marine_data_discovery", "weather_intelligence", "ocean_analytics", "risk_assessment", "visualization"),
+    ),
+    RoutingRow(
+        "COMPARISON",
+        (" or ", "compare", "better between", "which is safer", "which one is safer", "versus", " vs "),
+        ("marine_data_discovery", "weather_intelligence", "ocean_analytics", "risk_assessment", "visualization"),
+    ),
+    RoutingRow(
+        "ENDURANCE",
+        ("how long can i stay out", "how far can i go", "how long can i fish", "endurance", "how far and back",
+         "range of my boat"),
+        ("marine_data_discovery", "ocean_analytics", "visualization"),
+    ),
+    RoutingRow(
+        "FUEL_ECONOMICS",
+        ("how much fuel", "fuel cost", "fuel economics", "diesel cost", "cost of fuel", "fuel to get there"),
+        ("marine_data_discovery", "ocean_analytics", "visualization"),
+    ),
+    # --- P5.25: the historical path SAFETY_CHECK/CONDITIONS route away from ---
+    RoutingRow(
+        "HISTORICAL",
+        ("last week", "last month", "was it rougher", "how rough was", "compared to last", "historically",
+         "in past years", "used to be"),
+        ("marine_data_discovery", "ocean_analytics", "visualization"),
+    ),
 )
 
 # P2.7 — "visualization" is now named by every row that produces something to

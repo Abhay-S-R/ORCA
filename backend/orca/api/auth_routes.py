@@ -26,6 +26,7 @@ from orca.auth.schemas import (
     SavedLocationIn,
     SavedLocationOut,
     SessionToken,
+    TypicalDepartureHourIn,
     UserOut,
     VesselClass,
     VesselIn,
@@ -46,6 +47,7 @@ from orca.db.repositories import (
     set_default_persona,
     set_home_port,
     set_quiet_hours,
+    set_typical_departure_hour,
     set_user_language,
     user_home_port,
     vessel_last_position,
@@ -71,6 +73,7 @@ def _user_out(user: User) -> UserOut:
         default_persona=user.default_persona, language=user.language,
         home_port=user_home_port(user), home_port_name=user.home_port_name,
         active_vessel_id=user.active_vessel_id, quiet_hours=user.quiet_hours,
+        typical_departure_hour=user.typical_departure_hour,
     )
 
 
@@ -214,6 +217,17 @@ def put_quiet_hours(body: QuietHoursIn | None = None, user: User = Depends(get_c
     """P3.9 / P5.22 — a window in which a non-critical Sentinel alert is held
     rather than fired. `None` body clears it (no quiet hours set)."""
     set_quiet_hours(db, user, body.model_dump() if body else None)
+    db.commit()
+    return _user_out(user)
+
+
+@router.put("/profile/typical-departure-hour", response_model=UserOut)
+def put_typical_departure_hour(
+    body: TypicalDepartureHourIn | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> UserOut:
+    """R-NEW-16 — the local hour this user typically departs, so Sentinel can
+    send a pre-dawn briefing before it. `None` body turns the feature off."""
+    set_typical_departure_hour(db, user, body.hour if body else None)
     db.commit()
     return _user_out(user)
 

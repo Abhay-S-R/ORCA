@@ -336,19 +336,57 @@ def test_tide_gauge_reading_is_measured_or_absent_never_invented():
 def test_tide_gauge_live_reading_carries_only_what_the_feed_publishes():
     """Chennai has a live IOC gauge, so the reading is real — and bounded.
 
-    IOC publishes a sea level and a timestamp. The prediction, the residual and the
-    water temperature are not in the feed, so they stay None and are named in
-    `fields_unavailable` instead of being fabricated beside a real number.
+    IOC publishes a sea level and a timestamp; water temperature and a tsunami
+    determination are not in that feed and stay None, named in
+    `fields_unavailable` rather than fabricated beside a real number. The
+    astronomical prediction and its residual (P5.3) are NOT from the feed
+    either — ORCA derives them from the SoI table, which covers Chennai —
+    so those two are populated, not absent.
     """
     near = oa.tide_gauge_observation(13.08, 80.27)
     if near["source_kind"] != "in_situ_gauge":
         pytest.skip("IOC feed unreachable in this environment")
     assert near["observed_level_m"] is not None
     assert near["observation_age_minutes"] < 24 * 60
-    for field in ("predicted_astronomical_m", "sea_level_anomaly_m",
-                  "water_temp_c", "tsunami_trigger_state"):
+    for field in ("water_temp_c", "tsunami_trigger_state"):
         assert near[field] is None
         assert field in near["fields_unavailable"]
+    # Chennai (station CHE) is one of the five SoI-covered stations, so the
+    # cross-check this station enables should actually run.
+    assert near["predicted_astronomical_m"] is not None
+    assert near["sea_level_anomaly_m"] is not None
+    assert near["sea_level_anomaly_m"] == pytest.approx(
+        near["observed_level_m"] - near["predicted_astronomical_m"], abs=1e-3
+    )
+    assert "predicted_astronomical_m" not in near["fields_unavailable"]
+    assert near["anomaly_datum_caveat"]
+
+
+def test_predicted_height_at_interpolates_between_bracketing_soi_events():
+    """The half-cosine curve must land ON the two known extremes at their own
+    times, and produce a mid-swing value strictly between them in between."""
+    from datetime import timedelta
+
+    from orca.data import analytics_loaders as al
+
+    events = sorted(
+        (e for e in al.load_soi_tide_events() if e["station_code"] == "CHE"),
+        key=lambda e: e["when"],
+    )
+    e1, e2 = events[0], events[1]
+    at_e1 = oa.predicted_height_at(13.08, 80.27, e1["when"])
+    assert at_e1 is not None
+    assert at_e1["predicted_height_m"] == pytest.approx(e1["height_m"], abs=1e-6)
+
+    midpoint = e1["when"] + (e2["when"] - e1["when"]) / 2
+    at_mid = oa.predicted_height_at(13.08, 80.27, midpoint)
+    assert at_mid is not None
+    lo, hi = sorted((e1["height_m"], e2["height_m"]))
+    assert lo < at_mid["predicted_height_m"] < hi
+
+    # Outside the table's actual coverage: no fabricated estimate.
+    before_table = events[0]["when"] - timedelta(days=365)
+    assert oa.predicted_height_at(13.08, 80.27, before_table) is None
 
 
 def test_tide_gauge_out_of_range_falls_through_to_altimetry_and_says_so():

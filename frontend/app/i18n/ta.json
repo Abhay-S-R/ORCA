@@ -150,6 +150,7 @@
   "intentLabel.safety": "உள்ளூர் கடல் நிலைமைகள்",
   "intentLabel.current": "மேற்பரப்பு மின்னோட்ட வேகம் மற்றும் திசை",
   "intentLabel.wave": "அலை உயரம் மற்றும் வீக்கம்",
+  "intentLabel.wind": "wind speed and direction",
   "intentLabel.general": "உங்கள் பகுதி",
   "intentLabel.fishingAtDefault": "முன்னிருப்பு விமானப் பகுதியில் மீன்பிடி மண்டலங்கள்",
   "intentLabel.generalAtDefault": "முன்னிருப்பு விமானி பகுதி",

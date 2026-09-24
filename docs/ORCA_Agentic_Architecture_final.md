@@ -489,6 +489,15 @@ class ORCAState(TypedDict):
     vessel_class: Optional[str]       # NEW v4 — surfaced at state level, was only in
                                        # commercial_navigator profile YAML before; RAA needs
                                        # it directly (§3.1 Agent 7 vessel-class deltas)
+    demo_scenario: Optional[str]      # NEW P6.6 — set only by `/demo`. When present, the four
+                                       # agents that fetch external data (marine_data_discovery,
+                                       # weather_intelligence, ocean_analytics, geospatial)
+                                       # return a pinned prior real reading (orca/demo_fixtures.py)
+                                       # instead of a fresh live fetch, so a scenario's verdict
+                                       # cannot flip because of today's actual weather. Every
+                                       # other node — including Risk Assessment's own arithmetic —
+                                       # runs exactly as it does on a live query. None always on
+                                       # every non-demo query.
 
     discovery_data: Dict[str, Any]
     weather_data: Dict[str, Any]

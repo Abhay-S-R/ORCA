@@ -25,5 +25,62 @@ services:
     ports:
       - "6379:6379"
 
+  # P6.12 (orca_final §28) — "one command brings up the whole stack".
+  # Postgres/Redis above already did; backend and frontend were missing.
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Compose's own DNS names, not localhost/5433 — the host-port remap in
+      # the postgres service above (5433:5432) exists only for a native
+      # Postgres already on 5432 on the *host*; inside the compose network
+      # every service reaches postgres at its own 5432, unaffected by that.
+      DATABASE_URL: postgresql://orca:orca@postgres:5432/orca
+      REDIS_URL: redis://redis:6379/0
+      ORCA_ENV: ${ORCA_ENV:-local}
+      ORCA_JWT_SECRET: ${ORCA_JWT_SECRET}
+      ORCA_LLM_ENABLED: ${ORCA_LLM_ENABLED:-1}
+      ORCA_LLM_CHEAP_PROVIDER: ${ORCA_LLM_CHEAP_PROVIDER}
+      ORCA_LLM_CHEAP_MODEL: ${ORCA_LLM_CHEAP_MODEL}
+      ORCA_LLM_MID_PROVIDER: ${ORCA_LLM_MID_PROVIDER}
+      ORCA_LLM_MID_MODEL: ${ORCA_LLM_MID_MODEL}
+      ORCA_LLM_REASONING_PROVIDER: ${ORCA_LLM_REASONING_PROVIDER}
+      ORCA_LLM_REASONING_MODEL: ${ORCA_LLM_REASONING_MODEL}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      IMD_API_KEY: ${IMD_API_KEY}
+      STORMGLASS_API_KEY: ${STORMGLASS_API_KEY}
+      COPERNICUS_MARINE_USERNAME: ${COPERNICUS_MARINE_USERNAME}
+      COPERNICUS_MARINE_PASSWORD: ${COPERNICUS_MARINE_PASSWORD}
+      EARTHDATA_TOKEN: ${EARTHDATA_TOKEN}
+      BHASHINI_USER_ID: ${BHASHINI_USER_ID}
+      BHASHINI_ULCA_API_KEY: ${BHASHINI_ULCA_API_KEY}
+      BHASHINI_INFERENCE_API_KEY: ${BHASHINI_INFERENCE_API_KEY}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT}
+    volumes:
+      # `data/` is gitignored (P5.12's own reasoning: a fresh checkout has no
+      # copy) — bind-mount the host tree in rather than baking a multi-GB
+      # layer, so a `docker compose up` after `refresh_all.py` sees the same
+      # files the host does.
+      - ./data:/app/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    depends_on:
+      - backend
+
 volumes:
   orca_pgdata:

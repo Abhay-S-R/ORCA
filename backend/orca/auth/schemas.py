@@ -80,6 +80,7 @@ class UserOut(BaseModel):
     home_port_name: str | None = None
     active_vessel_id: uuid.UUID | None = None
     quiet_hours: dict | None = None
+    typical_departure_hour: int | None = None
 
 
 class LanguageIn(BaseModel):
@@ -100,6 +101,10 @@ class QuietHoursIn(BaseModel):
     start: str = Field(pattern=r"^\d{2}:\d{2}$")  # "HH:MM", 24h
     end: str = Field(pattern=r"^\d{2}:\d{2}$")
     tz: str = "Asia/Kolkata"
+
+
+class TypicalDepartureHourIn(BaseModel):
+    hour: int = Field(ge=0, le=23)
 
 
 class SessionToken(BaseModel):
