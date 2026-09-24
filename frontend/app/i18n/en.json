@@ -152,6 +152,7 @@
   "intentLabel.safety": "local sea conditions",
   "intentLabel.current": "surface current speed and direction",
   "intentLabel.wave": "wave height and swell",
+  "intentLabel.wind": "wind speed and direction",
   "intentLabel.general": "your area",
   "intentLabel.fishingAtDefault": "fishing zones in the default pilot region",
   "intentLabel.generalAtDefault": "the default pilot region",

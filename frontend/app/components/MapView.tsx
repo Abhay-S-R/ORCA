@@ -241,7 +241,7 @@ export type MapPin = { lat: number; lon: number; label: string; color: string };
 export type DistressMarker = { id: string; lat: number; lon: number; label: string };
 
 export type QueryFocus = {
-  intent: "fishing" | "boundary" | "safety" | "current" | "wave" | "general";
+  intent: "fishing" | "boundary" | "safety" | "current" | "wave" | "wind" | "general";
   regionId?: string;
   coords?: [number, number];
   nonce: number;
@@ -257,9 +257,10 @@ export type QueryFocus = {
 const QUERY_INTENT_LAYERS: Partial<Record<QueryFocus["intent"], readonly string[]>> = {
   fishing: ["pfz"],
   boundary: ["boundaries", "boundaryLines"],
-  current: ["wind", "currents"],
+  current: ["currents"],
   wave: ["waveForecast", "wind"],
-  safety: ["wind", "currents", "boundaries"],
+  wind: ["wind"],
+  safety: ["currents", "boundaries"],
 };
 
 export function MapView({
@@ -1382,19 +1383,20 @@ export function MapView({
       } else {
         fallback(8.6);
       }
-    } else if (queryFocus.intent === "current" || queryFocus.intent === "wave") {
-      // Both fields cover the whole basin, so there is no "nearby geometry"
-      // to frame: a named place keeps its own sector (the field is drawn
-      // there too), and only an unplaced question falls back to the whole
-      // field's extent.
-      const bounds = queryFocus.intent === "current" ? currentBounds : forecastLayer?.bounds;
+    } else if (queryFocus.intent === "current" || queryFocus.intent === "wave" || queryFocus.intent === "wind") {
+      // All three fields cover the whole basin — a named place keeps its own
+      // sector, an unplaced question fits the full field extent.
+      const bounds =
+        queryFocus.intent === "current" ? currentBounds :
+        queryFocus.intent === "wind" ? windBounds :
+        forecastLayer?.bounds;
       if (region) {
         fallback(8.2);
       } else if (bounds) {
         const [w, s, e, n] = bounds;
         m.fitBounds([[w, s], [e, n]], {
           padding: 60,
-          maxZoom: queryFocus.intent === "current" ? 6.5 : 8,
+          maxZoom: queryFocus.intent === "wave" ? 8 : 6.5,
           duration: 900,
         });
       } else {

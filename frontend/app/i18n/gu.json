@@ -150,6 +150,7 @@
   "intentLabel.safety": "સ્થાનિક દરિયાઈ પરિસ્થિતિઓ",
   "intentLabel.current": "સપાટીની વર્તમાન ઝડપ અને દિશા",
   "intentLabel.wave": "તરંગની ઊંચાઈ અને ફૂલવું",
+  "intentLabel.wind": "wind speed and direction",
   "intentLabel.general": "તમારો વિસ્તાર",
   "intentLabel.fishingAtDefault": "મૂળભૂત પાયલોટ પ્રદેશમાં માછીમારી ઝોન",
   "intentLabel.generalAtDefault": "મૂળભૂત પાયલોટ વિસ્તાર",
