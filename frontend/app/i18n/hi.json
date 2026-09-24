@@ -150,6 +150,7 @@
   "intentLabel.safety": "स्थानीय समुद्री स्थितियाँ",
   "intentLabel.current": "सतह वर्तमान गति और दिशा",
   "intentLabel.wave": "लहर की ऊँचाई और फूलना",
+  "intentLabel.wind": "wind speed and direction",
   "intentLabel.general": "आपका क्षेत्र",
   "intentLabel.fishingAtDefault": "डिफ़ॉल्ट पायलट क्षेत्र में मछली पकड़ने के क्षेत्र",
   "intentLabel.generalAtDefault": "डिफ़ॉल्ट पायलट क्षेत्र",

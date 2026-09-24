@@ -43,8 +43,9 @@ const INTENT_ICON: Record<QueryIntent, typeof Waves> = {
   fishing: Fish,
   boundary: Compass,
   safety: ShieldCheck,
-  current: Wind,
+  current: Waves,
   wave: Waves,
+  wind: Wind,
   general: MapPin,
 };
 
@@ -466,11 +467,11 @@ export default function AskPage() {
               </button>
             )}
 
-            {/* Wind currents + surface currents on by default — clean map presentation */}
+            {/* No layers on by default — layers are set precisely by query intent */}
             <div className="h-full w-full">
               <MapView
                 className="h-full w-full"
-                initialLayers={{ wind: true, currents: true }}
+                initialLayers={{ wind: false, currents: false, pfz: false, seamarks: false, watchBadges: false, cyclone: false }}
                 queryFocus={activeFocus}
                 distressMarkers={distressMarkers}
                 showLayerPanel={false}

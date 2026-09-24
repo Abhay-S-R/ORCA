@@ -150,6 +150,7 @@
   "intentLabel.safety": "ಸ್ಥಳೀಯ ಸಮುದ್ರ ಪರಿಸ್ಥಿತಿಗಳು",
   "intentLabel.current": "ಮೇಲ್ಮೈ ಪ್ರವಾಹದ ವೇಗ ಮತ್ತು ದಿಕ್ಕು",
   "intentLabel.wave": "ಅಲೆಯ ಎತ್ತರ ಮತ್ತು ಉಬ್ಬು",
+  "intentLabel.wind": "wind speed and direction",
   "intentLabel.general": "ನಿಮ್ಮ ಪ್ರದೇಶ",
   "intentLabel.fishingAtDefault": "ಪೂರ್ವನಿಯೋಜಿತ ಪ್ರಾಯೋಗಿಕ ಪ್ರದೇಶದಲ್ಲಿ ಮೀನುಗಾರಿಕೆ ವಲಯಗಳು",
   "intentLabel.generalAtDefault": "ಪೂರ್ವನಿಯೋಜಿತ ಪೈಲೆಟ್ ಪ್ರದೇಶ",

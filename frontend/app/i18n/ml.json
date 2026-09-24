@@ -150,6 +150,7 @@
   "intentLabel.safety": "പ്രാദേശിക കടൽ സാഹചര്യങ്ങൾ",
   "intentLabel.current": "ഉപരിതല വൈദ്യുതധാരയുടെ വേഗതയും ദിശയും",
   "intentLabel.wave": "തിരമാലകളുടെ ഉയരവും വീക്കവും",
+  "intentLabel.wind": "wind speed and direction",
   "intentLabel.general": "നിങ്ങളുടെ പ്രദേശം",
   "intentLabel.fishingAtDefault": "സ്ഥിര പൈലറ്റ് മേഖലയിലെ മത്സ്യബന്ധന മേഖലകൾ",
   "intentLabel.generalAtDefault": "സ്ഥിര പൈലറ്റ് മേഖല",

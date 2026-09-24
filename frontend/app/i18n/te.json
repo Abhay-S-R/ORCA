@@ -150,6 +150,7 @@
   "intentLabel.safety": "స్థానిక సముద్ర పరిస్థితులు",
   "intentLabel.current": "ఉపరితల ప్రస్తుత వేగం మరియు దిశ",
   "intentLabel.wave": "అలల ఎత్తు మరియు ఉబ్బు",
+  "intentLabel.wind": "wind speed and direction",
   "intentLabel.general": "మీ ప్రాంతం",
   "intentLabel.fishingAtDefault": "డిఫాల్ట్ పైలట్ ప్రాంతంలో ఫిషింగ్ జోన్లు",
   "intentLabel.generalAtDefault": "డిఫాల్ట్ పైలట్ ప్రాంతం",

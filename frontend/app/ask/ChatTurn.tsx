@@ -38,6 +38,7 @@ const FOLLOW_UPS: Record<QueryIntent, string[]> = {
   boundary: ["Is it safe to go out tomorrow morning?", "Where are the fishing zones closest to my position?"],
   current: ["Is it safe to go out tomorrow morning?", "What are the wave conditions right now?"],
   wave: ["Is it safe to go out tomorrow morning?", "What is the surface current speed and direction?"],
+  wind: ["Is it safe to go out tomorrow morning?", "What are the wave conditions right now?"],
   general: ["Is it safe to go out tomorrow morning?", "Where are the fishing zones closest to my port?"],
 };
 
