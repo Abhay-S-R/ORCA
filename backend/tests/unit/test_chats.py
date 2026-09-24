@@ -173,6 +173,46 @@ def test_another_users_chat_is_invisible_and_untouchable(make_user):
     assert [t["asked_query"] for t in owner_turns] == ["owner's private question"]
 
 
+def test_a_chat_row_created_by_an_anonymous_query_is_adopted_on_first_save(make_user):
+    """Chatbot plan C0.1. /query creates the `sessions` row for a chat before
+    its first save, and when it could not tell who was asking the row has no
+    owner. That first save used to 404 ("Not saved yet — retrying", forever),
+    so no signed-in user's new chat was ever saved."""
+    from orca.db.repositories import get_or_create_session
+
+    user = make_user()
+    chat_id = uuid.uuid4()
+    db = get_sessionmaker()()
+    try:
+        get_or_create_session(db, session_id=chat_id, user_id=None, persona="fisherman", language="en")
+        db.commit()
+    finally:
+        db.close()
+
+    assert _save(user, chat_id, "first question in a new chat").status_code == 204
+    chats = client.get("/api/chats", headers=_auth(user["tokens"])).json()
+    assert [c["id"] for c in chats] == [str(chat_id)]
+    # Adopted, not shared: the next account to try it is still refused.
+    assert _save(make_user(), chat_id, "hijack").status_code == 404
+
+
+def test_query_learns_the_caller_from_a_token_in_the_url(make_user):
+    """An EventSource cannot send a header, so /ask sends the access token as
+    `access_token` — without it every signed-in question reached /query as a
+    guest (chatbot plan C0.1). A bad token is still just "anonymous"."""
+    from orca.auth.rbac import get_optional_user
+
+    user = make_user()
+    db = get_sessionmaker()()
+    try:
+        found = get_optional_user(credentials=None, access_token=user["tokens"]["access_token"], db=db)
+        assert found is not None and str(found.id) == user["id"]
+        assert get_optional_user(credentials=None, access_token="not-a-token", db=db) is None
+        assert get_optional_user(credentials=None, access_token=None, db=db) is None
+    finally:
+        db.close()
+
+
 def test_chat_routes_require_a_signed_in_user():
     assert client.get("/api/chats").status_code == 401
     assert client.put(f"/api/chats/{uuid.uuid4()}/turns/{uuid.uuid4()}", json={}).status_code in (401, 422)

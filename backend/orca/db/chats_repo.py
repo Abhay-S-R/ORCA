@@ -123,6 +123,16 @@ def _claim_chat(db: Session, user_id: uuid.UUID, chat_id: uuid.UUID, persona: st
         .on_conflict_do_nothing(index_elements=[SessionRow.id])
         .returning(SessionRow.id)
     ).first() is not None
+    # An ownerless row is adopted, the same rule get_or_create_session applies
+    # ("an anonymous chat that later signs in"). /query creates this row first
+    # and cannot always tell who is asking, so without this every signed-in
+    # user's new chat 404'd on its first save (chatbot plan C0.1). The UPDATE
+    # only matches a NULL owner, so a row somebody else owns is never taken.
+    db.execute(
+        update(SessionRow)
+        .where(SessionRow.id == chat_id, SessionRow.user_id.is_(None))
+        .values(user_id=user_id)
+    )
     owner = db.execute(select(SessionRow.user_id).where(SessionRow.id == chat_id)).scalar_one()
     if owner != user_id:
         raise ChatOwnershipError(str(chat_id))

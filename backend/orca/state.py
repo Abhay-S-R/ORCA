@@ -106,6 +106,12 @@ class ORCAState(TypedDict):
 
     final_english_response: str
     final_vernacular_response: str
+    # Chatbot plan C0.2 — which engine wrote `final_english_response`
+    # (orca/engines.py label: "gemini · …", "ollama · … (fallback)", or
+    # "Deterministic — …" for the last-resort paragraph the UI labels), and
+    # whether a refused message was only a greeting or small talk.
+    response_engine: str | None
+    small_talk: bool
     evidence_citations: list[dict[str, Any]]
     confidence_tier: str
     persona_correction_available: bool

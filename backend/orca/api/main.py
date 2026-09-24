@@ -110,6 +110,15 @@ async def _lifespan(app: FastAPI):
         asyncio.get_running_loop().run_in_executor(None, intent_embeddings.warm)
     except Exception:  # warm-up is an optimisation, never a startup dependency
         logging.getLogger("orca.intent").warning("intent embedding warm-up not started", exc_info=True)
+    # Chatbot plan C0.2b — the local model is the last rung under every
+    # written answer, and a cold one takes minutes to load. Same
+    # fire-and-forget shape as the warm-ups above.
+    try:
+        from orca.llm.tiers import warm_local_models
+
+        asyncio.get_running_loop().run_in_executor(None, warm_local_models)
+    except Exception:  # warm-up is an optimisation, never a startup dependency
+        logging.getLogger("orca.llm").warning("local model warm-up not started", exc_info=True)
     # Agent 11 (Sentinel, Phase 3 D2) — an in-process asyncio poll loop,
     # single-instance via a Postgres advisory lock. Disabled with
     # ORCA_SENTINEL_ENABLED=0; a DB outage degrades it to a no-op tick, never
@@ -544,6 +553,11 @@ async def _query_stream(
             "final_english_response": final_state.get("final_english_response", ""),
             "final_vernacular_response": final_state.get("final_vernacular_response")
             or final_state.get("final_english_response", ""),
+            # Chatbot plan C0.2 — which engine wrote the answer, so the chat
+            # can label the last-resort facts paragraph ("Deterministic — …"),
+            # and whether a refused message was only small talk.
+            "response_engine": final_state.get("response_engine"),
+            "small_talk": bool(final_state.get("small_talk")),
             "detected_language": final_state.get("detected_language", "en"),
             # What the chat's context window remembers this turn as
             # (session.turn_from_final) — English query and matched routing

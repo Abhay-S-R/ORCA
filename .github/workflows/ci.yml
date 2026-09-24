@@ -1,7 +1,8 @@
 name: CI — Lint
 
-# Gating on every push and PR to main. `pytest` deliberately stays out of CI
-# because data/ is gitignored and a hosted runner has no Tier-1 fixtures.
+# Gating on every push and PR to main. The full `pytest` suite deliberately
+# stays out of CI because data/ is gitignored and a hosted runner has no Tier-1
+# fixtures; the one data-free test file (the response guarantee) runs below.
 on:
   push:
     branches: [main]
@@ -56,6 +57,14 @@ jobs:
       # greps that silently drift from scripts/verify_ci_guards.py.
       - name: CI guards (vendor SDK, persona leak, secret scan, safety-path LLM import)
         run: python scripts/verify_ci_guards.py
+
+      # Chatbot plan C0.2(f) — every prompt that reaches /ask gets a written
+      # answer, even with every provider down. The one pytest file in CI, and
+      # deliberately so: it needs no data/, no network and no key (providers
+      # are scripted fakes), so the gate means the same thing on a runner as
+      # on a dev machine. Gates at zero failures.
+      - name: Response guarantee (every prompt gets a written answer)
+        run: python -m pytest -q tests/unit/test_response_guarantee.py
 
   frontend-lint:
     name: Frontend lint (ESLint + TypeScript)

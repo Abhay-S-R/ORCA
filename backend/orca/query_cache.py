@@ -14,6 +14,7 @@ import logging
 from typing import Any
 
 from orca.cache import redis_client
+from orca.engines import DETERMINISTIC
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,11 @@ def get(key: str) -> dict[str, Any] | None:
 
 
 def store(key: str, response: dict[str, Any]) -> None:
+    # Chatbot plan C0.2 — an answer written without a model (every provider
+    # down, "Deterministic — …") is an outage artefact. Cached, it would be
+    # replayed for 30 minutes after the providers came back.
+    if str(response.get("response_engine") or "").startswith(DETERMINISTIC):
+        return
     try:
         client = redis_client()
         client.setex(key, TTL_SECONDS, json.dumps(response, default=str))

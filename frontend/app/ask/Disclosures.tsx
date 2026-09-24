@@ -61,13 +61,22 @@ export function RefusalCard({
     <Panel>
       <div className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
-          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink">
-            <Icon className="size-4 shrink-0 text-caution" aria-hidden="true" />
-            {t(HEADING_KEY[outcome] ?? "disclosures.default")}
-          </p>
+          {/* A greeting is not a refusal: "hi" gets its reply without a "Not
+              something ORCA can answer" heading over it (chatbot plan C0.2d). */}
+          {answer.small_talk ? (
+            <span />
+          ) : (
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink">
+              <Icon className="size-4 shrink-0 text-caution" aria-hidden="true" />
+              {t(HEADING_KEY[outcome] ?? "disclosures.default")}
+            </p>
+          )}
           {actions}
         </div>
         <p className="max-w-[60ch] text-sm leading-relaxed text-ink-muted">{body}</p>
+        {answer.response_engine?.startsWith("Deterministic") && (
+          <p className="text-[11px] text-ink-dim">{t("chatTurn.writtenWithoutModel")}</p>
+        )}
 
         {/* The redirect. A refusal that dead-ends is just a wall — each chip
             re-asks the question at a place ORCA can actually answer for. */}

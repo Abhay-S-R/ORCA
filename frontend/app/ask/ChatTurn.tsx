@@ -315,22 +315,21 @@ export function ChatTurn({
 
               {(() => {
                 const answerBody = answer.final_vernacular_response || answer.final_english_response;
-                // Agent 9 emits "VERDICT: reason" as the whole English
-                // response today — identical to what PersonaAnswerMatrix's
-                // status row already shows above. Skip the repeat; a
-                // vernacular translation still differs, so it still renders.
-                const verdictLine = answer.risk_assessment?.go_no_go
-                  ? `${answer.risk_assessment.go_no_go}: ${answer.risk_assessment.reason}`
-                  : null;
-                const isRedundant = verdictLine != null && answerBody.trim() === verdictLine.trim();
+                // Always rendered. This used to be hidden whenever it equalled
+                // the "VERDICT: reason" status line — which is exactly what a
+                // provider outage produced, so the Response went blank
+                // (chatbot plan C0.2e). The fallback now carries the readings,
+                // and says when no model wrote it.
+                const unwritten = answer.response_engine?.startsWith("Deterministic") ?? false;
                 return (
                   <div className="flex flex-col gap-2.5">
-                    {!isRedundant && (
-                      <FormattedResponse
-                        text={answerBody}
-                        language={answer.detected_language}
-                        large={(renderedAs ?? persona) === "fisherman"}
-                      />
+                    <FormattedResponse
+                      text={answerBody}
+                      language={answer.detected_language}
+                      large={(renderedAs ?? persona) === "fisherman"}
+                    />
+                    {unwritten && (
+                      <p className="text-[11px] text-ink-dim">{t("chatTurn.writtenWithoutModel")}</p>
                     )}
                     <AnswerSpeaker
                       text={answerBody}

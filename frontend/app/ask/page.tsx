@@ -369,7 +369,7 @@ export default function AskPage() {
               <div className="flex shrink-0 items-center gap-2">
                 {saveFailed && (
                   <span role="status" className="text-[11px] text-caution">
-                    {t("ask.notSaved")}
+                    {t(saveFailed === "rejected" ? "ask.saveRejected" : "ask.notSaved")}
                   </span>
                 )}
                 {historyButton}

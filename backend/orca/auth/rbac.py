@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -45,6 +45,7 @@ def get_current_user(
 
 def get_optional_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    access_token: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> User | None:
     """Same verification as `get_current_user`, but a missing, malformed or
@@ -53,11 +54,20 @@ def get_optional_user(
     must keep working exactly as before (no login wall, nothing to fail on
     stage). A token that IS present and invalid is still not an error here:
     treating it as anonymous is safer than guessing which stale/forged claim
-    to trust."""
-    if credentials is None:
+    to trust.
+
+    `access_token` is the same token as a query parameter, for the one caller
+    that cannot send a header: `/ask` reads `/query` through an EventSource.
+    Without it every signed-in `/ask` question arrived anonymous, so its
+    chat's `sessions` row was created ownerless and the chat never saved
+    (chatbot plan C0.1). Same pattern as the notifications stream
+    (notifications_routes.stream); tokens in logs are redacted
+    (logging_utils `_JWT`)."""
+    raw = credentials.credentials if credentials is not None else access_token
+    if not raw:
         return None
     try:
-        payload = decode_token(credentials.credentials, expected_type="access")
+        payload = decode_token(raw, expected_type="access")
     except TokenError:
         return None
     user = get_user_by_id(db, uuid.UUID(payload["sub"]))

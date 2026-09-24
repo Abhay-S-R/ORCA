@@ -224,6 +224,7 @@ def run_critic_pass(
         # token budget belongs in the tier's own config, not a per-call kwarg
         # here.
         raw = client.complete([{"role": "user", "content": _judge_prompt(query, current, facts_block)}])
+        _note_engine(client, engine_out)
         issues = _parse_judge_response(raw)
         if not issues:
             return current, True, iteration, issues_found
@@ -232,6 +233,7 @@ def run_critic_pass(
         revised = client.complete(
             [{"role": "user", "content": _revise_prompt(current, issues, verdict_header or "")}]
         ).strip()
+        _note_engine(client, engine_out)
 
         # The verdict header is load-bearing: a revision that drops or
         # changes it is rejected outright and the previous text is kept —
@@ -242,6 +244,15 @@ def run_critic_pass(
         current = revised
 
     return current, False, max_iterations, issues_found
+
+
+def _note_engine(client: object, engine_out: list[str] | None) -> None:
+    """A tier is a chain of providers now (orca/llm/tiers.py): which rung
+    answered is only known after the call, so the label recorded before the
+    first call is replaced with the one that actually did the work."""
+    engine = getattr(client, "engine", None)
+    if engine_out and engine:
+        engine_out[-1] = engine
 
 
 def build_facts_block(state: ORCAState) -> str:

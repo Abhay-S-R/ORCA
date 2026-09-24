@@ -389,6 +389,16 @@ def run(state: ORCAState) -> AgentResult:
                 "caution_wind_kmh": 35.0 + wind_delta,
                 "danger_wind_kmh": 55.0 + wind_delta,
             },
+            # The readings this verdict was computed from — the matched hour,
+            # after reconciliation — so the written answer quotes the same
+            # numbers the verdict used rather than re-deriving "now" from
+            # `hourly` itself (chatbot plan C0.2e). None stays None: an
+            # unreadable input is never written up as calm.
+            "readings": {
+                "wave_height_m": wave_height_m,
+                "wind_speed_ms": wind_speed_ms,
+                "valid_time": current.get("time"),
+            },
         },
         source_provenance=SourceProvenance(
             dataset="Deterministic rules over Agent 4 + Agent 6 outputs",

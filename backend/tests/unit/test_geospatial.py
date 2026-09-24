@@ -7,12 +7,37 @@ from orca.agents.geospatial import (
     depth_at_point,
     generate_map_layers,
     load_boundaries,
+    load_boundary_lines,
+    nearest_boundary_line,
     point_in_polygon,
     spatial_query_zones,
 )
+from orca.data.loaders import DEFAULT_LAT, DEFAULT_LON
 
 # Gulf of Mannar, offshore Thoothukudi — confirmed inside the India EEZ and shallow.
 INSIDE_LAT, INSIDE_LON = 8.70, 78.50
+
+
+def test_nearest_boundary_line_never_answers_with_indias_own_baseline() -> None:
+    """Regression, found 2026-09-25: `nearest_boundary_line` used to consider
+    all 32 lines, including 6 "Straight baseline" and 2 "200 NM" features
+    that are India's own coastline/limit markers (`territory2: null` in the
+    source data), not a line to another state. At the pilot default position
+    that read 0.7 nm to "India Straight Baseline" — an imminent-breach NO_GO
+    on an ordinary question with no boundary anywhere near it. Every line
+    `load_boundary_lines()` holds is still drawn on the map (context); only
+    the verdict-relevant nearest line must exclude India's own markers."""
+    excluded_types = {p.get("line_type") for _, p in load_boundary_lines() if not p.get("territory2")}
+    assert excluded_types == {"Straight baseline", "200 NM"}
+
+    line = nearest_boundary_line(DEFAULT_LAT, DEFAULT_LON)
+    assert line is not None
+    assert None not in line["between"], line
+    assert line["line_type"] not in ("Straight baseline", "200 NM"), line
+    assert line["distance_nm"] > 10 and line["alert_level"] == "CLEAR", line
+
+    kochi = nearest_boundary_line(9.9667, 76.2667)
+    assert kochi is not None and kochi["line_type"] not in ("Straight baseline", "200 NM"), kochi
 
 
 def test_gulf_of_mannar_excluded_from_geofence_usable() -> None:

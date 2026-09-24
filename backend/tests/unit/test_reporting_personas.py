@@ -53,11 +53,15 @@ def test_verdict_header_and_ground_rule_2_hold_across_every_persona():
         assert narrative.startswith("GO:")
 
 
-def test_unconfigured_llm_falls_back_to_deterministic_verdict_line_for_every_persona():
+def test_unconfigured_llm_falls_back_to_a_facts_paragraph_led_by_the_verdict_for_every_persona():
+    """Chatbot plan C0.2e: the fallback used to be exactly the verdict line,
+    which the chat hides as a repeat of the status row — a blank answer. It
+    still leads with the verdict, and is never only the verdict."""
     for persona in _PERSONA_RENDERING_INSTRUCTIONS:
         with patch("orca.llm.tiers.llm", side_effect=RuntimeError("no API key")):
             narrative = synthesize_narrative("is it safe today", _VERDICT, [_result()], persona=persona)
-        assert narrative == "GO: conditions within safe thresholds"
+        assert narrative.startswith("GO: conditions within safe thresholds")
+        assert narrative.strip() != "GO: conditions within safe thresholds"
 
 
 def test_result_refs_resolve_back_to_the_agent_result_that_produced_the_citation():

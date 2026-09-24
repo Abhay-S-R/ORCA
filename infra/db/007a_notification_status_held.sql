@@ -1,0 +1,11 @@
+-- The 'held' notification status, in a transaction of its own.
+--
+-- 008_phase5_watches_voyages.sql adds this value and then uses it in a partial
+-- index in the same file. migrate.sh runs each file as one transaction
+-- (--single-transaction), and Postgres refuses a new enum value inside the
+-- transaction that added it ("unsafe use of new value"), so 008 could not be
+-- applied by the repo's own runner on any machine. This file sorts before 008
+-- ('_' < 'a' < '8'), commits the value first, and makes 008's own
+-- ADD VALUE IF NOT EXISTS a no-op. Idempotent, so a database that already has
+-- the value (008 applied some other way) is unaffected.
+ALTER TYPE notification_status ADD VALUE IF NOT EXISTS 'held';

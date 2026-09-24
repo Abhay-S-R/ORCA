@@ -273,8 +273,19 @@ def nearest_boundary_line(lat: float, lon: float) -> dict[str, Any] | None:
     the Palk Bay IS the IMBL but elsewhere is the 200 NM limit — a different
     thing legally. This names the actual treaty line and the agreement that
     drew it, which is what an arrest across it turns on.
+
+    Only lines BETWEEN India and another state count here. 8 of the 32
+    features in the file are not that: 6 "Straight baseline" + 2 "200 NM"
+    lines are India's own coastline/limit markers, `territory2: null` in the
+    source data — nothing to cross into. Counting them made the pilot default
+    position read 0.7 nm from a "boundary" (was 47.6 nm before the Phase 5
+    merge added this filter's absence) and made an ordinary Thoothukudi
+    question NO_GO (found 2026-09-25, `docs/DLC_implementation_log.md`).
+    `load_boundary_lines()` itself still returns all 32 — `map_layers`
+    (`orca/api/geospatial_routes.py`) draws every line, baselines included,
+    for context; only a verdict-relevant nearest line excludes them.
     """
-    lines = load_boundary_lines()
+    lines = [(g, p) for g, p in load_boundary_lines() if p.get("territory2")]
     if not lines:
         return None
     pt = Point(lon, lat)
@@ -847,6 +858,12 @@ if __name__ == "__main__":
                for f in load_boundaries())
     line = nearest_boundary_line(lat, lon)
     assert line and line["distance_nm"] > 0 and line["treaty"], line
+    # Regression, found 2026-09-25: this pilot point used to come back 0.7 nm
+    # from "India Straight Baseline" — India's own coastline, not a boundary —
+    # which read as an imminent breach on an ordinary question. It must always
+    # be a line between India and another state, and far enough to be CLEAR.
+    assert None not in line["between"], line
+    assert line["distance_nm"] > 10 and line["alert_level"] == "CLEAR", line
 
     # District lookup: onshore resolves, offshore is honestly None.
     onshore = district_at_point(8.80, 78.14)

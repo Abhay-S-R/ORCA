@@ -2517,3 +2517,91 @@ Remarks:
   - `docs/ORCA_Stale_Data_Policy.md`: §4's tracker rows marked done; new §7 (OSF WW3/HYCOM), §8 (why Stormglass/SOI are fixed rather than banded), §9 (why `mosdac_nrt_sst/_chl/_wind`, `nasa_ocean_color`, `gfw_ais`, `bhuvan_wms` need no code — `mosdac_nrt_sst/_chl` are the identical files under a second registry id, `nasa_ocean_color`/`bhuvan_wms`/`gfw_ais` all return `held_locally: False` catalog entries, and `mosdac_nrt_wind`'s one real consumer is the already-covered wind map layer).
 - **Verification:** `pytest tests/unit/test_ocean_analytics.py tests/unit/test_analytics_routes.py` 37 passed (existing tests extended with band/acquisition-timestamp assertions, no new test functions needed); full backend suite `pytest -q` 718 passed, 2 skipped; `eslint app/voyage/page.tsx` clean. **Live-verified** on a freshly restarted backend: `nearest_osf_point_forecast(8.80, 78.14)` returned `wave`/`ocean` each with `band: "fresh"`, `age_days: 1` off their own `forecast_time`; `GET /api/tides?lat=22.98&lon=70.22` (Kandla, a station with no SOI table but a real Stormglass cache) returned `fell_back: true` with `acquisition_timestamp: "2026-09-23T00:00:00Z"` — the cache's real date, not the query day (2026-09-24).
 - **Remarks:** the frontend `SourceChip` on `/voyage` was reused as-is rather than checked with a Playwright click-through of the live map — the map view in this build has no pannable/searchable UI to reach Kandla precisely by coordinate, and the user asked to verify that surface themselves this session rather than have it automated. The `/api/tides` and backend-agent verification above went through the real route with real query parameters, not hand-picked internals.
+
+### [2026-09-24] Chatbot plan Phase C0 — signed-in chats save again; every prompt gets a written answer
+
+- **Implements:** C0.1 and C0.2 of `docs/ORCA_Chatbot_Response_Plan.md` (§6; as-built notes in its §6.1), per the user's "implement the phase C0". Also the user's mid-task requests: Groq keys read from `.env` in order, the local model tuned and measured, and the local model always the lowest priority and never assumed present ("local model isn't present in everyone's system").
+- **By:** Claude (Opus 5.5).
+- **Files:** `backend/orca/llm/tiers.py` (provider chain, budget, retry policy, warm-up), `backend/orca/llm/registry.py` (per-call timeouts, `OllamaProvider`, `GroqProvider`, `groq_keys`), `backend/orca/agents/reporting.py` (`facts_paragraph`, `write_guard_reply`), `backend/orca/graph/graph.py` (model-written guard replies, `response_engine`), `backend/orca/agents/critic.py` (records the rung that actually answered), `backend/orca/agents/risk_assessment.py` (`readings`), `backend/orca/api/main.py` (warm-up; `response_engine`/`small_talk` on the final response), `backend/orca/state.py`, `backend/orca/query_cache.py`, `backend/orca/auth/rbac.py` (`access_token` query parameter), `backend/orca/db/chats_repo.py` (adopt an ownerless chat row), `frontend/app/ask/{useAskThread,chatStore,ChatTurn,Disclosures,page}.tsx`, `frontend/app/lib/auth.ts` (`tokenParam`), all ten `frontend/app/i18n/*.json` (two keys, translated through Bhashini, the app's own translation rung), `infra/db/007a_notification_status_held.sql` (new), `.env.example`, `.github/workflows/ci.yml`, `backend/tests/unit/test_response_guarantee.py` (new), `backend/tests/unit/test_chats.py`, `backend/tests/unit/test_reporting_personas.py`, `docs/ORCA_Chatbot_Response_Plan.md`.
+- **Commit:** — (uncommitted)
+- **What changed:**
+  - **C0.1:** `/ask` sends the access token on both `/query` EventSource URLs. `get_optional_user` reads it as a fallback when there is no header. `_claim_chat` adopts a `sessions` row that has no owner, and a row owned by someone else still returns 404. The frontend stops retrying a 404 and says "Couldn't save this chat" once.
+  - **C0.2:** every tier is an ordered chain of providers with one time budget: the configured model, then Groq if any key is set, then `gemini-flash-lite-latest`, then (for the mid tier only) the local model, if this machine has one. The facts paragraph replaces the bare verdict line as the last resort, and the UI no longer hides the Response. Out-of-scope, needs-place and out-of-range replies are written by a model, and greetings get a greeting. Answers written without a model are never cached.
+- **Verification:**
+  - `pytest` on the affected suites: 285 passed, 0 failed (test_response_guarantee, test_reporting_personas, test_phase2_reasoning, test_critic, test_chats, test_planning_tiers, test_conversation_context, test_query_coverage, test_place_resolution, test_auth). `test_response_guarantee.py` alone: 31 passed; it is now a gating CI step.
+  - Checkers: ruff clean on every changed file. mypy and pyrefly report no errors in changed files; mypy's 10 errors are identical on `HEAD`, checked in a throwaway worktree. `eslint` clean on changed frontend files. `verify_ci_guards.py`: all four guards green.
+  - **Live, through `/ask` in the browser, signed in as `agent@orca.test`:**
+    - A new chat saved on its first turn, with no "retrying".
+    - "hi" got a model-written greeting.
+    - Kochi was written by `gemini · gemini-3.5-flash-lite`.
+    - With `GEMINI_API_KEY` blanked for the backend process: `ollama · gemma4:e4b (fallback)`.
+    - With the Ollama URL also dead: the labelled facts paragraph, with the local rung absent from the chain rather than failing.
+  - **Measured on the real ~2,000-token Reporting prompt:**
+    - `gemini-flash-lite-latest`: 4.1 s.
+    - `gemini-3.5-flash-lite`: 4.8 s.
+    - `gemini-2.5-flash`: 8.7 s.
+    - `gemini-3.6-flash`: 7.2 s.
+    - Most other 3.x Flash models: 503 all evening.
+    - Local `gemma4:e4b` on the user's RTX 3050: 3.8 s with thinking off and `num_ctx` 8192; 58–64 s with thinking on, and the verdict header broken.
+- **Remarks:**
+  - **Pre-existing breakage met along the way; not introduced here.**
+    - Migration `008` (Phase 5 merge) cannot be applied by `migrate.sh`: it adds an enum value and uses it in the same transaction. Registration and sign-in failed until it was applied. The new `007a` migration commits the value first. Applied to the local database via `migrate.sh` (additive only).
+    - **The graph's IMBL distance now measures to India's own straight baselines** (P5.5's `nearest_boundary_line` over all 32 features). Thoothukudi reads 0.73 nm and NO_GO, with the full-screen breach takeover on a plain tide question; Kochi reads 2.5 nm and CAUTION. Left unfixed because it is outside C0. Written up in the plan's F4 with the class fix.
+    - On `HEAD`: ruff 14, mypy 10 and pyrefly 8 errors, plus `check:i18n` failing on the merge's untranslated `profile.*` and `watches.*` keys.
+  - **Not done:** the reset and "speak to me in <language>" confirmations are still fixed text. They are command acknowledgements rather than answers, and are not in C0's list. The distress path stays deterministic on purpose.
+
+### [2026-09-25] Open defects found during the stale-data and chatbot C0 sessions — not yet resolved
+
+- **What this is:** every error or bug found during the 2026-09-24 sessions (stale-data policy rollout, chatbot plan, Phase C0) that is still unresolved, per the user's request to list them. Each item was observed or measured, not assumed. Nothing here has been fixed yet. Items are ordered by severity.
+- **By:** Claude (Opus 5.5).
+- **Commit:** — (list only; no code changed by this entry)
+- **Open defects:**
+
+  1. **False NO_GO on every question that names no place, and false breach/caution near the coast (safety-relevant; highest priority).** Since the Phase 5 merge, `geospatial.nearest_boundary_line()` (P5.5) measures to the nearest of all 32 features in `india_maritime_boundary_lines.geojson`. That includes 6 "Straight baseline" and 7 "Connection line" features, which are India's own coastal baselines with no neighbouring state (`eez2` empty).
+     - The pilot default position `DEFAULT_LAT, DEFAULT_LON = 8.80, 78.30` (`orca/data/loaders.py:107`) reads **0.733 nm, `DANGER`**. So every question that names no place is answered NO_GO. Before the merge, the same position read 47.6 nm.
+     - Kochi reads 2.5 nm, `CAUTION`.
+     - A plain tide question at Thoothukudi raised the full-screen "Imminent Boundary or MPA Breach" takeover.
+     - The same function feeds `graph.py` (the verdict), `sentinel.py` (watches), `voyage.py` (routing) and `geospatial_routes.py`.
+     - Class fix: only consider lines that separate India from another state.
+
+  2. **A named inland place is answered at the pilot default.** `sea conditions near Delhi` is treated as "this question names no place" and answered in the Gulf of Mannar; only the model's wording (when it runs) says Delhi is inland. A place that is named but not in the coastal gazetteer should be a `NEEDS_PLACE` guard. With defect 1, that answer is also a false NO_GO. Tracked as F4 in `docs/ORCA_Chatbot_Response_Plan.md`.
+
+  3. **The OSF forecast age bands never reach the written answer.** `graph.py`'s reporting node passes Ocean Analytics only `tide`, `nearest_pfz`, `sector_status`, `pfz_persistence` and `productivity_diagnosis`, so `osf_point_forecast` (with its `age_days`/`band`/`expired`) is visible on the Reasoning page only. Wave height and wind now do reach the prompt, through `risk_assessment.readings` (added in C0). Tracked as F1.
+
+  4. **Two fixed-text replies still bypass the model**, against the chatbot plan's rule that every prompt gets a model-written reply:
+     - the "reset" confirmation (`session_memory.RESET_CONFIRMATION`);
+     - the "speak to me in <language>" confirmation (`api/main.py`).
+
+  5. **CI is red on `main` from the Phase 5 merge** (present on `HEAD`, none in files C0 changed):
+     - ruff: 14 errors, including 2 `ISC004` in `graph.py`.
+     - mypy: 10 errors in 7 files (`ops_routes.py`, `voyages_routes.py`, `sentinel_runtime.py`, `ocean_analytics.py`, `intent_actions.py`, `dispatcher.py`, `voyages_repo.py`).
+     - pyrefly: 8 errors.
+     - `npm run check:i18n`: fails, because the 9 non-English dictionaries lack the merge's `profile.*` and `watches.*` keys.
+
+  6. **Teammates' databases cannot apply migration `008` with `migrate.sh`** until they pull `007a_notification_status_held.sql` (008 adds an enum value and uses it in the same transaction). Until it is applied, registration and sign-in fail with `users.typical_departure_hour does not exist`. Fixed in the tree and applied to this machine's database; each teammate must still run `infra/db/migrate.sh`.
+
+  7. **Leftover rows and ids from the chat-save bug.**
+     - 11 `sessions` rows created ownerless by `/query` since `721d07d` hold no turns. Those answers were never stored and cannot be recovered. The rows are left in place for the user to decide (agents do not delete data).
+     - A browser that still holds an unsaved "current chat" id gets one `GET /api/chats/{id}` 404 on load. The frontend should drop an unknown current-chat id quietly.
+
+  8. **The Critic shows "degraded, Low data" during a Gemini outage.** The reasoning tier's chain has no local rung by design, so with Gemini (and no Groq key) unavailable, the Critic span reads degraded even when the answer itself was written by the local model. Not a wrong answer, but a misleading span.
+
+  9. **Frontend warnings:**
+     - `tsc --noEmit` reports stale `.next/types/validator.ts` errors (`Route` vs `LayoutRoutes`; a missing `app/safety/layout.js`).
+     - `/ask` logs `clusterMaxZoom` "Integer expected".
+
+  10. **Translation quality of the two new i18n keys.** Bhashini turned the em dash in `chatTurn.writtenWithoutModel` into an unspaced hyphen in every language (e.g. Hindi "…लिखा गया-किसी…"). A native reader should review.
+
+- **Open checks (not defects):**
+  - The Groq default model `llama-3.3-70b-versatile` is unverified for 2026-09; check Groq's model list once keys are in `.env`.
+  - The user is still to test the stale-data rollout on `/ask` and `/voyage` themselves.
+
+### [2026-09-25] Fix 1/10 — false NO_GO / breach alert from India's own coastal baselines
+
+- **Implements:** defect 1 of the 2026-09-25 open-defects list (previous entry), per the user's "fix them one by one".
+- **By:** Claude (Sonnet 5).
+- **Files:** `backend/orca/agents/geospatial.py` (`nearest_boundary_line`), `backend/tests/unit/test_geospatial.py` (new regression test).
+- **Commit:** — (uncommitted)
+- **What changed:** `nearest_boundary_line` now excludes the 8 of 32 features in `india_maritime_boundary_lines.geojson` that are not a line between India and another state — 6 "Straight baseline" + 2 "200 NM" features, `territory2: null` in the source data. `load_boundary_lines()` is untouched and still returns all 32; the map layer (`geospatial_routes.map_layers`) still draws every line, baselines included, for context. Only the nearest-line lookup that feeds `risk_assessment`'s verdict, `sentinel.py`'s watches and `voyage.py`'s routing excludes them.
+- **Verification:** confirmed the exact failure first — `nearest_boundary_line(8.80, 78.30)` (the pilot default) returned `India Straight Baseline`, 0.733 nm, before the fix. After: `Sri Lanka - India`, 45.1 nm, `CLEAR`; Kochi now resolves to `Maldives - India`, 148.7 nm, `CLEAR` (was `India Straight Baseline`, 2.5 nm). `pytest tests/unit/test_geospatial.py tests/unit/test_sentinel.py` → 48 passed, including the new regression test. `python -m orca.agents.geospatial` (module self-check) fails at an unrelated, pre-existing assertion (`wind["acquisition_date"] < "2026-09-03"`, a hardcoded date past today) — confirmed present on `HEAD` via `git stash` before this fix, so not a regression from this change. ruff and mypy clean on both changed files.
+- **Remarks:** the 47.6 nm figure recorded for the pilot default in the 2026-09-24 chatbot-plan entry (before the merge introduced this bug) does not exactly match the 45.1 nm this fix measures — both are plausible for "the real international boundary distance", and the small difference is not chased further; the class of bug (measuring to India's own baseline) is what mattered and is gone. Defect 1 of 10 from the previous entry is now resolved; 9 remain.

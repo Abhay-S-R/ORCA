@@ -128,6 +128,17 @@ async function doRefresh(): Promise<boolean> {
   }
 }
 
+// The access token as a URL parameter, for an EventSource — which cannot send
+// an Authorization header. Refreshed first on the same rule authFetch uses, so
+// a nearly-expired token does not turn a signed-in question anonymous.
+// Returns "" when signed out, so callers can append it unconditionally.
+export async function tokenParam(): Promise<string> {
+  const token = getToken();
+  if (token && read(REFRESH_KEY) && secondsLeft(token) < 30) await refreshSession();
+  const current = getToken();
+  return current ? `&access_token=${encodeURIComponent(current)}` : "";
+}
+
 export async function authFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getToken();
   if (token && read(REFRESH_KEY) && secondsLeft(token) < 30) await refreshSession();

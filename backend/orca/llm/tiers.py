@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -23,7 +24,7 @@ for _p in [Path(__file__).resolve().parents[3] / ".env", Path(__file__).resolve(
     if _p.exists():
         load_dotenv(_p)
 
-from orca.llm.registry import get_provider
+from orca.llm.registry import get_provider, groq_keys
 
 Tier = Literal["cheap", "mid", "reasoning"]
 
@@ -154,26 +155,179 @@ class _TieredClient:
         return get_provider(self.provider_name).stream(messages, model=self.model, **kw)
 
 
-def llm(tier: Tier) -> _TieredClient:
+# --- Chatbot plan C0.2 — a chain of providers per tier ----------------------
+#
+# One provider on one free-tier key was the whole story before this: when
+# gemini-3.5-flash-lite stalled (it returned 504s and 503s all afternoon on
+# 2026-09-24), Reporting, Critic and Planning failed together, and /ask showed
+# an answer with no written response. A tier is now an ordered list of rungs
+# walked until one writes something. The local rung is what makes "every
+# prompt gets a written answer" true with the network gone.
+
+# Default second rung: a different Gemini model has its own quota and, as
+# measured on 2026-09-24, its own outages — flash-lite-latest answered in
+# 5.5 s while 3.5-flash-lite and 3.1-flash-lite were returning 504/503.
+_SECOND_GEMINI = "gemini-flash-lite-latest"
+_LOCAL_MODEL = "gemma4:e4b"
+# Groq joins every tier's default chain, right after the primary, whenever a
+# GROQ_API_KEY is in .env: a different company's infrastructure, so it is up
+# when Gemini is not. ORCA_LLM_GROQ_MODEL picks the model.
+_GROQ_MODEL = "llama-3.3-70b-versatile"
+# A local model is ALWAYS the last rung and never assumed present: not every
+# machine on the team has Ollama, or a GPU. When the startup warm-up finds no
+# local model, it is dropped from every chain (`_LOCAL_MISSING`) — so on such
+# a machine it reserves no time from the hosted rungs and costs nothing.
+_LOCAL_MISSING: set[str] = set()
+# Only the writers of the answer (Agent 9 and the guard replies) default to
+# the local model. Planning has deterministic tiers 1-2 in front of its model
+# and the Critic's review is optional; a local rung there would only add
+# latency to a question that already has an answer.
+_LOCAL_TIERS = ("mid",)
+
+# Whole-chain time budget per tier, seconds. Reporting's is the largest: it is
+# the one call whose failure the user sees.
+_BUDGET_S = {"cheap": 15.0, "mid": 45.0, "reasoning": 20.0}
+# Most one hosted attempt may take, and what a hosted rung must leave for a
+# local rung after it. A warm local answer takes ~5-15 s on the dev GPU.
+_HOSTED_CAP_S = 12.0
+_LOCAL_RESERVE_S = 20.0
+_MIN_ATTEMPT_S = 2.0
+_RETRY_BACKOFF_S = 1.0
+
+# A failure worth one immediate retry on the same rung: the provider answered
+# fast and said "not right now". A timeout is not in here — waiting the same
+# 12 s again on the model that just stalled is budget the next rung needs.
+_RETRYABLE = ("429", "resource_exhausted", "rate limit", "500", "502", "503", "unavailable", "overloaded")
+_TIMEOUTS = ("timeout", "timed out", "deadline exceeded", "504")
+
+
+def _retryable(exc: Exception) -> bool:
+    text = f"{exc} {exc.__cause__ or ''}".lower()
+    return any(m in text for m in _RETRYABLE) and not any(m in text for m in _TIMEOUTS)
+
+
+def _primary(tier: Tier) -> tuple[str, str]:
+    provider = os.environ.get(f"ORCA_LLM_{tier.upper()}_PROVIDER")
+    model = os.environ.get(f"ORCA_LLM_{tier.upper()}_MODEL")
+    if provider and model:
+        return provider, model
+    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+        return "gemini", "gemini-3.5-flash-lite"
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic", "claude-3-5-haiku-latest"
+    if groq_keys():
+        return "groq", os.environ.get("ORCA_LLM_GROQ_MODEL") or _GROQ_MODEL
+    return "", ""
+
+
+def chain_for(tier: Tier) -> list[tuple[str, str]]:
+    """The rungs for a tier, in order. `ORCA_LLM_<TIER>_CHAIN` overrides the
+    default as `provider:model,provider:model` — a model id may itself hold a
+    colon (`ollama:gemma4:e4b`), so each entry splits on its first colon."""
+    raw = os.environ.get(f"ORCA_LLM_{tier.upper()}_CHAIN", "").strip()
+    if raw:
+        rungs = []
+        for entry in raw.split(","):
+            provider, _, model = entry.strip().partition(":")
+            if provider and model and not (provider == "ollama" and model in _LOCAL_MISSING):
+                rungs.append((provider, model))
+        return rungs
+    rungs = []
+    provider, model = _primary(tier)
+    if provider:
+        rungs.append((provider, model))
+    if groq_keys() and provider != "groq":
+        rungs.append(("groq", os.environ.get("ORCA_LLM_GROQ_MODEL") or _GROQ_MODEL))
+    if (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")) and model != _SECOND_GEMINI:
+        rungs.append(("gemini", _SECOND_GEMINI))
+    local = os.environ.get("ORCA_LLM_LOCAL_MODEL") or _LOCAL_MODEL
+    if tier in _LOCAL_TIERS and local not in _LOCAL_MISSING:
+        rungs.append(("ollama", local))
+    return rungs
+
+
+@dataclass
+class _ChainClient:
+    """What `llm(tier)` returns: the same `complete()` every caller already
+    uses, walked down the tier's rungs inside one time budget. `engine` names
+    the rung that actually wrote the text — `(fallback)` when it was not the
+    first — so a span never credits a model that did not answer (P2.1)."""
+
+    tier: Tier
+    rungs: list[tuple[str, str]]
+    engine: str = ""
+
+    def __post_init__(self) -> None:
+        # Until a call succeeds, the label is the rung it will try first.
+        if not self.engine and self.rungs:
+            self.engine = f"{self.rungs[0][0]} · {self.rungs[0][1]}"
+
+    def complete(self, messages: list[dict[str, str]], **kw: Any) -> str:
+        budget = float(os.environ.get(f"ORCA_LLM_{self.tier.upper()}_BUDGET_S") or _BUDGET_S[self.tier])
+        deadline = time.monotonic() + budget
+        failures: list[str] = []
+        for i, (provider, model) in enumerate(self.rungs):
+            local = provider == "ollama"
+            reserve = sum(_LOCAL_RESERVE_S for p, _ in self.rungs[i + 1:] if p == "ollama")
+            for attempt in range(1 if local else 2):
+                left = deadline - time.monotonic() - reserve
+                timeout = left if local else min(_HOSTED_CAP_S, left)
+                if timeout < _MIN_ATTEMPT_S:
+                    failures.append(f"{provider}/{model}: skipped (budget spent)")
+                    break
+                try:
+                    text = _TieredClient(provider, model).complete(messages, timeout_s=timeout, **kw)
+                except LLMUnavailable as exc:
+                    failures.append(f"{provider}/{model}: {exc.reason}")
+                    if attempt == 0 and not local and _retryable(exc):
+                        time.sleep(_RETRY_BACKOFF_S)
+                        continue
+                    break
+                if not text.strip():
+                    # A safety block or an empty candidate is not an answer.
+                    failures.append(f"{provider}/{model}: empty reply")
+                    break
+                self.engine = f"{provider} · {model}" + (" (fallback)" if i else "")
+                return text
+        raise LLMUnavailable("; ".join(failures) or f"no provider configured for tier {self.tier!r}")
+
+    def stream(self, messages: list[dict[str, str]], **kw: Any) -> Iterator[str]:
+        if not self.rungs:
+            raise LLMUnavailable(f"no provider configured for tier {self.tier!r}")
+        provider, model = self.rungs[0]
+        self.engine = f"{provider} · {model}"
+        return _TieredClient(provider, model).stream(messages, **kw)
+
+
+def llm(tier: Tier) -> _ChainClient:
     if not llm_enabled():
         # P2.11: the one place that has to be switched off, because it is the
         # one place every agent gets a client from. Nothing downstream needs
         # to know — each caller already degrades on an exception here.
         raise LLMUnavailable("LLM providers disabled (ORCA_LLM_ENABLED=0)")
-    provider = os.environ.get(f"ORCA_LLM_{tier.upper()}_PROVIDER")
-    model = os.environ.get(f"ORCA_LLM_{tier.upper()}_MODEL")
-    if not provider or not model:
-        if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
-            provider = "gemini"
-            model = "gemini-3.5-flash-lite"
-        elif os.environ.get("ANTHROPIC_API_KEY"):
-            provider = "anthropic"
-            model = "claude-3-5-haiku-latest"
-        else:
-            raise LLMUnavailable(
-                f"ORCA_LLM_{tier.upper()}_PROVIDER / _MODEL not set, and no default API keys found in .env."
-            )
-    return _TieredClient(provider, model)
+    rungs = chain_for(tier)
+    if not rungs:
+        raise LLMUnavailable(
+            f"ORCA_LLM_{tier.upper()}_PROVIDER / _MODEL not set, and no default API keys found in .env."
+        )
+    return _ChainClient(tier, rungs)
+
+
+def warm_local_models() -> None:
+    """Load every local rung's weights now rather than on the first fallback
+    (a cold load measured 137 s). Best-effort: a machine without Ollama simply
+    has no local rung, and its chains end one rung earlier in failure."""
+    seen: set[str] = set()
+    for tier in ("cheap", "mid", "reasoning"):
+        for provider, model in chain_for(tier):  # type: ignore[arg-type]
+            if provider == "ollama" and model not in seen:
+                seen.add(model)
+                try:
+                    get_provider("ollama").warm(model)  # type: ignore[attr-defined]
+                    _LOCAL_MISSING.discard(model)
+                except Exception as exc:  # optional rung: no Ollama means no local rung
+                    _LOCAL_MISSING.add(model)
+                    logger.info("no local model %s on this machine (%s); chains end at the hosted rungs", model, exc)
 
 
 if __name__ == "__main__":

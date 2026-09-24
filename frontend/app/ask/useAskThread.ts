@@ -15,10 +15,11 @@ import type { QueryFocus } from "../components/MapView";
 import type { ChartSpec } from "../lib/chartSpec";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
+import { tokenParam } from "../lib/auth";
 import { useCriticalAlert, type CriticalCondition } from "../lib/criticalAlert";
 import { useGeolocation } from "../lib/useGeolocation";
 import { classifyQueryIntent, matchRegionInQuery } from "../lib/queryIntent";
-import { confidenceFromTrace, readActiveChat, restoreContext, withCachedConfidence, writeActiveChat, type ChatStore } from "./chatStore";
+import { ChatRequestError, confidenceFromTrace, readActiveChat, restoreContext, withCachedConfidence, writeActiveChat, type ChatStore } from "./chatStore";
 import type { IntentAction } from "./IntentActions";
 
 // confidence_tier: the band of the agent's measured score (orca/confidence_score.py).
@@ -138,6 +139,12 @@ export type FinalResponse = {
   llm_call_count?: number;
   // P2.11 — whether any LLM was reachable for this query.
   llm_enabled?: boolean;
+  // Chatbot plan C0.2 — which engine wrote the answer text. "Deterministic — …"
+  // is the last-resort facts paragraph, which the chat labels as such.
+  response_engine?: string | null;
+  // A refused message that was only a greeting or small talk: rendered
+  // without the "Not something ORCA can answer" heading.
+  small_talk?: boolean;
   // P2.9 — values carried from earlier turns, as removable chips.
   inherited?: InheritedValue[];
   vessel_class?: string | null;
@@ -249,7 +256,10 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
   const turns = savedTurns ?? [];
   const [chatId, setChatId] = useState<string | null>(null);
   const [activeFocus, setActiveFocus] = useState<QueryFocus | null>(null);
-  const [saveFailed, setSaveFailed] = useState(false);
+  // "retrying": a save failed and the next change will try it again.
+  // "rejected": the server said this chat is not ours (404) — final, so it is
+  // said once rather than retried forever (chatbot plan C0.1).
+  const [saveFailed, setSaveFailed] = useState<false | "retrying" | "rejected">(false);
   // The browser's GPS fix, shared with MapView's marker through the one hook
   // so the map and the answer are never about two different positions.
   // Backend rule (api/main.py): an explicit lat/lon always beats a place name
@@ -348,10 +358,14 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
             onChatSaved?.();
           }
         })
-        .catch(() => {
+        .catch((err: unknown) => {
+          if (err instanceof ChatRequestError && err.status === 404) {
+            setSaveFailed("rejected");
+            return;
+          }
           // Forget it was handed over, so the next change retries this turn.
           persisted.current.delete(turn.id);
-          setSaveFailed(true);
+          setSaveFailed("retrying");
         });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- persona/onChatSaved are read at save time, not triggers
@@ -481,11 +495,14 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     const positionParam = options?.position
       ? `&lat=${options.position.lat}&lon=${options.position.lon}`
       : "";
-    void restoring.current.then(() => {
+    // The token rides on the URL: an EventSource cannot send a header, and
+    // without it /query answers a signed-in user as a guest — no home port,
+    // and a chat row nobody owns (chatbot plan C0.1).
+    void Promise.all([restoring.current, tokenParam()]).then(([, authParam]) => {
       // The user may have switched chats while the context was restoring.
       if (chatIdRef.current !== sessionId) return;
       const es = new EventSource(
-        `${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${positionParam || geoParam}${llmParam}${dropParam}`,
+        `${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${positionParam || geoParam}${llmParam}${dropParam}${authParam}`,
       );
       sourceRef.current = es;
       es.onmessage = (ev) => {
@@ -554,47 +571,51 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     });
 
     const personaParam = persona !== "unresolved" ? `&persona=${persona}` : "";
-    const url = `${API_BASE}/query?q=${encodeURIComponent(turn.askedQuery)}${personaParam}&session_id=${encodeURIComponent(sessionId)}${geoParam}&fresh=1`;
-    const es = new EventSource(url);
-    sourceRef.current = es;
-    es.onmessage = (ev) => {
-      const data = JSON.parse(ev.data);
-      if (data.type === "agent_span") {
-        updateTurn(id, (t) => ({ spans: [...t.spans, { agent_name: data.agent_name, status: data.status, confidence_tier: data.confidence_tier }] }));
-      } else if (data.type === "final_response") {
-        updateTurn(id, (t) => {
-          const loc = data.user_location as { lat?: number; lon?: number } | undefined;
-          const coords: [number, number] | undefined =
-            loc?.lon != null && loc?.lat != null ? [loc.lon, loc.lat] : undefined;
-          const focus: QueryFocus | null = t.focus
-            ? { ...t.focus, coords: coords ?? t.focus.coords }
-            : coords
-            ? { intent: "general", coords, nonce: focusNonce.current }
-            : null;
-          if (focus) setActiveFocus(focus);
-          return {
-            answer: data,
-            streaming: false,
-            focus,
-            versions: (t.versions ?? []).map((v, i) => (i === t.versionIndex ? { answer: data, spans: t.spans } : v)),
-          };
-        });
-        {
-          const critical = criticalConditionFrom(data);
-          if (critical) raiseCriticalAlert(critical);
+    // Same token as ask() sends, for the same reason (chatbot plan C0.1).
+    void tokenParam().then((authParam) => {
+      if (chatIdRef.current !== sessionId) return;
+      const url = `${API_BASE}/query?q=${encodeURIComponent(turn.askedQuery)}${personaParam}&session_id=${encodeURIComponent(sessionId)}${geoParam}&fresh=1${authParam}`;
+      const es = new EventSource(url);
+      sourceRef.current = es;
+      es.onmessage = (ev) => {
+        const data = JSON.parse(ev.data);
+        if (data.type === "agent_span") {
+          updateTurn(id, (t) => ({ spans: [...t.spans, { agent_name: data.agent_name, status: data.status, confidence_tier: data.confidence_tier }] }));
+        } else if (data.type === "final_response") {
+          updateTurn(id, (t) => {
+            const loc = data.user_location as { lat?: number; lon?: number } | undefined;
+            const coords: [number, number] | undefined =
+              loc?.lon != null && loc?.lat != null ? [loc.lon, loc.lat] : undefined;
+            const focus: QueryFocus | null = t.focus
+              ? { ...t.focus, coords: coords ?? t.focus.coords }
+              : coords
+              ? { intent: "general", coords, nonce: focusNonce.current }
+              : null;
+            if (focus) setActiveFocus(focus);
+            return {
+              answer: data,
+              streaming: false,
+              focus,
+              versions: (t.versions ?? []).map((v, i) => (i === t.versionIndex ? { answer: data, spans: t.spans } : v)),
+            };
+          });
+          {
+            const critical = criticalConditionFrom(data);
+            if (critical) raiseCriticalAlert(critical);
+          }
+          es.close();
+          // /query?fresh=1 deliberately does NOT remember the turn — the question
+          // is already in the window with the answer this one replaces. Push the
+          // whole window again so it carries the new answer instead.
+          const updated = turnsRef.current.map((t) => (t.id === id ? { ...t, answer: data } : t));
+          void restoreContext(sessionId, updated).catch(() => {});
         }
+      };
+      es.onerror = () => {
+        updateTurn(id, { streaming: false, failed: true });
         es.close();
-        // /query?fresh=1 deliberately does NOT remember the turn — the question
-        // is already in the window with the answer this one replaces. Push the
-        // whole window again so it carries the new answer instead.
-        const updated = turnsRef.current.map((t) => (t.id === id ? { ...t, answer: data } : t));
-        void restoreContext(sessionId, updated).catch(() => {});
-      }
-    };
-    es.onerror = () => {
-      updateTurn(id, { streaming: false, failed: true });
-      es.close();
-    };
+      };
+    });
   }
 
   /** Flip between the runs of one question. `answer`/`spans` mirror the chosen

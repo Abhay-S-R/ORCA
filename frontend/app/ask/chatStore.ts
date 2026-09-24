@@ -302,8 +302,17 @@ type ServerTurn = {
   created_at: string;
 };
 
+// Carries the status so a caller can tell "try again later" from "this will
+// never succeed" — a 404 on save means the chat is not this account's, and
+// retrying it forever is what "Not saved yet — retrying" used to do.
+export class ChatRequestError extends Error {
+  constructor(readonly status: number) {
+    super(`chat request failed: ${status}`);
+  }
+}
+
 async function ok(res: Response): Promise<Response> {
-  if (!res.ok) throw new Error(`chat request failed: ${res.status}`);
+  if (!res.ok) throw new ChatRequestError(res.status);
   return res;
 }
 

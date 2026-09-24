@@ -49,7 +49,10 @@ marine_data_discovery (P2.6), which runs once before the fan-out; Ocean
 Analytics reads that decision rather than making its own.
 
 query_guard and out_of_scope (Phase 1, P1.2-P1.4) are guards, not agents: they
-run no model, read no dataset, and emit no trace entry. Both sit downstream of
+read no dataset and emit no trace entry. Since chatbot plan C0.2d a model
+*words* their reply (reporting.write_guard_reply) — the guard still decides
+whether to stop and what the reply must say, and a reply carrying a figure the
+guard did not supply is discarded. Both sit downstream of
 distress_check and nowhere else, which is the ordering the phase depends on —
 a garbled, place-less, out-of-scope-looking message is exactly what someone in
 trouble sends, and Agent 12 sees every one of them first.
@@ -203,15 +206,32 @@ def _candidate_list(candidates: list[dict]) -> str:
     return ", ".join(f"{c['name'].title()} ({c['lat']:.2f}N {c['lon']:.2f}E)" for c in candidates)
 
 
-def _refusal(outcome: str, body: str) -> dict:
+def _guard_reply(state: ORCAState, required: str, *, allow_small_talk: bool = False) -> dict:
+    """Chatbot plan C0.2d — the reply to a stopped message, worded by a model.
+    The guard has already decided everything; `required` is what the reply
+    must say, and stays the reply if no model answers (reporting.write_guard_reply).
+    The model writes in the user's own language, so both response fields hold
+    the same text."""
+    reply, engine, small_talk = reporting.write_guard_reply(
+        state.get("raw_user_query", "") or "", required, allow_small_talk=allow_small_talk,
+    )
+    return {
+        "final_english_response": reply,
+        "final_vernacular_response": reply,
+        "response_engine": engine,
+        "small_talk": small_talk,
+    }
+
+
+def _refusal(outcome: str, body: str, state: ORCAState) -> dict:
     """A stop with no marine content in it. Certainty about *not knowing* is
     still certainty, so the tier is HIGH: no reading was taken, so nothing
     here can be stale or thin, and a LOW_DATA label would read as "a weak
-    answer" rather than "no answer, and here is what I need"."""
+    answer" rather than "no answer, and here is what I need". `disclosures`
+    keeps the guard's own fixed wording, whatever the model made of it."""
     return {
         "query_outcome": outcome,
-        "final_english_response": body,
-        "final_vernacular_response": body,
+        **_guard_reply(state, body),
         "confidence_tier": "HIGH",
         "disclosures": [body],
     }
@@ -240,13 +260,13 @@ def query_guard_node(state: ORCAState) -> dict:
         disclosure = resolution.get("disclosure") or "I could not work out where this question is about."
         candidates = resolution.get("candidates") or []
         body = disclosure if not candidates else f"{disclosure} Did you mean: {_candidate_list(candidates)}?"
-        return _refusal("NEEDS_PLACE", body)
+        return _refusal("NEEDS_PLACE", body, state)
 
     # Time before position: "was it rough off Veraval last Tuesday?" has a
     # perfectly good position and still has no answer here.
     when = place_resolution.time_guard(state.get("raw_user_query", "") or "")
     if when is not None:
-        return _refusal("OUT_OF_RANGE", when)
+        return _refusal("OUT_OF_RANGE", when, state)
 
     location = state.get("user_location") or {}
     lat, lon = location.get("lat"), location.get("lon")
@@ -273,7 +293,7 @@ def query_guard_node(state: ORCAState) -> dict:
     # there is no "the town, not the harbour" to disclose about it — it is the
     # caller's actual position, so out of range means out of range.
     if location.get("place_source") in ("explicit", "coordinates", "gps_fix"):
-        return _refusal("OUT_OF_RANGE", where)
+        return _refusal("OUT_OF_RANGE", where, state)
     return {"disclosures": [where + " The position held for this place is the town, not the harbour approach, so depth-dependent readings here may be missing."]}
 
 
@@ -284,7 +304,12 @@ def _route_after_query_guard(state: ORCAState) -> str:
 def out_of_scope_node(state: ORCAState) -> dict:
     """P1.3 (`R-EDGE-1`) — a first-class "I can't answer that": a short
     refusal plus a redirect, and emphatically zero marine content. No agent
-    below Planning has run, so there is no number here to be wrong."""
+    below Planning has run, so there is no number here to be wrong.
+
+    Chatbot plan C0.2d — "hi" lands here too, and a chatbot that answers a
+    greeting with "I can't answer that" is broken however correct the
+    routing is. The model tells a greeting or small talk apart and answers it
+    as one; `small_talk` lets the UI drop the refusal heading for it."""
     body = (
         "I can't answer that. I only answer questions about conditions at sea off India — "
         "whether it is safe to go out, waves, wind, tides, fishing zones, and maritime "
@@ -292,8 +317,7 @@ def out_of_scope_node(state: ORCAState) -> dict:
     )
     return {
         "query_outcome": "OUT_OF_SCOPE",
-        "final_english_response": body,
-        "final_vernacular_response": body,
+        **_guard_reply(state, body, allow_small_talk=True),
         "confidence_tier": "HIGH",
         "execution_plan": [],
     }
@@ -1004,6 +1028,9 @@ def reporting_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("reporting", reporting_run, state)
     return {
         "final_english_response": result.outputs["final_english_response"],
+        # Chatbot plan C0.2e — which engine wrote it; "Deterministic — …" is
+        # the facts paragraph, which the chat UI labels as such.
+        "response_engine": result.engine,
         "evidence_citations": result.outputs["citations"],
         "confidence_tier": result.confidence.score,
         "early_exit_triggered": result.outputs.get("early_exit_triggered", False),
@@ -1060,7 +1087,12 @@ def critic_cancelled_node(state: ORCAState) -> dict:
 def critic_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("critic", critic.run, state)
     outputs = result.outputs or {}
+    revised = outputs.get("final_english_response")
+    # A Critic rewrite is text its own model wrote — including a rewrite of
+    # Reporting's facts paragraph, which then stops being a template answer.
+    rewrote = bool(revised) and revised != state.get("final_english_response") and bool(result.engine)
     return {
+        **({"response_engine": result.engine} if rewrote else {}),
         # A degraded Critic (no provider, the P2.11 switch off, a P2.13 429)
         # returns the unreviewed narrative rather than nothing — but if the
         # node itself raised, run_traced_node hands back outputs={}, and
