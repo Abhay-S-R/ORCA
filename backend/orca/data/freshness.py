@@ -365,6 +365,13 @@ def acquisition_date(payload: dict[str, Any], path: Path) -> str:
 # are added here one at a time as the policy doc's rollout tracker is worked.
 RECENCY_BANDS: dict[str, tuple[int, int]] = {
     "incois_pfz": (3, 7),
+    # MOSDAC's own INSAT-3DR SST archive publishes daily, same cadence as the
+    # PFZ advisory it shares SOURCE_CLASS's DAILY row with — same bands.
+    "mosdac_open_sst": (3, 7),
+    # EOS-06 chlorophyll and the CMEMS fallback rung (SST, chl and ssh alike)
+    # are WEEKLY-classed: double PFZ's DAILY bands, same ratio as the classes.
+    "mosdac_open_chl": (7, 14),
+    "copernicus_cmems": (7, 14),
 }
 
 RecencyBand = Literal["fresh", "hint", "history"]

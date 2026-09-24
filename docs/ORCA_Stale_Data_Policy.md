@@ -1,7 +1,8 @@
 # Stale data policy — "old is shown and labelled, never missing"
 
-**Status:** PFZ implemented 2026-09-24. Every other daily / weekly dataset is
-tracked in §4 and is picked up during the cron setup pass.
+**Status:** PFZ and MOSDAC SST/chlorophyll implemented 2026-09-24. Every other
+daily / weekly dataset is tracked in §4 and is picked up during the cron setup
+pass.
 **Grounding:** `docs/ORCA_Data_Freshness_Contract.md` (freshness class per
 source) and `backend/orca/data/freshness.py` (the code form of it). This
 document adds one rule on top of that contract; it does not change any class.
@@ -41,7 +42,8 @@ shows **Active** before that and **Expired · n d ago** after it.
 | Dataset (source id) | Class | fresh ≤ | hint ≤ | beyond hint | Used for verdict? |
 |---|---|---|---|---|---|
 | `incois_pfz` | DAILY | 3 d | 7 d | history (grey) | no |
-| `mosdac_*_sst`, `mosdac_*_chl`, `copernicus_cmems` | DAILY / WEEKLY | — | — | *to set in cron pass* | no |
+| `mosdac_open_sst` (INSAT-3DR) | DAILY | 3 d | 7 d | history | no |
+| `mosdac_open_chl` (EOS-06), `copernicus_cmems` (SST/chl fallback) | WEEKLY | 7 d | 14 d | history | no |
 | `incois_osf_ww3`, `incois_osf_hycom` | DAILY | — | — | *to set in cron pass* | forecast context only |
 | `open_meteo_marine`, `damini_lightning`, `ndma_sachet`, `gdacs_tc`, `incois_hazard_osf`, `incois_tide_gauge` | LIVE | 0 | 0 | "no current reading" | **yes — never stale** |
 | geometry, gazetteers (STATIC) | STATIC | ∞ | ∞ | — | as today |
@@ -51,9 +53,9 @@ shows **Active** before that and **Expired · n d ago** after it.
 | Dataset | Latest-per-region loader | Age on map | Age in agent facts | Age in narrative | Done |
 |---|---|---|---|---|---|
 | INCOIS PFZ | `analytics_loaders.load_pfz_latest` | band-styled fish + card badge | `nearest_pfz.age_days/band/expired`, sector `latest_advisory` | Reporting rule 9 | ✅ 2026-09-24 |
-| MOSDAC SST | | | | | ☐ |
-| MOSDAC chlorophyll | | | | | ☐ |
-| Copernicus CMEMS | | | | | ☐ |
+| MOSDAC SST | `satellite_loaders.load_insat_sst` (band tagged at load) | n/a — no SST map layer exists (see §5) | not wired into agent facts — SST reaches only `/trends`, never critic/reporting (see §5) | `/trends` `GranuleAge` caption | ✅ 2026-09-24 |
+| MOSDAC chlorophyll | `satellite_loaders.load_eos06_chl` (band tagged at load) | n/a, same as SST | same as SST | `/trends` `GranuleAge` caption | ✅ 2026-09-24 |
+| Copernicus CMEMS | `satellite_loaders.load_cmems_sst/_chl` (band tagged at load) | n/a, same as SST | same as SST | `/trends` `GranuleAge` caption | ✅ 2026-09-24 |
 | INCOIS OSF WW3 / HYCOM | | | | | ☐ |
 | Stormglass tides | | | | | ☐ |
 | Remaining DAILY / WEEKLY rows of `freshness.SOURCE_CLASS` | | | | | ☐ |
@@ -70,3 +72,23 @@ shows **Active** before that and **Expired · n d ago** after it.
 - **Nearest is capped at reach.** `nearest_pfz` searches within 150 km. Beyond
   that the honest answer is "none within reach", never a 906 km point on
   another coast.
+
+## 6. MOSDAC SST / chlorophyll / CMEMS specifics
+
+- **Banded at the loader, like PFZ's rows.** `load_insat_sst`, `load_eos06_chl`,
+  `load_cmems_sst` and `load_cmems_chl` each tag their own `provenance` dict
+  with `age_days`/`band`/`expired` before returning — the same shape PFZ rows
+  carry, so every consumer reads it the same way.
+- **Two granules, two ages.** `correlate_sst_chlorophyll` degrades its
+  confidence to the worse of its own n/lag check and the two grids' recency
+  bands — a correlation over two old-but-simultaneous granules (no
+  `acquisition_gap` between them, both from the same stale week) would
+  otherwise read HIGH; the band check is what catches that.
+- **Smaller surface than PFZ, by design, not by omission.** Unlike PFZ, the
+  gridded SST/chlorophyll product does not currently reach the map (no SST
+  tile layer is built — `tiles.py`'s cmocean ramp is reserved for a future D3
+  step that never shipped) or any agent's narrative (`critic.py`/`reporting.py`
+  carry no SST facts at all — `correlate_sst_chlorophyll` only ever fed
+  `/trends`). Labelling age on a surface that does not exist would be
+  fabricating the surface, not the policy; if SST is wired into the map or the
+  narrative later, it inherits these bands rather than needing new ones.

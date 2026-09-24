@@ -428,6 +428,19 @@ def correlate_sst_chlorophyll(bbox: dict[str, float] | None = None) -> dict[str,
     # Saying so is the difference between an honest association and an
     # implied simultaneity.
     lag_note = _acquisition_gap(sst.get("provenance"), chl.get("provenance"))
+    tier = Confidence(
+        score="MEDIUM" if n < 20 or lag_note else "HIGH",
+        rationale=f"{n} co-located SST/chlorophyll cells at 0.25 deg"
+                  + (f"; {lag_note}" if lag_note else ""),
+    )
+    # Stale-data policy: a correlation over two old-but-simultaneous granules
+    # (no acquisition_gap, same week, both from March) would otherwise read
+    # HIGH — this is the check that catches that case.
+    band = _worst_band(sst.get("provenance"), chl.get("provenance"))
+    confidence = tier if not band or band == "fresh" else _worst(
+        tier, Confidence(score={"hint": "MEDIUM", "history": "LOW_DATA"}[band],
+                          rationale=f"granule(s) in the '{band}' recency band"),
+    )
     return {
         "available": True,
         "pearson_r": round(r, 3),
@@ -437,11 +450,7 @@ def correlate_sst_chlorophyll(bbox: dict[str, float] | None = None) -> dict[str,
         "acquisition_gap": lag_note,
         "sst_provenance": sst.get("provenance"),
         "chl_provenance": chl.get("provenance"),
-        "confidence": Confidence(
-            score="MEDIUM" if n < 20 or lag_note else "HIGH",
-            rationale=f"{n} co-located SST/chlorophyll cells at 0.25 deg"
-                      + (f"; {lag_note}" if lag_note else ""),
-        ),
+        "confidence": confidence,
     }
 
 
@@ -459,6 +468,17 @@ def _acquisition_gap(sst_prov: dict[str, Any] | None, chl_prov: dict[str, Any] |
     if days <= 1:
         return None
     return f"SST and chlorophyll granules are {days} days apart — association, not a simultaneous observation"
+
+
+_BAND_RANK = {"fresh": 0, "hint": 1, "history": 2}
+
+
+def _worst_band(*provenances: dict[str, Any] | None) -> str | None:
+    """The staler of the two granules' recency bands (`satellite_loaders`
+    tags each with one at load time). None when neither carries a band —
+    the D3 fixture rung predates the policy and is exempt."""
+    bands = [p["band"] for p in provenances if p and p.get("band")]
+    return max(bands, key=lambda b: _BAND_RANK.get(b, 0)) if bands else None
 
 
 def _pearson(xs: list[float], ys: list[float]) -> float:

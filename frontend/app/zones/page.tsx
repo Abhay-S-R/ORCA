@@ -17,6 +17,7 @@ import { SourceChip } from "../components/SourceChip";
 import { SourceNarration, type SourceSelection } from "../components/SourceNarration";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
 import { authFetch, useAuth } from "../lib/auth";
+import { ageLabel, type Recency } from "../lib/recency";
 import { usePersona } from "../persona/context";
 import { useT } from "../i18n/useT";
 
@@ -74,14 +75,6 @@ type Sector = {
   // when today's status is a gap — null only if it has never had one.
   latest_advisory: Recency & { valid_for: string; node_count: number } | null;
 };
-
-type Recency = { age_days: number | null; band: "fresh" | "hint" | "history" | null; expired: boolean | null };
-
-// "issued 19 Sep · 5 days old" — the age every stale zone carries on this page.
-function ageLabel(validFor: string | null, r: Recency): string | null {
-  if (!validFor || r.band === "fresh" || r.age_days == null) return null;
-  return `issued ${validFor} · ${r.age_days} day${r.age_days === 1 ? "" : "s"} old`;
-}
 
 type ZonesResponse = {
   measured_from: string; // "registered home port" | "supplied position"

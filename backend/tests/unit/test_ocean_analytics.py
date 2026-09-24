@@ -85,6 +85,39 @@ def test_correlation_never_claims_causation():
         assert "caused by" not in result["relationship"].lower()
 
 
+def test_correlation_degrades_when_a_granule_is_history_band(monkeypatch):
+    """Two granules from the same old date have no acquisition_gap between
+    them — the n/lag check alone would call this HIGH. Recency banding is
+    what catches that they are both stale, not merely mutually consistent."""
+    def _old_grid():
+        return {
+            "frame": [{"lon": lo, "lat": la, "value": float(lo + la)} for lo in range(5) for la in range(5)],
+            "provenance": {"dataset": "x", "acquisition_timestamp": "2026-01-01T00:00:00Z",
+                           "age_days": 266, "band": "history", "expired": True},
+        }
+    monkeypatch.setattr(oa, "_sst_grid", lambda bbox: _old_grid())
+    monkeypatch.setattr(oa, "_chl_grid", lambda bbox: _old_grid())
+    result = oa.correlate_sst_chlorophyll(None)
+    assert result["available"] is True
+    assert result["n_samples"] >= 20  # isolates the band check from the n<20 rule
+    assert result["acquisition_gap"] is None  # and from the lag rule
+    assert result["confidence"].score == "LOW_DATA"
+    assert "history" in result["confidence"].rationale
+
+
+def test_correlation_stays_high_when_both_granules_are_fresh(monkeypatch):
+    def _fresh_grid():
+        return {
+            "frame": [{"lon": lo, "lat": la, "value": float(lo + la)} for lo in range(5) for la in range(5)],
+            "provenance": {"dataset": "x", "acquisition_timestamp": "2026-09-23T00:00:00Z",
+                           "age_days": 1, "band": "fresh", "expired": False},
+        }
+    monkeypatch.setattr(oa, "_sst_grid", lambda bbox: _fresh_grid())
+    monkeypatch.setattr(oa, "_chl_grid", lambda bbox: _fresh_grid())
+    result = oa.correlate_sst_chlorophyll(None)
+    assert result["confidence"].score == "HIGH"
+
+
 # --- ERA5 baseline gives detect_anomaly a reference period ---------------
 
 def test_wind_anomaly_carries_its_baseline_or_names_the_gap(monkeypatch):

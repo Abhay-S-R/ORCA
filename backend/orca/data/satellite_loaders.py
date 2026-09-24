@@ -32,6 +32,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from orca.data import freshness as fr
 from orca.data.freshness import content_date_from_name
 from orca.data.loaders import DATA_DIR
 
@@ -84,6 +85,13 @@ def _newest(paths: list[Path], pattern: re.Pattern[str], fmt: str) -> tuple[Path
 
 def _freshness_minutes(acquired: datetime) -> int:
     return max(0, int((datetime.now(timezone.utc) - acquired).total_seconds() // 60))
+
+
+def _recency(recency_source_id: str, acquired: datetime) -> dict[str, Any]:
+    """Stale-data policy (docs/ORCA_Stale_Data_Policy.md): age/band/expired
+    of one granule, on `RECENCY_BANDS`' cadence for whichever rung produced
+    it — the INSAT archive is graded on its own DAILY cycle, not CMEMS's."""
+    return fr.recency(recency_source_id, acquired.strftime("%Y-%m-%d"))
 
 
 # --- INSAT-3DR SST (HDF5) --------------------------------------------------
@@ -152,6 +160,7 @@ def load_insat_sst(bbox: dict[str, float] | None = None) -> dict[str, Any] | Non
             "freshness_minutes": _freshness_minutes(acquired),
             "native_units": "K",
             "operations": ["fill_mask", "kelvin_to_celsius", "physical_range_mask", "bbox_crop"],
+            **_recency("mosdac_open_sst", acquired),
         },
     }
 
@@ -206,6 +215,7 @@ def load_eos06_chl(bbox: dict[str, float] | None = None) -> dict[str, Any] | Non
             "freshness_minutes": _freshness_minutes(acquired),
             "native_units": "mg m-3",
             "operations": ["longitude_wrap", "physical_range_mask", "bbox_crop"],
+            **_recency("mosdac_open_chl", acquired),
         },
     }
 
@@ -305,6 +315,7 @@ def load_cmems_sst(bbox: dict[str, float] | None = None) -> dict[str, Any] | Non
             "freshness_minutes": _freshness_minutes(acquired),
             "native_units": "degC",
             "operations": ["surface_level_select", "physical_range_mask", "bbox_crop"],
+            **_recency("copernicus_cmems", acquired),
         },
     }
 
@@ -336,6 +347,7 @@ def load_cmems_chl(bbox: dict[str, float] | None = None) -> dict[str, Any] | Non
             "freshness_minutes": _freshness_minutes(acquired),
             "native_units": "mg m-3",
             "operations": ["physical_range_mask", "bbox_crop"],
+            **_recency("copernicus_cmems", acquired),
         },
     }
 
@@ -422,7 +434,10 @@ if __name__ == "__main__":
     assert all(_SST_VALID_C[0] <= r["value"] <= _SST_VALID_C[1] for r in sst["frame"])
     # The whole point of parsing rather than sorting the filename date:
     assert sst["provenance"]["source_file"].startswith("3RIMG_")
-    print("INSAT SST :", len(sst["frame"]), "bins,", sst["provenance"]["source_file"])
+    # Stale-data policy: every granule leaves the loader already banded.
+    assert sst["provenance"]["band"] in ("fresh", "hint", "history")
+    print("INSAT SST :", len(sst["frame"]), "bins,", sst["provenance"]["source_file"],
+          "-", sst["provenance"]["band"])
 
     chl = load_eos06_chl(box)
     assert chl is not None and chl["frame"], "no EOS-06 chlorophyll over the pilot box"

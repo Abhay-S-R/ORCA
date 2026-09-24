@@ -17,6 +17,7 @@ import { Readout, ReadoutGrid } from "../components/Readout";
 import { type SourceSelection } from "../components/SourceNarration";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
 import type { ChartSpec } from "../lib/chartSpec";
+import { ageLabel, type Recency } from "../lib/recency";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -61,8 +62,8 @@ type TrendsResponse = {
     relationship?: string;
     n_samples?: number;
     acquisition_gap?: string | null;
-    chl_provenance?: { dataset?: string; acquisition_timestamp?: string };
-    sst_provenance?: { dataset?: string; acquisition_timestamp?: string };
+    chl_provenance?: ({ dataset?: string; acquisition_timestamp?: string } & Recency) | null;
+    sst_provenance?: ({ dataset?: string; acquisition_timestamp?: string } & Recency) | null;
     confidence: Confidence;
   };
   // PS #7's word "anomaly" needs a reference period. `available: false`
@@ -91,6 +92,25 @@ const CHART_TITLES: Record<string, string> = {
   catch_landings: "Marine fish landings",
   wind_rose: "Wind rose",
 };
+
+// One granule's age caveat, or nothing while it is within its fresh band.
+function GranuleAge({
+  label,
+  prov,
+}: {
+  label: string;
+  prov: ({ acquisition_timestamp?: string } & Recency) | null | undefined;
+}) {
+  if (!prov) return null;
+  const text = ageLabel(prov.acquisition_timestamp?.slice(0, 10), prov);
+  if (!text) return null;
+  return (
+    <p className="text-[11px] text-caution">
+      {label} {text}
+      {prov.band === "history" ? " — reference only, not a current reading" : ""}
+    </p>
+  );
+}
 
 export default function TrendsPage() {
   const [data, setData] = useState<TrendsResponse | null>(null);
@@ -221,6 +241,12 @@ export default function TrendsPage() {
                   SST: {data.sst_chlorophyll_correlation.sst_provenance?.dataset ?? "—"} · Chlorophyll:{" "}
                   {data.sst_chlorophyll_correlation.chl_provenance?.dataset ?? "—"}
                 </p>
+                {/* Stale-data policy: each granule keeps its own age — the SST
+                    archive and the chlorophyll archive do not always lag by
+                    the same amount, so one combined caveat would hide which
+                    side is actually old. */}
+                <GranuleAge label="SST" prov={data.sst_chlorophyll_correlation.sst_provenance} />
+                <GranuleAge label="Chlorophyll" prov={data.sst_chlorophyll_correlation.chl_provenance} />
               </>
             ) : (
               <EmptyState
