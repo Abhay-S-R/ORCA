@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  Compass,
   Download,
   History,
   ImageDown,
@@ -29,6 +30,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { toPng } from "html-to-image";
 
 import { AgentNode, FanoutGroupNode } from "./AgentNode";
@@ -63,7 +65,17 @@ type RecentTraceSummary = {
 
 const NOT_RECORDED = "not recorded";
 
-const SCENARIOS = [
+type QuickScenario = {
+  id: string;
+  title: string;
+  query?: string;
+  href?: string;
+  badge: string;
+  tone: string;
+  icon: typeof Waves;
+};
+
+const SCENARIOS: QuickScenario[] = [
   {
     id: "thoothukudi-safe",
     title: "Thoothukudi Safe Passage",
@@ -71,6 +83,18 @@ const SCENARIOS = [
     badge: "GO Verdict",
     tone: "emerald",
     icon: Waves,
+  },
+  // P6.7 (orca_final §7.1) — links to /demo's stepped scenario rather than
+  // running a single live query: this is a track of positions, not one
+  // question, so it has no single `query` string this rail's runLiveQuery
+  // could send.
+  {
+    id: "imbl-approach-palk-bay",
+    title: "IMBL Approach — Palk Bay",
+    href: "/demo#imbl_border_crossing",
+    badge: "Geofence Escalation",
+    tone: "amber",
+    icon: Compass,
   },
   {
     id: "pamban-hazard",
@@ -108,6 +132,7 @@ type FishermanWhy = {
 
 function ReasoningContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const initialQueryId = searchParams.get("query_id");
   const { persona } = usePersona();
   const [showTechnical, setShowTechnical] = useState(false);
@@ -735,8 +760,14 @@ function ReasoningContent() {
                   key={sc.id}
                   type="button"
                   onClick={() => {
-                    setQueryInput(sc.query);
-                    runLiveQuery(sc.query);
+                    if (sc.href) {
+                      router.push(sc.href);
+                      return;
+                    }
+                    if (sc.query) {
+                      setQueryInput(sc.query);
+                      runLiveQuery(sc.query);
+                    }
                   }}
                   disabled={isStreaming}
                   className="flex items-center gap-1.5 rounded-lg border border-hairline/80 bg-shelf-2/40 px-2.5 py-1.5 text-[11px] text-ink-muted transition-all hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink disabled:opacity-40"

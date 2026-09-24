@@ -26,6 +26,7 @@ class VoyagePlanRequest(BaseModel):
     departure_time: str | None = None  # ISO 8601 UTC; None -> now
     speed_kn: float = Field(default=8.0, gt=0)
     draft_m: float | None = Field(default=None, gt=0)
+    fuel_burn_lph: float | None = Field(default=None, gt=0)
 
 
 @router.post("/voyage-plan")
@@ -34,7 +35,7 @@ def voyage_plan_route(req: VoyagePlanRequest) -> dict:
         plan = plan_voyage(
             (req.origin_lat, req.origin_lon), (req.destination_lat, req.destination_lon),
             vessel_class=req.vessel_class, departure_time=req.departure_time,
-            speed_kn=req.speed_kn, draft_m=req.draft_m,
+            speed_kn=req.speed_kn, draft_m=req.draft_m, fuel_burn_lph=req.fuel_burn_lph,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

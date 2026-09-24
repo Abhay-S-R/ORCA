@@ -40,6 +40,7 @@ as if translated.
 """
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Literal, Protocol
@@ -204,6 +205,27 @@ class IndicTrans2Backend:
 
             self._processor = IndicProcessor(inference=True)
         return self._processor
+
+    def warm(self) -> None:
+        """P6.4 (orca_final §14.3) — load both direction models and the
+        processor now, off the request path, so the first Tamil/Hindi query
+        after a cold start does not pay a ~40s model-load stall mid-demo.
+        Called from `main.py`'s startup in a background thread, the same
+        `run_in_executor` pattern `intent_embeddings.warm` already uses.
+        Exceptions are caught and logged here, not left to propagate into
+        the executor's Future — an uncaught one there is never awaited (the
+        caller fires-and-forgets it), so it would otherwise surface only as
+        asyncio's "Future exception was never retrieved" on every reload, a
+        misleading way to spell "IndicTransToolkit isn't installed on this
+        machine," which is a real, expected, already-disclosed state
+        (`_get_processor`'s own RuntimeError message) and never a startup
+        failure."""
+        try:
+            self._get_model(self._INDIC_TO_EN)
+            self._get_model(self._EN_TO_INDIC)
+            self._get_processor()
+        except Exception:
+            logging.getLogger("orca.language").warning("IndicTrans2 warm-up skipped", exc_info=True)
 
     def translate(self, text: str, source: Language, target: Language) -> str:
         if source == target:

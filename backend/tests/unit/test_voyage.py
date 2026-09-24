@@ -186,6 +186,72 @@ def test_a_supplied_draft_is_used_as_given_with_nothing_to_disclose():
     assert (plan.draft_m, plan.draft_source, plan.draft_disclosure) == (0.9, "supplied", None)
 
 
+# --- P5.23: fishing ban + current drift per leg -----------------------------
+
+def test_regulatory_ban_blocks_a_leg(monkeypatch):
+    now = datetime.now(timezone.utc)
+    eta = now + timedelta(hours=1)
+
+    def fake_ban_status(lat, lon, when=None):
+        return {"available": True, "in_ban_period": True, "applies_here": True,
+                "coast": "east", "order": {"file_number": "F.No.TEST/2026"}}
+
+    monkeypatch.setattr("orca.agents.geospatial.fishing_ban_status", fake_ban_status)
+    segment, _ = voyage._classify_segment(
+        "seg-0", (OPEN_LAT, OPEN_LON), (OPEN_LAT + 0.05, OPEN_LON + 0.05),
+        3.0, eta, "small_fishing", 1.8, now,
+    )
+    assert segment.status == "BLOCKED"
+    assert segment.hazard_class == "REGULATORY"
+    assert "ban" in segment.detail.lower()
+
+
+def test_no_ban_never_blocks_the_leg(monkeypatch):
+    now = datetime.now(timezone.utc)
+    eta = now + timedelta(hours=1)
+
+    def fake_ban_status(lat, lon, when=None):
+        return {"available": True, "in_ban_period": False, "applies_here": False}
+
+    monkeypatch.setattr("orca.agents.geospatial.fishing_ban_status", fake_ban_status)
+    segment, _ = voyage._classify_segment(
+        "seg-0", (OPEN_LAT, OPEN_LON), (OPEN_LAT + 0.05, OPEN_LON + 0.05),
+        3.0, eta, "small_fishing", 1.8, now,
+    )
+    assert segment.hazard_class != "REGULATORY"
+
+
+def test_set_drift_caution_when_current_crosses_the_threshold(monkeypatch):
+    now = datetime.now(timezone.utc)
+    eta = now + timedelta(hours=1)
+    monkeypatch.setattr("orca.agents.geospatial.fishing_ban_status", lambda lat, lon, when=None: {"available": False})
+    monkeypatch.setattr(voyage, "wave_height_at", lambda lat, lon, when: 0.5)  # isolate SET_DRIFT from real sea state
+    # Leg heads due north (bearing 0); a current flowing due east (90 deg) is
+    # entirely cross-track — sin(90) = 1, so the full current speed counts.
+    monkeypatch.setattr(voyage, "current_at", lambda lat, lon, when: (1.0, 90.0))
+    segment, _ = voyage._classify_segment(
+        "seg-0", (OPEN_LAT, OPEN_LON), (OPEN_LAT + 0.05, OPEN_LON),
+        3.0, eta, "small_fishing", 1.8, now, speed_kn=2.0,  # slow boat, easy to cross 20% of speed
+    )
+    assert segment.status == "CAUTION"
+    assert segment.hazard_class == "SET_DRIFT"
+
+
+def test_current_along_track_never_triggers_set_drift(monkeypatch):
+    now = datetime.now(timezone.utc)
+    eta = now + timedelta(hours=1)
+    monkeypatch.setattr("orca.agents.geospatial.fishing_ban_status", lambda lat, lon, when=None: {"available": False})
+    monkeypatch.setattr(voyage, "wave_height_at", lambda lat, lon, when: 0.5)
+    # Leg heads due north (bearing 0); a current also flowing due north (0
+    # deg) is entirely along-track — sin(0) = 0, no cross-track component.
+    monkeypatch.setattr(voyage, "current_at", lambda lat, lon, when: (5.0, 0.0))
+    segment, _ = voyage._classify_segment(
+        "seg-0", (OPEN_LAT, OPEN_LON), (OPEN_LAT + 0.05, OPEN_LON),
+        3.0, eta, "small_fishing", 1.8, now, speed_kn=2.0,
+    )
+    assert segment.hazard_class != "SET_DRIFT"
+
+
 def test_every_vessel_class_has_an_assumed_draft_and_the_deepest_is_the_fallback():
     from orca.agents.risk_assessment import VesselClass
     from orca.agents.voyage import _ASSUMED_DRAFT_M, _MOST_CONSERVATIVE_CLASS
@@ -193,3 +259,115 @@ def test_every_vessel_class_has_an_assumed_draft_and_the_deepest_is_the_fallback
     classes = set(VesselClass.__args__)  # type: ignore[attr-defined]
     assert set(_ASSUMED_DRAFT_M) == classes
     assert _ASSUMED_DRAFT_M[_MOST_CONSERVATIVE_CLASS] == max(_ASSUMED_DRAFT_M.values())
+
+
+# --- P5.7: A* over a coarse grid --------------------------------------------
+#
+# A synthetic grid, not real bathymetry — deterministic and fast, and it is
+# the search LOGIC under test here (obstacle avoidance, ETA-driven cost),
+# which is independent of what a real GEBCO/WW3 lookup returns. The real
+# lookups (_grid_depths_m/_grid_wave_heights) are exercised by plan_voyage's
+# own existing real-data tests when they happen to fall through to A*.
+
+def _synthetic_grid(
+    size: int, wall_col: int | None = None, wave_wall_col: int | None = None, wave_wall_rows: int = 2,
+) -> "voyage._AstarGrid":
+    lats = [8.0 + 0.1 * i for i in range(size)]
+    lons = [78.0 + 0.1 * j for j in range(size)]
+    blocked = [[False] * size for _ in range(size)]
+    waves: list[list[float | None]] = [[0.5] * size for _ in range(size)]
+    if wall_col is not None:
+        for i in range(size - 1):  # a gap at the last row so a path always exists around it
+            blocked[i][wall_col] = True
+    if wave_wall_col is not None:
+        # Only the first `wave_wall_rows` rows are rough — the rest of that
+        # column is calm, so a detour through a lower row is a genuine
+        # calmer alternative rather than hitting the same rough water anyway.
+        for i in range(wave_wall_rows):
+            waves[i][wave_wall_col] = 5.0  # rough, not impassable — a cost, not a block
+    return voyage._AstarGrid(lats=lats, lons=lons, blocked=blocked, wave_height_m=waves)
+
+
+def test_astar_route_goes_around_a_blocked_column(monkeypatch):
+    grid = _synthetic_grid(6, wall_col=3)
+    monkeypatch.setattr(voyage, "_build_astar_grid", lambda *a, **kw: grid)
+    origin, destination = (8.0, 78.0), (8.0, 78.5)
+    path = voyage.astar_route(origin, destination, datetime.now(timezone.utc), 8.0, 1.8)
+    assert path is not None
+    assert path[0] == origin and path[-1] == destination
+    # The path must cross column index 3 only at the one open row (index 5,
+    # the gap left in the wall) — anywhere else there it would be crossing a
+    # blocked cell.
+    for lat, lon in path[1:-1]:
+        j = round((lon - grid.lons[0]) / 0.1)
+        if j == 3:
+            i = round((lat - grid.lats[0]) / 0.1)
+            assert i == 5, f"path crossed the wall at a blocked row: {(lat, lon)}"
+
+
+def test_astar_route_prefers_the_calmer_path_when_both_are_clear(monkeypatch):
+    """Two open corridors exist (no blocked cells); one has a rough-water
+    column in the middle. The cheaper (lower cost, not just shorter) path
+    must avoid the rough column when a calm alternative of the same length
+    exists — proof the wave-height term actually steers the search rather
+    than being computed and ignored."""
+    grid = _synthetic_grid(6, wall_col=None, wave_wall_col=2, wave_wall_rows=2)
+    monkeypatch.setattr(voyage, "_build_astar_grid", lambda *a, **kw: grid)
+    origin, destination = (8.0, 78.0), (8.0, 78.5)
+    path = voyage.astar_route(origin, destination, datetime.now(timezone.utc), 8.0, 1.8)
+    assert path is not None
+
+    def is_rough(lat: float, lon: float) -> bool:
+        i = round((lat - grid.lats[0]) / 0.1)
+        j = round((lon - grid.lons[0]) / 0.1)
+        return grid.wave_height_m[i][j] == 5.0
+
+    assert not any(is_rough(lat, lon) for lat, lon in path), "A* passed through a rough cell when a calmer route existed"
+    # And it must have actually gone somewhere other than the flat row-0 line
+    # to prove the detour is real, not a coincidence of the heuristic.
+    assert any(lat != origin[0] for lat, lon in path), "path never left row 0 — it must have crossed the rough cell there"
+
+
+def test_astar_route_returns_none_when_the_goal_is_unreachable(monkeypatch):
+    size = 6
+    grid = _synthetic_grid(size, wall_col=None)
+    for i in range(size):  # a solid wall with no gap at all
+        grid.blocked[i][3] = True
+    monkeypatch.setattr(voyage, "_build_astar_grid", lambda *a, **kw: grid)
+    path = voyage.astar_route((8.0, 78.0), (8.0, 78.5), datetime.now(timezone.utc), 8.0, 1.8)
+    assert path is None
+
+
+def test_astar_route_returns_none_when_origin_itself_is_blocked(monkeypatch):
+    grid = _synthetic_grid(6)
+    grid.blocked[0][0] = True  # snaps to the origin's own nearest cell
+    monkeypatch.setattr(voyage, "_build_astar_grid", lambda *a, **kw: grid)
+    path = voyage.astar_route((8.0, 78.0), (8.0, 78.5), datetime.now(timezone.utc), 8.0, 1.8)
+    assert path is None
+
+
+def test_plan_voyage_falls_through_to_astar_when_offset_and_wait_both_fail(monkeypatch):
+    """Integration point, not the search logic: when every offset/wait
+    candidate is still NO_GO, plan_voyage must actually call astar_route and
+    use its result if astar clears — not silently give up one rung early."""
+
+    astar_points = [(8.0, 78.0), (8.05, 78.2), (8.0, 78.5)]
+
+    def fake_classify_route(points, departure, now, vessel_class, draft, speed_kn):
+        # densify_route already turns even the direct line into >2 points, so
+        # that can't distinguish "direct" from "astar" here — only the exact
+        # astar_route output (mocked below) is treated as clear.
+        if list(points) == astar_points:
+            seg = voyage._segment("seg-0", points[0], points[-1], 1.0, departure, "CLEAR", "CLEAR", "clear", ())
+            return [seg], [voyage.Confidence("HIGH", "test")], "GO", "clear via astar"
+        seg = voyage._segment("seg-0", points[0], points[-1], 1.0, departure, "SHALLOW", "BLOCKED", "blocked", ())
+        return [seg], [voyage.Confidence("HIGH", "test")], "NO_GO", "blocked"
+
+    monkeypatch.setattr(voyage, "_classify_route", fake_classify_route)
+    monkeypatch.setattr(voyage, "_detour_candidates", lambda *a, **kw: [])  # offset/wait never even tried
+    monkeypatch.setattr(voyage, "astar_route", lambda *a, **kw: astar_points)
+
+    plan = voyage.plan_voyage((8.0, 78.0), (8.0, 78.5), vessel_class="small_fishing", speed_kn=8.0, draft_m=1.8)
+    assert plan.verdict == "GO"
+    assert plan.rerouted is True
+    assert any(a["strategy"] == "astar" for a in plan.alternatives_tried)

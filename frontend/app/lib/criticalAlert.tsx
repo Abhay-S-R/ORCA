@@ -16,6 +16,11 @@ export type CriticalCondition = {
   distanceNm: number | null;
   queryId: string | null;
   raisedAt: number;
+  // P5.6/P6.7 — the live query path's own hazard_breakdown carries no
+  // boundary bearing today (this codebase's honest "not yet computed" text,
+  // below), so this stays optional; P6.7's scripted scenario already has a
+  // real bearing from sentinel.geofence_check() and supplies it.
+  reciprocalHeadingDeg?: number | null;
 };
 
 type CriticalAlertContextValue = {

@@ -390,6 +390,139 @@ def load_cmems_ssh(lat: float, lon: float) -> dict[str, Any] | None:
     }
 
 
+# ---------------------------------------------------------------------------
+# P5.2 — NOAA CoastWatch ERDDAP: the failover rung after MOSDAC/CMEMS both
+# fail. Real gridded values over plain HTTP (no key, no registration),
+# subset by bbox directly in the URL — unlike GIBS, which serves rendered
+# map *imagery* and is never a value rung (2026-09-19 stack correction).
+# The one live-fetch loader in this module; every other function here reads
+# a file already on disk. Consistent with `ocean_analytics._fetch_ioc_gauge`
+# already being a second legitimate httpx caller beside weather_intelligence.
+# ---------------------------------------------------------------------------
+
+COASTWATCH_ERDDAP_BASE = "https://coastwatch.pfeg.noaa.gov/erddap/griddap"
+# MUR L4 SST (JPL, daily, 0.01 deg) and VIIRS/MODIS-blended chlorophyll —
+# both long-standing, stable ERDDAP dataset ids on this server.
+_COASTWATCH_SST_DATASET = "jplMURSST41"
+_COASTWATCH_CHL_DATASET = "nesdisVHNSQchlaDaily"
+COASTWATCH_TIMEOUT_S = 20.0  # a full-bbox grid fetch, not the 3s safety path
+
+
+def _coastwatch_griddap_json(dataset_id: str, variable: str, bbox: dict[str, float]) -> dict[str, Any] | None:
+    """One griddap `.json` query, `[(last)][(lat range)][(lon range)]` —
+    ERDDAP's own selector syntax, not a bbox query parameter, hence "subset
+    by bbox in the URL" rather than a request body. Returns the parsed
+    `{"table": {"columnNames", "rows"}}` response, or None on any failure
+    (a flaky NOAA endpoint degrades the cascade to its next rung, same as
+    every other source here — it never raises past this function).
+    """
+    import httpx
+
+    from orca import resilience
+
+    source_id = "noaa_coastwatch"
+    if resilience.circuit_open(source_id):
+        return None
+    selector = (
+        f"[(last)][({bbox['min_lat']}):({bbox['max_lat']})]"
+        f"[({bbox['min_lon']}):({bbox['max_lon']})]"
+    )
+    url = f"{COASTWATCH_ERDDAP_BASE}/{dataset_id}.json?{variable}{selector}"
+    try:
+        resp = httpx.get(url, timeout=COASTWATCH_TIMEOUT_S, follow_redirects=True)
+        resp.raise_for_status()
+        payload = resp.json()
+    except (httpx.HTTPError, ValueError):
+        resilience.record_failure(source_id)
+        return None
+    resilience.record_success(source_id)
+    return payload
+
+
+def _coastwatch_frame(
+    payload: dict[str, Any], variable: str, valid: tuple[float, float], nd: int
+) -> tuple[list[dict[str, float]], datetime] | None:
+    """ERDDAP's griddap JSON table (`columnNames`: time, latitude, longitude,
+    `variable`) into the same `[{lon, lat, value}]` shape every other loader
+    in this module returns."""
+    table = payload.get("table") or {}
+    cols, rows = table.get("columnNames") or [], table.get("rows") or []
+    if not rows or not {"time", "latitude", "longitude", variable} <= set(cols):
+        return None
+    idx = {name: i for i, name in enumerate(cols)}
+    lo, hi = valid
+    records: list[dict[str, float]] = []
+    acquired: datetime | None = None
+    for row in rows:
+        value = row[idx[variable]]
+        if value is None or not math.isfinite(v := float(value)) or not (lo <= v <= hi):
+            continue
+        records.append({
+            "lon": round(float(row[idx["longitude"]]), 3),
+            "lat": round(float(row[idx["latitude"]]), 3),
+            "value": round(v, nd),
+        })
+        if acquired is None:
+            acquired = datetime.fromisoformat(str(row[idx["time"]]).replace("Z", "+00:00"))
+    if not records or acquired is None:
+        return None
+    return records, acquired
+
+
+def load_coastwatch_sst(bbox: dict[str, float] | None = None) -> dict[str, Any] | None:
+    """MUR L4 SST (`analysed_sst`, Kelvin) from NOAA CoastWatch ERDDAP —
+    `discovery.FALLBACK_CASCADES`' rung after MOSDAC and CMEMS both fail."""
+    payload = _coastwatch_griddap_json(_COASTWATCH_SST_DATASET, "analysed_sst", bbox or INDIA_BBOX)
+    if payload is None:
+        return None
+    got = _coastwatch_frame(payload, "analysed_sst", (_SST_VALID_C[0] + _KELVIN_ZERO_C, _SST_VALID_C[1] + _KELVIN_ZERO_C), 2)
+    if got is None:
+        return None
+    records, acquired = got
+    for r in records:
+        r["value"] = round(r["value"] - _KELVIN_ZERO_C, 2)  # Kelvin -> Celsius, this module's common unit
+    return {
+        "param": "sst",
+        "units": "degC",
+        "frame": records,
+        "provenance": {
+            "dataset": "NOAA CoastWatch ERDDAP — JPL MUR L4 SST (jplMURSST41, live)",
+            "authority_tier": "T1",
+            "source_file": None,
+            "acquisition_timestamp": acquired.isoformat().replace("+00:00", "Z"),
+            "freshness_minutes": _freshness_minutes(acquired),
+            "native_units": "K",
+            "operations": ["bbox_crop", "kelvin_to_celsius", "physical_range_mask"],
+        },
+    }
+
+
+def load_coastwatch_chl(bbox: dict[str, float] | None = None) -> dict[str, Any] | None:
+    """VIIRS/MODIS-blended chlorophyll-a from NOAA CoastWatch ERDDAP — the
+    rung after MOSDAC, NASA ocean-color and CMEMS all fail."""
+    payload = _coastwatch_griddap_json(_COASTWATCH_CHL_DATASET, "chlor_a", bbox or INDIA_BBOX)
+    if payload is None:
+        return None
+    got = _coastwatch_frame(payload, "chlor_a", _CHL_VALID, 4)
+    if got is None:
+        return None
+    records, acquired = got
+    return {
+        "param": "chl",
+        "units": "mg m-3",
+        "frame": records,
+        "provenance": {
+            "dataset": "NOAA CoastWatch ERDDAP — VIIRS/MODIS-blended chlorophyll-a (live)",
+            "authority_tier": "T1",
+            "source_file": None,
+            "acquisition_timestamp": acquired.isoformat().replace("+00:00", "Z"),
+            "freshness_minutes": _freshness_minutes(acquired),
+            "native_units": "mg m-3",
+            "operations": ["bbox_crop", "physical_range_mask"],
+        },
+    }
+
+
 def _as_utc(numpy_datetime: Any) -> datetime:
     return datetime.fromisoformat(str(numpy_datetime)[:19]).replace(tzinfo=timezone.utc)
 

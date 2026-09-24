@@ -156,6 +156,59 @@ ROW_PHRASINGS: dict[str, tuple[str, ...]] = {
         "Edit my personal settings.",
         "Fix the information on my account.",
     ),
+    # --- P5.9 scenario shapes -------------------------------------------
+    # Concrete and specific, not short generic time-vagueness — a phrase like
+    # "what about tomorrow evening?" sits in e5's narrow high-similarity band
+    # against almost any row (measured while writing these: 0.87 against an
+    # early, vaguer draft of COUNTERFACTUAL), the same trap the module
+    # docstring already warns about for Tier 1 keywords bleeding into here.
+    "WORTHWHILENESS": (
+        "Is it even worth burning the fuel to go out today?",
+        "Will I actually find fish if I go out now?",
+        "Is today worth the diesel and the trip?",
+        "Is there enough happening out there to make the trip worthwhile?",
+        "Would going out even pay for itself today?",
+    ),
+    "TIMING": (
+        "Which hour today gives me the calmest crossing?",
+        "Pick me the safest hour to leave the harbour.",
+        "What's the best window to set off before the swell builds?",
+        "Tell me the calmest hour to head out this morning.",
+    ),
+    "COUNTERFACTUAL": (
+        "Would the crossing be safer if I left after the tide turns?",
+        "Does waiting a few hours actually change the wave height?",
+        "If I delay past the squall, would conditions improve?",
+        "Is holding off until the swell drops the smarter move?",
+        "Would postponing past this weather system make a real difference?",
+    ),
+    "COMPARISON": (
+        "Which of these two harbours has calmer water today?",
+        "Between the two grounds, which is safer to reach?",
+        "Tell me which port has the gentler swell right now.",
+        "Is the crossing rougher near the first point or the second?",
+        "Which of my two usual spots is the better bet today?",
+    ),
+    "ENDURANCE": (
+        "How many hours of fuel do I have before I must turn back?",
+        "How far offshore can my boat go and still make it home?",
+        "What's the furthest ground I can reach and return from safely?",
+        "How long can my engine run before I'm stranded out there?",
+        "Can my boat make the round trip to the far grounds?",
+    ),
+    "FUEL_ECONOMICS": (
+        "How many litres of diesel would this trip use?",
+        "What would the fuel bill be for reaching that ground?",
+        "Work out the diesel cost of the crossing for me.",
+        "How much would fuel eat into today's catch money?",
+        "Estimate the fuel spend for the round trip.",
+    ),
+    "HISTORICAL": (
+        "Were the waves bigger around here seven days ago?",
+        "Was the swell worse this time last month?",
+        "Compare today's sea state with a week back.",
+        "Has it calmed down since last week, or got worse?",
+    ),
 }
 
 _lock = threading.Lock()

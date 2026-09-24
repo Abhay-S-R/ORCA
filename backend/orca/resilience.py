@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import math
+import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from functools import wraps
@@ -170,6 +171,55 @@ def conservative_or(value: T | None, *, missing_field_name: str, missing: list[s
         missing.append(missing_field_name)
         return None
     return value
+
+
+# ---------------------------------------------------------------------------
+# Circuit breaker (plan P5.27) — a dead upstream currently costs one full
+# timeout per query. This remembers a flapping source id in-process, across
+# queries, so once it has failed repeatedly in a short window the process
+# skips straight to the next cascade rung for a cool-down instead of paying
+# another timeout to rediscover what it already knows. No library: this is
+# the whole thing.
+# ---------------------------------------------------------------------------
+
+_BREAKER_FAILURE_THRESHOLD = 3      # failures inside the window before it opens
+_BREAKER_WINDOW_SECONDS = 300.0     # failures older than this stop counting
+_BREAKER_COOLDOWN_SECONDS = 120.0   # once open, skip live attempts for this long
+
+_breaker_failures: dict[str, list[float]] = {}
+_breaker_opened_at: dict[str, float] = {}
+
+
+def circuit_open(source_id: str) -> bool:
+    """True while `source_id` is in its cool-down. The caller should skip the
+    live attempt entirely and go straight to its next fallback rung."""
+    opened_at = _breaker_opened_at.get(source_id)
+    if opened_at is None:
+        return False
+    if time.monotonic() - opened_at >= _BREAKER_COOLDOWN_SECONDS:
+        _breaker_opened_at.pop(source_id, None)
+        _breaker_failures.pop(source_id, None)
+        return False
+    return True
+
+
+def record_failure(source_id: str) -> None:
+    """Call from a live fetch's except block (or an arrival-check failure).
+    Opens the breaker once `_BREAKER_FAILURE_THRESHOLD` failures have landed
+    inside `_BREAKER_WINDOW_SECONDS`."""
+    now = time.monotonic()
+    window_start = now - _BREAKER_WINDOW_SECONDS
+    failures = [t for t in _breaker_failures.get(source_id, []) if t >= window_start]
+    failures.append(now)
+    _breaker_failures[source_id] = failures
+    if len(failures) >= _BREAKER_FAILURE_THRESHOLD:
+        _breaker_opened_at[source_id] = now
+
+
+def record_success(source_id: str) -> None:
+    """A live call succeeded — clear the source's failure history."""
+    _breaker_failures.pop(source_id, None)
+    _breaker_opened_at.pop(source_id, None)
 
 
 def safety_floor_for_missing_inputs(

@@ -33,6 +33,7 @@ export type Profile = {
   home_port_name: string | null;
   active_vessel_id: string | null;
   quiet_hours: { start: string; end: string; tz: string } | null;
+  typical_departure_hour: number | null;
 };
 
 type TokenPair = { access_token: string; refresh_token: string };

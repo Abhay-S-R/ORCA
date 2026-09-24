@@ -129,10 +129,21 @@ class RouteSegment:
     end: tuple[float, float]
     distance_nm: float
     eta: str  # ISO 8601 UTC — when the vessel is expected to be at `end`
-    hazard_class: Literal["SHALLOW", "BOUNDARY", "MPA", "ROUGH_SEA", "LIGHTNING", "CLEAR"]
+    # REGULATORY/SET_DRIFT added P5.23 — a seasonal-ban leg and a strong
+    # cross-track current, alongside the original five hazard classes.
+    hazard_class: Literal["SHALLOW", "BOUNDARY", "MPA", "ROUGH_SEA", "LIGHTNING", "REGULATORY", "SET_DRIFT", "CLEAR"]
     status: Literal["CLEAR", "CAUTION", "BLOCKED"]
     detail: str  # e.g. "Depth 3.2m at draft 4.0m — BLOCKED" — the sentence a waypoint-table row needs
     source_provenance: tuple[SourceProvenance, ...]
+    # P5.24 — the under-keel-clearance column and the wave-height profile
+    # both need the raw numbers, not just `detail`'s prose. depth_m is
+    # always the same GEBCO reading already made to classify the leg
+    # (never a second lookup); wave_height_m is None whenever the leg was
+    # blocked on an earlier, harder constraint before WW3 was ever
+    # consulted, or the ETA sits outside WW3's forecast window — never a
+    # fabricated 0.0.
+    depth_m: float | None = None
+    wave_height_m: float | None = None
 
 
 @dataclass(frozen=True)
@@ -170,6 +181,17 @@ class VoyagePlan:
     # what we checked and rejected" is the honest answer the checklist asks
     # for over silently picking the least-bad NO_GO.
     alternatives_tried: tuple[dict[str, Any], ...] = ()
+    # P5.24 — nearest safe harbour is the closest ICG rescue station to the
+    # destination (the same roster `nearest_sar_station` already serves
+    # distress calls from — a real gazetteer, not a new one), with its true
+    # bearing/distance from the destination and an ETA at the plan's own
+    # cruise speed. None only when the roster itself failed to load.
+    nearest_safe_harbour: dict[str, Any] | None = None
+    # Total fuel burn at cruise speed, only when the caller supplied a
+    # burn rate (a vessel's own `fuel_burn_lph`, P3.9) — an honest MISSING
+    # rather than a guessed one, same discipline as `draft_disclosure`.
+    fuel_burn_lph: float | None = None
+    fuel_estimate_liters: float | None = None
 
 
 # What /query decided to do with a question, before any marine content exists.

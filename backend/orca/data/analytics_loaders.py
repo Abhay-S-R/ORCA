@@ -364,6 +364,19 @@ def load_era5_baseline(port: str = "thoothukudi") -> dict[str, Any] | None:
     }
 
 
+def load_era5_daily_series(port: str = "thoothukudi") -> dict[str, Any] | None:
+    """The ERA5 archive's raw per-date series (P5.25) — `load_era5_baseline`
+    only exposes the 30-day mean/std `detect_anomaly` needs; a "was last
+    week rougher?" question needs the actual value on a specific date, which
+    lives in the same file and was never read out before this."""
+    path = WEATHER_DIR / f"era5_historical_{port}_30d.json"
+    if not path.exists():
+        return None
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    return raw.get("daily")
+
+
 # --- hazards ----------------------------------------------------------------
 
 def load_imd_nowcast_alerts() -> list[dict[str, Any]]:

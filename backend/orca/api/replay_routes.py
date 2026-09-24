@@ -9,6 +9,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from orca.replay.gaja import replay_payload
+from orca.replay.imbl_crossing import imbl_crossing_track
 
 _log = logging.getLogger(__name__)
 
@@ -27,3 +28,11 @@ def gaja_replay() -> dict:
         # caller gets the fact without the filesystem layout.
         _log.warning("Gaja replay data missing: %s", exc)
         raise HTTPException(status_code=404, detail="Gaja replay data not found") from exc
+
+
+@router.get("/imbl-crossing")
+def imbl_crossing() -> dict:
+    """P6.7 — Scenario 2's stepped track, computed fresh per request (no
+    file I/O, unlike gaja_replay: the boundary geometry is already an
+    in-process lru_cache in geospatial.py)."""
+    return imbl_crossing_track()

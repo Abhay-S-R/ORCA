@@ -10,8 +10,11 @@ in a log file anyone with server access can grep.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
+from contextvars import ContextVar
+from datetime import datetime, timezone
 
 # 4+ decimal places is the practical GPS-precision signature (≈11m or
 # better) — 2-3 decimals covers city-scale numbers too common in ordinary
@@ -50,17 +53,69 @@ def _redact(text: str) -> str:
     return text
 
 
+
+# P6.12 (orca_final §28) — every log line keyed by the query_id it belongs
+# to, so an incident can be grepped end to end instead of reconstructed from
+# timestamps. A ContextVar rather than a parameter threaded into every log
+# call: `bind_query_id` is set once at the top of the request handler
+# (`orca/api/main.py`'s query-streaming generator) and every `logging.info(…)`
+# anywhere in that call tree — including inside LangGraph's node functions,
+# none of which take a query_id parameter today — picks it up automatically.
+# ContextVars propagate through `await` within the same task and through
+# `asyncio.to_thread`/`run_in_executor` (both copy the current context by
+# default), which covers LangGraph's own thread offloading for sync nodes.
+_query_id_var: ContextVar[str] = ContextVar("query_id", default="")
+
+
+def bind_query_id(query_id: str) -> None:
+    """Call once per request, before any node runs, so every log line
+    emitted while handling it carries the same id a judge can also find in
+    `audit_trace_log`, `/trace/{query_id}` and the DB's own audit rows."""
+    _query_id_var.set(query_id)
+
+
+class QueryIdFilter(logging.Filter):
+    """Stamps the ambient query_id (if any) onto every record, for
+    `JsonFormatter` to render. A background task with no request in flight
+    (Sentinel's poll loop) simply gets an empty string — not an error."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.query_id = _query_id_var.get()
+        return True
+
+
+class JsonFormatter(logging.Formatter):
+    """One JSON object per line — `docker logs`/`journalctl` friendly, and
+    grep/jq-able by query_id without a log-aggregation stack this project
+    doesn't have. Runs after RedactionFilter/QueryIdFilter, which mutate
+    `record.msg`/set `record.query_id` respectively before this ever sees
+    the record."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "query_id": getattr(record, "query_id", "") or None,
+        }
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(payload, default=str)
+
+
 def configure_logging(level: int = logging.INFO) -> None:
     """Call once at process startup (orca/api/main.py's lifespan). Attaches
-    a single StreamHandler carrying `RedactionFilter` to the root logger —
-    every orca.* module logger propagates to it with no handler of its own,
-    so this is the one place redaction has to be wired for it to cover all
-    of them."""
+    a single StreamHandler carrying `RedactionFilter`/`QueryIdFilter` to the
+    root logger — every orca.* module logger propagates to it with no
+    handler of its own, so this is the one place redaction and the
+    query_id key have to be wired for it to cover all of them."""
     root = logging.getLogger()
     root.setLevel(level)
     handler = logging.StreamHandler()
     handler.addFilter(RedactionFilter())
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    handler.addFilter(QueryIdFilter())
+    handler.setFormatter(JsonFormatter())
     root.addHandler(handler)
 
 
@@ -71,4 +126,17 @@ if __name__ == "__main__":
     f.filter(r)
     assert "8.822495" not in r.getMessage()
     assert "a@b.com" not in r.getMessage()
-    print("logging_utils self-check ok:", r.getMessage())
+
+    bind_query_id("qid-123")
+    QueryIdFilter().filter(r)
+    line = JsonFormatter().format(r)
+    parsed = json.loads(line)
+    assert parsed["query_id"] == "qid-123", parsed
+    assert "8.822495" not in line and "a@b.com" not in line
+
+    bind_query_id("")  # the no-request-in-flight case (e.g. Sentinel's poll loop)
+    r2 = logging.LogRecord("demo", logging.INFO, __file__, 1, "background tick", None, None)
+    QueryIdFilter().filter(r2)
+    assert json.loads(JsonFormatter().format(r2))["query_id"] is None
+
+    print("logging_utils self-check ok:", line)

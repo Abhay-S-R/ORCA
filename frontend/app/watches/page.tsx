@@ -15,6 +15,7 @@ import { Field, inputClass } from "../components/Field";
 import { PasswordInput } from "../components/PasswordInput";
 import { Button } from "../components/Button";
 import { WatchCard } from "../components/WatchCard";
+import { WatchGeometryPicker } from "../components/WatchGeometryPicker";
 import { usePersona } from "../persona/context";
 import { getToken, signIn, signOut } from "../lib/auth";
 import { createWatch, listWatches, type Watch, type WatchType } from "../lib/watches";
@@ -134,22 +135,30 @@ function AdvancedWatchForm({ onCreated }: { onCreated: () => void }) {
   const [wave, setWave] = useState(String(DEFAULT_WAVE_THRESHOLD));
   const [wind, setWind] = useState("");
   const [busy, setBusy] = useState(false);
+  // P5.28 — a point-with-radius watch or a drawn area, never both; the DB
+  // constraint (`sentinel_has_geometry`) already enforces one geometry.
+  const [geometryMode, setGeometryMode] = useState<"point" | "area">("point");
+  const [area, setArea] = useState<GeoJSON.Polygon | null>(null);
+
+  // P5.18 — geofence_approach/pfz_shift fire on their own band/advisory
+  // logic, never a wave/wind threshold; submitting one anyway left a stray
+  // "wave_height_m 2.5" pill on a boundary watch that nothing ever reads.
+  const usesThresholds = type !== "geofence_approach" && type !== "pfz_shift";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
       const thresholds: Record<string, number> = {};
-      if (wave) thresholds.wave_height_m = Number(wave);
-      if (wind) thresholds.wind_kt = Number(wind);
-      await createWatch({
-        watch_type: type,
-        lat: Number(lat),
-        lon: Number(lon),
-        radius_km: radius ? Number(radius) : null,
-        thresholds,
-        channels: ["in_app"],
-      });
+      if (usesThresholds) {
+        if (wave) thresholds.wave_height_m = Number(wave);
+        if (wind) thresholds.wind_kt = Number(wind);
+      }
+      await createWatch(
+        geometryMode === "area" && area
+          ? { watch_type: type, area_geojson: area, thresholds, channels: ["in_app"] }
+          : { watch_type: type, lat: Number(lat), lon: Number(lon), radius_km: radius ? Number(radius) : null, thresholds, channels: ["in_app"] },
+      );
       onCreated();
     } finally {
       setBusy(false);
@@ -170,14 +179,56 @@ function AdvancedWatchForm({ onCreated }: { onCreated: () => void }) {
           </select>
         )}
       </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label={t("watches.latitude")}>{(id) => <input id={id} className={inputClass} value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" />}</Field>
-        <Field label={t("watches.longitude")}>{(id) => <input id={id} className={inputClass} value={lon} onChange={(e) => setLon(e.target.value)} inputMode="decimal" />}</Field>
-        <Field label={t("watches.radius")}>{(id) => <input id={id} className={inputClass} value={radius} onChange={(e) => setRadius(e.target.value)} inputMode="decimal" />}</Field>
-        <Field label={t("watches.waveThreshold")}>{(id) => <input id={id} className={inputClass} value={wave} onChange={(e) => setWave(e.target.value)} inputMode="decimal" />}</Field>
-        <Field label={t("watches.windThreshold")} hint={t("watches.windHint")}>{(id) => <input id={id} className={inputClass} value={wind} onChange={(e) => setWind(e.target.value)} inputMode="decimal" />}</Field>
+      <div className="mb-2 flex items-center gap-2 text-[11px]">
+        <span className="text-ink-dim">Geometry:</span>
+        <button
+          type="button"
+          onClick={() => setGeometryMode("point")}
+          className={`rounded px-2 py-0.5 ${geometryMode === "point" ? "bg-accent/20 text-accent" : "text-ink-dim underline"}`}
+        >
+          Point + radius
+        </button>
+        <button
+          type="button"
+          onClick={() => setGeometryMode("area")}
+          className={`rounded px-2 py-0.5 ${geometryMode === "area" ? "bg-accent/20 text-accent" : "text-ink-dim underline"}`}
+        >
+          Draw an area
+        </button>
       </div>
-      <Button type="submit" variant="primary" disabled={busy}>
+      <div className="mb-3">
+        <WatchGeometryPicker
+          mode={geometryMode}
+          point={Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) ? { lat: Number(lat), lon: Number(lon) } : null}
+          onPointChange={(clat, clon) => {
+            setLat(String(clat));
+            setLon(String(clon));
+          }}
+          area={area}
+          onAreaChange={setArea}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {geometryMode === "point" && (
+          <>
+            <Field label={t("watches.latitude")}>{(id) => <input id={id} className={inputClass} value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" />}</Field>
+            <Field label={t("watches.longitude")}>{(id) => <input id={id} className={inputClass} value={lon} onChange={(e) => setLon(e.target.value)} inputMode="decimal" />}</Field>
+            <Field label={t("watches.radius")}>{(id) => <input id={id} className={inputClass} value={radius} onChange={(e) => setRadius(e.target.value)} inputMode="decimal" />}</Field>
+          </>
+        )}
+        {usesThresholds && (
+          <>
+            <Field label={t("watches.waveThreshold")}>{(id) => <input id={id} className={inputClass} value={wave} onChange={(e) => setWave(e.target.value)} inputMode="decimal" />}</Field>
+            <Field label={t("watches.windThreshold")} hint={t("watches.windHint")}>{(id) => <input id={id} className={inputClass} value={wind} onChange={(e) => setWind(e.target.value)} inputMode="decimal" />}</Field>
+          </>
+        )}
+      </div>
+      {!usesThresholds && (
+        <p className="mb-4 -mt-2 text-[11px] text-ink-dim">
+          {type === "geofence_approach" ? t("watches.geofenceHint") : t("watches.pfzShiftHint")}
+        </p>
+      )}
+      <Button type="submit" variant="primary" disabled={busy || (geometryMode === "area" && !area)}>
         {busy ? t("watches.adding") : t("watches.addButton")}
       </Button>
     </form>

@@ -50,6 +50,7 @@ from orca.api.trace_routes import (
 )
 from orca.api.voice_routes import router as voice_router
 from orca.api.voyage_routes import router as voyage_router
+from orca.api.voyages_routes import router as voyages_router
 from orca.api.watches_routes import router as watches_router
 from orca.auth.rbac import get_optional_user
 from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
@@ -60,7 +61,7 @@ from orca.db.repositories import get_vessel_for_owner, user_home_port
 from orca.graph.graph import build_graph
 from orca.language_command import match_language_command
 from orca.llm.tiers import llm_enabled, reset_llm_call_count, set_llm_override
-from orca.logging_utils import configure_logging
+from orca.logging_utils import bind_query_id, configure_logging
 from orca.place_resolution import resolve_or_ask
 from orca.profile_prompts import profile_prompt
 from orca.query_cache import get as query_cache_get
@@ -80,7 +81,24 @@ async def _lifespan(app: FastAPI):
     # its models lazily on first actual translate() call, so this itself is
     # cheap; the first Tamil/Hindi query after a cold start pays the model
     # load cost, not every query.
-    register_translation_backend(IndicTrans2Backend())
+    _translation_backend = IndicTrans2Backend()
+    register_translation_backend(_translation_backend)
+    # P6.4 (orca_final §14.3) — pre-warm IndicTrans2 and Whisper now, same
+    # fire-and-forget `run_in_executor` shape as the intent-embedding warm-up
+    # directly below: a 40s model-load stall on the first Tamil/Hindi query
+    # or the first voice query is exactly what destroys a six-minute demo.
+    try:
+        from orca.agents.voice import warm_faster_whisper, warm_mms_tts
+
+        asyncio.get_running_loop().run_in_executor(None, _translation_backend.warm)
+        asyncio.get_running_loop().run_in_executor(None, warm_faster_whisper)
+        # P6.4 — the local TTS rung was the one warm-up missing (see
+        # voice.warm_mms_tts's own docstring): only ASR and translation were
+        # pre-warmed before this, leaving the demo's Tamil alert voice to pay
+        # a first-synthesis model load on whichever take needed it first.
+        asyncio.get_running_loop().run_in_executor(None, warm_mms_tts)
+    except Exception:  # warm-up is an optimisation, never a startup dependency
+        logging.getLogger("orca.language").warning("model warm-up not started", exc_info=True)
     # P2.8 — load the Tier-2 intent-embedding model now, off the event loop,
     # rather than inside the first user's query. It is optional by
     # construction (see orca/intent_embeddings.py): a machine that cannot
@@ -127,6 +145,7 @@ app.include_router(chats_router)  # Ask chat history — /api/chats CRUD + /api/
 app.include_router(conditions_router)  # P4.3 — /api/quick-conditions, the greeting's cheap read
 app.include_router(analytics_router)  # Agent 5 — /zones, /trends, /tides, /data (Phase 2 D2)
 app.include_router(voyage_router)  # D3 — /voyage-plan, /wind-vectors already mounted via geospatial_router
+app.include_router(voyages_router)  # P5.20 — /api/voyages: saved passage plans, promotable to a route watch
 app.include_router(trace_router)  # D1 Phase 3 — /trace/{query_id} replay, /render persona re-render
 app.include_router(voice_router)  # D1 Phase 3 Day 16-17 — /voice/transcribe, /voice/speak
 
@@ -204,6 +223,7 @@ def _initial_state(
     resolution: dict | None = None,
     fix_on_land: bool = False,
     user_language_default: str | None = None,
+    demo_scenario: str | None = None,
 ) -> ORCAState:
     return {  # type: ignore[typeddict-item]
         "session_id": session_id or "",
@@ -241,6 +261,9 @@ def _initial_state(
             **({"fix_on_land": True} if fix_on_land else {}),
         },
         "vessel_class": vessel_class,  # None -> risk_assessment.run() defaults to "small_fishing"
+        # P6.6 — set only by `/demo`. See orca/demo_fixtures.py and ORCAState's
+        # own field comment; None on every ordinary query.
+        "demo_scenario": demo_scenario,
         # An explicit persona choice (the selector, or a logged-in user's
         # resolved role — plan §4 D1 Day 10). It is a *resolved value* only:
         # Agent 9 renders with it, no intent classifier ever reads it
@@ -422,6 +445,7 @@ async def _query_stream(
     fix_on_land: bool = False,
     user_id: uuid.UUID | None = None,
     user_language_default: str | None = None,
+    demo_scenario: str | None = None,
 ) -> AsyncIterator[str]:
     """`on_final`, when given, is called once with the same dict that gets
     JSON-serialized into the `final_response` SSE frame — the query-cache
@@ -441,8 +465,12 @@ async def _query_stream(
     llm_calls = reset_llm_call_count()
     state = _initial_state(
         query, lat, lon, vessel_class, distress, persona, depth, place, session_id, session_history,
-        resolution, fix_on_land, user_language_default,
+        resolution, fix_on_land, user_language_default, demo_scenario,
     )
+    # P6.12 (orca_final §28) — every log line the graph emits from here on
+    # carries this query_id, so an incident is one grep away instead of a
+    # timestamp-range guess.
+    bind_query_id(state["query_id"])
     # P3.2 — a real `sessions` row for this chat, threaded into every
     # audit_trace_log row below. Created once per query (idempotent — the
     # same session_id just gets its last_seen_at touched on later turns).
@@ -956,6 +984,7 @@ async def query(
     distress: bool = False, persona: str | None = None, depth: str | None = None,
     session_id: str | None = None, llm: str | None = None, drop: str | None = None,
     fresh: bool = False, fix_lat: OptLat = None, fix_lon: OptLon = None,
+    demo_scenario: str | None = None,
     user: User | None = Depends(get_optional_user), db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """`llm=off` (P2.11, `R-NEW-3`) re-runs this exact query with every LLM
@@ -1159,8 +1188,28 @@ async def query(
                 session_id=session_id, session_history=history, resolution=resolution,
                 llm=llm_override, fix_on_land=fix_on_land,
                 user_id=user_id, user_language_default=user_language_default,
+                demo_scenario=demo_scenario,
             )),
             media_type="text/event-stream"
+        )
+
+    if demo_scenario:
+        # P6.6 — never cached and never coalesced onto another in-flight
+        # request, same rule as `distress` above and for the same reason: a
+        # cache entry keyed only by (q, lat, lon, vessel_class, persona,
+        # depth) does not know a request was pinned to a fixture, so an
+        # ordinary live query at the same resolved parameters could be
+        # served the demo's fixture answer, or vice versa, if this shared
+        # the cache path at all.
+        return StreamingResponse(
+            _query_stream(
+                q, lat, lon, vessel_class, distress, persona, depth, (place_name, place_source),
+                session_id=session_id, session_history=history, resolution=resolution,
+                llm=llm_override, fix_on_land=fix_on_land,
+                user_id=user_id, user_language_default=user_language_default,
+                demo_scenario=demo_scenario,
+            ),
+            media_type="text/event-stream",
         )
 
     if fresh:

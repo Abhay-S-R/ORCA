@@ -36,6 +36,7 @@ from typing import Any, Literal
 import httpx
 import pandas as pd
 
+from orca import resilience
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.data.analytics_loaders import load_imd_nowcast_alerts
 from orca.data.loaders import (
@@ -87,20 +88,35 @@ def _nearest_port(lat: float, lon: float, candidates: tuple[str, ...]) -> str:
 
 def _fetch_open_meteo(url: str, lat: float, lon: float, variables: list[str], hours_ahead: int) -> dict:
     """Thin HTTP boundary — the only function tests need to monkeypatch to
-    exercise the live path without a network call."""
-    resp = httpx.get(
-        url,
-        params={
-            "latitude": lat,
-            "longitude": lon,
-            "hourly": ",".join(variables),
-            "forecast_days": max(3, -(-hours_ahead // 24)),  # at least 3 days for complete coverage
-            "timezone": "UTC",
-        },
-        timeout=SAFETY_PATH_TIMEOUT_S,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    exercise the live path without a network call.
+
+    P5.27: gated by the "open_meteo" in-process circuit breaker. Once it has
+    tripped, this raises immediately instead of paying another timeout —
+    every caller already has a cached-fallback except branch for exactly
+    this exception, so the cascade drops a rung with no behaviour change
+    beyond no longer waiting out a dead upstream on every single query.
+    """
+    if resilience.circuit_open("open_meteo"):
+        raise httpx.ConnectError("circuit_open: open_meteo is in its cool-down, skipping live attempt")
+    try:
+        resp = httpx.get(
+            url,
+            params={
+                "latitude": lat,
+                "longitude": lon,
+                "hourly": ",".join(variables),
+                "forecast_days": max(3, -(-hours_ahead // 24)),  # at least 3 days for complete coverage
+                "timezone": "UTC",
+            },
+            timeout=SAFETY_PATH_TIMEOUT_S,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    except httpx.HTTPError:
+        resilience.record_failure("open_meteo")
+        raise
+    resilience.record_success("open_meteo")
+    return payload
 
 
 def get_marine_weather(lat: float, lon: float, hours_ahead: int = 48) -> dict[str, Any]:
@@ -146,8 +162,9 @@ def get_marine_weather(lat: float, lon: float, hours_ahead: int = 48) -> dict[st
         merged = pd.merge(marine_df, wind_df, on="time", how="inner")
         offset = wind_raw.get("utc_offset_seconds", 0)
         cached_acquisition_utc = to_utc_iso(wind_raw["hourly"]["time"][0], offset)
+        circuit_note = ", circuit_open" if resilience.circuit_open("open_meteo") else ""
         source = SourceDescriptor(
-            dataset=f"Open-Meteo Marine/Forecast API (cached tier1 fallback, port={port})",
+            dataset=f"Open-Meteo Marine/Forecast API (cached tier1 fallback, port={port}{circuit_note})",
             authority_tier="T1",
             acquisition_timestamp=cached_acquisition_utc,
             native_units={
@@ -381,6 +398,13 @@ def get_imd_nowcast_alerts(
 # --- get_cyclone_status / get_incois_hazard_alerts (NDMA SACHET CAP) --------
 
 def _fetch_sachet_alerts() -> tuple[list[dict], str, Confidence]:
+    # P5.27: same breaker discipline as _fetch_open_meteo — a tripped SACHET
+    # skips the live attempt and goes straight to the cached CAP snapshot.
+    if resilience.circuit_open("ndma_sachet"):
+        alerts = load_json(cached_ndma_cap_alerts_path())
+        return alerts, "NDMA SACHET CAP feed (cached fallback, circuit_open)", Confidence(
+            score="MEDIUM", rationale="ndma_sachet circuit open — skipping live attempt during cool-down"
+        )
     try:
         resp = httpx.get(NDMA_SACHET_URL, timeout=SAFETY_PATH_TIMEOUT_S)
         resp.raise_for_status()
@@ -388,9 +412,11 @@ def _fetch_sachet_alerts() -> tuple[list[dict], str, Confidence]:
         # Guard against 200-with-empty-body or unexpected non-list payloads
         if not isinstance(alerts, list):
             raise ValueError(f"SACHET returned non-list payload: {type(alerts).__name__}")  # noqa: TRY004
+        resilience.record_success("ndma_sachet")
         return alerts, "NDMA SACHET CAP feed (live)", Confidence(score="HIGH", rationale="Live government CAP feed")
     except (httpx.HTTPError, ValueError):
         # ValueError covers JSONDecodeError (its subclass) and the guard above
+        resilience.record_failure("ndma_sachet")
         alerts = load_json(cached_ndma_cap_alerts_path())
         return alerts, "NDMA SACHET CAP feed (cached fallback)", Confidence(
             score="MEDIUM", rationale="Live SACHET fetch failed; using cached snapshot"
@@ -502,24 +528,34 @@ def _tc_features(geometry: dict, event: dict) -> list[dict]:
 
 
 def _fetch_gdacs_tracks() -> dict[str, Any]:
-    events = httpx.get(GDACS_EVENTS_URL, params={"eventlist": "TC"}, timeout=GDACS_TIMEOUT_S)
-    events.raise_for_status()
-    systems: list[dict] = []
-    features: list[dict] = []
-    for ev in events.json().get("features", []):
-        props = ev.get("properties", {})
-        lon, lat = (ev.get("geometry") or {}).get("coordinates", [None, None])[:2]
-        if str(props.get("iscurrent")).lower() != "true" or lon is None or not _in_nio(lon, lat):
-            continue
-        geo = httpx.get(GDACS_GEOMETRY_URL, timeout=GDACS_TIMEOUT_S, params={
-            "eventtype": "TC", "eventid": props.get("eventid"), "episodeid": props.get("episodeid")})
-        geo.raise_for_status()
-        features.extend(_tc_features(geo.json(), ev))
-        systems.append({
-            "event_id": props.get("eventid"), "name": props.get("eventname"), "alert_level": props.get("alertlevel"),
-            "forecast_agency": props.get("source"), "severity": (props.get("severitydata") or {}).get("severitytext"),
-            "last_observed": props.get("todate"), "report_url": (props.get("url") or {}).get("report"),
-        })
+    # P5.27 — same in-process breaker as open_meteo/ndma_sachet: once GDACS
+    # has flapped, skip straight to the cached-fixture fallback in
+    # get_cyclone_tracks rather than paying a timeout per query.
+    if resilience.circuit_open("gdacs_tc"):
+        raise httpx.ConnectError("circuit_open: gdacs_tc is in its cool-down, skipping live attempt")
+    try:
+        events = httpx.get(GDACS_EVENTS_URL, params={"eventlist": "TC"}, timeout=GDACS_TIMEOUT_S)
+        events.raise_for_status()
+        systems: list[dict] = []
+        features: list[dict] = []
+        for ev in events.json().get("features", []):
+            props = ev.get("properties", {})
+            lon, lat = (ev.get("geometry") or {}).get("coordinates", [None, None])[:2]
+            if str(props.get("iscurrent")).lower() != "true" or lon is None or not _in_nio(lon, lat):
+                continue
+            geo = httpx.get(GDACS_GEOMETRY_URL, timeout=GDACS_TIMEOUT_S, params={
+                "eventtype": "TC", "eventid": props.get("eventid"), "episodeid": props.get("episodeid")})
+            geo.raise_for_status()
+            features.extend(_tc_features(geo.json(), ev))
+            systems.append({
+                "event_id": props.get("eventid"), "name": props.get("eventname"), "alert_level": props.get("alertlevel"),
+                "forecast_agency": props.get("source"), "severity": (props.get("severitydata") or {}).get("severitytext"),
+                "last_observed": props.get("todate"), "report_url": (props.get("url") or {}).get("report"),
+            })
+    except httpx.HTTPError:
+        resilience.record_failure("gdacs_tc")
+        raise
+    resilience.record_success("gdacs_tc")
     return {"systems": systems, "geojson": {"type": "FeatureCollection", "features": features}}
 
 
@@ -581,6 +617,11 @@ def _fetch_incois_hazard_bulletins() -> tuple[list[dict], str] | None:
     to be whitelisted". Each payload wraps its rows as a JSON *string* under a
     sibling key, with the literal "None" standing in for "nothing issued today".
     """
+    # P5.27 — same in-process breaker as open_meteo/gdacs_tc: once INCOIS's
+    # hazard endpoints have flapped, skip straight to the NDMA SACHET fallback
+    # get_incois_hazard_alerts already has, instead of paying a timeout per query.
+    if resilience.circuit_open("incois_hazard_bulletins"):
+        return None
     out: list[dict] = []
     for url, pairs in (
         (INCOIS_HWASSA_URL, (("LatestHWADate", "HWAJson", "high_wave"),
@@ -605,7 +646,9 @@ def _fetch_incois_hazard_bulletins() -> tuple[list[dict], str] | None:
                         "issued_date": issued,
                     })
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            resilience.record_failure("incois_hazard_bulletins")
             return None  # partial hazard data is worse than none — fall back whole
+    resilience.record_success("incois_hazard_bulletins")
     return (out, "INCOIS multi-hazard bulletins — HWA/SSA/currents (live)")
 
 
@@ -648,6 +691,12 @@ def get_incois_hazard_alerts(region: str) -> dict[str, Any]:
 def run(state: ORCAState) -> AgentResult:
     """(ORCAState) -> AgentResult — no langgraph import, callable directly
     (plan §3.4)."""
+    from orca import demo_fixtures
+
+    pinned = demo_fixtures.fixture_result(state, "weather_intelligence")
+    if pinned is not None:
+        return pinned
+
     location = state.get("user_location") or {}
     lat, lon = location.get("lat"), location.get("lon")
     if lat is None or lon is None:

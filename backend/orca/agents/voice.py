@@ -278,6 +278,43 @@ _asr_backends: tuple[AsrBackend, ...] = (BhashiniAsrBackend(), FasterWhisperBack
 _tts_backends: tuple[TtsBackend, ...] = (BhashiniTtsBackend(), MmsTtsBackend())
 
 
+def warm_faster_whisper() -> None:
+    """P6.4 (orca_final §14.3) — load the local Whisper 'small' model now,
+    off the request path, mirroring `language.IndicTrans2Backend.warm()`.
+    Finds the one `FasterWhisperBackend` instance in `_asr_backends` rather
+    than constructing a second one, so the warmed model is the same object
+    `speech_to_text` actually calls. Exceptions are caught and logged here
+    (see `IndicTrans2Backend.warm`'s docstring for why: uncaught, they would
+    otherwise surface only as asyncio's misleading "Future exception was
+    never retrieved" on the fire-and-forget executor call in main.py)."""
+    try:
+        for backend in _asr_backends:
+            if isinstance(backend, FasterWhisperBackend):
+                backend._get_model()  # noqa: SLF001 — same module, warming its own lazy singleton
+    except Exception:
+        logging.getLogger("orca.voice").warning("faster-whisper warm-up skipped", exc_info=True)
+
+
+# P6.4 (orca_final §14.3) — the local TTS rung (`MmsTtsBackend`) had no
+# warm-up at all until this: only ASR (Whisper) and translation
+# (IndicTrans2) were pre-warmed, so the Tamil alert voice in
+# `docs/DLC_demo_script.md` beat 6 would have paid a first-synthesis model
+# load (`AutoTokenizer`/`VitsModel.from_pretrained`, logged as "MMS-TTS
+# model loaded... in %.1fs") on whichever take actually needed it. Warms
+# only `ta` (the Palk Bay pilot's own language, and the one language this
+# demo's script actually voices) rather than all ten — the other nine pay
+# their own first-use cost only if a judge asks a question in one live,
+# which P6.4's rehearsal, not a startup warm-up, is the honest place to
+# catch.
+def warm_mms_tts(language: Language = "ta") -> None:
+    try:
+        for backend in _tts_backends:
+            if isinstance(backend, MmsTtsBackend):
+                backend._get_model(_MMS_CODE[language])  # noqa: SLF001 — same module, warming its own lazy singleton
+    except Exception:
+        logging.getLogger("orca.voice").warning("MMS-TTS warm-up skipped", exc_info=True)
+
+
 def speech_to_text(audio: bytes, language_hint: Language | None = None) -> TranscriptionResult:
     """Three rungs, tried in order: Bhashini (skipped, uncredentialed) ->
     faster-whisper (real, local). If every rung raises, the third rung is

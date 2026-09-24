@@ -252,7 +252,7 @@ function BroadcastComposer() {
 
       {preview && (
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {(["web", "sms", "ivr", "ussd"] as const).map((ch) => (
+          {(["web", "sms", "ivr", "ussd", "whatsapp", "missed_call", "vhf", "harbour_board"] as const).map((ch) => (
             <div key={ch} className="rounded-sm border border-hairline bg-shelf-1/60 p-3">
               <p className="mb-1 flex items-center justify-between text-[11px] font-medium text-ink-dim">
                 <span className="uppercase">{ch}</span>

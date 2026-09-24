@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import httpx
 import pytest
 
+from orca import resilience
 from orca.agents import weather_intelligence as wia
 from orca.state import ORCAState
 
@@ -196,6 +197,43 @@ def test_incois_hazard_alerts_falls_back_to_sachet_and_says_so(monkeypatch):
     result = wia.get_incois_hazard_alerts("thoothukudi")
     assert len(result["active_warnings"]) == 1
     assert "SACHET fallback" in result["source_provenance"].dataset
+
+def test_incois_hazard_bulletins_circuit_breaker_skips_the_live_call_once_open(monkeypatch):
+    """P5.27 — same breaker pattern as open_meteo/gdacs_tc/noaa_coastwatch."""
+    calls = []
+
+    def fake_get(url, timeout=None, headers=None):
+        calls.append(url)
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    for _ in range(3):
+        assert wia._fetch_incois_hazard_bulletins() is None
+    assert len(calls) == 3  # breaker trips after the 3rd failure
+
+    assert wia._fetch_incois_hazard_bulletins() is None
+    assert len(calls) == 3, "circuit_open should have skipped this 4th attempt entirely"
+    resilience.record_success("incois_hazard_bulletins")
+
+
+def test_gdacs_tracks_circuit_breaker_skips_the_live_call_once_open(monkeypatch):
+    calls = []
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append(url)
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    for _ in range(3):
+        with pytest.raises(httpx.HTTPError):
+            wia._fetch_gdacs_tracks()
+    assert len(calls) == 3  # breaker trips after the 3rd failure
+
+    with pytest.raises(httpx.HTTPError):
+        wia._fetch_gdacs_tracks()
+    assert len(calls) == 3, "circuit_open should have skipped this 4th attempt entirely"
+    resilience.record_success("gdacs_tc")
+
 
 def test_sachet_falls_back_to_real_cached_file_on_live_failure(monkeypatch):
     def raise_error(*a, **kw):

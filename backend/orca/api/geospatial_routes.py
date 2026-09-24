@@ -42,7 +42,10 @@ from orca.trace import record_layer_metric
 router = APIRouter(prefix="/api", tags=["geospatial"])
 
 def _feature_summary(f) -> dict:
-    return {"name": f.name, "designation": f.designation, "geofence_usable": f.geofence_usable}
+    return {
+        "name": f.name, "designation": f.designation, "geofence_usable": f.geofence_usable,
+        "orca_precision": f.orca_precision,
+    }
 
 
 @router.get("/map-layers")

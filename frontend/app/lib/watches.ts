@@ -47,6 +47,11 @@ export type WatchIn = {
   watch_type: WatchType;
   lat?: number | null;
   lon?: number | null;
+  // P5.28 — a drawn polygon (GeoJSON Polygon geometry), for an area watch
+  // instead of a point + radius. The backend already accepted this
+  // (`orca/notifications/contracts.py`'s WatchIn, `sentinel_subscriptions
+  // .watch_area` since 001_init.sql); only the frontend never sent one.
+  area_geojson?: GeoJSON.Polygon | null;
   radius_km?: number | null;
   thresholds?: Record<string, number>;
   channels?: string[];

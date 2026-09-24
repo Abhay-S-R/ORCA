@@ -22,7 +22,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 WatchType = Literal[
     "weather", "wave_height", "lightning", "cyclone", "geofence_approach", "pfz_shift"
 ]
-Channel = Literal["in_app", "sms", "ivr", "ussd"]
+# P6.10 — whatsapp/missed_call/vhf/harbour_board added alongside the
+# original four: every one rendered + simulated (orca/channels/renderers.py,
+# orca/notifications/dispatcher.py), same as sms/ivr already were.
+Channel = Literal["in_app", "sms", "ivr", "ussd", "whatsapp", "missed_call", "vhf", "harbour_board"]
 Severity = Literal["info", "advisory", "warning", "danger"]
 NotificationStatus = Literal["sent", "simulated", "failed"]
 

@@ -83,6 +83,11 @@ class BoundaryFeature:
     source_file: str
     geofence_usable: bool
     geometry: BaseGeometry
+    # P5.26: HIGH / MEDIUM / CENTROID_ONLY, as scripts/build_mpa_geofence.py
+    # grades each MPA record from its WDPA geometry type. EEZ/line files carry
+    # no such tag — they are the authoritative government polygon for their
+    # region, so they default to HIGH rather than reading as ungraded.
+    orca_precision: str = "HIGH"
 
 
 @dataclass(frozen=True)
@@ -108,7 +113,12 @@ def _load_geojson_features(path: Path, source_label: str) -> list[BoundaryFeatur
         # EEZ files carry no orca_geofence_usable flag (single authoritative
         # polygon each) — default usable=True; only the MPA file's audited
         # centroid records are explicitly flagged False.
-        usable = bool(props.get("orca_geofence_usable", True))
+        # P5.26: usability is re-derived from the precision grade here too,
+        # not only trusted from the upstream flag — a CENTROID_ONLY record can
+        # never be geofence-usable even if a hand-edited file forgot to also
+        # flip orca_geofence_usable.
+        precision = props.get("orca_precision", "HIGH")
+        usable = bool(props.get("orca_geofence_usable", True)) and precision != "CENTROID_ONLY"
         name = props.get("name") or props.get("geoname") or source_label
         out.append(
             BoundaryFeature(
@@ -117,6 +127,7 @@ def _load_geojson_features(path: Path, source_label: str) -> list[BoundaryFeatur
                 source_file=path.name,
                 geofence_usable=usable,
                 geometry=shape(feat["geometry"]),
+                orca_precision=precision,
             )
         )
     return out
