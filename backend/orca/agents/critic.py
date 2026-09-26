@@ -33,6 +33,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Literal
 
 from orca import engines
+from orca.agents.reporting import conversation_context
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 
 if TYPE_CHECKING:
@@ -143,13 +144,21 @@ def _parse_judge_response(raw: str) -> list[CritiqueIssue]:
     return issues
 
 
-def _judge_prompt(query: str, narrative: str, facts_block: str) -> str:
+def _judge_prompt(query: str, narrative: str, facts_block: str, context: str = "") -> str:
     rubric_lines = "\n".join(f"- {item}" for item in _RUBRIC)
+    # The narrator saw the conversation and the device position, so the judge
+    # must too — or a correct "unlike your earlier question about Kochi" or
+    # "you are at 12.97, 77.59" reads as an unsourced claim.
+    context_block = (
+        f"\nCONTEXT THE NARRATIVE WAS WRITTEN WITH (a valid source for references to the conversation "
+        f"or the caller's position — NOT for sea readings):\n{context}\n"
+        if context else ""
+    )
     return f"""You are the ORCA Critic (Agent 10), judging a marine-advisory narrative against measured facts. \
 Judge ONLY the explanatory prose that follows the verdict line — you never question or alter the verdict itself.
 
 USER QUERY: "{query}"
-
+{context_block}
 MEASURED FACTS (ground truth, from deterministic agents):
 {facts_block}
 
@@ -188,6 +197,7 @@ def run_critic_pass(
     query: str, narrative: str, facts_block: str, *, is_safety_check: bool,
     engine_out: list[str] | None = None,
     max_iterations: int = MAX_ITERATIONS,
+    context: str = "",
 ) -> tuple[str, bool, int, list[CritiqueIssue]]:
     """Runs up to MAX_ITERATIONS judge->revise loops. Returns
     (final_narrative, critic_pass, iteration_count, issues_found).
@@ -223,7 +233,7 @@ def run_critic_pass(
         # constraint and omits it for the same reason. A provider-specific
         # token budget belongs in the tier's own config, not a per-call kwarg
         # here.
-        raw = client.complete([{"role": "user", "content": _judge_prompt(query, current, facts_block)}])
+        raw = client.complete([{"role": "user", "content": _judge_prompt(query, current, facts_block, context)}])
         _note_engine(client, engine_out)
         issues = _parse_judge_response(raw)
         if not issues:
@@ -334,6 +344,7 @@ def run(state: ORCAState) -> AgentResult:
             query, narrative, facts_block, is_safety_check=is_safety,
             engine_out=engine_out,
             max_iterations=MAX_ITERATIONS if depth == "DEEP" else MAX_ITERATIONS_STANDARD,
+            context=conversation_context(state.get("session_history"), state.get("user_location")),
         )
         status: Literal["ok", "degraded"] = "ok"
         confidence = Confidence(

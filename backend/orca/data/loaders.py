@@ -108,7 +108,7 @@ DEFAULT_LAT, DEFAULT_LON = 8.80, 78.30
 
 # Alternate spellings people actually type, mapped onto a CACHED_WEATHER_PORTS
 # name. Not an exhaustive gazetteer — just the ones a real query is likely to use.
-_PORT_ALIASES = {"cochin": "kochi", "vizag": "visakhapatnam", "bombay": "mumbai"}
+_PORT_ALIASES = {"cochin": "kochi", "vizag": "visakhapatnam", "bombay": "mumbai", "madras": "chennai"}
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +213,11 @@ _GAZETTEER: dict[str, tuple[float, float]] = {
     "porto novo": (11.5021, 79.7729),
     "ennore": (13.2104, 80.3271),
     "mahabalipuram": (12.6229, 80.2021),
+    "chennai": (13.1000, 80.3200),
+    "chennai port": (13.1000, 80.3200),
+    "madras": (13.1000, 80.3200),
+    "v.o. chidambaranar port": (8.7700, 78.2300),
+    "voc port": (8.7700, 78.2300),
     # ── Kerala ──────────────────────────────────────────────────────────
     "kerala": (10.50, 76.00),
     "kerala coast": (10.50, 76.00),
@@ -222,6 +227,9 @@ _GAZETTEER: dict[str, tuple[float, float]] = {
     "quilon": (8.8771, 76.5854),
     "alappuzha": (9.4938, 76.3187),
     "alleppey": (9.4938, 76.3187),
+    "kochi": (9.9667, 76.2000),
+    "cochin": (9.9667, 76.2000),
+    "cochin port": (9.9667, 76.2000),
     "ernakulam": (9.90, 76.00),
     "thrissur": (10.5021, 76.1104),
     "kozhikode": (11.2479, 75.7729),
@@ -248,10 +256,16 @@ _GAZETTEER: dict[str, tuple[float, float]] = {
     "goa coast": (15.50, 73.50),
     "panaji": (15.50, 73.70),
     "mormugao": (15.3979, 73.7937),
+    "mormugao port": (15.3979, 73.7937),
     "vasco da gama": (15.3979, 73.7937),
     # ── Maharashtra ─────────────────────────────────────────────────────
     "maharashtra": (17.50, 71.00),
     "maharashtra coast": (17.50, 71.00),
+    "mumbai": (18.9200, 72.7800),
+    "bombay": (18.9200, 72.7800),
+    "mumbai port": (18.9200, 72.7800),
+    "apollo bunder": (18.9200, 72.7800),
+    "jnpt": (18.9200, 72.7800),
     "sindhudurg": (16.00, 73.40),
     "ratnagiri": (16.99, 73.12),
     "raigad": (18.50, 72.80),
@@ -268,12 +282,14 @@ _GAZETTEER: dict[str, tuple[float, float]] = {
     "somnath": (20.90, 70.37),
     "dwarka": (22.24, 68.70),
     "okha": (22.47, 69.05),
+    "okha port": (22.47, 69.05),
     "jamnagar": (22.5063, 69.9521),
     "porbandar": (21.64, 69.50),
     "bhavnagar": (21.7771, 72.2312),
     "mandvi": (22.8146, 69.3479),
     "mundra": (22.70, 69.50),
     "kandla": (23.0313, 70.2229),
+    "deendayal port": (23.0313, 70.2229),
     "hazira": (21.12, 72.66),
     "gulf of kutch": (22.50, 69.50),
     "gulf of khambhat": (21.00, 72.50),
@@ -285,6 +301,9 @@ _GAZETTEER: dict[str, tuple[float, float]] = {
     "krishnapatnam": (14.2521, 80.1312),
     "machilipatnam": (16.1063, 81.1937),
     "kakinada": (16.93, 82.25),
+    "visakhapatnam": (17.6800, 83.3200),
+    "visakhapatnam port": (17.6800, 83.3200),
+    "vizag": (17.6800, 83.3200),
     "bhimavaram": (16.3563, 81.5437),
     # ── Odisha ──────────────────────────────────────────────────────────
     "odisha": (19.50, 85.50),
@@ -304,6 +323,7 @@ _GAZETTEER: dict[str, tuple[float, float]] = {
     "west bengal": (21.63, 88.00),
     "west bengal coast": (21.63, 88.00),
     "haldia": (22.0188, 88.0812),
+    "haldia dock complex": (22.0188, 88.0812),
     "sagar island": (21.6313, 88.0812),
     "sundarbans": (21.9188, 88.8521),
     "digha": (21.6146, 87.5021),
@@ -466,6 +486,8 @@ _TAMIL_ALIASES: dict[str, str] = {
     "பாக் விரிகுடா": "palk bay",
     "பாக் ஜலசந்தி": "palk strait",
     "தமிழ்நாடு": "tamil nadu",
+    "கொச்சி": "kochi",
+    "மும்பை": "mumbai",
 }
 
 # Folded into the gazetteer rather than kept as a second lookup, so every
@@ -514,7 +536,8 @@ def resolve_place_from_text(text: str) -> ResolvedPlace | None:
     ):
         for name, (lat, lon) in sorted(table.items(), key=lambda kv: -len(kv[0])):
             if _names_place(lowered, name):
-                return ResolvedPlace(name, lat, lon, source)
+                canonical = _PORT_ALIASES.get(name, name)
+                return ResolvedPlace(canonical, lat, lon, source)
 
     # Weather-fixture coordinates last: they are grid-cell snaps, accurate
     # enough to pick a cache file and not much more (see _GAZETTEER).
@@ -637,10 +660,12 @@ def _inland_place_names() -> tuple[str, ...]:
         record = sr.record
         if record is None:
             continue
-        state = (record["ST_NM"] or "").strip()
+        raw_state = record["ST_NM"]
+        state = str(raw_state).strip() if raw_state is not None else ""
         if not state or state.lower() in _COASTAL_STATES:
             continue
-        district = (record["DISTRICT"] or "").strip()
+        raw_district = record["DISTRICT"]
+        district = str(raw_district).strip() if raw_district is not None else ""
         if district and district.lower() not in _GENERIC_DIRECTIONS:
             names.add(district.lower())
         # "NCT of Delhi" -> "Delhi": the one general cleanup this needs. The

@@ -233,6 +233,7 @@ def _initial_state(
     fix_on_land: bool = False,
     user_language_default: str | None = None,
     demo_scenario: str | None = None,
+    raw_fix: tuple[float, float] | None = None,
 ) -> ORCAState:
     return {  # type: ignore[typeddict-item]
         "session_id": session_id or "",
@@ -267,6 +268,7 @@ def _initial_state(
         # and the prompt claims no fix was supplied when one was.
         "user_location": {
             "lat": lat, "lon": lon, "place_name": place[0], "place_source": place[1],
+            **({"fix_lat": raw_fix[0], "fix_lon": raw_fix[1]} if raw_fix is not None else {}),
             **({"fix_on_land": True} if fix_on_land else {}),
         },
         "vessel_class": vessel_class,  # None -> risk_assessment.run() defaults to "small_fishing"
@@ -455,6 +457,7 @@ async def _query_stream(
     user_id: uuid.UUID | None = None,
     user_language_default: str | None = None,
     demo_scenario: str | None = None,
+    raw_fix: tuple[float, float] | None = None,
 ) -> AsyncIterator[str]:
     """`on_final`, when given, is called once with the same dict that gets
     JSON-serialized into the `final_response` SSE frame — the query-cache
@@ -474,7 +477,7 @@ async def _query_stream(
     llm_calls = reset_llm_call_count()
     state = _initial_state(
         query, lat, lon, vessel_class, distress, persona, depth, place, session_id, session_history,
-        resolution, fix_on_land, user_language_default, demo_scenario,
+        resolution, fix_on_land, user_language_default, demo_scenario, raw_fix=raw_fix,
     )
     # P6.12 (orca_final §28) — every log line the graph emits from here on
     # carries this query_id, so an incident is one grep away instead of a
@@ -1205,6 +1208,12 @@ async def query(
     # `language.run_ingress` and `user_id` reaches `_ensure_session_row` (P3.2).
     user_id = user.id if user is not None else None
     user_language_default = user.language if user is not None else None
+    raw_fix = (float(fix_lat), float(fix_lon)) if fix_lat is not None and fix_lon is not None else None
+    # The device position is in every model prompt now (reporting.conversation_context),
+    # so an answer may quote it: it is part of what the answer depends on, and
+    # one caller's position must never be served from the cache to another.
+    # Same precision the prompt prints it at.
+    fix_suffix = f":fix={raw_fix[0]:.4f},{raw_fix[1]:.4f}" if raw_fix is not None else ""
 
     # A distress query is never cached or coalesced onto another in-flight
     # request (phase4 plan §2.2/§2.3) — every SOS is its own, always-fresh
@@ -1219,6 +1228,7 @@ async def query(
                 llm=llm_override, fix_on_land=fix_on_land,
                 user_id=user_id, user_language_default=user_language_default,
                 demo_scenario=demo_scenario,
+                raw_fix=raw_fix,
             )),
             media_type="text/event-stream"
         )
@@ -1238,6 +1248,7 @@ async def query(
                 llm=llm_override, fix_on_land=fix_on_land,
                 user_id=user_id, user_language_default=user_language_default,
                 demo_scenario=demo_scenario,
+                raw_fix=raw_fix,
             ),
             media_type="text/event-stream",
         )
@@ -1246,7 +1257,7 @@ async def query(
         # A follow-up's answer depends on its conversation, so it is never
         # written to the shared cache — the same rule the ordinary path below
         # applies, and the reason this is not simply `on_final=store`.
-        shared_key = None if history else resolved_key(q, lat, lon, vessel_class, persona, depth)
+        shared_key = None if history else resolved_key(q, lat, lon, vessel_class, persona, depth) + fix_suffix
         # P2.11 — same rule as the ordinary path below: an LLM-disabled run is
         # a DIFFERENT answer, so `fresh=1&llm=off` must not overwrite the
         # ordinary (LLM-on) answer sitting in the shared cache slot.
@@ -1259,11 +1270,12 @@ async def query(
                 session_id=session_id, session_history=history, resolution=resolution,
                 llm=llm_override, fix_on_land=fix_on_land,
                 user_id=user_id, user_language_default=user_language_default,
+                raw_fix=raw_fix,
             ),
             media_type="text/event-stream",
         )
 
-    cache_key = resolved_key(q, lat, lon, vessel_class, persona, depth)
+    cache_key = resolved_key(q, lat, lon, vessel_class, persona, depth) + fix_suffix
     # P2.11 — an LLM-disabled run is a DIFFERENT answer to the same question,
     # so it must not be served from, or written into, the ordinary answer's
     # cache slot. Without this the demo shows the cached LLM narration back
@@ -1293,6 +1305,7 @@ async def query(
                 session_id=session_id, session_history=history, resolution=resolution,
                 llm=llm_override, fix_on_land=fix_on_land,
                 user_id=user_id, user_language_default=user_language_default,
+                raw_fix=raw_fix,
             ):
                 yield line
 

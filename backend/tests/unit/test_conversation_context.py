@@ -116,10 +116,14 @@ def test_tier3_llm_reads_a_follow_up_in_the_context_of_the_previous_question():
     client = MagicMock()
     client.complete.return_value = "SAFETY_CHECK"
     with patch("orca.llm.tiers.llm", return_value=client):
-        matches = planning.classify_intent("what about tomorrow evening?", [_turn(query="is it safe near pamban")])
+        matches = planning.classify_intent(
+            "what about tomorrow evening?",
+            [_turn(query="waves near kochi"), _turn(query="is it safe near pamban")],
+        )
     assert matches == [("SAFETY_CHECK", 0.7)]
     prompt = client.complete.call_args.args[0][0]["content"]
-    assert 'previous question in the conversation was: "is it safe near pamban"' in prompt
+    # Every question the session holds, oldest first — not just the last one.
+    assert prompt.index('"waves near kochi"') < prompt.index('"is it safe near pamban"')
 
 
 def test_priority_lane_agrees_with_a_carried_safety_intent(monkeypatch):

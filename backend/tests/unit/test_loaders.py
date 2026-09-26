@@ -20,7 +20,7 @@ def test_port_named_in_a_sentence_resolves():
 
 def test_alias_resolves_to_its_canonical_port():
     p = resolve_place_from_text("wave height at Cochin harbour")
-    assert p is not None and p.name == "kochi" and p.source == "port_fixture"
+    assert p is not None and p.name == "kochi" and p.source in ("port_fixture", "gazetteer")
 
 
 def test_match_is_case_insensitive():

@@ -401,7 +401,11 @@ function AlertsPanel({ profile }: { profile: Profile | null }) {
   const [enabled, setEnabled] = useState(!!current);
   const [start, setStart] = useState(current?.start ?? "22:00");
   const [end, setEnd] = useState(current?.end ?? "06:00");
-  const [tz, setTz] = useState(current?.tz ?? "Asia/Kolkata");
+  // The product reads in one timezone everywhere (IST) — UTC is never a
+  // choice offered to a user. `tz` stays a field (the API still stores and
+  // reads it) so a still-legitimate future timezone need has somewhere to
+  // land without a schema change; today it is always "Asia/Kolkata".
+  const tz = "Asia/Kolkata";
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [nowMin, setNowMin] = useState<number | null>(null);
@@ -522,12 +526,7 @@ function AlertsPanel({ profile }: { profile: Profile | null }) {
               </Field>
             </div>
             <Field label={t("profile.timezone")}>
-              {(id) => (
-                <select id={id} className={inputClass} value={tz} onChange={(e) => setTz(e.target.value)}>
-                  <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
-                  <option value="UTC">UTC</option>
-                </select>
-              )}
+              {() => <p className={`${inputClass} flex items-center text-ink-dim`}>Asia/Kolkata (IST)</p>}
             </Field>
             <div className="mb-3 flex items-center gap-2">
               <Bell className="size-3.5 text-ink-dim" aria-hidden="true" />

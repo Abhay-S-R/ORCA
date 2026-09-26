@@ -205,7 +205,7 @@ _INJECTION_PATTERNS: tuple[str, ...] = (
 OUT_OF_SCOPE_ROW = "OUT_OF_SCOPE"
 
 # The non-marine sense of "current" — see is_out_of_scope's use below.
-_CURRENT_SELF_SENSE = re.compile(r"\bcurrent\s+(time|date|day|location|position)\b")
+_CURRENT_SELF_SENSE = re.compile(r"\bcurrent\s+(time|date|day|location|position|coordinates)\b")
 
 # A question about ORCA's own operating context — what time it is, where the
 # caller is right now — rather than about the sea. Distinct from
@@ -219,6 +219,7 @@ _SELF_CONTEXT_PHRASES: tuple[str, ...] = (
     "whats the time", "time now", "time right now",
     "current date", "today's date", "what day is it", "what's the date",
     "current location", "my location", "my position", "my current position",
+    "my coordinates", "current coordinates",
     "where am i", "do you know my location", "do you know where i am",
 )
 
@@ -255,13 +256,12 @@ def is_out_of_scope(normalized_query: str) -> bool:
     # genuine "current speed near Kochi" still matches on "speed"/the place
     # name, and "ocean current" still matches on "ocean".
     vocab_text = _CURRENT_SELF_SENSE.sub(" ", lowered)
-    if is_self_context_question(lowered):
-        # A question about the clock or current position is self-context,
-        # not sea conditions — even if a place name was mentioned (e.g.
-        # "what is the time in Kochi"). Unless it ALSO contains genuine
-        # marine vocabulary ("what time is high tide in Kochi").
-        if not (_significant_words(vocab_text) & _MARINE_VOCAB):
-            return True
+    # A question about the clock or current position is self-context, not
+    # sea conditions — even if a place name was mentioned (e.g. "what is the
+    # time in Kochi"). Unless it ALSO contains genuine marine vocabulary
+    # ("what time is high tide in Kochi").
+    if is_self_context_question(lowered) and not (_significant_words(vocab_text) & _MARINE_VOCAB):
+        return True
     if _significant_words(vocab_text) & _MARINE_VOCAB:
         return False
     # Text still carrying non-Latin script has not been through a successful
@@ -385,12 +385,17 @@ def _tier3_llm_fallback(normalized_query: str, session_history: list[dict] | Non
     # Without this the model read "What about tomorrow evening?" cold, guessed
     # CONDITIONS, and a safety question's follow-up lost its safety intent —
     # carry_intent never ran because this tier had already "matched".
-    previous = (session_history or [{}])[-1]
-    previous_query = previous.get("english_query") or previous.get("query")
+    # Every question the session still holds (orca/session.py keeps the last
+    # MAX_TURNS), oldest first — not just the last one, so "and the first
+    # place?" can resolve two turns back. Questions only: the answers add
+    # tokens to a cheap-tier call without changing what the user is asking.
+    asked = [t.get("english_query") or t.get("query") for t in session_history or []]
+    asked = [a for a in asked if a]
     context = (
-        f'This is a follow-up. The previous question in the conversation was: "{previous_query}". '
-        "Classify what the user is asking now, reading the query in that context.\n"
-        if previous_query
+        "This is a follow-up. Earlier questions in the conversation, oldest first:\n"
+        + "\n".join(f'- "{a}"' for a in asked)
+        + "\nClassify what the user is asking now, reading the query in that context.\n"
+        if asked
         else ""
     )
     prompt = (
@@ -586,37 +591,41 @@ def run(state: ORCAState) -> AgentResult:
     # ("what about tomorrow?"), which reads as contentless on its own and must
     # never be refused for it. Refusing a real marine question stays far worse
     # than answering a junk one; this only narrows which tier may rescue one.
-    matches = _tier1_rules(query)
-    if matches:
-        tier_out.append("tier1_rules")
+    if is_self_context_question(query) and is_out_of_scope(query):
+        matches = []
     else:
-        carried_rows = carry_intent(history)
-        if is_out_of_scope(query) and not carried_rows:
-            matches = []
+        matches = _tier1_rules(query)
+        if matches:
+            tier_out.append("tier1_rules")
         else:
-            matches = classify_intent(query, history, tier_out=tier_out)
-            if not matches:
-                matches = carried_rows
-                carried = bool(matches)
-                if carried:
-                    tier_out.append("carried_from_previous_turn")
-            elif carried_rows and is_continuation(query):
-                # A continuation-shaped follow-up keeps the conversation's
-                # intent AND takes whatever this turn matched — a union, not
-                # an override, for the same reason the Tier-3 confirmation
-                # pass unions: execution is fail-safe, and the cost of running
-                # one more specialist is far below the cost of answering
-                # "and in a trawler?" as a conditions question when the
-                # conversation it belongs to was a safety question.
-                #
-                # The carried rows are appended *below* this turn's own
-                # matches so the new topic still leads the answer.
-                matched_names = {name for name, _ in matches}
-                inherited = [(name, score) for name, score in carried_rows if name not in matched_names]
-                if inherited:
-                    matches = [*matches, *inherited]
-                    carried = True
-                    tier_out.append("continuation_kept_previous_intent")
+            carried_rows = carry_intent(history)
+            if is_out_of_scope(query) and not (carried_rows and is_continuation(query)):
+                matches = []
+            else:
+                matches = classify_intent(query, history, tier_out=tier_out)
+                if not matches:
+                    if carried_rows and is_continuation(query):
+                        matches = carried_rows
+                        carried = bool(matches)
+                        if carried:
+                            tier_out.append("carried_from_previous_turn")
+                elif carried_rows and is_continuation(query):
+                    # A continuation-shaped follow-up keeps the conversation's
+                    # intent AND takes whatever this turn matched — a union, not
+                    # an override, for the same reason the Tier-3 confirmation
+                    # pass unions: execution is fail-safe, and the cost of running
+                    # one more specialist is far below the cost of answering
+                    # "and in a trawler?" as a conditions question when the
+                    # conversation it belongs to was a safety question.
+                    #
+                    # The carried rows are appended *below* this turn's own
+                    # matches so the new topic still leads the answer.
+                    matched_names = {name for name, _ in matches}
+                    inherited = [(name, score) for name, score in carried_rows if name not in matched_names]
+                    if inherited:
+                        matches = [*matches, *inherited]
+                        carried = True
+                        tier_out.append("continuation_kept_previous_intent")
 
     routing_tier = tier_out[0] if tier_out else "no_match"
     out_of_scope = not matches and is_out_of_scope(query)

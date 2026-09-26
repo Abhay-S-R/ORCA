@@ -206,6 +206,10 @@ def _candidate_list(candidates: list[dict]) -> str:
     return ", ".join(f"{c['name'].title()} ({c['lat']:.2f}N {c['lon']:.2f}E)" for c in candidates)
 
 
+def _conversation_context(state: ORCAState) -> str:
+    return reporting.conversation_context(state.get("session_history"), state.get("user_location"))
+
+
 def _guard_reply(state: ORCAState, required: str, *, allow_small_talk: bool = False) -> dict:
     """Chatbot plan C0.2d — the reply to a stopped message, worded by a model.
     The guard has already decided everything; `required` is what the reply
@@ -214,6 +218,7 @@ def _guard_reply(state: ORCAState, required: str, *, allow_small_talk: bool = Fa
     the same text."""
     reply, engine, small_talk = reporting.write_guard_reply(
         state.get("raw_user_query", "") or "", required, allow_small_talk=allow_small_talk,
+        context=_conversation_context(state),
     )
     return {
         "final_english_response": reply,
@@ -294,7 +299,12 @@ def query_guard_node(state: ORCAState) -> dict:
     # caller's actual position, so out of range means out of range.
     if location.get("place_source") in ("explicit", "coordinates", "gps_fix"):
         return _refusal("OUT_OF_RANGE", where, state)
-    return {"disclosures": [where + " The position held for this place is the town, not the harbour approach, so depth-dependent readings here may be missing."]}
+    place_label = (location.get("place_name") or "this place").title()
+    disclosure = (
+        f"{float(lat):.4f}, {float(lon):.4f} is on land. The position held for {place_label} "
+        "is the town centre rather than the harbour approach, so depth-dependent readings here may be missing."
+    )
+    return {"disclosures": [disclosure]}
 
 
 def _route_after_query_guard(state: ORCAState) -> str:
@@ -320,7 +330,7 @@ def out_of_scope_node(state: ORCAState) -> dict:
     "can't help" case the heading is for."""
     query = state.get("raw_user_query", "") or ""
     if planning.is_self_context_question(query):
-        reply, engine = reporting.write_self_context_reply(query, _self_context_facts(state))
+        reply, engine = reporting.write_self_context_reply(query, _self_context_facts(state), _conversation_context(state))
         return {
             "query_outcome": "OUT_OF_SCOPE",
             "final_english_response": reply,
@@ -349,16 +359,18 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 def _self_context_facts(state: ORCAState) -> str:
     """What is actually true right now, for write_self_context_reply. A
     position is included only when the browser sent a real fix THIS turn
-    (`place_source == "gps_fix"`) — never the pilot default and never a place
-    carried over from an earlier turn, both of which are a guess about where
-    the caller is, not a report of it (the same distinction
-    `place_resolution`'s own module docstring states)."""
+    (`place_source == "gps_fix"` or `fix_lat`/`fix_lon` present) — never the
+    pilot default and never a place carried over from an earlier turn, both of
+    which are a guess about where the caller is, not a report of it."""
     now = datetime.now(_IST).strftime("%H:%M IST on %d %b %Y")
     loc = state.get("user_location") or {}
-    if loc.get("place_source") == "gps_fix" and loc.get("lat") is not None and loc.get("lon") is not None:
+    raw_lat = loc.get("fix_lat") if loc.get("fix_lat") is not None else (loc.get("lat") if loc.get("place_source") == "gps_fix" else None)
+    raw_lon = loc.get("fix_lon") if loc.get("fix_lon") is not None else (loc.get("lon") if loc.get("place_source") == "gps_fix" else None)
+    if raw_lat is not None and raw_lon is not None:
+        land_note = " (on land near the coast)" if loc.get("fix_on_land") else ""
         return (
-            f"The current time is {now}. The browser shared a position with this question: "
-            f"{loc['lat']:.4f}, {loc['lon']:.4f}. This is for information only — it is not a "
+            f"The current time is {now}. The browser shared your current position: "
+            f"{raw_lat:.4f}, {raw_lon:.4f}{land_note}. This is for information only — it is not a "
             "place to answer a sea-conditions question at unless the caller names it or asks about it."
         )
     return (
@@ -735,9 +747,9 @@ def geospatial_node(state: ORCAState) -> dict:
     if ban.get("available") and ban.get("in_ban_period") and ban.get("applies_here"):
         file_number = (ban.get("order") or {}).get("file_number", "")
         update["disclosures"] = [
-            f"REGULATORY: uniform seasonal fishing ban in force on the {ban.get('coast')} coast "
+            (f"REGULATORY: uniform seasonal fishing ban in force on the {ban.get('coast')} coast "
             f"({ban.get('window', '')}{', ' + file_number if file_number else ''}) — this applies "
-            "regardless of the sea-state verdict below."
+            "regardless of the sea-state verdict below.")
         ]
     return update
 
@@ -798,8 +810,8 @@ def risk_assessment_node(state: ORCAState) -> dict:
             update["risk_assessment"] = {**cached_verdict, "status": f"{cached_verdict.get('status', 'SAFE')}_CACHED"}
             update["confidence_tier"] = "LOW_DATA"
             update["disclosures"] = [
-                f"Live data unavailable right now. This is ORCA's last computed verdict for this "
-                f"location, from {age_text} ago — not a fresh read of current conditions."
+                (f"Live data unavailable right now. This is ORCA's last computed verdict for this "
+                f"location, from {age_text} ago — not a fresh read of current conditions.")
             ]
             return update
     if status in ("CAUTION_STALE_DATA", "CAUTION_MISSING_DATA"):
@@ -1124,7 +1136,7 @@ def _route_after_reporting(state: ORCAState) -> str:
         return "critic_cancelled"
     # Second reporting pass (after a critic reinvoke): the budget is spent;
     # routing back to critic would run it twice for the cost of running it once.
-    if int(state.get("critic_reinvocations") or 0) >= critic.MAX_REINVOCATIONS:
+    if (state.get("critic_reinvocations") or 0) >= critic.MAX_REINVOCATIONS:
         return "language_egress"
     return "critic"
 
@@ -1206,7 +1218,7 @@ def critic_reinvoke_node(state: ORCAState) -> dict:
     update: dict = {
         "audit_trace_log": [entry],
         "completed_nodes": [agent_name],
-        "critic_reinvocations": int(state.get("critic_reinvocations") or 0) + 1,
+        "critic_reinvocations": (state.get("critic_reinvocations") or 0) + 1,
     }
     # Write the fresh reading back under the same state key the first pass
     # used, so Reporting composes from the re-read value rather than the one
@@ -1228,7 +1240,7 @@ def _route_after_critic(state: ORCAState) -> str:
     agent_name = state.get("critic_reinvoke_agent")
     if not agent_name or agent_name not in _REINVOKE_RUNNERS:
         return "language_egress"
-    if int(state.get("critic_reinvocations") or 0) >= critic.MAX_REINVOCATIONS:
+    if (state.get("critic_reinvocations") or 0) >= critic.MAX_REINVOCATIONS:
         return "language_egress"
     return "critic_reinvoke"
 
