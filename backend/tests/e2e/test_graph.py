@@ -334,9 +334,12 @@ def test_all_sources_down_still_returns_a_forced_low_data_verdict(monkeypatch):
     def raise_error(*a, **kw):
         raise RuntimeError("simulated total source outage")
 
+    from orca import query_cache
+
     monkeypatch.setattr(wia, "get_marine_weather", raise_error)
     monkeypatch.setattr(oaa, "nearest_pfz", raise_error)
     monkeypatch.setattr(oaa, "predict_tides", raise_error)
+    monkeypatch.setattr(query_cache, "get_last_known_verdict", lambda *a, **kw: None)
 
     graph = build_graph()
     result = graph.invoke(_base_state("is it safe to go to sea"))
