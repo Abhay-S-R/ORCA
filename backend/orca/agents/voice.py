@@ -290,7 +290,7 @@ def warm_faster_whisper() -> None:
     try:
         for backend in _asr_backends:
             if isinstance(backend, FasterWhisperBackend):
-                backend._get_model()  # noqa: SLF001 — same module, warming its own lazy singleton
+                backend._get_model()  # same module, warming its own lazy singleton
     except Exception:
         logging.getLogger("orca.voice").warning("faster-whisper warm-up skipped", exc_info=True)
 
@@ -310,7 +310,7 @@ def warm_mms_tts(language: Language = "ta") -> None:
     try:
         for backend in _tts_backends:
             if isinstance(backend, MmsTtsBackend):
-                backend._get_model(_MMS_CODE[language])  # noqa: SLF001 — same module, warming its own lazy singleton
+                backend._get_model(_MMS_CODE[language])  # same module, warming its own lazy singleton
     except Exception:
         logging.getLogger("orca.voice").warning("MMS-TTS warm-up skipped", exc_info=True)
 

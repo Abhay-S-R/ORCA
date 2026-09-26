@@ -271,7 +271,7 @@ def test_every_vessel_class_has_an_assumed_draft_and_the_deepest_is_the_fallback
 
 def _synthetic_grid(
     size: int, wall_col: int | None = None, wave_wall_col: int | None = None, wave_wall_rows: int = 2,
-) -> "voyage._AstarGrid":
+) -> voyage._AstarGrid:
     lats = [8.0 + 0.1 * i for i in range(size)]
     lons = [78.0 + 0.1 * j for j in range(size)]
     blocked = [[False] * size for _ in range(size)]

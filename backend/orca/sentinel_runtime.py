@@ -18,7 +18,8 @@ import logging
 import os
 import uuid
 from collections.abc import Callable
-from datetime import date, datetime, time as dt_time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from datetime import time as dt_time
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 

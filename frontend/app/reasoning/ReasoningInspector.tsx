@@ -5,11 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Check,
   CheckCheck,
-  Clock,
   Cloud,
   Compass,
   Copy,
-  Cpu,
   Database,
   FileText,
   Languages,

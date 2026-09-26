@@ -5,7 +5,6 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  Clock,
   Pause,
   Play,
   RotateCcw,
@@ -46,8 +45,6 @@ interface ReasoningTimelineProps {
   maxStages: number;
   isPlaying: boolean;
   playbackSpeed: number;
-  totalLatencyMs: number;
-  activeStageLatencyMs: number;
   onSelectStage: (stageIndex: number) => void;
   onTogglePlay: () => void;
   onChangeSpeed: (speed: number) => void;
@@ -59,8 +56,6 @@ export function ReasoningTimeline({
   maxStages,
   isPlaying,
   playbackSpeed,
-  totalLatencyMs,
-  activeStageLatencyMs,
   onSelectStage,
   onTogglePlay,
   onChangeSpeed,

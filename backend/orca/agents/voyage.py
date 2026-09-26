@@ -460,7 +460,6 @@ def _grid_wave_heights(lats: list[float], lons: list[float], eta_estimate: datet
     when the WW3 grid is not on this machine — the same fallback
     `wave_height_at` takes, propagated rather than re-decided here.
     """
-    from orca.agents import geospatial
 
     ds = _ww3()
     if ds is None:

@@ -42,12 +42,17 @@ function writeCachedFix(pos: [number, number]) {
 
 export function useGeolocation() {
   const [position, setPosition] = useState<[number, number] | null>(null);
+  // Always "loading" on the first render: the server has no `navigator` or
+  // `sessionStorage`, so deciding either there rendered differently on the
+  // server and in the browser — a hydration mismatch on every page with a map.
+  // Both are read after mount instead.
   const [status, setStatus] = useState<GeoStatus>("loading");
 
   useEffect(() => {
     // Attempt instant hydrate from sessionStorage so subsequent chats/reloads don't start empty
     const cached = readCachedFix();
     if (cached) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sessionStorage only exists after mount
       setPosition(cached);
       setStatus("granted");
     }

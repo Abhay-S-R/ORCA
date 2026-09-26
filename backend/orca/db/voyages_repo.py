@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from geoalchemy2.shape import from_shape, to_shape
-from shapely.geometry import LineString, shape
+from shapely.geometry import LineString
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 

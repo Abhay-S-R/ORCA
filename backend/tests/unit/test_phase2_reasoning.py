@@ -761,8 +761,8 @@ def test_all_sources_down_falls_back_to_the_last_known_verdict_with_its_age() ->
 def test_a_missing_data_verdict_with_no_prior_cached_answer_stays_honest() -> None:
     """The mirror case — nothing to fall back to — must not silently invent
     one; the ordinary CAUTION_MISSING_DATA disclosure still fires."""
-    from orca.cache import redis_client
     from orca import query_cache
+    from orca.cache import redis_client
 
     lat, lon = -1.23, -4.56  # a spot nothing in this suite has ever cached
     redis_client().delete(query_cache.last_known_key(lat, lon, None))

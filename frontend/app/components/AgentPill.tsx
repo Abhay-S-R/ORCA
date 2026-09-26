@@ -132,25 +132,6 @@ const STATUS_STYLE: Record<AgentStatus, string> = {
   cancelled: "border-dashed border-caution/50 bg-shelf-1/40 text-caution/70 opacity-75",
 };
 
-// P2.1 (`R-JUDGE-1`) — an engine label, shortened for a 12px badge.
-//
-// The distinction the badge has to carry is "was this arithmetic or a model",
-// because that is the judge's actual question and the one ORCA's whole safety
-// argument rests on. "DET" for deterministic, "MT" for the local IndicTrans2
-// translation weights, "AI" for a span that genuinely reached a provider. The
-// full string is in the title and the sr-only text, so the abbreviation is
-// never the only carrier.
-function engineBadge(engine: string | undefined): { short: string; cls: string } | null {
-  if (!engine) return null;
-  if (engine.startsWith("Deterministic")) {
-    return { short: "DET", cls: "border-go/40 bg-go/10 text-go" };
-  }
-  if (engine.startsWith("IndicTrans2")) {
-    return { short: "MT", cls: "border-ocean-cyan/40 bg-ocean-cyan/10 text-ocean-cyan" };
-  }
-  return { short: "AI", cls: "border-caution/40 bg-caution/10 text-caution" };
-}
-
 export function AgentPill({
   name,
   status,
@@ -186,7 +167,6 @@ export function AgentPill({
   // labelling a skipped node "Deterministic" would claim work that never
   // happened. The skip reason takes that slot instead.
   const didNotRun = status === "skipped" || status === "cancelled";
-  const badge = didNotRun ? null : engineBadge(engine);
   const engineNote = didNotRun
     ? skipReason
       ? ` — ${status}: ${skipReason}`

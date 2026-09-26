@@ -15,10 +15,10 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from orca.api.trace_routes import get_trace, render_query
 from orca.auth.rbac import require_role
 from orca.db.engine import get_db
 from orca.db.models import User
-from orca.api.trace_routes import get_trace, render_query
 from orca.db.repositories import persist_security_event
 from orca.ops.aggregation import notification_severity_counts, sector_threat_matrix
 from orca.ops.cap import build_cap_xml, build_multilingual_cap_xml, four_channel_preview

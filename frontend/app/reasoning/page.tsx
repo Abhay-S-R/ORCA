@@ -438,20 +438,6 @@ function ReasoningContent() {
     });
   }, [trace, activeNodeIds, completedNodeIds]);
 
-  // Compute total latency
-  const totalLatency = useMemo(() => {
-    // Round the sum: per-node latencies are 0.1 ms floats, so the raw total prints as 17111.600000000002.
-    return Math.round(trace.nodes.reduce((acc, n) => acc + (n.latency_ms || 0), 0));
-  }, [trace]);
-
-  const activeStage = PIPELINE_STAGES[timelineIndex];
-  const activeStageLatency = useMemo(() => {
-    if (!activeStage) return 0;
-    return trace.nodes
-      .filter((n) => activeStage.nodeIds.includes(n.id))
-      .reduce((acc, n) => acc + (n.latency_ms || 0), 0);
-  }, [trace, activeStage]);
-
   // Keyboard navigation: activate selected node on Enter or Space
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -914,8 +900,6 @@ function ReasoningContent() {
         maxStages={PIPELINE_STAGES.length}
         isPlaying={isPlaying}
         playbackSpeed={playbackSpeed}
-        totalLatencyMs={totalLatency}
-        activeStageLatencyMs={activeStageLatency}
         onSelectStage={(idx) => {
           setTimelineIndex(idx);
           setIsPlaying(false);
