@@ -34,6 +34,7 @@ from orca.data.loaders import (
     DEFAULT_LAT,
     DEFAULT_LON,
     ResolvedPlace,
+    inland_place_name,
     is_region_name,
     near_miss_place_names,
     places_within_region,
@@ -223,6 +224,19 @@ def resolve_or_ask(text: str, session: dict | None = None) -> PlaceResolution:
             "coast you are asking about, or send your position, and I will answer for it.",
         )
 
+    # A real, well-known place ("Delhi") is not the same absence as naming no
+    # place at all. Before this it fell straight through to the pilot default
+    # below — answered 1,400 km away with nothing but the model's own wording
+    # (when a model happened to run) to say so. Found 2026-09-25.
+    inland = inland_place_name(text)
+    if inland:
+        return PlaceResolution(
+            "unresolvable", None, [],
+            f"{inland} is inland — I only cover conditions at sea off India's coast. "
+            "Name a coastal port or landing centre, or send your position, and I will "
+            "answer for it.",
+        )
+
     carried = (session or {}).get("last_place")
     if carried:
         lat, lon, name = carried
@@ -352,6 +366,8 @@ if __name__ == "__main__":  # self-check; `python -m orca.place_resolution`
     assert resolve_or_ask("compare Chennai and Pamban").status == "ambiguous"
     assert resolve_or_ask("is it safe in Kerala").status == "ambiguous"
     assert resolve_or_ask("is it safe near my village").status == "unresolvable"
+    delhi = resolve_or_ask("sea conditions near Delhi")
+    assert delhi.status == "unresolvable" and "Delhi" in (delhi.disclosure or ""), delhi
     typo = resolve_or_ask("what are the nearest fishing zones near gujurat")
     assert typo.status == "ambiguous" and "did you mean Gujarat" in (typo.disclosure or ""), typo
     assert [c.name for c in typo.candidates] == [c.name for c in resolve_or_ask("near gujarat").candidates]

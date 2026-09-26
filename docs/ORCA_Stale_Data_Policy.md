@@ -58,7 +58,7 @@ shows **Active** before that and **Expired · n d ago** after it.
 | MOSDAC SST | `satellite_loaders.load_insat_sst` (band tagged at load) | n/a — no SST map layer exists (see §5) | not wired into agent facts — SST reaches only `/trends`, never critic/reporting (see §5) | `/trends` `GranuleAge` caption | ✅ 2026-09-24 |
 | MOSDAC chlorophyll | `satellite_loaders.load_eos06_chl` (band tagged at load) | n/a, same as SST | same as SST | `/trends` `GranuleAge` caption | ✅ 2026-09-24 |
 | Copernicus CMEMS | `satellite_loaders.load_cmems_sst/_chl` (band tagged at load) | n/a, same as SST | same as SST | `/trends` `GranuleAge` caption | ✅ 2026-09-24 |
-| INCOIS OSF WW3 / HYCOM | `ocean_analytics.nearest_osf_point_forecast` (band tagged per product) | n/a — the grid-CSV and raster-tile fallbacks have no per-cell date or no frontend reader (see §7) | `outputs["osf_point_forecast"]["wave"/"ocean"].age_days/band/expired` | not yet — shown in the `/query` trace (Reasoning page), but Reporting's narrative inputs omit `osf_point_forecast` (see `docs/ORCA_Chatbot_Response_Plan.md` F1) | ✅ 2026-09-24 |
+| INCOIS OSF WW3 / HYCOM | `ocean_analytics.nearest_osf_point_forecast` (band tagged per product) | n/a — the grid-CSV and raster-tile fallbacks have no per-cell date or no frontend reader (see §7) | `outputs["osf_point_forecast"]["wave"/"ocean"].age_days/band/expired` | reaches both the `/query` trace and the written answer (fixed 2026-09-25, see §7) | ✅ 2026-09-24 |
 | Stormglass tides | `ocean_analytics.predict_tides` fallback rung | n/a — no map layer | `source_provenance.acquisition_timestamp` now the cache's real date, not query time | `/voyage` Berthing window `SourceChip` (fallback only) | ✅ 2026-09-24 — fixed, not banded (see §8) |
 | Remaining DAILY / WEEKLY rows of `freshness.SOURCE_CLASS` | — | — | — | — | ✅ 2026-09-24 — exempt (see §9) |
 
@@ -103,11 +103,13 @@ shows **Active** before that and **Expired · n d ago** after it.
   `extract_osf_pilot.py` last ran — rather than one shared "fetched at" stamp
   for both products. The banded values reach the Ocean Analytics span's
   `outputs["osf_point_forecast"]` on the `/query` stream, which the
-  Reasoning page shows. They do **not** yet reach the written answer:
-  `graph.py`'s reporting node hands the model only `tide`, `nearest_pfz`,
-  `sector_status`, `pfz_persistence` and `productivity_diagnosis` from
-  Ocean Analytics (corrected 2026-09-24; tracked as F1 in
-  `docs/ORCA_Chatbot_Response_Plan.md`).
+  Reasoning page shows, **and** the written answer: `graph.py`'s reporting
+  node hands the model `osf_point_forecast` alongside `tide`, `nearest_pfz`,
+  `sector_status`, `pfz_persistence` and `productivity_diagnosis` from Ocean
+  Analytics (gap found and corrected 2026-09-24; the narrative-input miss
+  fixed 2026-09-25, `docs/DLC_implementation_log.md`'s defect 3). Whether a
+  given answer's prose mentions the age is the model's own choice, same as
+  any other fact in the block.
 - **Smaller surface than PFZ, by design, not by omission**, same reasoning as
   §6: `load_osf_marine_grid()` (the rung-2 grid-cell fallback inside the same
   function) has no per-cell date to band; the raster `wave_height_forecast`

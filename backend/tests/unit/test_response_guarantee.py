@@ -230,6 +230,79 @@ def test_groq_keys_are_read_in_env_order_and_a_rate_limited_key_hands_on(monkeyp
     assert used == ["first", "second", "third"]
 
 
+def test_a_numbered_key_is_read_with_or_without_the_underscore(monkeypatch):
+    """Found 2026-09-26: five real keys were sitting in .env as GROQ_API_KEY1
+    .. GROQ_API_KEY5 (no underscore) and groq_keys() required one, so none of
+    them were ever read."""
+    from orca.llm import registry
+
+    _no_groq(monkeypatch)
+    monkeypatch.setenv("GROQ_API_KEY1", "first")
+    monkeypatch.setenv("GROQ_API_KEY_2", "second")
+    assert registry.groq_keys() == ["first", "second"]
+
+
+def test_gemini_keys_are_read_in_env_order(monkeypatch):
+    """The same gap groq_keys() had: GeminiProvider read only GEMINI_API_KEY,
+    so four of five configured keys sat unused."""
+    import os
+
+    from orca.llm import registry
+
+    for name in [n for n in list(os.environ) if n.startswith(("GEMINI_API_KEY", "GOOGLE_API_KEY"))]:
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("GEMINI_API_KEY", "first")
+    monkeypatch.setenv("GEMINI_API_KEY3", "third")
+    monkeypatch.setenv("GEMINI_API_KEY2", "second")
+    assert registry.gemini_keys() == ["first", "second", "third"]
+
+
+def test_gemini_provider_rotates_to_the_next_key_on_a_quota_error():
+    from orca.llm import registry
+
+    class _Resp:
+        def __init__(self, text: str):
+            self.text = text
+
+    class _FakeModels:
+        def __init__(self, action):
+            self._action = action
+
+        def generate_content(self, *, model, contents, **kw):
+            if isinstance(self._action, Exception):
+                raise self._action
+            return _Resp(self._action)
+
+    class _FakeClient:
+        def __init__(self, action):
+            self.models = _FakeModels(action)
+
+    provider = registry.GeminiProvider.__new__(registry.GeminiProvider)
+    provider._clients = [
+        _FakeClient(RuntimeError("429 RESOURCE_EXHAUSTED: quota")),
+        _FakeClient("written by the second key"),
+    ]
+    assert provider.complete([{"role": "user", "content": "x"}], model="m") == "written by the second key"
+
+
+def test_gemini_provider_does_not_rotate_keys_on_a_genuine_service_outage():
+    """A 503 is the model overloaded for everyone, not this key's quota — no
+    key would fix it, so cycling through all five only adds latency."""
+    from orca.llm import registry
+
+    class _FakeModels:
+        def generate_content(self, *, model, contents, **kw):
+            raise RuntimeError("503 UNAVAILABLE: the model is overloaded")
+
+    class _FakeClient:
+        models = _FakeModels()
+
+    provider = registry.GeminiProvider.__new__(registry.GeminiProvider)
+    provider._clients = [_FakeClient(), _FakeClient()]
+    with pytest.raises(RuntimeError, match="503"):
+        provider.complete([{"role": "user", "content": "x"}], model="m")
+
+
 # --- the answer ---------------------------------------------------------------
 
 @pytest.mark.parametrize("prompt", PROMPTS)
@@ -302,6 +375,60 @@ def test_with_no_model_a_guard_still_replies_with_its_own_text(providers):
     providers({"primary": _TIMEOUT, "second": _BUSY, "local": RuntimeError("connection refused")})
     text, engine, small_talk = reporting.write_guard_reply("hi", _OUT_OF_SCOPE, allow_small_talk=True)
     assert text == _OUT_OF_SCOPE and engine.startswith("Deterministic") and small_talk is False
+
+
+# --- self-context (current time / current position), found 2026-09-26 -------
+# "current" is real marine vocabulary (an ocean current) and also an ordinary
+# adjective ("current time", "current location"); the collision used to run
+# the full marine pipeline for a plain clock/position question.
+
+_TIME_FACTS = "The current time is 20:33 IST on 26 Sep 2026. No position has been shared for this question."
+
+
+def test_a_self_context_reply_is_rephrased_by_a_model(providers):
+    providers({"primary": "It's 20:33 IST on 26 Sep 2026 — no position was sent with this message.", "second": "", "local": ""})
+    text, engine = reporting.write_self_context_reply("what time is it", _TIME_FACTS)
+    assert text == "It's 20:33 IST on 26 Sep 2026 — no position was sent with this message."
+    assert engine == "gemini · primary"
+
+
+def test_a_self_context_reply_that_adds_a_figure_is_discarded(providers):
+    providers({"primary": "It's 20:33 IST, and you are 12 km from the nearest port.", "second": "", "local": ""})
+    text, engine = reporting.write_self_context_reply("what time is it", _TIME_FACTS)
+    assert text == _TIME_FACTS and engine.startswith("Deterministic")
+
+
+def test_with_no_model_self_context_still_replies_with_the_facts(providers):
+    providers({"primary": _TIMEOUT, "second": _BUSY, "local": RuntimeError("connection refused")})
+    text, engine = reporting.write_self_context_reply("what time is it", _TIME_FACTS)
+    assert text == _TIME_FACTS and engine.startswith("Deterministic")
+
+
+# --- administrative acknowledgments (reset, language switch) -----------------
+# Chatbot plan defect 4 (found 2026-09-25): the reset confirmation and the
+# "speak to me in <language>" confirmation were the same fixed English
+# sentence every time, with no model in the loop at all.
+
+_RESET_TEXT = "Done — this chat's memory is cleared. Ask me anything, fresh."
+
+
+def test_a_confirmation_is_rephrased_by_a_model_not_sent_verbatim(providers):
+    providers({"primary": "All set — I've cleared this conversation.", "second": "", "local": ""})
+    text, engine = reporting.write_confirmation_reply(_RESET_TEXT)
+    assert text == "All set — I've cleared this conversation."
+    assert engine == "gemini · primary"
+
+
+def test_a_confirmation_reply_that_adds_a_figure_is_discarded(providers):
+    providers({"primary": "Done — 5 previous turns were cleared.", "second": "", "local": ""})
+    text, engine = reporting.write_confirmation_reply(_RESET_TEXT)
+    assert text == _RESET_TEXT and engine.startswith("Deterministic")
+
+
+def test_with_no_model_a_confirmation_still_replies_with_its_own_text(providers):
+    providers({"primary": _TIMEOUT, "second": _BUSY, "local": RuntimeError("connection refused")})
+    text, engine = reporting.write_confirmation_reply(_RESET_TEXT)
+    assert text == _RESET_TEXT and engine.startswith("Deterministic")
 
 
 # --- the cache ----------------------------------------------------------------

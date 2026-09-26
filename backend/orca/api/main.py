@@ -775,13 +775,20 @@ async def _reset_stream() -> AsyncIterator[str]:
     """P2.14 — the whole response to a reset: one confirmation frame, no
     agents, no spans, no marine content. `outcome: "RESET"` is what tells the
     chat UI to drop its inherited-value chips (P2.9) rather than render this
-    as an answer."""
+    as an answer.
+
+    The confirmation is worded by a model (chatbot plan defect 4, fixed
+    2026-09-25) rather than the same fixed English sentence every time —
+    `reporting.write_confirmation_reply` falls back to that exact sentence
+    whenever no model answers, so this never regresses to silence."""
+    reply, engine = reporting.write_confirmation_reply(session_memory.RESET_CONFIRMATION)
     yield _sse({
         "type": "final_response",
         "query_id": str(uuid.uuid4()),
         "outcome": "RESET",
-        "final_english_response": session_memory.RESET_CONFIRMATION,
-        "final_vernacular_response": session_memory.RESET_CONFIRMATION,
+        "final_english_response": reply,
+        "final_vernacular_response": reply,
+        "response_engine": engine,
         "confidence_tier": "HIGH",
         "context_turns": 0,
         "inherited": [],
@@ -857,7 +864,15 @@ async def _language_change_stream(
         except Exception:
             logging.getLogger("orca.language").warning("language-change re-render failed; confirming only", exc_info=True)
 
-    confirmation_en = "Done — I'll reply in this language from now on."
+    # Worded by a model (chatbot plan defect 4, fixed 2026-09-25) rather than
+    # the same fixed English sentence every time; falls back to that sentence
+    # whenever no model answers. Rephrased BEFORE translation, not after —
+    # the target is `language`, not the language `q` was typed in, so this
+    # cannot reuse write_guard_reply's "reply in the message's own language"
+    # framing.
+    confirmation_en, engine = reporting.write_confirmation_reply(
+        "Done — I'll reply in this language from now on."
+    )
     try:
         from orca.agents.language import _ALL_LANGUAGES, translate_from_english
 
@@ -870,6 +885,7 @@ async def _language_change_stream(
         "outcome": "LANGUAGE_CHANGED",
         "final_english_response": confirmation_en,
         "final_vernacular_response": confirmation,
+        "response_engine": engine,
         "detected_language": language,
         "confidence_tier": "HIGH",
         "context_turns": len(history),

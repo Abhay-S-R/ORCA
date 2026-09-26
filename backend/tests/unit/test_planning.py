@@ -84,3 +84,24 @@ def test_a_non_marine_question_is_refused_rather_than_answered_about_the_sea(mon
     result = run(state)
     assert result.outputs["matched_intent_rows"] == [planning.OUT_OF_SCOPE_ROW]
     assert result.outputs["execution_plan"] == []
+
+
+# --- "current" the adjective vs "current" the ocean current, found 2026-09-26 --
+
+def test_current_time_or_location_does_not_match_marine_vocab_on_current_alone():
+    for q in ("do you know whats current time is", "do you know the current location", "current date please"):
+        assert planning.is_out_of_scope(q.lower()) is True, q
+
+
+def test_a_genuine_ocean_current_question_still_matches_marine_vocab():
+    for q in ("current speed near Kochi", "ocean current near Chennai", "what is the current wave height"):
+        assert planning.is_out_of_scope(q.lower()) is False, q
+
+
+def test_self_context_questions_are_recognised():
+    for q in ("do you know whats current time is",
+              "okay fine, do you know atleast current location? i wanted to ask some questions about it",
+              "where am I", "what time is it"):
+        assert planning.is_self_context_question(q) is True, q
+    for q in ("sea conditions near Kochi", "current speed near Kochi", "is it safe today"):
+        assert planning.is_self_context_question(q) is False, q

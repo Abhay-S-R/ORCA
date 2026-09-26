@@ -128,6 +128,13 @@ CANNOT_PLACE = [
     # More than one place in one question.
     "compare Chennai and Pamban",
     "is it safer off Veraval or Porbandar",
+    # A real, well-known place, just not a coastal one — found 2026-09-25:
+    # this used to fall through to the pilot default like NO_PLACE_NAMED,
+    # answered 1,400 km from where it was actually asked about.
+    "sea conditions near Delhi",
+    "is it safe to go out tomorrow near Jaipur",
+    "wave height in Lucknow",
+    "tide at Chandigarh",
 ]
 
 OUT_OF_REACH = [

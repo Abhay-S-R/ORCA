@@ -586,6 +586,88 @@ def near_miss_place_names(text: str, limit: int = 3) -> list[str]:
     return hits[:limit]
 
 
+# A curated, stable geographic fact (India's coastal states and UTs do not
+# change), not a per-place hardcode: everything else in the Census list is
+# landlocked. Found 2026-09-25 — "sea conditions near Delhi" matched nothing
+# in `_GAZETTEER` and fell through to `resolve_or_ask`'s pilot-default
+# fallback exactly like a query naming no place at all, so it was answered
+# 1,400 km away with nothing on the card to say so beyond the model's own
+# wording (when a model happened to run). Delhi is not a missing coastal
+# port — it is a real, well-known place a caller might genuinely mean, that
+# ORCA has no sea near. That is `unresolvable`, not `fallback`: see
+# `inland_place_name` below and its use in `place_resolution.resolve_or_ask`.
+_COASTAL_STATES: frozenset[str] = frozenset(
+    {
+        "andaman & nicobar island", "andhra pradesh", "daman & diu", "goa",
+        "gujarat", "karnataka", "kerala", "lakshadweep", "maharashtra",
+        "odisha", "puducherry", "tamil nadu", "west bengal",
+    }
+)
+# District names that are compass directions rather than place names in their
+# own right ("East", "North West" — several of NCT of Delhi's districts are
+# named this way). A whole-word match on "west" would fire on ordinary marine
+# wording ("wind from the west"), which is the one thing this check must
+# never do.
+_GENERIC_DIRECTIONS: frozenset[str] = frozenset({"north", "south", "east", "west", "central"})
+
+
+@lru_cache(maxsize=1)
+def _inland_place_names() -> tuple[str, ...]:
+    """State and district names from the Census 2011 shapefile
+    (`tier1/boundaries/2011_Dist.shp`, already on disk for
+    `geospatial.district_at_point` — read again here rather than imported,
+    because `place_resolution` is deliberately import-light and this file
+    must not pull in shapely/pyshp's geometry machinery for a name list).
+    Landlocked states and UTs only, and their districts; a coastal state's
+    own inland districts (Coimbatore in Tamil Nadu) are out of scope — this
+    answers "does the text name a whole landlocked region", not "how far is
+    this district from the coast". Longest names first, same order
+    `resolve_all_places_from_text` claims spans in, so "new delhi" is not
+    also reported as the generic-and-excluded "delhi" some other district
+    happened to be named (it is not, here, but the ordering rule is shared).
+    """
+    path = DATA_DIR / "tier1" / "boundaries" / "2011_Dist.shp"
+    if not path.exists():
+        return ()
+    import shapefile  # pyshp: pure-python .shp/.dbf reader, no GDAL
+
+    reader = shapefile.Reader(str(path))
+    names: set[str] = set()
+    for sr in reader.shapeRecords():
+        record = sr.record
+        if record is None:
+            continue
+        state = (record["ST_NM"] or "").strip()
+        if not state or state.lower() in _COASTAL_STATES:
+            continue
+        district = (record["DISTRICT"] or "").strip()
+        if district and district.lower() not in _GENERIC_DIRECTIONS:
+            names.add(district.lower())
+        # "NCT of Delhi" -> "Delhi": the one general cleanup this needs. The
+        # ST_NM column carries the administrative prefix; nobody asks about
+        # sea conditions near "NCT of Delhi".
+        names.add(state.removeprefix("NCT of ").strip().lower())
+    # Lowercase, matching `_GAZETTEER`'s own convention (`_name_pattern` is
+    # case-sensitive by construction, so a title-cased table would silently
+    # never match `resolve_or_ask`'s already-lowercased query text).
+    return tuple(sorted({n for n in names if len(n) >= 4}, key=len, reverse=True))
+
+
+def inland_place_name(text: str) -> str | None:
+    """The first landlocked state or district `text` names, title-cased for
+    display, or None.
+
+    Meaningful only after the coastal gazetteer/tide-station/port tables
+    already matched nothing (see `resolve_or_ask`) — a name that resolves
+    there never reaches this check, so there is no double match to arbitrate.
+    """
+    lowered = text.lower()
+    for name in _inland_place_names():
+        if _name_pattern(name).search(lowered):
+            return name.title()
+    return None
+
+
 # Gazetteer keys that name a *region*, not a position. A state's coastline is
 # 300-600 km long and the entry below is its centroid, so answering "is it safe
 # in Kerala?" at one of these is the same confidently-wrong failure the

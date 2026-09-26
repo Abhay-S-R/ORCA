@@ -45,6 +45,21 @@ _TIMEOUT_MS = 15_000
 
 
 class GeminiProvider:
+    """Rotates across every configured Gemini key on a per-key rate limit.
+
+    Found 2026-09-26: five keys (`GEMINI_API_KEY`..`GEMINI_API_KEY5`) were
+    sitting in `.env` and only the first was ever used — this class read a
+    single key and nothing rotated it, the same class of gap `groq_keys()`
+    had (see its own docstring). A 429/RESOURCE_EXHAUSTED/quota error is
+    retried on the next key; a 503/"unavailable" is the model overloaded for
+    everyone, not this key's quota, and is NOT retried here — a stalled model
+    behind key 2 is stalled behind every key, and `tiers.py`'s own chain (a
+    second model, then Groq, then local) is what a genuine outage needs, not
+    five slower attempts at the same wall.
+    """
+
+    _KEY_RATE_LIMIT_MARKERS = ("429", "resource_exhausted", "rate limit", "quota")
+
     def __init__(self) -> None:
         # modern official vendor SDK — confined to this file. mypy sees `google`
         # as a namespace package contributed to by several installed Google
@@ -52,8 +67,8 @@ class GeminiProvider:
         # import is real and works at runtime (google-genai's own package).
         from google import genai  # type: ignore[attr-defined]
 
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not api_key:
+        keys = gemini_keys()
+        if not keys:
             raise KeyError("Neither GEMINI_API_KEY nor GOOGLE_API_KEY is set in environment")
         # The SDK default is no timeout at all: a stalled gemini-3.5-flash-lite
         # request held Planning's one intent-confirmation call for 94.9 s
@@ -64,7 +79,9 @@ class GeminiProvider:
         # chunks keep arriving is not cut off.
         # ponytail: one cap for every tier; per-tier timeouts if "deep"
         # completions ever legitimately exceed it.
-        self._client = genai.Client(api_key=api_key, http_options=genai.types.HttpOptions(timeout=_TIMEOUT_MS))
+        self._clients = [
+            genai.Client(api_key=k, http_options=genai.types.HttpOptions(timeout=_TIMEOUT_MS)) for k in keys
+        ]
 
     def complete(self, messages: list[dict[str, str]], *, model: str, **kw: Any) -> str:
         if not messages:
@@ -78,25 +95,34 @@ class GeminiProvider:
             kw["config"] = types.GenerateContentConfig(
                 http_options=types.HttpOptions(timeout=int(timeout_s * 1000)),
             )
-        if len(messages) == 1:
-            resp = self._client.models.generate_content(
-                model=model,
-                contents=messages[0]["content"],
-                **kw,
-            )
-            return resp.text or ""
-
-        chat = self._client.chats.create(model=model)
-        for m in messages[:-1]:
-            chat.send_message(m["content"])
-        resp = chat.send_message(messages[-1]["content"], **kw)
-        return resp.text or ""
+        last_exc: Exception = RuntimeError("no Gemini key configured")
+        for i, client in enumerate(self._clients):
+            try:
+                if len(messages) == 1:
+                    resp = client.models.generate_content(model=model, contents=messages[0]["content"], **kw)
+                    return resp.text or ""
+                chat = client.chats.create(model=model)
+                for m in messages[:-1]:
+                    chat.send_message(m["content"])
+                resp = chat.send_message(messages[-1]["content"], **kw)
+                return resp.text or ""
+            except Exception as exc:  # decide retry-next-key vs propagate below
+                last_exc = exc
+                more_keys = i + 1 < len(self._clients)
+                if more_keys and any(m in str(exc).lower() for m in self._KEY_RATE_LIMIT_MARKERS):
+                    continue
+                raise
+        raise last_exc  # unreachable: the loop above always returns or raises
 
     def stream(self, messages: list[dict[str, str]], *, model: str, **kw: Any) -> Iterator[str]:
+        # ponytail: first key only — nothing calls stream() in production yet
+        # (chatbot plan F2 adds token streaming to /ask); rotate here too once
+        # something does.
         if not messages:
             return
+        client = self._clients[0]
         if len(messages) == 1:
-            for chunk in self._client.models.generate_content_stream(
+            for chunk in client.models.generate_content_stream(
                 model=model,
                 contents=messages[0]["content"],
                 **kw,
@@ -105,7 +131,7 @@ class GeminiProvider:
                     yield chunk.text
             return
 
-        chat = self._client.chats.create(model=model)
+        chat = client.chats.create(model=model)
         for m in messages[:-1]:
             chat.send_message(m["content"])
         for chunk in chat.send_message_stream(messages[-1]["content"], **kw):
@@ -169,15 +195,43 @@ class OllamaProvider:
         ).raise_for_status()
 
 
-def groq_keys() -> list[str]:
-    """Every Groq key in the environment, in .env order: GROQ_API_KEY, then
-    GROQ_API_KEY_1, GROQ_API_KEY_2, … — each may also hold a comma-separated
-    list. Several free-tier keys are several rate limits."""
+def _numbered_keys(prefix: str) -> list[str]:
+    """Every value of `<prefix>`, `<prefix>N` or `<prefix>_N` in the
+    environment, in ascending N (the bare name first) — however many were
+    typed into `.env`. Both `KEY2` and `KEY_2` are accepted: found 2026-09-26,
+    `groq_keys()` required the underscore and matched none of the five keys
+    actually in `.env` (`GROQ_API_KEY1`..`GROQ_API_KEY5`, no underscore), so
+    Groq had never actually been reached despite being configured. A value
+    may also hold a comma-separated list. Deduplicated by value, not name, so
+    `GEMINI_API_KEY` and `GOOGLE_API_KEY` naming the same key once is one key,
+    not a wasted rotation slot."""
     names = sorted(
-        (n for n in os.environ if re.fullmatch(r"GROQ_API_KEY(_\d+)?", n)),
-        key=lambda n: int(n.rsplit("_", 1)[1]) if n[-1].isdigit() else 0,
+        (n for n in os.environ if re.fullmatch(rf"{prefix}_?(\d+)?", n)),
+        key=lambda n: int(m.group()) if (m := re.search(r"\d+$", n)) else 0,
     )
-    return [k.strip() for n in names for k in os.environ[n].split(",") if k.strip()]
+    seen: set[str] = set()
+    keys: list[str] = []
+    for n in names:
+        for k in os.environ[n].split(","):
+            k = k.strip()
+            if k and k not in seen:
+                seen.add(k)
+                keys.append(k)
+    return keys
+
+
+def groq_keys() -> list[str]:
+    """Every Groq key in the environment. Several free-tier keys are several
+    rate limits."""
+    return _numbered_keys("GROQ_API_KEY")
+
+
+def gemini_keys() -> list[str]:
+    """Every Gemini key in the environment — `GEMINI_API_KEY`/`GOOGLE_API_KEY`
+    and their numbered siblings. Found 2026-09-26: five keys were configured
+    and only the first was ever used; `GeminiProvider` below now rotates
+    across all of them the same way `GroqProvider` already did for Groq."""
+    return _numbered_keys("GEMINI_API_KEY") or _numbered_keys("GOOGLE_API_KEY")
 
 
 class GroqProvider:

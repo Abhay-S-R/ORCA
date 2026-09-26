@@ -117,6 +117,58 @@ def test_the_reinvoke_node_carries_the_critique_onto_the_span() -> None:
     assert update["critic_reinvocations"] == 1
 
 
+# --- self-context (current time / current position), found 2026-09-26 -------
+
+def test_self_context_facts_report_the_clock_and_no_position_by_default() -> None:
+    facts = g._self_context_facts(_state(user_location=None))
+    assert "IST" in facts and "No position has been shared" in facts
+
+
+def test_self_context_facts_report_a_real_gps_fix_only() -> None:
+    facts = g._self_context_facts(_state(user_location={
+        "place_source": "gps_fix", "lat": 9.9667, "lon": 76.2667,
+    }))
+    assert "9.9667, 76.2667" in facts and "not a place to answer" in facts
+
+
+def test_self_context_facts_never_report_the_regional_default_as_a_position() -> None:
+    """A default position is a guess about where the caller is, not a report
+    of it — reporting it as "your location" is the exact failure
+    place_resolution's own module docstring exists to prevent."""
+    facts = g._self_context_facts(_state(user_location={
+        "place_source": "regional_default", "lat": 8.80, "lon": 78.30,
+    }))
+    assert "8.8" not in facts and "No position has been shared" in facts
+
+
+def test_out_of_scope_node_answers_a_self_context_question_from_real_facts(monkeypatch) -> None:
+    # The reply echoes the facts block verbatim rather than a hardcoded time —
+    # _self_context_facts reads the live clock, so a fixed mock reply would
+    # trip write_self_context_reply's own "no invented figure" guard.
+    fake_client = MagicMock()
+    fake_client.complete.side_effect = (
+        lambda messages, **kw: "Understood — "
+        + messages[0]["content"].split("keep every figure in it exactly as written):\n")[1].split("\n\nRULES")[0]
+    )
+    fake_client.engine = "gemini · fake"
+    monkeypatch.setattr("orca.llm.tiers.llm", lambda tier: fake_client)
+    state = _state(raw_user_query="do you know whats current time is", user_location=None)
+    update = g.out_of_scope_node(state)  # type: ignore[arg-type]
+    assert update["query_outcome"] == "OUT_OF_SCOPE"
+    assert update["final_english_response"].startswith("Understood —") and "IST" in update["final_english_response"]
+    assert update["small_talk"] is True
+    assert update["response_engine"] == "gemini · fake"
+
+
+def test_out_of_scope_node_still_refuses_a_genuine_out_of_scope_question() -> None:
+    with patch("orca.llm.tiers.llm", side_effect=RuntimeError("no key")):
+        state = _state(raw_user_query="tell me a joke")
+        update = g.out_of_scope_node(state)  # type: ignore[arg-type]
+    assert update["query_outcome"] == "OUT_OF_SCOPE"
+    assert update["small_talk"] is False
+    assert "I can't answer that" in update["final_english_response"]
+
+
 def test_a_critic_failure_keeps_the_narrative_reporting_already_produced() -> None:
     """The Critic upgrades explanations; it never blocks a response. A node
     that raised hands back outputs={}, and indexing that would abort the very

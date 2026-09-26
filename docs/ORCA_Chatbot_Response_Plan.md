@@ -279,15 +279,19 @@ chatbot, and every item is a pickable point.
 Findings from reading `graph.py`'s reporting node (lines 745-822), which decides
 what the model is allowed to know:
 
-- **The narrative is not given the sea state.** Weather contributes only
-  `lightning_active` and `cyclone_alert`. Wave height, wind speed, swell and
-  period are not in the prompt. A "sea conditions near X" answer can mention
-  waves only if the verdict's reason happens to. The Thoothukudi answer on
-  2026-09-24 gave the tide, the PFZ and the boundary distance, but no wave height.
-- **Ocean Analytics' input is cut to five keys** (`tide`, `nearest_pfz`,
-  `sector_status`, `pfz_persistence`, `productivity_diagnosis`). The OSF point
-  forecast with its age bands, the wind anomaly, the wind rose and the SST/chl
-  correlation never reach the writer.
+- **The narrative is not given the sea state, beyond `lightning_active` and
+  `cyclone_alert`** — wave height and wind speed reach the model only through
+  `risk_assessment.readings` (added when C0 built the facts-paragraph
+  fallback), not directly from Weather. Swell and period still don't reach it
+  at all. A "sea conditions near X" answer can mention waves only via that one
+  narrow path. The Thoothukudi answer on 2026-09-24 gave the tide, the PFZ and
+  the boundary distance, but no wave height.
+- **Ocean Analytics' input was cut to five keys, missing the OSF point
+  forecast — fixed 2026-09-25** (defect 3 of the 2026-09-25 open-defects log
+  entry): `osf_point_forecast`, with its age bands, now reaches the writer
+  alongside `tide`, `nearest_pfz`, `sector_status`, `pfz_persistence` and
+  `productivity_diagnosis`. Still missing: the wind anomaly, the wind rose and
+  the SST/chl correlation.
 - **Facts are Python reprs.** `f"{k}={v}"` over nested dicts gives the model
   `tide={'next_high': {...}}`: no units column, no dates it can rely on.
 

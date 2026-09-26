@@ -41,6 +41,36 @@ def test_the_regional_default_is_named_as_a_default_not_as_the_users_place():
     assert "not your position" in (r.disclosure or "")
 
 
+def test_a_named_inland_place_is_refused_not_answered_at_the_default():
+    """Found 2026-09-25: "sea conditions near Delhi" matched nothing in the
+    coastal gazetteer and fell through to the same pilot-default fallback as
+    a question naming no place at all — answered 1,400 km away with nothing
+    on the card to say so beyond whichever model happened to run that turn.
+    Delhi is not a missing coastal port; it is a real place with no sea near
+    it, and that is `unresolvable`, never a silent default."""
+    r = pr.resolve_or_ask("sea conditions near Delhi")
+    assert r.status == "unresolvable"
+    assert r.place is None and not r.is_answerable
+    assert r.disclosure and "Delhi" in r.disclosure and "inland" in r.disclosure
+
+
+def test_an_inland_place_name_never_shadows_a_real_coastal_answer():
+    """The inland check runs only after the coastal tables already found
+    nothing (see resolve_or_ask) — it must never override a real match."""
+    r = pr.resolve_or_ask("wave height at Kanyakumari")
+    assert r.status == "resolved" and r.place is not None
+
+
+def test_ordinary_wind_direction_wording_is_never_mistaken_for_a_district():
+    """Several of NCT of Delhi's own districts are named "East", "West",
+    "North" — words a marine answer uses constantly for wind and swell
+    direction. `inland_place_name` must exclude them by construction."""
+    from orca.data.loaders import inland_place_name
+
+    for text in ("wind from the west", "swell direction east", "veering south"):
+        assert inland_place_name(text) is None, text
+
+
 def test_a_carried_over_place_is_used_but_attributed_to_the_earlier_turn():
     r = pr.resolve_or_ask("what about tomorrow?", {"last_place": (9.2833, 79.2, "pamban")})
     assert r.status == "fallback"

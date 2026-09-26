@@ -60,7 +60,7 @@ trouble sends, and Agent 12 sees every one of them first.
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph
@@ -309,7 +309,27 @@ def out_of_scope_node(state: ORCAState) -> dict:
     Chatbot plan C0.2d — "hi" lands here too, and a chatbot that answers a
     greeting with "I can't answer that" is broken however correct the
     routing is. The model tells a greeting or small talk apart and answers it
-    as one; `small_talk` lets the UI drop the refusal heading for it."""
+    as one; `small_talk` lets the UI drop the refusal heading for it.
+
+    Found 2026-09-26 — "do you know the current time/location" also lands
+    here (neither has a marine word), and answering either with "I can't
+    answer that" is wrong: the app's own header already shows an IST clock,
+    and the server can say so. `is_self_context_question` answers it from
+    real facts instead of the generic refusal; `small_talk` is forced True
+    here rather than left to the model's own tag, because this is never the
+    "can't help" case the heading is for."""
+    query = state.get("raw_user_query", "") or ""
+    if planning.is_self_context_question(query):
+        reply, engine = reporting.write_self_context_reply(query, _self_context_facts(state))
+        return {
+            "query_outcome": "OUT_OF_SCOPE",
+            "final_english_response": reply,
+            "final_vernacular_response": reply,
+            "response_engine": engine,
+            "small_talk": True,
+            "confidence_tier": "HIGH",
+            "execution_plan": [],
+        }
     body = (
         "I can't answer that. I only answer questions about conditions at sea off India — "
         "whether it is safe to go out, waves, wind, tides, fishing zones, and maritime "
@@ -321,6 +341,30 @@ def out_of_scope_node(state: ORCAState) -> dict:
         "confidence_tier": "HIGH",
         "execution_plan": [],
     }
+
+
+_IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _self_context_facts(state: ORCAState) -> str:
+    """What is actually true right now, for write_self_context_reply. A
+    position is included only when the browser sent a real fix THIS turn
+    (`place_source == "gps_fix"`) — never the pilot default and never a place
+    carried over from an earlier turn, both of which are a guess about where
+    the caller is, not a report of it (the same distinction
+    `place_resolution`'s own module docstring states)."""
+    now = datetime.now(_IST).strftime("%H:%M IST on %d %b %Y")
+    loc = state.get("user_location") or {}
+    if loc.get("place_source") == "gps_fix" and loc.get("lat") is not None and loc.get("lon") is not None:
+        return (
+            f"The current time is {now}. The browser shared a position with this question: "
+            f"{loc['lat']:.4f}, {loc['lon']:.4f}. This is for information only — it is not a "
+            "place to answer a sea-conditions question at unless the caller names it or asks about it."
+        )
+    return (
+        f"The current time is {now}. No position has been shared for this question — a browser "
+        "does not send one automatically, and none was included with this message."
+    )
 
 
 def _route_after_planning(state: ORCAState) -> list[str] | str:
@@ -946,7 +990,17 @@ def reporting_run(state: ORCAState) -> AgentResult:
             inputs_consumed={},
             outputs={
                 k: ocean.get(k)
-                for k in ("tide", "nearest_pfz", "sector_status", "pfz_persistence", "productivity_diagnosis")
+                for k in (
+                    "tide", "nearest_pfz", "sector_status", "pfz_persistence",
+                    "productivity_diagnosis",
+                    # Chatbot plan F1 / defect 3 (2026-09-25): the INCOIS OSF
+                    # wave/current point forecast, and its own age_days/band/
+                    # expired (stale-data policy §7), used to reach only the
+                    # /query trace's Ocean Analytics span — never the written
+                    # narrative, so a question near one of the 8 pre-extracted
+                    # pilot ports never mentioned it however old it was.
+                    "osf_point_forecast",
+                )
                 if ocean.get(k) is not None
             },
             source_provenance=SourceProvenance(

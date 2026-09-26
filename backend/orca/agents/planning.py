@@ -204,6 +204,30 @@ _INJECTION_PATTERNS: tuple[str, ...] = (
 
 OUT_OF_SCOPE_ROW = "OUT_OF_SCOPE"
 
+# The non-marine sense of "current" — see is_out_of_scope's use below.
+_CURRENT_SELF_SENSE = re.compile(r"\bcurrent\s+(time|date|day|location|position)\b")
+
+# A question about ORCA's own operating context — what time it is, where the
+# caller is right now — rather than about the sea. Distinct from
+# _UNPLACEABLE_SELF_REFERENCE ("near my village": a marine question at an
+# unnamed place) and from out-of-scope junk: this is answerable, factually,
+# without running a single marine agent — graph.out_of_scope_node answers it
+# from the real clock and this turn's own GPS fix (never a carried-over one,
+# and never presented as a place to compute sea conditions at).
+_SELF_CONTEXT_PHRASES: tuple[str, ...] = (
+    "current time", "what time is it", "what's the time", "what is the time",
+    "current date", "today's date", "what day is it", "what's the date",
+    "current location", "my location", "my position", "my current position",
+    "where am i", "do you know my location", "do you know where i am",
+)
+
+
+def is_self_context_question(text: str) -> bool:
+    """True when the text asks about ORCA's own context — the clock, the
+    caller's own known position — rather than about the sea."""
+    lowered = (text or "").lower()
+    return any(p in lowered for p in _SELF_CONTEXT_PHRASES)
+
 
 def is_out_of_scope(normalized_query: str) -> bool:
     """True when this is not a question ORCA can honestly take marine data to.
@@ -219,7 +243,18 @@ def is_out_of_scope(normalized_query: str) -> bool:
         return True
     if any(p in lowered for p in _NON_MARINE_TASKS):
         return True
-    if _significant_words(lowered) & _MARINE_VOCAB:
+    # "current" is real marine vocabulary (an ocean current) and also an
+    # ordinary English adjective ("current time", "current location") that
+    # has nothing to do with the sea. Found 2026-09-26: "do you know the
+    # current location" matched _MARINE_VOCAB on that word alone and ran the
+    # full marine pipeline, which then answered — accurately, but pointlessly
+    # — with the pilot region's default-position disclosure. Stripped, in
+    # this one ambiguous sense only, before the vocabulary test — a copy, so
+    # the coordinate/place-name checks below still see the original text. A
+    # genuine "current speed near Kochi" still matches on "speed"/the place
+    # name, and "ocean current" still matches on "ocean".
+    vocab_text = _CURRENT_SELF_SENSE.sub(" ", lowered)
+    if _significant_words(vocab_text) & _MARINE_VOCAB:
         return False
     # Text still carrying non-Latin script has not been through a successful
     # translation pass, so an English vocabulary test says nothing about it.

@@ -172,7 +172,14 @@ _LOCAL_MODEL = "gemma4:e4b"
 # Groq joins every tier's default chain, right after the primary, whenever a
 # GROQ_API_KEY is in .env: a different company's infrastructure, so it is up
 # when Gemini is not. ORCA_LLM_GROQ_MODEL picks the model.
-_GROQ_MODEL = "llama-3.3-70b-versatile"
+# llama-3.3-70b-versatile (the original default) no longer exists on Groq's
+# model list as of 2026-09-26 (a live call 404'd) — found once real keys were
+# available to check with. Measured against the real Reporting prompt that
+# day: gpt-oss-120b 1.7s, gpt-oss-20b 1.4s, qwen3.8-27b 0.3s, all keeping the
+# verdict header intact. gpt-oss-120b is the pick: the largest of the three,
+# and still far faster than every Gemini model measured the same day (4.1 s
+# best case).
+_GROQ_MODEL = "openai/gpt-oss-120b"
 # A local model is ALWAYS the last rung and never assumed present: not every
 # machine on the team has Ollama, or a GPU. When the startup warm-up finds no
 # local model, it is dropped from every chain (`_LOCAL_MISSING`) — so on such
