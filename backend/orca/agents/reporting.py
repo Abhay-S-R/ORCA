@@ -15,7 +15,10 @@ import io
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
+
+_IST = timezone(timedelta(hours=5, minutes=30))
 
 from orca import engines
 from orca.contracts import AgentResult
@@ -168,11 +171,22 @@ def _sentence(text: str) -> str:
     return text if not text or text[-1] in ".!?" else f"{text}."
 
 
-def _utc_clock(iso: Any) -> str | None:
-    """"2026-09-24T20:12:00Z" -> "20:12 UTC". The whole product reads in UTC."""
+def _ist_clock(iso: Any) -> str | None:
+    """"2026-09-24T20:12:00Z" -> "01:42 IST". All user-facing clocks read in IST."""
     if not isinstance(iso, str) or "T" not in iso:
         return None
-    return f"{iso.split('T', 1)[1][:5]} UTC"
+    try:
+        clean = iso.rstrip("Z")
+        dt = datetime.fromisoformat(clean)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        ist_dt = dt.astimezone(_IST)
+        return f"{ist_dt.strftime('%H:%M')} IST"
+    except Exception:
+        return f"{iso.split('T', 1)[1][:5]} IST"
+
+
+_utc_clock = _ist_clock  # Backward-compatible alias
 
 
 def facts_paragraph(
@@ -223,8 +237,8 @@ def facts_paragraph(
         where = f" at {tide['station_name']}" if tide.get("station_name") else ""
         text = f"The tide is {str(tide['tidal_state']).lower()}{where}"
         high = tide.get("next_high") or {}
-        if high.get("height_m") is not None and _utc_clock(high.get("when")):
-            text += f"; next high water {high['height_m']} m at {_utc_clock(high['when'])}"
+        if high.get("height_m") is not None and _ist_clock(high.get("when")):
+            text += f"; next high water {high['height_m']} m at {_ist_clock(high['when'])}"
         lines.append(_sentence(text))
 
     sector = ocean.get("sector_status") or {}
@@ -546,7 +560,8 @@ CRITICAL RULES:
    from its measured_from — say so ("32 km WSW of Mangalore"). Its landing_center is only
    INCOIS's landmark for the zone; if you name it, use incois_reference for its distance
    ("INCOIS lists it as 52-57 km NW of Kunzhathur"). Never pair one origin's distance or
-   direction with the other's place name.{critique_rule}"""
+   direction with the other's place name.
+11. Times and timezones. Always express times in Indian Standard Time (IST). Never refer to UTC or reply with UTC timestamps — if any telemetry contains a UTC time, translate it to IST (+05:30) for the user.{critique_rule}"""
 
     try:
         narrative = client.complete([{"role": "user", "content": prompt}]).strip()

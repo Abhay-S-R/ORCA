@@ -56,7 +56,7 @@ export function TimeSlider({
         aria-valuetext={formatFrame(current.t)}
         className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-hairline accent-[var(--color-accent)]"
       />
-      {/* The time is stated in text, always — both absolute (UTC) and
+      {/* The time is stated in text, always — both absolute (IST) and
           relative to the first frame, never the slider position alone
           (§4.11, plan §5.10 Day 12). */}
       <time dateTime={current.t} data-readout className="shrink-0 text-xs text-ink">
@@ -78,13 +78,13 @@ export function TimeSlider({
 function formatFrame(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("en-GB", {
+  return `${d.toLocaleString("en-IN", {
     weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "UTC",
-  });
+    timeZone: "Asia/Kolkata",
+  })} IST`;
 }
 
 function relativeOffset(firstIso: string, currentIso: string): string {

@@ -173,7 +173,7 @@ def quiet_hours_window(quiet_hours: dict[str, Any] | None, *, now: datetime | No
     if not quiet_hours or not quiet_hours.get("start") or not quiet_hours.get("end"):
         return False, None
     try:
-        tz = ZoneInfo(quiet_hours.get("tz") or "UTC")
+        tz = ZoneInfo(quiet_hours.get("tz") or "Asia/Kolkata")
         start_t, end_t = _parse_hhmm(quiet_hours["start"]), _parse_hhmm(quiet_hours["end"])
     except (ValueError, ZoneInfoNotFoundError, KeyError):
         return False, None
@@ -407,6 +407,8 @@ def _due_pre_dawn_briefings(db: Session, *, now: datetime) -> int:
         local_now = now.astimezone(tz)
         today = local_now.date()
         if user.last_pre_dawn_briefing_date == today:
+            continue
+        if user.typical_departure_hour is None:
             continue
         target = (
             datetime.combine(today, dt_time(0, 0), tzinfo=tz)

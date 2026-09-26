@@ -76,7 +76,7 @@ function AlertRow({ n, onRead }: { n: OrcaNotification; onRead: (id: string) => 
             <p className="mt-1 text-sm text-ink-muted">{n.body}</p>
             <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-dim">
               {value && <span data-readout>{value}</span>}
-              <span data-readout>{new Date(n.created_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC</span>
+              <span data-readout>{new Date(n.created_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST</span>
               {confidence && <span className={confidenceClass(confidence)}>{confidenceLabel(confidence)}</span>}
               {n.status !== "sent" && <span className="text-caution">{n.status.toUpperCase()}</span>}
             </p>

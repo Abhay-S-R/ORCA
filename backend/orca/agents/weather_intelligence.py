@@ -33,6 +33,8 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
+_IST = timezone(timedelta(hours=5, minutes=30))
+
 import httpx
 import pandas as pd
 
@@ -374,7 +376,7 @@ def get_imd_nowcast_alerts(
     elif expired and window_end is not None:
         confidence = Confidence(
             score="LOW_DATA",
-            rationale=f"cached IMD nowcast window closed {window_end.astimezone(timezone.utc):%Y-%m-%d %H:%MZ} — historical, not current",
+            rationale=f"cached IMD nowcast window closed {window_end.astimezone(_IST):%Y-%m-%d %H:%M IST} — historical, not current",
         )
     else:
         confidence = Confidence(score="MEDIUM", rationale=f"{len(nearby)} cached IMD district nowcast(s) in force nearby")

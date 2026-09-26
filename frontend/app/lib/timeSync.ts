@@ -13,14 +13,14 @@ export function inSync(sliderIso: string, timing: LayerTiming | null): boolean {
 
 export function syncNote(name: string, sliderIso: string, timing: LayerTiming | null): string {
   if (!timing) return `${name}: valid time unknown — greyed, not extrapolated`;
-  const sampled = formatUtc(timing.validTime);
+  const sampled = formatIst(timing.validTime);
   return inSync(sliderIso, timing)
     ? `${name}: sampled ${sampled} (${timing.stepHours} h step)`
-    : `${name}: sampled ${sampled}, slider at ${formatUtc(sliderIso)} — greyed, not extrapolated`;
+    : `${name}: sampled ${sampled}, slider at ${formatIst(sliderIso)} — greyed, not extrapolated`;
 }
 
-function formatUtc(iso: string): string {
+function formatIst(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return `${d.toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" })} UTC`;
+  return `${d.toLocaleString("en-IN", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" })} IST`;
 }

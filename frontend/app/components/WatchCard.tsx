@@ -116,7 +116,7 @@ export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => v
         <Readout label="Radius" value={watch.radius_km ?? "—"} unit={watch.radius_km ? "km" : undefined} />
         <Readout
           label="Last fired"
-          value={watch.last_fired_at ? new Date(watch.last_fired_at).toLocaleDateString("en-GB", { timeZone: "UTC" }) : "never"}
+          value={watch.last_fired_at ? new Date(watch.last_fired_at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }) : "never"}
         />
       </ReadoutGrid>
 
@@ -167,7 +167,7 @@ export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => v
                 </p>
                 <p className="text-ink-muted">{n.body}</p>
                 <p className="mt-0.5 text-ink-dim" data-readout>
-                  {new Date(n.created_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC
+                  {new Date(n.created_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST
                   {n.status !== "sent" && <span className="ml-2 text-caution">SIMULATED</span>}
                 </p>
               </li>

@@ -135,14 +135,13 @@ export function ProvenancePopover({
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  // Fixed locale and zone, never the visitor's: the whole product reads in
-  // UTC, and a locale-dependent string would also break hydration.
-  return `${d.toLocaleString("en-GB", {
+  // Fixed locale and zone: IST (Asia/Kolkata), same convention as the rest of the product.
+  return `${d.toLocaleString("en-IN", {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "UTC",
-  })} UTC`;
+    timeZone: "Asia/Kolkata",
+  })} IST`;
 }

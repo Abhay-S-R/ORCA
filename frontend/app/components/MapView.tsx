@@ -2355,7 +2355,7 @@ export function MapView({
                             <span className="flex items-center gap-1 text-ocean-cyan/90 font-medium">
                               <ShieldCheck className="size-3 text-ocean-cyan" /> NOAA ETOPO 2022 / GEBCO
                             </span>
-                            <span className="text-ink-dim font-mono">30 Aug, 00:00 UTC</span>
+                            <span className="text-ink-dim font-mono">30 Aug, 05:30 IST</span>
                           </div>
                         </>
                       )}

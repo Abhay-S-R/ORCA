@@ -216,6 +216,7 @@ _CURRENT_SELF_SENSE = re.compile(r"\bcurrent\s+(time|date|day|location|position)
 # and never presented as a place to compute sea conditions at).
 _SELF_CONTEXT_PHRASES: tuple[str, ...] = (
     "current time", "what time is it", "what's the time", "what is the time",
+    "whats the time", "time now", "time right now",
     "current date", "today's date", "what day is it", "what's the date",
     "current location", "my location", "my position", "my current position",
     "where am i", "do you know my location", "do you know where i am",
@@ -254,6 +255,13 @@ def is_out_of_scope(normalized_query: str) -> bool:
     # genuine "current speed near Kochi" still matches on "speed"/the place
     # name, and "ocean current" still matches on "ocean".
     vocab_text = _CURRENT_SELF_SENSE.sub(" ", lowered)
+    if is_self_context_question(lowered):
+        # A question about the clock or current position is self-context,
+        # not sea conditions — even if a place name was mentioned (e.g.
+        # "what is the time in Kochi"). Unless it ALSO contains genuine
+        # marine vocabulary ("what time is high tide in Kochi").
+        if not (_significant_words(vocab_text) & _MARINE_VOCAB):
+            return True
     if _significant_words(vocab_text) & _MARINE_VOCAB:
         return False
     # Text still carrying non-Latin script has not been through a successful

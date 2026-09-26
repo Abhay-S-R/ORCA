@@ -477,7 +477,7 @@ function VoyageContent() {
                   <li key={v.id} className="flex items-center justify-between gap-2 rounded-lg border border-hairline/70 px-2.5 py-2 text-xs">
                     <button type="button" onClick={() => loadSavedVoyage(v)} className="min-w-0 flex-1 text-left">
                       <span className="block truncate font-medium text-ink">{v.name ?? v.id}</span>
-                      <span className="text-[10px] text-ink-dim">{new Date(v.departure_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC</span>
+                      <span className="text-[10px] text-ink-dim">{new Date(v.departure_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST</span>
                     </button>
                     <div className="flex items-center gap-1">
                       <Button
@@ -519,13 +519,13 @@ function VoyageContent() {
                 />
                 <Readout
                   label="Next high"
-                  value={tide.next_high ? new Date(tide.next_high.when).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) : "—"}
-                  unit="UTC"
+                  value={tide.next_high ? new Date(tide.next_high.when).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—"}
+                  unit="IST"
                 />
                 <Readout
                   label="Next low"
-                  value={tide.next_low ? new Date(tide.next_low.when).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) : "—"}
-                  unit="UTC"
+                  value={tide.next_low ? new Date(tide.next_low.when).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—"}
+                  unit="IST"
                 />
               </ReadoutGrid>
 
@@ -776,7 +776,7 @@ function VoyageContent() {
                       <tr className="text-ink-dim">
                         <th className="pb-2 pr-3 font-medium">Leg</th>
                         <th className="pb-2 pr-3 font-medium">Distance</th>
-                        <th className="pb-2 pr-3 font-medium">ETA (UTC)</th>
+                        <th className="pb-2 pr-3 font-medium">ETA (IST)</th>
                         <th className="pb-2 pr-3 font-medium">UKC</th>
                         <th className="pb-2 pr-3 font-medium">Hs</th>
                         <th className="pb-2 pr-3 font-medium">Status</th>
@@ -789,7 +789,7 @@ function VoyageContent() {
                           <td className="py-1.5 pr-3 text-ink-muted">{s.segment_id}</td>
                           <td className="py-1.5 pr-3" data-readout>{s.distance_nm.toFixed(1)} nm</td>
                           <td className="py-1.5 pr-3" data-readout>
-                            {new Date(s.eta).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })}
+                            {new Date(s.eta).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })}
                           </td>
                           <td className="py-1.5 pr-3" data-readout>
                             {s.depth_m != null ? `${(s.depth_m - plan.draft_m).toFixed(1)}m` : "—"}

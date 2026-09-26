@@ -322,7 +322,7 @@ def test_with_every_model_down_the_answer_is_never_blank_or_only_the_verdict(pro
     assert text.startswith(_BARE_VERDICT), "the verdict still leads, unchanged"
     assert text.strip() != _BARE_VERDICT
     # The readings the verdict was computed from, not a restated verdict.
-    for figure in ("waves 0.98 m", "wind 16 km/h", "47.6 nm", "6.5 km", "2026-09-19", "20:12 UTC"):
+    for figure in ("waves 0.98 m", "wind 16 km/h", "47.6 nm", "6.5 km", "2026-09-19", "01:42 IST"):
         assert figure in text, (figure, text)
     assert engine and engine[0].startswith("Deterministic")
 

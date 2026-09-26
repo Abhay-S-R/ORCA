@@ -101,7 +101,7 @@ export function GajaReplay() {
         <table className="w-full text-left text-xs">
           <thead className="sticky top-0 bg-shelf-2 text-[10px] uppercase tracking-wide text-ink-dim">
             <tr>
-              <th className="px-3 py-2">Time (UTC)</th>
+              <th className="px-3 py-2">Time (IST)</th>
               <th className="px-3 py-2">Cyclone alert</th>
               <th className="px-3 py-2">Wind</th>
               <th className="px-3 py-2">Wave height</th>
@@ -109,20 +109,26 @@ export function GajaReplay() {
             </tr>
           </thead>
           <tbody>
-            {data.hazard_cascade.map((frame) => (
-              <tr key={frame.timestamp} className="border-t border-hairline/40">
-                <td className="px-3 py-1.5 font-mono">{frame.timestamp}</td>
-                <td className="px-3 py-1.5">{frame.cyclone_alert ?? "—"}</td>
-                <td className="px-3 py-1.5">{frame.wind_speed_kmh.toFixed(1)} km/h</td>
-                {/* Ground Rule 3, rendered: ERA5 masks wave height as NaN at this
-                    shallow strait point for the entire event — every row says
-                    MISSING, never a smoothed or interpolated number. */}
-                <td className="px-3 py-1.5">{frame.wave_height_m === null ? <span className="text-ink-dim">MISSING</span> : `${frame.wave_height_m.toFixed(2)} m`}</td>
-                <td className="px-3 py-1.5">
-                  <Badge tone={verdictTone(frame.go_no_go)}>{frame.go_no_go.replace("_", " ")}</Badge>
-                </td>
-              </tr>
-            ))}
+            {data.hazard_cascade.map((frame) => {
+              const d = new Date(frame.timestamp.includes("Z") ? frame.timestamp : frame.timestamp.replace(" ", "T") + "Z");
+              const istLabel = Number.isNaN(d.getTime())
+                ? frame.timestamp
+                : `${d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })} IST`;
+              return (
+                <tr key={frame.timestamp} className="border-t border-hairline/40">
+                  <td className="px-3 py-1.5 font-mono">{istLabel}</td>
+                  <td className="px-3 py-1.5">{frame.cyclone_alert ?? "—"}</td>
+                  <td className="px-3 py-1.5">{frame.wind_speed_kmh.toFixed(1)} km/h</td>
+                  {/* Ground Rule 3, rendered: ERA5 masks wave height as NaN at this
+                      shallow strait point for the entire event — every row says
+                      MISSING, never a smoothed or interpolated number. */}
+                  <td className="px-3 py-1.5">{frame.wave_height_m === null ? <span className="text-ink-dim">MISSING</span> : `${frame.wave_height_m.toFixed(2)} m`}</td>
+                  <td className="px-3 py-1.5">
+                    <Badge tone={verdictTone(frame.go_no_go)}>{frame.go_no_go.replace("_", " ")}</Badge>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
