@@ -32,7 +32,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 
 from orca.agents import geospatial
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
@@ -498,7 +498,7 @@ def correlate_sst_chlorophyll(bbox: dict[str, float] | None = None) -> dict[str,
     # HIGH — this is the check that catches that case.
     band = _worst_band(sst.get("provenance"), chl.get("provenance"))
     confidence = tier if not band or band == "fresh" else _worst(
-        tier, Confidence(score={"hint": "MEDIUM", "history": "LOW_DATA"}[band],
+        tier, Confidence(score=_BAND_SCORE.get(band, "LOW_DATA"),
                           rationale=f"granule(s) in the '{band}' recency band"),
     )
     return {
@@ -531,6 +531,9 @@ def _acquisition_gap(sst_prov: dict[str, Any] | None, chl_prov: dict[str, Any] |
 
 
 _BAND_RANK = {"fresh": 0, "hint": 1, "history": 2}
+
+
+_BAND_SCORE: dict[str, Literal["HIGH", "MEDIUM", "LOW_DATA"]] = {"fresh": "HIGH", "hint": "MEDIUM", "history": "LOW_DATA"}
 
 
 def _worst_band(*provenances: dict[str, Any] | None) -> str | None:
@@ -583,10 +586,15 @@ class NearestPFZ:
     # read "32 km WSW of Kunzhathur", a distance from one place and a name
     # from another.
     incois_reference: str | None = None
+    # True when nothing lies within max_km and this is the nearest advisory
+    # ORCA holds anywhere — reported, labelled as out of reach, never dropped.
+    beyond_reach: bool = False
 
 
 # Beyond this a "nearest" zone is on another coast: the 906 km Betul answer to
-# "PFZs near Rameswaram". None within reach is the honest result past it.
+# "PFZs near Rameswaram". Past it the nearest is still returned, flagged
+# `beyond_reach`: returning nothing let a sector with no advisory of its own
+# (Gujarat, found 2026-09-27) be narrated as "no fishing zones here".
 # ponytail: one fixed reach for every boat; per-vessel reach (cruise speed)
 # is what /zones' fisherman view already computes if this needs to follow it.
 PFZ_MAX_REACH_KM = 150.0
@@ -615,9 +623,7 @@ def nearest_pfz(
             plat, plon = float(r["latitude_dd"]), float(r["longitude_dd"])
         except (KeyError, ValueError):
             continue
-        dist = _km_between(lat, lon, plat, plon)
-        if dist <= max_km:
-            parsed.append((dist, r))
+        parsed.append((_km_between(lat, lon, plat, plon), r))
     if not parsed:
         return NearestPFZ(False, None, None, None, None, None, None, None, None, sector_id, max_km=max_km)
     dist_km, row = min(parsed, key=lambda t: t[0])
@@ -639,6 +645,7 @@ def nearest_pfz(
         expired=row.get("expired"),
         max_km=max_km,
         incois_reference=_incois_reference(row),
+        beyond_reach=dist_km > max_km,
     )
 
 
@@ -1618,6 +1625,7 @@ def run(state: ORCAState) -> AgentResult:
             "band": near.band,
             "expired": near.expired,
             "max_km": near.max_km,
+            "beyond_reach": near.beyond_reach,
         },
         "pfz_persistence": {k: v for k, v in persistence.items() if k != "confidence"},
         "sector_status": sec_status,
@@ -1638,11 +1646,11 @@ def run(state: ORCAState) -> AgentResult:
         compass_str = f" ({near.compass})" if near.compass else ""
         # An old advisory is still shown (stale-data policy) but is worth less:
         # zones follow SST/chlorophyll fronts that move within days.
-        score = {"fresh": "HIGH", "hint": "MEDIUM"}.get(near.band or "", "LOW_DATA")
+        score = _BAND_SCORE.get(near.band or "", "LOW_DATA")
         age = "" if near.band == "fresh" else f", issued {near.valid_for} ({near.age_days} d old)"
         contributing.append(Confidence(score=score, rationale=f"INCOIS PFZ advisory at {near.distance_km} km{compass_str}{age}"))
     else:
-        contributing.append(Confidence(score="MEDIUM", rationale=f"No PFZ advisory within {near.max_km:.0f} km in any advisory ORCA holds"))
+        contributing.append(Confidence(score="MEDIUM", rationale="ORCA holds no PFZ advisory at all"))
 
     # Multi-day persistence is an analytical trend: it grades the answer only
     # once it has enough days to score (label PERSISTENT/TRANSIENT). An

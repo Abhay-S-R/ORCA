@@ -446,7 +446,32 @@ def test_nearest_pfz_is_capped_at_reach_and_carries_the_advisory_age(monkeypatch
     assert (near.valid_for, near.age_days, near.band) == ("2026-09-19", 5, "hint")
 
     monkeypatch.setattr(oa.al, "load_pfz_latest", lambda: [far_and_fresh])
+    far = oa.nearest_pfz(9.29, 79.31)
+    assert far.found and far.beyond_reach and far.sector_id == "SEC003"
+
+    monkeypatch.setattr(oa.al, "load_pfz_latest", list)
     assert oa.nearest_pfz(9.29, 79.31).found is False
+
+
+@pytest.mark.parametrize("lat, lon", [
+    (21.08, 70.10),   # Mangrol, Gujarat — the sector with no advisory of its own
+    (9.29, 79.31),    # Rameswaram
+    (9.97, 76.20),    # Kochi
+    (19.80, 85.83),   # Puri
+    (21.60, 88.20),   # Sundarbans
+    (11.67, 92.73),   # Port Blair
+])
+def test_a_data_gap_anywhere_is_never_narrated_as_no_fishing_zones(monkeypatch: pytest.MonkeyPatch, lat, lon):
+    # Found 2026-09-27: the 150 km reach cap made nearest_pfz return nothing for
+    # Gujarat (nearest advisory 268 km), and the answer said "no designated
+    # fishing zone … outside any regulated zone". Any held advisory, however far,
+    # must come back — flagged beyond reach, never dropped — at every coast.
+    only = {"sector_id": "SEC999", "latitude_dd": "25.0", "longitude_dd": "60.0",
+            "valid_for": "2026-09-23", "age_days": 4, "band": "hint", "expired": True}
+    monkeypatch.setattr(oa.al, "load_pfz_latest", lambda: [only])
+    out = oa.run({"user_location": {"lat": lat, "lon": lon, "place_name": "here"},
+                  "raw_user_query": "nearest fishing zones"}).outputs["nearest_pfz"]
+    assert out["found"] and out["beyond_reach"] and out["distance_km"] > out["max_km"]
 
 
 def test_nearest_pfz_keeps_orcas_distance_and_incois_landmark_apart(monkeypatch: pytest.MonkeyPatch):

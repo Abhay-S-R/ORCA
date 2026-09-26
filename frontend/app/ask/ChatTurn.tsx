@@ -89,8 +89,9 @@ export function ChatTurn({
   onRerun: () => void;
   onShowVersion: (index: number) => void;
   // `options` carries P2.11's LLM-off re-run, so the same handler that asks a
-  // follow-up can also re-ask this question deterministically.
-  onFollowUp: (q: string, options?: { llm?: "off" }) => void;
+  // follow-up can also re-ask this question deterministically. `position` is a
+  // place chip's own coordinates, so picking a place re-asks the same question there.
+  onFollowUp: (q: string, options?: { llm?: "off"; position?: { lat: number; lon: number } }) => void;
   // P2.9 — the user rejecting an inherited value. Re-asks the question with
   // that value explicitly overridden rather than silently carried again.
   onDropInherited: (value: InheritedValue) => void;
@@ -226,7 +227,7 @@ export function ChatTurn({
       {answer && answer.outcome === "RESET" && <ResetNotice answer={answer} />}
 
       {answer && answer.outcome != null && answer.outcome !== "ANSWERED" && answer.outcome !== "DISTRESS" && answer.outcome !== "RESET" && (
-        <RefusalCard answer={answer} onFollowUp={onFollowUp} actions={rerunControl} />
+        <RefusalCard answer={answer} askedQuery={askedQuery} onFollowUp={onFollowUp} actions={rerunControl} />
       )}
 
       {answer && (answer.outcome == null || answer.outcome === "ANSWERED" || answer.outcome === "DISTRESS") && (

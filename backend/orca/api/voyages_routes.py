@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
@@ -58,7 +59,7 @@ class VoyageOut(BaseModel):
 
 
 class PromoteIn(BaseModel):
-    channels: list[Channel] = Field(default_factory=lambda: ["in_app"])
+    channels: list[Channel] = Field(default_factory=lambda: cast(list[Channel], ["in_app"]))
     thresholds: dict[str, float] = Field(default_factory=dict)
 
 

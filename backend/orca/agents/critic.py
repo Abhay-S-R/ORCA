@@ -314,6 +314,13 @@ def build_facts_block(state: ORCAState) -> str:
         "nearest_fishing_zone_advisory_date": pfz.get("valid_for") if found else None,
         "nearest_fishing_zone_age_days": pfz.get("age_days") if found else None,
         "nearest_fishing_zone_advisory_expired": pfz.get("expired") if found else None,
+        # A zone past this reach is still the nearest held; a narrative that
+        # presents it as close by is contradicted.
+        "nearest_fishing_zone_beyond_reach_km": pfz.get("max_km") if found and pfz.get("beyond_reach") else None,
+        # Why the user's own sector has no advisory today (INCOIS's words), so
+        # "no data due to cloud cover" is confirmable and "no zones here" is not.
+        "todays_sector_advisory_gap": (ocean.get("sector_status") or {}).get("message")
+        if (ocean.get("sector_status") or {}).get("is_data_gap") else None,
         "tidal_state": tide.get("tidal_state"),
         "next_high_tide_height_m": next_high.get("height_m"),
         "next_high_tide_in_hours": next_high.get("in_hours"),

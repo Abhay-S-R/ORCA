@@ -205,7 +205,7 @@ def _comparison(query: str) -> dict[str, Any]:
     if len(places) < 2:
         return {"intent": "COMPARISON", "kind": "info",
                 "text": "Name two places to compare (\"Rameswaram or Thoothukudi\") — I could not place both."}
-    results = []
+    results: list[tuple[str, str, float | None]] = []
     for place in places[:2]:
         try:
             weather = weather_intelligence.get_marine_weather(place.lat, place.lon)

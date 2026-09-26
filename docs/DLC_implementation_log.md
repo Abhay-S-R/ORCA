@@ -2708,3 +2708,52 @@ Remarks:
 - **Ruff (10 findings, all auto-fixable):** unused imports removed (`voyage.py` `geospatial`, `voyages_repo.py` `shape`, `test_satellite_loaders.py` `datetime`/`timezone`); import blocks sorted (`ops_routes.py`, `sentinel_runtime.py`, `test_phase2_reasoning.py`); quoted annotation unquoted (`test_voyage.py`); two unused `# noqa: SLF001` directives dropped from `voice.py` with their explanation kept as a plain comment.
 - **ESLint (1 error, 8 warnings):** the error was `react-hooks/set-state-in-effect` in `useGeolocation.ts`, where the sessionStorage hydrate added in the uncommitted geolocation work calls setState in an effect. That is required there: `sessionStorage` does not exist on the server, and reading it during the first render causes a hydration mismatch, the reason this hook already carried the same disable before that rewrite. I restored the disable with its reason and restored the hydration comment the rewrite dropped. The warnings were dead code the merge left behind after removing the display: the unused `badge`/`engineBadge` in `AgentPill.tsx`, and the unused `totalLatencyMs`/`activeStageLatencyMs` props on `ReasoningTimeline` together with the `useMemo`s in `reasoning/page.tsx` that only fed them. Unused `Clock`/`Cpu` icon imports were removed. All of it was deleted, not silenced.
 - **Verification:** `ruff check .` → all checks passed. `npx eslint` → exit 0, no errors or warnings. `tsc --noEmit` shows no errors in source (the only errors are in a stale local `.next/types` build referencing a removed `app/safety/layout`, which is not source and not in CI). Tests covering the ruff-touched files (`test_voyage`, `test_satellite_loaders`, `test_phase2_reasoning`, `test_sentinel`) → 138 passed, and every ruff-touched module imports cleanly.
+
+### [2026-09-27] Fix — a "which place did you mean?" chip keeps the original question
+
+- **Implements:** the user's report: "what are the nearest fishing zones near gujarat" → NEEDS_PLACE with chips Mangrol/Porbandar/Veraval/Sutrapada, and clicking Mangrol sent "Conditions at mangrol", losing the fishing-zone question. "When we click on anything, the previous prompt should be retained."
+- **By:** Claude (Opus 5.5).
+- **Files:** `frontend/app/ask/Disclosures.tsx` (`RefusalCard` takes `askedQuery`), `frontend/app/ask/ChatTurn.tsx` (passes it; `onFollowUp` options gain `position`), `backend/orca/api/main.py` (explicit-position branch names the place), `backend/tests/unit/test_place_chip.py`.
+- **Commit:** — (uncommitted)
+- **What changed:** the candidate chip now re-sends the turn's own question with the chosen place, `"<original question> (at Mangrol)"`, and with the candidate's coordinates as the explicit `lat`/`lon`. Text alone could not work: "…near gujarat (at mangrol)" still names two places and came back ambiguous again, and the same loop would hit a "Kochi or Chennai?" chip. On the backend, an explicit position that is exactly a place the text names now keeps that place's name (before this, every explicit position was unnamed), so the answer says "Mangrol" and not an anonymous position. The same rule names saved-location chips whose coordinates match a held place. The other chips were checked too: the rerun-without-model chip already re-sends `askedQuery`; the out-of-scope "Try" chips and suggested follow-ups are new questions by design, with no earlier question to keep.
+- **Verification:** new route-level `test_a_picked_place_chip_answers_the_original_question_at_that_place` (outcome is not NEEDS_PLACE, `place_name == "mangrol"`) passes. `ruff check .` clean, ESLint clean on both components, `tsc` shows no source errors. Live on `/ask` (the user verified): the Mangrol chip answered the fishing-zone question at Mangrol.
+- **Remarks:** that live answer exposed a separate narrative defect, not fixed in this entry. The Gujarat sector had no INCOIS advisory today (`NO_DATA_CLOUD_COVER`, no latest advisory), and the model narrated this as "no designated fishing zone within 150 km … outside any regulated zone". The first is an absence claim the data does not support, and the second is invented, because a PFZ is an advisory, not a regulated area.
+
+### [2026-09-27] Fix — a sector with no advisory is never narrated as "no fishing zones" (regression of the 2026-09-24 Gujarat fix)
+
+- **Implements:** the user's report that the Mangrol answer said "no designated fishing zone (PFZ) within 150 km … outside any regulated zone", a Gujarat gap they remembered as already fixed. They asked that it never happen for any region.
+- **By:** Claude (Opus 5.5).
+- **Files:** `backend/orca/agents/ocean_analytics.py` (`NearestPFZ.beyond_reach`, `nearest_pfz`, `run`), `backend/orca/agents/reporting.py` (deterministic PFZ line, narrative rule 9), `backend/orca/agents/critic.py` (facts), `frontend/app/zones/page.tsx`, `frontend/app/components/PersonaAnswerMatrix.tsx`, `backend/tests/unit/test_ocean_analytics.py`, `backend/tests/unit/test_place_chip.py`.
+- **Commit:** — (uncommitted)
+- **Why it came back:** the earlier Gujarat fix (see the PFZ entry: `/api/zones` at Veraval returning the nearest real advisory 189 km ESE, out of sector) relied on `nearest_pfz` searching without a distance limit. Later the same day, the stale-data entry added `PFZ_MAX_REACH_KM = 150` to stop the 906 km Betul answer for Rameswaram. Gujarat has no advisory of its own, and its nearest (now 268 km) fell past the cap. So `nearest_pfz` returned `found: false` for every Gujarat and Andaman position, on `/ask` and on `/zones` alike. The Gujarat fix was only ever verified live, and the cap's test used a coast with zones nearby, so nothing failed. Narrative rule 9 only told the model to give the cloud-cover reason when the sector had a `latest_advisory`, and Gujarat has none. The model therefore turned "not found" into "no zones" and invented "regulated zone".
+- **What changed:**
+  - `nearest_pfz` always returns the nearest advisory ORCA holds. Past `max_km` it is flagged `beyond_reach` rather than dropped. `found: false` now means only that no advisory is held anywhere. The Rameswaram/Betul case stays fixed because the far zone is labelled out of reach, never presented as nearby.
+  - The deterministic answer line says "nothing is held within 150 km, so this is beyond a day trip".
+  - Rule 9 has three parts. A data-gap sector always gets its reason, whether or not it has a latest advisory. A gap is never "no fishing zones". A PFZ is an INCOIS advisory, never a regulated, designated or restricted area.
+  - The Critic's facts carry `nearest_fishing_zone_beyond_reach_km` and `todays_sector_advisory_gap`.
+  - `/zones` shows "No advisory within 150 km — this is the nearest ORCA holds", and the answer card's PFZ tile appends "none within 150 km".
+- **Verification:**
+  - Unit tests. `test_nearest_pfz_is_capped_at_reach…` now expects a far zone to come back flagged, and an empty store to be `found: false`. New `test_a_data_gap_anywhere_is_never_narrated_as_no_fishing_zones` covers six coasts: Mangrol, Rameswaram, Kochi, Puri, Sundarbans and Port Blair.
+  - Route-level test. New `test_a_cloud_covered_sector_with_nothing_in_reach_still_answers_honestly` hits `/api/zones` and `/query` with the model off; the answer must contain "cloud cover" and "beyond a day trip".
+  - Sweep. All 248 gazetteer places return a zone (0 not found). 42 are beyond reach, all in Gujarat, Maharashtra-north, the Andamans and open ocean.
+  - Live. The Gujarat question, then the Mangrol chip, on `/ask` answered: "The nearest potential fishing zone on record is located 268 km ESE of Mangrol, near Gholvad, though that advisory is a few days old…". The card disclosure reads "no fishing advisory for your sector today (cloud cover), and the nearest is 268 km away (ESE) — not a realistic day trip."
+  - ruff and ESLint are clean.
+- **Remarks:** the model's narrative in that live run left the cloud-cover reason to the disclosure line above it rather than repeating it. The fact is on the card either way.
+
+### [2026-09-27] Fix — CI back to zero: ruff on `scripts/`, and mypy's 9 errors
+
+- **Implements:** the user's request to clear the ruff failures CI reported on `scripts/refresh_all.py`. While reproducing CI locally, its mypy step (`mypy orca --ignore-missing-imports`) was found failing too, with 9 errors that already exist on a clean `HEAD` (checked by stashing), so those were cleared as well.
+- **By:** Claude (Opus 5.5).
+- **Commit:** — (uncommitted)
+- **Ruff:** `re.I` → `re.IGNORECASE` (FURB167). `subprocess.run(..., check=False)` is stated explicitly (PLW1510). The return code is read by hand on the next line and a failed step is recorded, not raised, so `check=False` is the intended behaviour.
+- **Mypy:**
+  - **`ops_routes.py`, a real bug:** the multilingual CAP preview passed `headline`/`description`/`instruction` to `build_multilingual_cap_xml`, which does not accept them, so the call raised `TypeError` at runtime. The English block is already the `en-IN` entry in `translations`, so the three arguments were removed.
+  - `dispatcher.py`: `_DISPATCHER_TYPES` is annotated.
+  - `ocean_analytics.py`: one `_BAND_SCORE` table, typed to the `Confidence` literal, replaces two untyped dict literals.
+  - `intent_actions.py`: the comparison `results` list is typed.
+  - `voyages_repo.py`: `to_shape` has an `ignore` with its reason (a `Mapped[str]` column holds a WKBElement at runtime).
+  - `voyages_routes.py`: the default channel list is cast to `list[Channel]`.
+- **Also:** `test_reporting_personas.py` matched the old rule-4 sentence exactly, and the nearest-port exception added earlier today extended that sentence, so the assertion now checks the rule without the trailing period.
+- **Verification:**
+  - `ruff check .` (backend) and `ruff check scripts/` pass. `mypy orca --ignore-missing-imports` → no issues in 97 files. `pyrefly check` → 0 errors. `verify_ci_guards.py` → all 4 green.
+  - Full backend suite: 866 passed, 2 skipped. 1 failed: `test_notifications.py::test_crossing_fires_once…`, which passes alone (8/8) and fails only after other tests run. This is the same pre-existing test-ordering issue noted earlier in this session and is not caused by this change.

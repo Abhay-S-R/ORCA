@@ -117,7 +117,7 @@ class HarbourBoardDispatcher:
         raise NotImplementedError(_HARBOUR_BOARD_REASON)
 
 
-_DISPATCHER_TYPES = {
+_DISPATCHER_TYPES: dict[str, type[WhatsAppDispatcher | MissedCallDispatcher | VHFDispatcher | HarbourBoardDispatcher]] = {
     "whatsapp": WhatsAppDispatcher,
     "missed_call": MissedCallDispatcher,
     "vhf": VHFDispatcher,

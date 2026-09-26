@@ -140,6 +140,6 @@ def test_the_prompt_carries_the_location_and_forbids_naming_another():
     prompt = captured["prompt"]
     assert "LOCATION THIS ADVICE IS FOR" in prompt
     assert "default position" in prompt
-    assert "Never name a place the location line does not name." in prompt
+    assert "Never name a place the location line does not name" in prompt
     # No agent-identity leak into user-facing text.
     assert "Agent 9" not in prompt and "ORCA Reporting Agent" not in prompt

@@ -41,11 +41,13 @@ const HEADING_KEY: Record<string, string> = {
 
 export function RefusalCard({
   answer,
+  askedQuery,
   onFollowUp,
   actions,
 }: {
   answer: FinalResponse;
-  onFollowUp: (q: string) => void;
+  askedQuery: string;
+  onFollowUp: (q: string, options?: { position?: { lat: number; lon: number } }) => void;
   // Sits on the heading row rather than in Panel's own header slot, which
   // only renders when the panel has a title — and this card's heading carries
   // an icon that the plain title would drop.
@@ -79,7 +81,11 @@ export function RefusalCard({
         )}
 
         {/* The redirect. A refusal that dead-ends is just a wall — each chip
-            re-asks the question at a place ORCA can actually answer for. */}
+            re-asks the question at a place ORCA can actually answer for. The
+            question itself is kept: "Conditions at Mangrol" used to replace
+            "fishing zones near Gujarat" and lose what was asked. The chip's
+            coordinates travel as an explicit position, so the re-ask cannot
+            come back ambiguous again for still naming the region. */}
         {candidates.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 border-t border-hairline/50 pt-3">
             <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
@@ -89,7 +95,7 @@ export function RefusalCard({
               <button
                 key={`${c.lat},${c.lon}`}
                 type="button"
-                onClick={() => onFollowUp(`Conditions at ${c.name}`)}
+                onClick={() => onFollowUp(`${askedQuery} (at ${c.name})`, { position: { lat: c.lat, lon: c.lon } })}
                 className="rounded-lg border border-hairline/60 bg-shelf-2/50 px-2.5 py-1.5 text-[11px] capitalize text-ink-muted transition-colors hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink"
               >
                 {c.name}

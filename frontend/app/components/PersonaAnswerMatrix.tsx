@@ -105,6 +105,7 @@ type PfzData = {
   age_days?: number | null;
   band?: "fresh" | "hint" | "history" | null;
   max_km?: number | null;
+  beyond_reach?: boolean;
 };
 type SectorStatusData = {
   status?: string;
@@ -203,7 +204,8 @@ export function formatPfzData(raw: unknown): { value: string; unit?: string; hin
 
   // Stale-data policy: an old zone is still the answer, with its age attached.
   const age = data.band && data.band !== "fresh" && data.age_days != null ? `issued ${data.valid_for}, ${data.age_days} d old` : "";
-  const hintParts = [compass, center, depth, age].filter(Boolean);
+  const reach = data.beyond_reach && data.max_km ? `none within ${Math.round(data.max_km)} km` : "";
+  const hintParts = [compass, center, depth, age, reach].filter(Boolean);
 
   return {
     value: dist,

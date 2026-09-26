@@ -55,6 +55,7 @@ from orca.api.watches_routes import router as watches_router
 from orca.auth.rbac import get_optional_user
 from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
 from orca.data.loaders import DEFAULT_LON as _DEFAULT_LON
+from orca.data.loaders import resolve_all_places_from_text
 from orca.db.engine import get_db
 from orca.db.models import User
 from orca.db.repositories import get_vessel_for_owner, user_home_port
@@ -1203,6 +1204,13 @@ async def query(
             # reads this, and "regional_default" is what tells Agent 12 in the
             # meantime that it has no position for this caller (P4.16).
             lat, lon, place_source = _DEFAULT_LAT, _DEFAULT_LON, "regional_default"
+    else:
+        # A chosen position that is exactly a place the text names — a picked
+        # "which did you mean?" chip, or a saved location — keeps that place's
+        # name, so the answer says "Mangrol" rather than an unnamed position.
+        place_name = next(
+            (p.name for p in resolve_all_places_from_text(q) if (p.lat, p.lon) == (lat, lon)), None
+        )
 
     # P3.1 — carried into `_query_stream` so `user_language_default` reaches
     # `language.run_ingress` and `user_id` reaches `_ensure_session_row` (P3.2).

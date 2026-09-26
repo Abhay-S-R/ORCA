@@ -252,6 +252,8 @@ def facts_paragraph(
             text += f", from the advisory for {pfz['valid_for']}"
             if pfz.get("band") in ("hint", "history") and pfz.get("age_days") is not None:
                 text += f" ({pfz['age_days']} days old — the latest held, a pointer rather than a current position)"
+        if pfz.get("beyond_reach") and pfz.get("max_km"):
+            text += f" — nothing is held within {pfz['max_km']:.0f} km, so this is beyond a day trip"
         lines.append(_sentence(text))
 
     geo = out.get("geospatial", {})
@@ -630,8 +632,13 @@ CRITICAL RULES:
    date and age in days, say it is the latest available, and for band "hint" or "history"
    say it is a pointer to where conditions were, not a current position. Never present an
    old item as current, and never leave it out just because it is old — an old advisory is
-   still the best information there is. A sector with no advisory today but a
-   latest_advisory: say today's reason (e.g. cloud cover), then give the latest one.
+   still the best information there is. A sector with is_data_gap true has no advisory
+   today: always say today's reason in its message's words (e.g. cloud cover), and give
+   its latest_advisory if it has one. A data gap means ORCA has no reading, NOT that there
+   are no fishing zones — never say there are none. A nearest_pfz with beyond_reach true
+   is the nearest ORCA holds anywhere: give its distance and say nothing is held within
+   max_km, so it is beyond a day trip. A potential fishing zone is an INCOIS fishing
+   advisory, never a regulated, designated or restricted area.
 10. Distances have an origin. A nearest fishing zone's distance_km and compass are measured
    from its measured_from — say so ("32 km WSW of Mangalore"). Its landing_center is only
    INCOIS's landmark for the zone; if you name it, use incois_reference for its distance

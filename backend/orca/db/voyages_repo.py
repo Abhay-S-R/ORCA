@@ -27,7 +27,7 @@ def _linestring_wkb(points: list[tuple[float, float]]) -> Any:
 
 
 def route_latlons(voyage: Voyage) -> list[dict[str, float]]:
-    shp = to_shape(voyage.route)
+    shp = to_shape(voyage.route)  # type: ignore[arg-type]  # Mapped[str] column holds a WKBElement at runtime
     return [{"lat": lat, "lon": lon} for lon, lat in shp.coords]
 
 

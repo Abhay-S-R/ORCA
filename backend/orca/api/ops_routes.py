@@ -127,7 +127,7 @@ def broadcast_cap_multilingual(
             logger.warning("CAP multilingual preview: %s translation unavailable (%s)", cap_lang, exc)
 
     xml = build_multilingual_cap_xml(
-        headline=headline, description=description, instruction=instruction, severity=severity,
+        severity=severity,
         area_desc=area_desc, circle=circle, translations=translations,
     )
     return {

@@ -93,6 +93,7 @@ type ZonesResponse = {
     valid_for: string | null;
     sector_id: string | null;
     max_km: number | null;
+    beyond_reach?: boolean;
   } & Recency;
   persistence: {
     score: number | null;
@@ -254,6 +255,12 @@ export default function ZonesPage() {
                   {data.nearest_pfz.compass} {data.nearest_pfz.bearing_deg}° · {data.nearest_pfz.distance_km} km
                 </span>
               </div>
+              {data.nearest_pfz.beyond_reach && data.nearest_pfz.max_km != null && (
+                <p className="mb-2 text-xs text-caution">
+                  No advisory within {Math.round(data.nearest_pfz.max_km)} km — this is the nearest ORCA
+                  holds, beyond a realistic day trip.
+                </p>
+              )}
               {ageLabel(data.nearest_pfz.valid_for, data.nearest_pfz) && (
                 <p className="mb-2 text-xs text-caution">
                   Older advisory — {ageLabel(data.nearest_pfz.valid_for, data.nearest_pfz)}. Zones move

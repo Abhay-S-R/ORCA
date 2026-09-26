@@ -72,7 +72,7 @@ _DERIVED_STEPS: list[tuple[str, Path]] = [
 # `log_tail` are always real. Upgrade path: have each script print one final
 # `MANIFEST: {...}` JSON line and parse only that, if per-dataset drilldown
 # in `/data` (P5.13) turns out to need more precision than this gives.
-_ROW_COUNT_RE = re.compile(r"(\d[\d,]*)\s*(?:refreshed|downloaded|written|granules?|vessels?|stations?|cached|fetched|located)", re.I)
+_ROW_COUNT_RE = re.compile(r"(\d[\d,]*)\s*(?:refreshed|downloaded|written|granules?|vessels?|stations?|cached|fetched|located)", re.IGNORECASE)
 _WINDOW_RE = re.compile(r"(\d{4}-\d{2}-\d{2})\D{1,6}(\d{4}-\d{2}-\d{2})")
 
 
@@ -96,6 +96,7 @@ def _run_step(script: Path) -> dict:
         proc = subprocess.run(
             [sys.executable, str(script)], cwd=str(REPO_ROOT),
             capture_output=True, text=True, timeout=_STEP_TIMEOUT_S,
+            check=False,  # a failed step is recorded below, never raised
         )
         output = (proc.stdout or "") + (proc.stderr or "")
         ok = proc.returncode == 0
