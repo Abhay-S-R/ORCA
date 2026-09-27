@@ -2757,3 +2757,52 @@ Remarks:
 - **Verification:**
   - `ruff check .` (backend) and `ruff check scripts/` pass. `mypy orca --ignore-missing-imports` → no issues in 97 files. `pyrefly check` → 0 errors. `verify_ci_guards.py` → all 4 green.
   - Full backend suite: 866 passed, 2 skipped. 1 failed: `test_notifications.py::test_crossing_fires_once…`, which passes alone (8/8) and fails only after other tests run. This is the same pre-existing test-ordering issue noted earlier in this session and is not caused by this change.
+
+### [2026-09-27] P4.2 follow-up — "N of 5 live" header badge removed
+
+- **Implements:** reverses the header half of `P4.2` (R-UX-2) at the user's request.
+- **By:** Claude (Opus 5.5).
+- **Files:** `frontend/app/components/StatusBar.tsx`, `frontend/app/components/SystemStatusStrip.tsx` (deleted).
+- **Commit:** — (uncommitted)
+- **Why:** the badge counted only alert-delivery channels (Bhashini voice, in-app alerts, SMS, IVR, DAT-SG handoff), but sitting in the global header it read as "only 2 of 5 parts of ORCA work". The user asked for it to be removed.
+- **Kept:** `GET /api/system-status` (`backend/orca/api/system_status_routes.py`). `docs/DLC_honesty_discipline.md` still uses it as the pre-demo check of which channels are live, and it has no other caller to break.
+- **Verification:** `npx tsc --noEmit` shows no source errors. Its only errors are 3 in stale generated `.next/types` files about a `/safety` route, and those are identical with this change stashed. `npm run lint` is clean.
+
+### [2026-09-27] Bhashini — every service checked against the docs; TLD fixed, ALD + TN wired, mic language picker removed
+
+- **Implements:** follow-up to `P3` voice/language (Bhashini ingress and egress), at the user's request to wire the three granted keys properly.
+- **By:** Claude (Opus 5.5).
+- **Files:** `backend/orca/agents/bhashini.py`, `backend/orca/agents/voice.py`, `backend/orca/api/voice_routes.py`, `backend/tests/unit/test_voice.py`, `frontend/app/components/VoiceInput.tsx`, `.env.example`.
+- **Commit:** — (uncommitted)
+- **Checked live, already correct, unchanged:** the ULCA config → Dhruva compute flow (config returns an inference key equal to `BHASHINI_INFERENCE_API_KEY`); ASR with inline `vad` + `denoiser` pre-processors and `itn` + `punctuation` post-processors; NMT; TTS; transliteration.
+- **Fixed — TLD:** text language detection was requested through the pipeline config, which rejects it ("TaskType is not valid": pipeline `64392f96daac500b55c543cd` only offers asr, translation, transliteration, tts), so it always failed and fell back to script detection. It now goes straight to compute with the documented service ID `bhashini/indic-lang-detection-all`. Romanized Tamil "naalai kadalukku pogalama" now detects as `ta`.
+- **Added — ALD:** `bhashini.detect_spoken_language()` using `bhashini/iitmandi/audio-lang-detection/gpu` (right on ta/kn/hi/bn/en in probes; `bhashini/ald` said ml→ta at 0.999 and was rejected). Browser WebM needs `audioFormat: "webm"` in the config or Dhruva returns a bare 500 — not in the docs. `voice.spoken_language()` takes ALD's answer at score ≥ 0.9 when it is a language ORCA serves, else the navbar language; ALD failure logs and uses the navbar language. Both the final transcript and the live captions use it, so a Kannada speaker with an English UI is captioned in Kannada instead of in invented English (it was "Tomorrow morning, I will go to the sea." before).
+- **Added — TN:** TTS sends `preProcessors: ["text-normalization"]`; measured better on English numbers/units, neutral on ta/hi. All 10 languages synthesise.
+- **Frontend:** the spoken-language dropdown beside the mic is gone. The navbar language is sent as the hint; the language Bhashini reports only picks the transcript's script font.
+- **Not wired, deliberately:** NER (no caller needs it); standalone ITN and TN (no documented service ID answers — both work inline as processors above); the Udyat key (`ulcaApiKey does not exist` on ULCA, 401/403 on Dhruva); translation `glossary` post-processor (Udyat-only).
+- **Verification:** `python -m orca.agents.bhashini` live self-check passes (TLD romanized Tamil → ta, ALD on Tamil TTS → ta at 1.000). `pytest tests/unit/test_voice.py tests/unit/test_language.py`: 33 passed, 1 skipped (new parametrized ALD-vs-hint test). ruff and mypy clean. Through `POST /voice/transcribe` with browser-recorded WebM and `language_hint=en`: kn, ta, hi final transcripts in their own scripts with the matching `detected_language`; partials the same, in 2.0–3.1 s (ALD adds a round trip per caption). `npx tsc --noEmit` shows only the 3 pre-existing stale `.next/types` errors; `npm run lint` clean.
+- **Known limit:** ML ALD is weakest on Malayalam (IIT Mandi said te at 0.75 — below the threshold, so the navbar language wins). A Malayalam speaker with a non-Malayalam UI may still need to switch the navbar language.
+
+### [2026-09-27] /ask — persona/language switcher removed from answers; weather panel only on weather questions
+
+- **Implements:** user request, for every persona (the screenshots were a fisherman's, the rule is not).
+- **By:** Claude (Opus 5.5).
+- **Files:** `frontend/app/ask/ChatTurn.tsx`, `frontend/app/ask/page.tsx`, `frontend/app/ask/useAskThread.ts`, `frontend/app/components/PersonaCorrection.tsx` (deleted), `frontend/app/i18n/*.json` (the 9 `personaCorrection.*` keys, all 10 locales), `backend/orca/agents/planning.py`.
+- **Commit:** — (uncommitted)
+- **Why:** the "I'm actually a… / Speak to me in…" chips under every answer let people swap persona or language mid-chat; both are already set in the header and on the profile. Removed with their plumbing (`setRenderedAs`, `applyRender`, `RenderResult`), which had no other caller. `turn.renderedAs` stays — saved chats may carry it and it still selects the rendering. The backend `/render` endpoint is untouched.
+- **Weather panel:** the readouts + wave/wind chart under the answer now render only when the backend routed the question to `CONDITIONS` or `HAZARD_ALERTS`. Gated on routing rows rather than a client keyword match so a question asked in Kannada counts the same as one in English. The verdict matrix above the answer is unchanged.
+- **Routing:** plain "what is the weather in X" matched no row at all, so `CONDITIONS` gained "forecast" and specific phrases ("weather in/at/for/near/today/tomorrow", "the weather like"). A bare "weather" was tried and rejected: it made the Tier-2 paraphrase "has any severe weather been announced" a Tier-1 CONDITIONS match (`test_no_paraphrase_here_is_a_tier_1_match`). "rain" was rejected too — substring matching hits "training" and "drain".
+- **Verification:** real page, agent account, own backend on :8001 (the dev `--reload` backend on :8000 was unresponsive). Kannada "ನಾಳೆ ಬೆಳಿಗ್ಗೆ ರಾಮೇಶ್ವರಂನಲ್ಲಿ ಸಮುದ್ರಕ್ಕೆ ಹೋಗಬಹುದೇ?" → `SAFETY_CHECK`, answer rendered, no switcher, no weather panel. Kannada "ರಾಮೇಶ್ವರಂನಲ್ಲಿ ಇಂದು ಹವಾಮಾನ ಹೇಗಿದೆ?" → `CONDITIONS`, weather panel and chart shown. "where is the nearest fishing zone near rameswaram" → `PFZ_NEAREST`. Backend suite 869 passed; the 3 failures (`test_notifications` ×2, `test_weather_intelligence` GDACS breaker) pass in isolation and `pre_dawn_briefing` also fails with this change stashed — clock/ordering-dependent, not this change. `tsc` only the 3 pre-existing stale `.next/types` errors; `npm run lint` clean.
+
+### [2026-09-27] Fix — a place named in a non-English question is resolved (Kannada "ಕೊಚ್ಚಿ" was answered at the pilot default)
+
+- **Implements:** bug fix, P3 language ingress × P1.2 place resolution.
+- **By:** Claude (Opus 5.5).
+- **Files:** `backend/orca/api/main.py`, `backend/orca/agents/language.py`, `backend/orca/state.py`, `backend/orca/graph/graph.py`, `backend/orca/data/loaders.py`, `backend/tests/unit/test_vernacular_place.py` (new).
+- **Commit:** — (uncommitted)
+- **Symptom:** "ಕೊಚ್ಚಿ ಹತ್ತಿರ ಇರುವ ಮೀನುಗಾರಿಕೆ ವಲಯಗಳು ಯಾವುವು?" was answered "I do not have data for Kochi; … the default pilot region (8.8, 78.3)", while the English question got the Kochi PFZ answer.
+- **Root cause:** `/query` resolves the place (and the vessel, the reset phrase, the "speak to me in…" command, the priority lane) *before* the graph, on the raw text, with English-only parsers. Translation only happened later, in `language_ingress`. The gazetteer holds Tamil-script names, which is why Tamil worked and Kannada/Hindi/every other script did not. The time guard and self-context check in the graph run before ingress too, on raw text.
+- **Fix (the class, not Kochi):** `/query` now detects and translates once, up front (`language.query_language` + `language.english_query`, the same functions ingress uses). Place resolution tries the raw text first and the English translation when the raw text names nothing; vessel, reset, language-command and priority-lane checks see the English as well. The result rides in `state["pretranslated"]`, so ingress reuses it rather than paying for a second NMT call, and it seeds `normalized_english_query` so the pre-ingress guards (time, self-context) read English.
+- **Also:** Bhashini renders ರಾಮೇಶ್ವರಂ as "Rameshwaram", which the resolver took for a typo and answered with "did you mean Rameswaram?". Added a Latin-variant row (`_LATIN_VARIANTS` in `loaders.py`).
+- **Verification:** own backend on :8001, real `/query`: the Kannada Kochi question → place `kochi`, `PFZ_NEAREST`, answer "41.5 km WNW of Kochi … Kuzhuppilly … 19 September" (same facts as English); Hindi "कोच्चि के पास…" → `kochi`, same facts; Kannada "ರಾಮೇಶ್ವರಂನಲ್ಲಿ ಇಂದು ಹವಾಮಾನ ಹೇಗಿದೆ?" → Rameswaram coordinates, `CONDITIONS`. New `test_vernacular_place.py` (translated place resolves; no place in either text still falls to the default). Backend suite: 871 passed; the only failures are the same timing-dependent `test_notifications` / GDACS-breaker ones as the previous entry, which pass in isolation. ruff and mypy clean.
+- **Cost:** one NMT call before the graph for a non-English question; ingress no longer makes its own, so it is moved, not added.

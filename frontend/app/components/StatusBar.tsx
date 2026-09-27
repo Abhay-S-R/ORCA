@@ -1,14 +1,13 @@
 "use client";
 
 // The bezel's top edge: high-precision maritime bridge telemetry console strip.
-// Displays coverage status, datalink telemetry, IST chronometer, and active
-// persona command station. No fixed coordinates here — the chart's own
+// Displays coverage status, IST chronometer, language and account.
+// No fixed coordinates here — the chart's own
 // "Your Location" marker (MapView) is the one place a real position ever
 // shows, and only once the browser actually grants a GPS fix.
 import { useEffect, useState } from "react";
 import { LanguageSelector } from "./LanguageSelector";
 import { Clock } from "lucide-react";
-import { SystemStatusStrip } from "./SystemStatusStrip";
 import { AccountMenu } from "./AccountMenu";
 
 export function StatusBar() {
@@ -34,8 +33,6 @@ export function StatusBar() {
       </div>
 
       <div className="flex items-center gap-4">
-        <SystemStatusStrip />
-        <div className="hidden h-3.5 w-px bg-hairline sm:block" />
         <ClockIST />
         <LanguageSelector />
         <AccountMenu />

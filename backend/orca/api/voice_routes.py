@@ -16,7 +16,12 @@ from pydantic import BaseModel
 
 from orca.agents.distress import detect_distress_signal
 from orca.agents.language import Language
-from orca.agents.voice import LOW_CONFIDENCE_THRESHOLD, speech_to_text, text_to_speech
+from orca.agents.voice import (
+    LOW_CONFIDENCE_THRESHOLD,
+    speech_to_text,
+    spoken_language,
+    text_to_speech,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/voice", tags=["voice"])
@@ -53,6 +58,7 @@ def _partial_transcript(blob: bytes, language: Language | None) -> TranscribeRes
     from orca.agents import bhashini
 
     try:
+        language = spoken_language(blob, language)
         if language is None:
             raise bhashini.BhashiniError("partial ASR needs an explicit language")
         transcript, _confidence = bhashini.asr(blob, language, clean=False)

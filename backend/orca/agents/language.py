@@ -348,29 +348,42 @@ def translate_from_english(text: str, target: Language) -> str:
 # is the more honest shape.
 
 
-def run_ingress(state: ORCAState) -> AgentResult:
-    """(ORCAState) -> AgentResult. Detects language and translates the raw
-    query to English for everything downstream (Planning's keyword matcher
-    and every specialist agent are English-only by design)."""
-    raw = state.get("raw_user_query", "") or ""
+def query_language(raw: str, user_language_default: str | None = None) -> Language:
+    """The language a query is written in."""
     detected = detect_language_with_bhashini(raw)
     # P3.1 — script detection on empty/no-Indic-codepoint text always falls
     # to "en" (module docstring); for a signed-in user that is a wrong
     # default, not a neutral one, e.g. the SOS control fires with no text
     # message at all. A language actually found IN the text always wins —
     # this only fills the gap when detection found nothing to go on.
-    if not raw.strip():
-        default = state.get("user_language_default")
-        if default:
-            detected = _coerce_language(default)
+    if not raw.strip() and user_language_default:
+        detected = _coerce_language(user_language_default)
+    return detected
+
+
+def english_query(raw: str, detected: Language) -> tuple[str, str]:
+    """(English text, rung). Raises RuntimeError when no rung can translate.
+    Called by /query before the graph, because the place, vessel and command
+    parsers there are English-only and a Kannada "ಕೊಚ್ಚಿ" never matches
+    "Kochi"; ingress then reuses that result via `pretranslated`."""
+    if detected == "en":
+        return raw, "passthrough"
+    return _translate_with_rung(raw, detected, "en")
+
+
+def run_ingress(state: ORCAState) -> AgentResult:
+    """(ORCAState) -> AgentResult. Detects language and translates the raw
+    query to English for everything downstream (Planning's keyword matcher
+    and every specialist agent are English-only by design)."""
+    raw = state.get("raw_user_query", "") or ""
+    pre = state.get("pretranslated") or {}
+    reuse = pre.get("raw") == raw
+    detected = _coerce_language(pre["language"]) if reuse else query_language(raw, state.get("user_language_default"))
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     engine = None
     try:
-        if detected == "en":
-            normalized, rung = raw, "passthrough"
-        else:
-            normalized, rung = _translate_with_rung(raw, detected, "en")
+        normalized, rung = (pre["english"], pre["rung"]) if reuse else english_query(raw, detected)
         status: Literal["ok", "degraded"] = "ok"
         # P3.8 — the span names which rung actually served, Bhashini or the
         # local offline fallback, rather than always claiming IndicTrans2.

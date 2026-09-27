@@ -40,10 +40,44 @@ def test_speech_to_text_falls_through_to_the_next_rung_when_bhashini_raises(monk
         def transcribe(self, audio, language_hint):
             return TranscriptionResult(transcript="is it safe today", confidence=0.9, rung="faster_whisper", detected_language="en")
 
+    from orca.agents import bhashini
+
+    def _ald_down(_audio: bytes) -> None:
+        raise bhashini.BhashiniError("down")
+
+    monkeypatch.setattr(bhashini, "detect_spoken_language", _ald_down)
     monkeypatch.setattr("orca.agents.voice._asr_backends", (BhashiniAsrBackend(), _WorkingWhisper()))
     result = speech_to_text(b"fake-audio-bytes")
     assert result.rung == "faster_whisper"
     assert result.transcript == "is it safe today"
+
+
+@pytest.mark.parametrize(
+    ("ald", "hint", "expected"),
+    [
+        (("kn", 0.99), "en", "kn"),  # confident ALD beats the UI language
+        (("te", 0.75), "ml", "ml"),  # unsure ALD (the measured Malayalam miss) keeps the hint
+        (("xx", 0.99), "ta", "ta"),  # a language ORCA does not serve keeps the hint
+        (None, "hi", "hi"),  # ALD down keeps the hint
+    ],
+)
+def test_bhashini_asr_picks_its_language_from_ald_then_the_hint(monkeypatch: pytest.MonkeyPatch, ald, hint, expected) -> None:
+    from orca.agents import bhashini
+
+    def _ald(_audio: bytes) -> tuple[str, float]:
+        if ald is None:
+            raise bhashini.BhashiniError("down")
+        return ald
+
+    asked: list[str] = []
+    monkeypatch.setenv("BHASHINI_USER_ID", "u")
+    monkeypatch.setenv("BHASHINI_ULCA_API_KEY", "k")
+    monkeypatch.setenv("BHASHINI_INFERENCE_API_KEY", "i")
+    monkeypatch.setattr(bhashini, "detect_spoken_language", _ald)
+    monkeypatch.setattr(bhashini, "asr", lambda _a, lang: (asked.append(lang), ("heard", 0.9))[1])
+    monkeypatch.setattr(bhashini, "_pipeline_config", lambda *_a: {"serviceId": "svc"})
+    result = BhashiniAsrBackend().transcribe(b"audio", hint)
+    assert asked == [expected] and result.detected_language == expected
 
 
 def test_speech_to_text_returns_unavailable_rung_not_an_exception_when_every_rung_fails(monkeypatch: pytest.MonkeyPatch) -> None:

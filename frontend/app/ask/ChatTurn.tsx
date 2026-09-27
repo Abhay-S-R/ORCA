@@ -14,7 +14,6 @@ import type { ChartThresholds } from "../lib/chartSpec";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
 import { Panel } from "../components/Panel";
 import { PersonaAnswerMatrix } from "../components/PersonaAnswerMatrix";
-import { LanguageSwitch, PersonaCorrection, type RenderResult } from "../components/PersonaCorrection";
 import { ProfilePrompt } from "../components/ProfilePrompt";
 import { Readout, ReadoutGrid } from "../components/Readout";
 import { AnswerSpeaker } from "../components/AnswerSpeaker";
@@ -31,6 +30,10 @@ import { IntentActions } from "./IntentActions";
 import { DisclosureBanner, RefusalCard, ResetNotice } from "./Disclosures";
 import { InheritedChips, ReconciliationPanel, RoutingLine, SkippedNotice } from "./ReasoningEvidence";
 import { useT } from "../i18n/useT";
+
+// Routing rows (backend orca/agents/planning.py) that mean the question was
+// about the weather itself; only these get the weather panel.
+const WEATHER_ROWS = new Set(["CONDITIONS", "HAZARD_ALERTS"]);
 
 const FOLLOW_UPS: Record<QueryIntent, string[]> = {
   safety: ["What are the wind and wave timings for the next 24 hours?", "Where is the nearest fishing zone right now?"],
@@ -77,8 +80,6 @@ export function ChatTurn({
   onShowVersion,
   onFollowUp,
   onDropInherited,
-  onPersonaChange,
-  onRendered,
 }: {
   turn: Turn;
   persona: Persona;
@@ -95,8 +96,6 @@ export function ChatTurn({
   // P2.9 — the user rejecting an inherited value. Re-asks the question with
   // that value explicitly overridden rather than silently carried again.
   onDropInherited: (value: InheritedValue) => void;
-  onPersonaChange: (p: Persona) => void;
-  onRendered: (result: RenderResult) => void;
 }) {
   const t = useT();
   const { askedQuery, spans, answer, streaming, failed, renderedAs, focus } = turn;
@@ -120,6 +119,9 @@ export function ChatTurn({
     </span>
   );
   const weatherCitation = answer?.citations?.find((c) => c.agent_name === "weather_intelligence");
+  // The backend routing rows, not a keyword match on the text, so a weather
+  // question asked in Kannada counts the same as one asked in English.
+  const askedForWeather = (answer?.routing?.matched_intent_rows ?? []).some((r) => WEATHER_ROWS.has(r));
   // P4.8 (`R-PS-6`) — the wave/wind series Agent 8 already builds per query,
   // never rendered anywhere until now, plus the vessel-class limits it was
   // actually checked against (P4.1's `thresholds`, not a second copy of them).
@@ -450,18 +452,6 @@ export function ChatTurn({
                 </p>
               )}
 
-              <PersonaCorrection
-                queryId={answer.query_id}
-                currentPersona={renderedAs ?? persona}
-                onPersonaChange={onPersonaChange}
-                onRendered={onRendered}
-              />
-              <LanguageSwitch
-                queryId={answer.query_id}
-                persona={renderedAs ?? persona}
-                currentLanguage={answer.detected_language}
-                onRendered={onRendered}
-              />
               {answer.profile_prompt && (
                 <ProfilePrompt
                   prompt={answer.profile_prompt}
@@ -473,8 +463,10 @@ export function ChatTurn({
           </Panel>
 
           {/* Weather banner — same Panel/ReadoutGrid pattern /safety already
-              uses, kept below the prediction response rather than above it. */}
-          {answer.weather_summary && (
+              uses, kept below the prediction response rather than above it.
+              Only when the question asked about the weather: on any other
+              question it is a second, unasked-for answer under the real one. */}
+          {answer.weather_summary && askedForWeather && (
             <Panel
               title={t("chatTurn.weather")}
               action={

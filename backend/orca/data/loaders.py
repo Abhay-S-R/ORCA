@@ -503,6 +503,11 @@ _GAZETTEER.update(
 _PORT_ALIASES.update(
     {tamil: latin for tamil, latin in _TAMIL_ALIASES.items() if latin not in _GAZETTEER}
 )
+# Latin spellings of a gazetteer place that machine translation produces
+# (Bhashini renders Kannada/Hindi "ರಾಮೇಶ್ವರಂ"/"रामेश्वरम" as "Rameshwaram"),
+# folded in the same way as the Tamil keys above.
+_LATIN_VARIANTS = {"rameshwaram": "rameswaram"}
+_GAZETTEER.update({v: _GAZETTEER[latin] for v, latin in _LATIN_VARIANTS.items()})
 
 
 def resolve_place_from_text(text: str) -> ResolvedPlace | None:

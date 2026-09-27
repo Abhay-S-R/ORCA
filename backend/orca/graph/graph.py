@@ -269,7 +269,8 @@ def query_guard_node(state: ORCAState) -> dict:
 
     # Time before position: "was it rough off Veraval last Tuesday?" has a
     # perfectly good position and still has no answer here.
-    when = place_resolution.time_guard(state.get("raw_user_query", "") or "")
+    # English regexes ("last Tuesday"), so the translated text, not the raw.
+    when = place_resolution.time_guard(state.get("normalized_english_query") or state.get("raw_user_query") or "")
     if when is not None:
         return _refusal("OUT_OF_RANGE", when, state)
 
@@ -329,7 +330,7 @@ def out_of_scope_node(state: ORCAState) -> dict:
     here rather than left to the model's own tag, because this is never the
     "can't help" case the heading is for."""
     query = state.get("raw_user_query", "") or ""
-    if planning.is_self_context_question(query):
+    if planning.is_self_context_question(query) or planning.is_self_context_question(state.get("normalized_english_query") or ""):
         reply, engine = reporting.write_self_context_reply(query, _self_context_facts(state), _conversation_context(state))
         return {
             "query_outcome": "OUT_OF_SCOPE",

@@ -9,10 +9,11 @@
 // While recording, the audio so far is re-sent every ~1.5 s as a `partial`
 // (Bhashini only, ~1 s round trip) so the words appear in the speaker's own
 // script as they talk; stop sends the whole clip once more, cleaned (VAD,
-// denoiser, punctuation), and that final text is what gets confirmed. The
-// spoken language is its own choice, defaulting to the navbar's — Bhashini
-// ASR needs it named, and someone reading the UI in English may still speak
-// Kannada.
+// denoiser, punctuation), and that final text is what gets confirmed. There
+// is no spoken-language picker: the final pass lets Bhashini's audio language
+// detection name the language (someone reading the UI in English may still
+// speak Kannada), falling back to the navbar language when it is unsure. Live
+// captions go through the same detection, so they are in the spoken script too.
 //
 // Split in two so the mic sits beside the Ask button while the waveform/
 // confirm UI renders below the form — both views share one `useVoiceInput`
@@ -21,7 +22,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Mic, Square, X } from "lucide-react";
 import { Button } from "./Button";
 import { API_BASE } from "../lib/apiBase";
-import { LANGUAGES, fontClassForLanguage } from "../i18n/languages";
+import { fontClassForLanguage } from "../i18n/languages";
 
 type VoiceState = "idle" | "recording" | "transcribing" | "confirming" | "error";
 
@@ -41,7 +42,11 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
   const [state, setState] = useState<VoiceState>("idle");
   const [transcript, setTranscript] = useState("");
   const [liveTranscript, setLiveTranscript] = useState("");
-  const [spokenLanguage, setSpokenLanguage] = useState(languageHint ?? "en");
+  // The hint sent with every clip is the navbar language; what Bhashini
+  // heard only picks the script font for the caption and transcript.
+  const uiLanguage = languageHint ?? "en";
+  const [heardLanguage, setHeardLanguage] = useState<string | null>(null);
+  const spokenLanguage = heardLanguage ?? uiLanguage;
   const [needsConfirmation, setNeedsConfirmation] = useState(false);
   const [level, setLevel] = useState(0); // 0-1 live amplitude, drives the waveform bars
   const [error, setError] = useState<string | null>(null);
@@ -55,14 +60,6 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
   // Bumped on every start/stop/cancel so a partial still in flight from an
   // earlier recording can't overwrite the caption of the current one.
   const sessionRef = useRef(0);
-
-  // A navbar change resets the spoken language to it as a fresh default;
-  // a manual pick holds until the navbar changes again.
-  const [prevHint, setPrevHint] = useState(languageHint);
-  if (languageHint !== prevHint) {
-    setPrevHint(languageHint);
-    if (languageHint) setSpokenLanguage(languageHint);
-  }
 
   const stopPartials = useCallback(() => {
     if (partialTimerRef.current) window.clearInterval(partialTimerRef.current);
@@ -95,6 +92,7 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
       const recorder = new MediaRecorder(stream);
       chunksRef.current = [];
       setLiveTranscript("");
+      setHeardLanguage(null);
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
@@ -106,13 +104,14 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
         setState("transcribing");
         try {
-          const data = await postTranscribe(blob, spokenLanguage, false);
+          const data = await postTranscribe(blob, uiLanguage, false);
           if (!data.transcript) {
             setState("error");
             setError("Could not hear you — try again.");
             return;
           }
           setTranscript(data.transcript);
+          setHeardLanguage(data.detected_language ?? null);
           setNeedsConfirmation(Boolean(data.needs_confirmation));
           setState("confirming");
         } catch {
@@ -136,8 +135,11 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
         sentChunks = chunksRef.current.length;
         try {
           const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
-          const data = await postTranscribe(blob, spokenLanguage, true);
-          if (session === sessionRef.current && data.transcript) setLiveTranscript(data.transcript);
+          const data = await postTranscribe(blob, uiLanguage, true);
+          if (session === sessionRef.current && data.transcript) {
+            setLiveTranscript(data.transcript);
+            setHeardLanguage(data.detected_language ?? null);
+          }
         } catch {
           /* a dropped caption is fine — the final pass on stop is what counts */
         } finally {
@@ -167,7 +169,7 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
       setState("error");
       setError("Microphone access was denied or is unavailable.");
     }
-  }, [releaseStream, stopWaveform, stopPartials, spokenLanguage]);
+  }, [releaseStream, stopWaveform, stopPartials, uiLanguage]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
@@ -227,7 +229,6 @@ export function useVoiceInput({ onTranscriptConfirmed, languageHint }: { onTrans
     setTranscript,
     liveTranscript,
     spokenLanguage,
-    setSpokenLanguage,
     needsConfirmation,
     level,
     error,
@@ -247,32 +248,11 @@ export type VoiceInputState = ReturnType<typeof useVoiceInput>;
 // other persona gets the design system's normal-size, outline-until-active
 // control.
 export function VoiceMicButton({ voice, isFisherman = false }: { voice: VoiceInputState; isFisherman?: boolean }) {
-  const { state, startRecording, stopRecording, spokenLanguage, setSpokenLanguage } = voice;
+  const { state, startRecording, stopRecording } = voice;
   const isRecording = state === "recording";
   const size = isFisherman ? "h-[52px] w-[52px]" : "h-[38px] w-[38px]";
   const iconSize = isFisherman ? "size-5" : "size-3.5";
   return (
-    <>
-    {/* Spoken language, separate from the navbar's reading language. */}
-    <label htmlFor="voice-language" className="sr-only">
-      Language you will speak
-    </label>
-    <select
-      id="voice-language"
-      value={spokenLanguage}
-      onChange={(e) => setSpokenLanguage(e.target.value)}
-      disabled={isRecording || state === "transcribing"}
-      title="Language you will speak"
-      className={`shrink-0 cursor-pointer rounded-lg border border-hairline bg-shelf-2/70 px-2 text-ink-muted transition-colors hover:border-ocean-cyan/50 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 ${
-        isFisherman ? "h-[52px] text-base" : "h-[38px] text-xs"
-      } ${fontClassForLanguage(spokenLanguage)}`}
-    >
-      {LANGUAGES.map((l) => (
-        <option key={l.code} value={l.code}>
-          {l.native}
-        </option>
-      ))}
-    </select>
     <button
       type="button"
       aria-label={isRecording ? "Stop recording" : "Ask by voice — space bar also works"}
@@ -289,7 +269,6 @@ export function VoiceMicButton({ voice, isFisherman = false }: { voice: VoiceInp
       {isRecording ? <Square className={iconSize} /> : <Mic className={iconSize} />}
       <span className="sr-only">{isRecording ? "Stop recording" : "Ask by voice"}</span>
     </button>
-    </>
   );
 }
 

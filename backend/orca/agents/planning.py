@@ -44,7 +44,8 @@ ROUTING_TABLE: tuple[RoutingRow, ...] = (
     ),
     RoutingRow(
         "CONDITIONS",
-        ("tide", "sea conditions", "current conditions", "wave height", "wind speed"),
+        ("tide", "sea conditions", "current conditions", "wave height", "wind speed", "forecast",
+         "weather in", "weather at", "weather for", "weather near", "weather today", "weather tomorrow", "the weather like"),
         ("marine_data_discovery", "weather_intelligence", "ocean_analytics", "visualization"),
     ),
     RoutingRow(

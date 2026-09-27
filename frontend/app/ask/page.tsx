@@ -90,8 +90,6 @@ export default function AskPage() {
     showVersion,
     newChat,
     openChat,
-    setRenderedAs,
-    applyRender,
   } = useAskThread(persona, store, () => setHistoryVersion((v) => v + 1));
 
   // The latest distress call in this chat with a position — pinned on the map
@@ -415,8 +413,6 @@ export default function AskPage() {
                   onShowVersion={(index) => showVersion(turn.id, index)}
                   onFollowUp={submit}
                   onDropInherited={(value) => dropInherited(turn, value)}
-                  onPersonaChange={(p) => setRenderedAs(turn.id, p)}
-                  onRendered={(result) => applyRender(turn.id, result)}
                 />
               ))}
               {/* Sentinel: scrolled into view whenever a new turn arrives or

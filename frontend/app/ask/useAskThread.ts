@@ -9,7 +9,6 @@ import { useEffect, useRef, useState } from "react";
 import type { AgentStatus } from "../components/AgentPill";
 import type { ConfidenceTier, Verdict } from "../components/Badge";
 import type { HazardBreakdown, OceanSummary, WeatherSummary, Citation, SafetyThresholds } from "../components/PersonaAnswerMatrix";
-import type { RenderResult } from "../components/PersonaCorrection";
 import type { SourceSelection } from "../components/SourceNarration";
 import type { QueryFocus } from "../components/MapView";
 import type { ChartSpec } from "../lib/chartSpec";
@@ -627,31 +626,6 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     });
   }
 
-  function setRenderedAs(id: string, p: Persona | null) {
-    updateTurn(id, { renderedAs: p });
-  }
-
-  function applyRender(id: string, result: RenderResult) {
-    updateTurn(id, (t) =>
-      t.answer
-        ? {
-            answer: {
-              ...t.answer,
-              final_english_response: result.final_english_response,
-              // P3.13 — a persona-only re-render (no `language` in the
-              // request) still returns no vernacular text, same as before;
-              // a language switch's translated text (or `null` on a
-              // Bhashini/IndicTrans2 miss, degrading to English) replaces it.
-              final_vernacular_response: result.final_vernacular_response ?? undefined,
-              detected_language: result.language ?? t.answer.detected_language,
-              confidence_tier: result.confidence_tier as ConfidenceTier,
-              citations: result.citations,
-            },
-          }
-        : {},
-    );
-  }
-
   return {
     turns,
     hydrated: savedTurns !== null,
@@ -665,7 +639,5 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     showVersion,
     newChat,
     openChat,
-    setRenderedAs,
-    applyRender,
   };
 }

@@ -21,6 +21,9 @@ class ORCAState(TypedDict):
     # a language actually detected IN the text always wins. None for an
     # anonymous caller or one with no stored language preference.
     user_language_default: str | None
+    # The /query handler's own translation of raw_user_query — {"raw",
+    # "language", "english", "rung"} — so ingress does not translate twice.
+    pretranslated: dict[str, str] | None
 
     session_history: list[dict[str, Any]]  # prior turns for follow-up resolution
 

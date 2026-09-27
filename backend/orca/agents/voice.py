@@ -2,13 +2,10 @@
 (Architecture §3.1 Agent 1 tool table: `speech_to_text` / `text_to_speech`).
 
 Both directions are the same three-rung shape as orca/agents/language.py's
-translation seam, and for the same reason: Bhashini access is pending
-(.env.example, BHASHINI_*), so the local model is the *primary* path, not a
-fallback bolted on later. `BhashiniAsrBackend`/`BhashiniTtsBackend` are real
-credential-gated classes — they read the same BHASHINI_* env vars
-language.py's docstring already points at — and raise loudly when the
-government portal access hasn't landed, which as of this writing (and per
-.env.example's own comment) it hasn't. That is "skipped when absent", not
+translation seam: Bhashini first, a local model second, an explicit
+"unavailable" third. `BhashiniAsrBackend`/`BhashiniTtsBackend` read the
+BHASHINI_* env vars and raise when they are empty, so a checkout without
+credentials falls through to the local rung — "skipped when absent", not
 silently ignored.
 
 `FasterWhisperBackend` uses the 'small' int8 CTranslate2 model
@@ -48,7 +45,7 @@ import re
 import time
 import wave
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Literal, Protocol, get_args
 
 from orca.agents.language import Language
 
@@ -95,34 +92,53 @@ def _bhashini_configured() -> bool:
     return bhashini_configured()
 
 
+# ALD below this is treated as "not sure" and the caller's language wins.
+# Set from measurement (2026-09-27): every correct ALD call scored >= 0.98;
+# the one miss (Malayalam heard as Telugu) scored 0.75.
+ALD_MIN_SCORE = 0.9
+
+
+def spoken_language(audio: bytes, language_hint: Language | None) -> Language | None:
+    """The language to run Bhashini ASR in: ALD's answer when it is
+    confident and one ORCA serves, else `language_hint` (the UI language).
+    Shared by the final transcript and the live captions, so a Kannada
+    speaker with an English UI is captioned in Kannada from the first
+    partial rather than in invented English."""
+    from orca.agents import bhashini
+
+    try:
+        spoken, score = bhashini.detect_spoken_language(audio)
+    except bhashini.BhashiniError:
+        logger.warning("Bhashini ALD failed; using the language hint", exc_info=True)
+        return language_hint
+    if score >= ALD_MIN_SCORE and spoken in get_args(Language):
+        return spoken  # type: ignore[return-value]  # checked against the Language set just above
+    return language_hint
+
+
 class BhashiniAsrBackend:
     """Registered ahead of the local rung (plan §2 backend table), skipped
-    when the credential is absent — which, per .env.example's own comment,
-    it is as of this writing. P3.8 — the HTTP call itself lives in
-    orca/agents/bhashini.py (one client, shared with NMT/TTS/transliteration/
-    TLD); this class is only the credential gate plus the shape adapter into
-    TranscriptionResult."""
+    when the credentials are absent. P3.8 — the HTTP calls live in
+    orca/agents/bhashini.py; this class picks the ASR language and adapts
+    the result into TranscriptionResult.
+
+    The language: Bhashini ASR must be told it (a Kannada speaker sent to
+    the English model comes back as invented English), so Bhashini ALD
+    listens first and a confident answer wins. Otherwise `language_hint` —
+    the UI language — is used, so an unsure ALD never makes things worse
+    than no ALD. With neither, defer to faster-whisper, which detects on
+    its own."""
 
     def transcribe(self, audio: bytes, language_hint: Language | None) -> TranscriptionResult:
         from orca.agents import bhashini
 
         if not bhashini.bhashini_configured():
-            raise RuntimeError(
-                "Bhashini ASR not configured (BHASHINI_USER_ID / BHASHINI_ULCA_API_KEY / "
-                "BHASHINI_INFERENCE_API_KEY empty — access pending per .env.example)."
-            )
-        # Bhashini ASR requires an explicit source language to select the right
-        # model — passing "en" when the speaker is using Telugu/Kannada/etc.
-        # silently transcribes regional speech as garbled English. Skip to
-        # FasterWhisper (which auto-detects language from the audio itself)
-        # when no hint is provided, rather than guessing wrong every time.
-        if language_hint is None:
-            raise RuntimeError(
-                "Bhashini ASR requires an explicit language_hint — deferring to "
-                "FasterWhisper for audio-based language auto-detection."
-            )
-        transcript, confidence = bhashini.asr(audio, language_hint)
-        service_id = bhashini._pipeline_config("asr", language_hint).get("serviceId")
+            raise RuntimeError("Bhashini ASR not configured (BHASHINI_* env vars empty).")
+        language = spoken_language(audio, language_hint)
+        if language is None:
+            raise RuntimeError("No confident spoken language — deferring to faster-whisper's own detection.")
+        transcript, confidence = bhashini.asr(audio, language)
+        service_id = bhashini._pipeline_config("asr", language).get("serviceId")
         return TranscriptionResult(
             transcript=transcript,
             # ULCA does not always report a per-utterance confidence; a
@@ -130,7 +146,7 @@ class BhashiniAsrBackend:
             # "show for confirmation" behaviour rather than an invented 1.0.
             confidence=confidence if confidence is not None else LOW_CONFIDENCE_THRESHOLD,
             rung="bhashini",
-            detected_language=language_hint,
+            detected_language=language,
             service_id=service_id,
         )
 
@@ -140,9 +156,7 @@ class BhashiniTtsBackend:
         from orca.agents import bhashini
 
         if not bhashini.bhashini_configured():
-            raise RuntimeError(
-                "Bhashini TTS not configured (BHASHINI_* env vars empty — access pending per .env.example)."
-            )
+            raise RuntimeError("Bhashini TTS not configured (BHASHINI_* env vars empty).")
         return bhashini.tts(text, language)
 
 
@@ -316,8 +330,8 @@ def warm_mms_tts(language: Language = "ta") -> None:
 
 
 def speech_to_text(audio: bytes, language_hint: Language | None = None) -> TranscriptionResult:
-    """Three rungs, tried in order: Bhashini (skipped, uncredentialed) ->
-    faster-whisper (real, local). If every rung raises, the third rung is
+    """Three rungs, tried in order: Bhashini (ALD + ASR) -> faster-whisper
+    (local). If every rung raises, the third rung is
     not a backend at all — it is this function returning the explicit
     "could not hear you" result (plan §4 D1 Day 16: "an explicit 'could not
     hear you' that asks again rather than guessing") rather than propagating

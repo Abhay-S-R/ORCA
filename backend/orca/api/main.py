@@ -26,7 +26,12 @@ from orca import session as session_memory
 from orca.agents import distress as distress_agent
 from orca.agents import reporting
 from orca.agents.geospatial import DATA_ROOT, depth_at_point
-from orca.agents.language import IndicTrans2Backend, register_translation_backend
+from orca.agents.language import (
+    IndicTrans2Backend,
+    english_query,
+    query_language,
+    register_translation_backend,
+)
 from orca.agents.planning import carry_intent, classify_intent_deterministic
 from orca.api.analytics_routes import router as analytics_router
 from orca.api.auth_routes import router as auth_router
@@ -235,6 +240,7 @@ def _initial_state(
     user_language_default: str | None = None,
     demo_scenario: str | None = None,
     raw_fix: tuple[float, float] | None = None,
+    pretranslated: dict[str, str] | None = None,
 ) -> ORCAState:
     return {  # type: ignore[typeddict-item]
         "session_id": session_id or "",
@@ -246,12 +252,14 @@ def _initial_state(
         "session_history": session_history or [],
         "query_id": str(uuid.uuid4()),
         "raw_user_query": query,
-        # Overwritten by language_ingress_node once the graph runs — this is
-        # only the value used if that node is somehow skipped.
-        "normalized_english_query": query,
+        # Overwritten by language_ingress_node once the graph runs. The guards
+        # before it (time, self-context) read this, so it starts as query()'s
+        # own translation when there is one.
+        "normalized_english_query": (pretranslated or {}).get("english", query),
         # P3.1 — a signed-in user's stored language, consulted only when the
         # text itself carries no script signal (see language.run_ingress).
         "user_language_default": user_language_default,
+        "pretranslated": pretranslated,
         # A real query-complexity classifier for reasoning_depth is Agent 2's
         # job (plan §9.5's rules-tier routing) and is not built yet — this
         # accepts an explicit override so DEEP-only paths (ocean_analytics'
@@ -459,6 +467,7 @@ async def _query_stream(
     user_language_default: str | None = None,
     demo_scenario: str | None = None,
     raw_fix: tuple[float, float] | None = None,
+    pretranslated: dict[str, str] | None = None,
 ) -> AsyncIterator[str]:
     """`on_final`, when given, is called once with the same dict that gets
     JSON-serialized into the `final_response` SSE frame — the query-cache
@@ -479,6 +488,7 @@ async def _query_stream(
     state = _initial_state(
         query, lat, lon, vessel_class, distress, persona, depth, place, session_id, session_history,
         resolution, fix_on_land, user_language_default, demo_scenario, raw_fix=raw_fix,
+        pretranslated=pretranslated,
     )
     # P6.12 (orca_final §28) — every log line the graph emits from here on
     # carries this query_id, so an incident is one grep away instead of a
@@ -1096,7 +1106,20 @@ async def query(
     # because `is_reset_request` matches the whole message and no reset phrase
     # is a distress phrase. A message that is nothing but "forget it" is not
     # someone in trouble.
-    if not distress and session_memory.is_reset_request(q):
+    # Every parser from here to the graph — reset, language command, vessel,
+    # place, priority lane — matches English words, so a Kannada "ಕೊಚ್ಚಿ"
+    # never became Kochi and the question was answered at the pilot default.
+    # Translate once here; ingress reuses it (state["pretranslated"]).
+    # Place resolution tries the raw text first, since the gazetteer also
+    # holds Tamil-script names.
+    q_language = query_language(q, user.language if user is not None else None)
+    try:
+        q_en, q_rung = english_query(q, q_language)
+        pretranslated: dict[str, str] | None = {"raw": q, "language": q_language, "english": q_en, "rung": q_rung}
+    except RuntimeError:
+        q_en, pretranslated = q, None  # no translator — ingress degrades and says so
+
+    if not distress and (session_memory.is_reset_request(q) or session_memory.is_reset_request(q_en)):
         session_memory.clear(session_id)
         return StreamingResponse(_reset_stream(), media_type="text/event-stream")
 
@@ -1106,7 +1129,7 @@ async def query(
     # a marine question. Checked here, same footing as the reset phrase above
     # and for the same reason: a distress call is never swallowed by either.
     if not distress:
-        lang_cmd = match_language_command(q)
+        lang_cmd = match_language_command(q) or match_language_command(q_en)
         if lang_cmd is not None:
             return StreamingResponse(
                 _language_change_stream(lang_cmd, session_id, history, user),
@@ -1128,7 +1151,7 @@ async def query(
     # Nothing at all stays None, and `risk_assessment.run` applies the most
     # conservative class — the safety default keeps its single home.
     vessel_class = resolve_vessel_class(
-        vessel_class, q, None if "vessel_class" in dropped else session_memory.last_vessel_class(history),
+        vessel_class, q if q_en == q else f"{q} {q_en}", None if "vessel_class" in dropped else session_memory.last_vessel_class(history),
     )
     # P3.1 — lowest precedence of all: a signed-in user's active vessel
     # (P3.9), consulted only when nothing more specific (an explicit param, a
@@ -1157,6 +1180,8 @@ async def query(
         # never here, where a distress call would be refused for naming no port.
         carried = None if "place" in dropped else session_memory.last_place(history)
         resolved = resolve_or_ask(q, {"last_place": carried} if carried else None)
+        if q_en != q and resolved.status in ("fallback", "unresolvable"):
+            resolved = resolve_or_ask(q_en, {"last_place": carried} if carried else None)
         resolution = resolved.as_dict()
         usable = _usable_fix(fix_lat, fix_lon)
         # Sent a position, and it was dropped for being inland — a different
@@ -1209,7 +1234,7 @@ async def query(
         # "which did you mean?" chip, or a saved location — keeps that place's
         # name, so the answer says "Mangrol" rather than an unnamed position.
         place_name = next(
-            (p.name for p in resolve_all_places_from_text(q) if (p.lat, p.lon) == (lat, lon)), None
+            (p.name for p in resolve_all_places_from_text(q) + resolve_all_places_from_text(q_en) if (p.lat, p.lon) == (lat, lon)), None
         )
 
     # P3.1 — carried into `_query_stream` so `user_language_default` reaches
@@ -1236,7 +1261,7 @@ async def query(
                 llm=llm_override, fix_on_land=fix_on_land,
                 user_id=user_id, user_language_default=user_language_default,
                 demo_scenario=demo_scenario,
-                raw_fix=raw_fix,
+                raw_fix=raw_fix, pretranslated=pretranslated,
             )),
             media_type="text/event-stream"
         )
@@ -1256,7 +1281,7 @@ async def query(
                 llm=llm_override, fix_on_land=fix_on_land,
                 user_id=user_id, user_language_default=user_language_default,
                 demo_scenario=demo_scenario,
-                raw_fix=raw_fix,
+                raw_fix=raw_fix, pretranslated=pretranslated,
             ),
             media_type="text/event-stream",
         )
@@ -1278,7 +1303,7 @@ async def query(
                 session_id=session_id, session_history=history, resolution=resolution,
                 llm=llm_override, fix_on_land=fix_on_land,
                 user_id=user_id, user_language_default=user_language_default,
-                raw_fix=raw_fix,
+                raw_fix=raw_fix, pretranslated=pretranslated,
             ),
             media_type="text/event-stream",
         )
@@ -1299,7 +1324,7 @@ async def query(
     follow_up = bool(history)
     if follow_up:
         cache_key = f"{cache_key}:session:{session_id}"
-    lane = PRIORITY_LANE if _is_priority_shaped(q, depth, history) else STANDARD_LANE
+    lane = PRIORITY_LANE if _is_priority_shaped(q_en, depth, history) else STANDARD_LANE
 
     async def _produce() -> AsyncIterator[str]:
         cached = None if follow_up else query_cache_get(cache_key)
@@ -1313,7 +1338,7 @@ async def query(
                 session_id=session_id, session_history=history, resolution=resolution,
                 llm=llm_override, fix_on_land=fix_on_land,
                 user_id=user_id, user_language_default=user_language_default,
-                raw_fix=raw_fix,
+                raw_fix=raw_fix, pretranslated=pretranslated,
             ):
                 yield line
 

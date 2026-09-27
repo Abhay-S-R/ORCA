@@ -25,13 +25,20 @@ request shape below without needing a real credential):
      `{pipelineTasks: [...with serviceId...], inputData}` body -> the
      actual ASR/NMT/TTS/Transliteration/TLD result.
 
-`_PIPELINE_ID` is the public default pipeline every ULCA integration guide
-uses — not a secret, unlike the three `BHASHINI_*` credentials, which stay
-in `.env.example` as empty placeholders until portal access is confirmed
-working end to end (P3.8's own Done-when: a measured latency table, 20
-recorded clips per language, is what "working" means here, not "the code
-compiles" — that verification is BLOCKED on the credentials, not on this
-module).
+`_PIPELINE_ID` is the "Initial Pipeline Models" pipeline from Bhashini's
+docs — not a secret. Its config call hands out only asr / translation /
+transliteration / tts; every other taskType is `400 TaskType is not valid !`.
+
+Language detection (text and audio) is not in any pipeline: the docs call it
+straight on the compute endpoint with a documented `serviceId`
+(`_TLD_SERVICE_ID`, `_ALD_SERVICE_ID`). The config call's `inferenceApiKey`
+is `BHASHINI_INFERENCE_API_KEY` itself (confirmed live 2026-09-27), so those
+two calls use it directly with no config round trip.
+
+The three credentials, and where each goes:
+  BHASHINI_USER_ID + BHASHINI_ULCA_API_KEY -> `userID` / `ulcaApiKey`
+      headers on the config call only.
+  BHASHINI_INFERENCE_API_KEY -> `Authorization` on every compute call.
 
 Every function here raises `BhashiniError` (a `RuntimeError` subclass) on
 any failure — not configured, unreachable, timed out, or an unexpected
@@ -52,13 +59,21 @@ logger = logging.getLogger(__name__)
 
 _CONFIG_URL = "https://meity-auth.ulcacontrib.org/ulca/apis/v0/model/getModelsPipeline"
 _PIPELINE_ID = "64392f96daac500b55c543cd"  # MeitY's public default pipeline
+_COMPUTE_URL = "https://dhruva-api.bhashini.gov.in/services/inference/pipeline"
+# Service IDs from the docs' "Available Models for usage" page. Both were
+# measured 2026-09-27: IndicLID (23 languages) read romanized Tamil and Hindi
+# correctly; IIT Mandi's ALD got ta/kn/hi/bn/en right on synthesized speech
+# and was only unsure (0.75) on the Malayalam clip it missed, where the
+# other listed ALD (`bhashini/ald`) was wrong at 0.999 — hence this one.
+_TLD_SERVICE_ID = "bhashini/indic-lang-detection-all"
+_ALD_SERVICE_ID = "bhashini/iitmandi/audio-lang-detection/gpu"
 
 # "Every Bhashini call gets the 3 s safety-path timeout" (plan P3.8) — a hung
 # government portal must never hold a query open indefinitely, safety path
 # or not.
 TIMEOUT_S = 3.0
 
-TaskType = Literal["asr", "translation", "tts", "transliteration", "txt-lang-detection"]
+TaskType = Literal["asr", "translation", "tts", "transliteration"]
 
 
 def bhashini_configured() -> bool:
@@ -141,6 +156,17 @@ def _inference(config: dict[str, Any], pipeline_task: dict[str, Any], input_data
         raise BhashiniError(f"Bhashini inference call failed: {exc}") from exc
 
 
+def _direct_config() -> dict[str, Any]:
+    """Compute-call target for the service-ID-only tasks (TLD, ALD), in the
+    same shape `_pipeline_config` returns so `_inference` serves both."""
+    if not bhashini_configured():
+        raise BhashiniError("Bhashini not configured (BHASHINI_* env vars empty).")
+    return {
+        "callback_url": _COMPUTE_URL,
+        "inference_api_key": {"name": "Authorization", "value": os.environ["BHASHINI_INFERENCE_API_KEY"]},
+    }
+
+
 def _audio_format(audio: bytes) -> str:
     # Dhruva returns a bare 500 when `audioFormat` is omitted for anything but
     # WAV — confirmed live 2026-09-23: the browser's MediaRecorder WebM/Opus
@@ -208,11 +234,21 @@ def tts(text: str, target_lang: str, gender: str = "female") -> bytes:
     identical request without it returns a bare `500 Internal Server Error`
     (no JSON body to diagnose from), and succeeds the moment `gender` is
     added. "female" is not a claim about the speaker, just this function's
-    default voice; a caller that cares picks "male" explicitly."""
+    default voice; a caller that cares picks "male" explicitly.
+
+    `text-normalization` (the docs' TTS pre-processor) spells out numbers,
+    units and times before synthesis. Measured by round-tripping the audio
+    through ASR: English "wind 18 km/h" came back as "Vain 18K image" without
+    it and "wind 18 kmh" with it; ta/hi were unchanged; no added latency."""
     config = _pipeline_config("tts", target_lang)
     task = {
         "taskType": "tts",
-        "config": {"language": {"sourceLanguage": target_lang}, "serviceId": config["serviceId"], "gender": gender},
+        "config": {
+            "language": {"sourceLanguage": target_lang},
+            "serviceId": config["serviceId"],
+            "gender": gender,
+            "preProcessors": ["text-normalization"],
+        },
     }
     payload = {"input": [{"source": text}]}
     data = _inference(config, task, payload)
@@ -249,33 +285,35 @@ def transliterate(text: str, source_lang: str, target_lang: str) -> str:
         raise BhashiniError(f"Bhashini transliteration: unexpected response shape: {data}") from exc
 
 
+def _lang_prediction(data: dict[str, Any], what: str) -> tuple[str, float]:
+    try:
+        top = data["pipelineResponse"][0]["output"][0]["langPrediction"][0]
+        return top["langCode"], float(top["langScore"])
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise BhashiniError(f"Bhashini {what}: unexpected response shape: {data}") from exc
+
+
 def detect_language(text: str) -> str:
     """TLD — text language detection. Called only when the local
     Unicode-block detector (`language.detect_language`) is ambiguous: Latin
-    script with low English vocabulary coverage (P3.5/P3.8).
+    script with low English vocabulary coverage (P3.5/P3.8), e.g. romanized
+    Tamil "naalai kadalukku pogalama" -> "ta" (measured, score 1.0)."""
+    task = {"taskType": "txt-lang-detection", "config": {"serviceId": _TLD_SERVICE_ID}}
+    data = _inference(_direct_config(), task, {"input": [{"source": text}]})
+    return _lang_prediction(data, "language detection")[0]
 
-    NOT CONFIRMED LIVE, unlike every other function in this module — verified
-    2026-09-23 against real credentials: `asr`, `translation`, `tts` and
-    `transliteration` all round-trip correctly through `_PIPELINE_ID`, but
-    that pipeline's `getModelsPipeline` config call rejects `taskType`
-    `txt-lang-detection` with `400 TaskType is not valid !`, even though
-    `POST /ulca/apis/v0/model/search {"task": "txt-lang-detection"}` shows a
-    real model for it (Bhashini-IIITH Textual Language Detection). That
-    model's own `inferenceEndPoint.callbackUrl` is empty in the search
-    result, so it is reachable through some other integration this default
-    pipeline does not expose — not chased further here, since the caller
-    (`language.detect_language_with_bhashini`) already treats any exception
-    from this function as "fall back to the script-only result," which is
-    exactly what happens today. Fix forward: find the right `pipelineId` (or
-    direct-model call) for this task before trusting a return value from it."""
-    config = _pipeline_config("txt-lang-detection", "auto")
-    task = {"taskType": "txt-lang-detection", "config": {"serviceId": config["serviceId"]}}
-    payload = {"input": [{"source": text}]}
-    data = _inference(config, task, payload)
-    try:
-        return data["pipelineResponse"][0]["output"][0]["langPrediction"][0]["langCode"]
-    except (KeyError, IndexError) as exc:
-        raise BhashiniError(f"Bhashini language detection: unexpected response shape: {data}") from exc
+
+def detect_spoken_language(audio: bytes) -> tuple[str, float]:
+    """ALD — which language is being spoken in `audio`. Returns
+    (language code, score 0-1). `audioFormat` is not in the docs' ALD payload
+    but is required for anything other than WAV, exactly as for ASR: the
+    browser's WebM/Opus recording is a bare 500 without it (measured)."""
+    task = {
+        "taskType": "audio-lang-detection",
+        "config": {"serviceId": _ALD_SERVICE_ID, "audioFormat": _audio_format(audio)},
+    }
+    data = _inference(_direct_config(), task, {"audio": [{"audioContent": base64.b64encode(audio).decode("ascii")}]})
+    return _lang_prediction(data, "audio language detection")
 
 
 if __name__ == "__main__":
@@ -290,10 +328,8 @@ if __name__ == "__main__":
 
     assert _audio_format(b"RIFF....WAVE") == "wav" and _audio_format(bytes.fromhex("1a45dfa3")) == "webm"
     if bhashini_configured():
-        # Live round-trip, all four confirmed-working services (2026-09-23):
-        # translation, TTS, ASR-on-that-TTS-audio, and transliteration.
-        # txt-lang-detection is excluded — see detect_language's own
-        # docstring for why it is not yet live even with real credentials.
+        # Live round-trip of every service ORCA uses: translation, TTS,
+        # ASR-on-that-TTS-audio, transliteration, and both detectors.
         translated = nmt("Is it safe to go to sea today?", "en", "ta")
         assert translated and translated != "Is it safe to go to sea today?"
         audio = tts("Is it safe to go to sea today?", "en")
@@ -302,7 +338,10 @@ if __name__ == "__main__":
         assert "safe" in transcript.lower()
         romanized = transliterate(translated, "ta", "en")
         assert romanized and romanized.isascii()
-        print(f"bhashini self-check ok (LIVE): nmt={translated!r} asr_roundtrip={transcript!r} translit={romanized!r}")
+        assert detect_language("naalai kadalukku pogalama") == "ta"
+        spoken, score = detect_spoken_language(tts(translated, "ta"))
+        assert spoken == "ta" and score > 0.9, (spoken, score)
+        print(f"bhashini self-check ok (LIVE): nmt={translated!r} asr_roundtrip={transcript!r} translit={romanized!r} ald=({spoken}, {score:.3f})")
     else:
         try:
             nmt("hello", "en", "ta")
