@@ -117,5 +117,6 @@ class ORCAState(TypedDict):
     small_talk: bool
     evidence_citations: list[dict[str, Any]]
     confidence_tier: str
+    confidence_reason: str | None
     persona_correction_available: bool
     audit_trace_log: Annotated[list[dict[str, Any]], operator.add]

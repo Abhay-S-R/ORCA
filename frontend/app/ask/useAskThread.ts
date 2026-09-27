@@ -85,6 +85,7 @@ export type FinalResponse = {
   final_vernacular_response?: string;
   detected_language?: string;
   confidence_tier: ConfidenceTier;
+  confidence_reason?: string | null;
   citations?: Citation[];
   source_selections?: SourceSelection[];
   risk_assessment?: { go_no_go: Verdict; reason: string; thresholds?: SafetyThresholds | null } | null;

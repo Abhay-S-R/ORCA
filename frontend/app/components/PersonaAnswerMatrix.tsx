@@ -4,7 +4,7 @@
 // Day 20). Every persona sees the SAME already-computed facts (hazard
 // breakdown, weather summary, ocean summary, citations) — nothing here
 // fetches anything or changes a number; only the structure changes:
-//   fisherman            -> banner + plain distance/direction (elsewhere: single map pin)
+//   fisherman            -> banner + plain-language "why this answer?"
 //   commercial_navigator -> a structured readout grid (position, tide, bathymetry-relevant hazards)
 //   researcher           -> a full statistical summary + CSV/JSON export
 //   coastal_authority    -> a threat-level classification + a CAP-shaped preview
@@ -416,6 +416,8 @@ export function PersonaAnswerMatrix({
   reason,
   leadWithVerdict = true,
   confidenceTier,
+  confidenceReason,
+  showBoundary = false,
   weather,
   hazard,
   ocean,
@@ -441,6 +443,11 @@ export function PersonaAnswerMatrix({
   // silently losing a verdict.
   leadWithVerdict?: boolean;
   confidenceTier: ConfidenceTier;
+  // What made it LOW_DATA (graph.reporting_run), in the answer's language.
+  confidenceReason?: string | null;
+  // The boundary distance shows only on a question about boundaries
+  // (ZONES_TO_AVOID) — the backend narrates it then, in the user's language.
+  showBoundary?: boolean;
   weather: WeatherSummary;
   hazard: HazardBreakdown;
   ocean: OceanSummary;
@@ -452,7 +459,6 @@ export function PersonaAnswerMatrix({
   rawAnswer?: unknown;
 }) {
   const [showTechnical, setShowTechnical] = useState(false);
-  const direction = hazard.imbl_distance_nm !== null ? `boundary ${hazard.imbl_distance_nm.toFixed(1)} nm away` : "boundary distance unknown";
   const tide = formatTideData(ocean.tide);
   const pfz = formatPfzData(ocean.nearest_pfz);
   const sector = formatSectorStatusData(ocean.sector_status);
@@ -505,6 +511,9 @@ export function PersonaAnswerMatrix({
                   </span>
                 )}
               </div>
+              {confidenceTier === "LOW_DATA" && confidenceReason && (
+                <p className="mt-1 text-[11px] leading-relaxed text-data-limited/90">{confidenceReason}</p>
+              )}
               {reason && <p className="mt-1.5 text-sm leading-relaxed text-ink">{reason}</p>}
             </>
           ) : (
@@ -521,6 +530,9 @@ export function PersonaAnswerMatrix({
                   Data limited — verify locally
                 </span>
               )}
+              {confidenceTier === "LOW_DATA" && confidenceReason && (
+                <p className="text-[11px] leading-relaxed text-data-limited/90">{confidenceReason}</p>
+              )}
             </div>
           )}
         </div>
@@ -528,11 +540,6 @@ export function PersonaAnswerMatrix({
 
       {persona === "fisherman" && (
         <>
-          {/* P4.4 — ≥18px body on the fisherman surface, plain words only:
-              this is the one persona whose plain-language line already had
-              no jargon in it ("boundary X nm away" reads as-is); the change
-              here is size and contrast, not wording. */}
-          <p className="text-lg leading-snug text-ink">{direction}. See the map for the single nearest pin.</p>
           <Button variant="ghost" className="w-fit text-sm" icon={<ShieldCheck className="size-4" aria-hidden="true" />} onClick={() => setShowTechnical((v) => !v)}>
             {showTechnical ? "Hide reasoning" : "Why this answer?"}
           </Button>
@@ -551,7 +558,6 @@ export function PersonaAnswerMatrix({
 
       {persona === "unresolved" && (
         <>
-          <p className="text-sm text-ink-muted">{direction}.</p>
           <Button variant="ghost" className="w-fit text-xs" onClick={() => setShowTechnical((v) => !v)}>
             {showTechnical ? "Hide technical detail" : "Show technical detail"}
           </Button>
@@ -560,7 +566,7 @@ export function PersonaAnswerMatrix({
               <ReadoutGrid cols={4}>
                 <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" hint={waveHint(weather.wave_height_m, thresholds)} />
                 <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" hint={windHint(weather.wind_speed_ms, thresholds)} />
-                <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
+                {showBoundary && <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />}
                 <Readout label="MPA status" value={hazard.mpa_violation ? "Inside" : "Clear"} />
               </ReadoutGrid>
             </div>
@@ -572,7 +578,7 @@ export function PersonaAnswerMatrix({
         <div className="rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md">
           <Group icon={<Compass className="size-3.5" />} label="Navigation readout">
             <ReadoutGrid cols={4}>
-              <Readout label="Boundary distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
+              {showBoundary && <Readout label="Boundary distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />}
               <Readout label="MPA status" value={hazard.mpa_violation ? "Inside boundary" : "Clear"} hint={hazard.mpa_alert_level ?? undefined} />
               <Readout label="Tide" value={tide.value} unit={tide.unit} hint={tide.hint} />
               <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" hint="bathymetry/route detail: see /voyage" />
@@ -593,7 +599,7 @@ export function PersonaAnswerMatrix({
             </Group>
             <Group icon={<Compass className="size-3.5" />} label="Boundary & hazard">
               <ReadoutGrid cols={2}>
-                <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />
+                {showBoundary && <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />}
                 <Readout label="MPA violation" value={hazard.mpa_violation ? "Yes" : "No"} hint={hazard.mpa_alert_level ?? undefined} />
               </ReadoutGrid>
             </Group>

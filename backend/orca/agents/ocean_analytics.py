@@ -1522,7 +1522,8 @@ def diagnose_productivity_decline(district_sector: str) -> dict[str, Any]:
 def _worst(*confidences: Confidence) -> Confidence:
     order = ("HIGH", "MEDIUM", "LOW_DATA")
     worst = max(confidences, key=lambda c: order.index(c.score))
-    return Confidence(score=worst.score, rationale="; ".join(c.rationale for c in confidences))
+    # The rationale explains the grade, so it names only the inputs that set it.
+    return Confidence(score=worst.score, rationale="; ".join(c.rationale for c in confidences if c.score == worst.score))
 
 
 def run(state: ORCAState) -> AgentResult:
@@ -1647,7 +1648,7 @@ def run(state: ORCAState) -> AgentResult:
         # An old advisory is still shown (stale-data policy) but is worth less:
         # zones follow SST/chlorophyll fronts that move within days.
         score = _BAND_SCORE.get(near.band or "", "LOW_DATA")
-        age = "" if near.band == "fresh" else f", issued {near.valid_for} ({near.age_days} d old)"
+        age = "" if near.band == "fresh" else f", issued {near.valid_for} ({near.age_days} days old, not today's)"
         contributing.append(Confidence(score=score, rationale=f"INCOIS PFZ advisory at {near.distance_km} km{compass_str}{age}"))
     else:
         contributing.append(Confidence(score="MEDIUM", rationale="ORCA holds no PFZ advisory at all"))

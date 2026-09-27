@@ -448,17 +448,27 @@ def run_egress(state: ORCAState) -> AgentResult:
         error_detail = None
     except RuntimeError as exc:
         vernacular = english_text  # degrade to English rather than crash the response
+        rung = "passthrough"
         dataset = "IndicTrans2 (local, indictrans2-en-indic-dist-200M)"
         status = "degraded"
         confidence = Confidence(score="LOW_DATA", rationale=f"No translation backend: {exc}")
         error_detail = str(exc)
+
+    # The "Data limited" reason is shown beside the answer, so it speaks the
+    # answer's language too; English if that one translation fails.
+    reason = state.get("confidence_reason")
+    if reason and target != "en" and rung != "passthrough":
+        try:
+            reason, _ = _translate_with_rung(reason, "en", target)
+        except RuntimeError:
+            pass
 
     return AgentResult(
         agent_name="language_egress",
         query_id=state.get("query_id", ""),
         reasoning_depth=coerce_reasoning_depth(state.get("reasoning_depth", "SHALLOW")),
         inputs_consumed={"final_english_response": english_text, "target_language": target},
-        outputs={"final_vernacular_response": vernacular},
+        outputs={"final_vernacular_response": vernacular, "confidence_reason": reason},
         source_provenance=SourceProvenance(
             dataset=dataset,
             acquisition_timestamp=now, freshness_minutes=0,

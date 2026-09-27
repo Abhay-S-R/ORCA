@@ -154,6 +154,8 @@ def test_only_the_answer_writing_tier_defaults_to_the_local_model(monkeypatch):
         monkeypatch.setenv(f"ORCA_LLM_{tier}_PROVIDER", "gemini")
         monkeypatch.setenv(f"ORCA_LLM_{tier}_MODEL", "gemini-3.5-flash-lite")
     monkeypatch.delenv("ORCA_LLM_LOCAL_MODEL", raising=False)
+    # The second Gemini rung exists only with a key; CI has none, a dev .env does.
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     assert tiers.chain_for("mid") == [
         ("gemini", "gemini-3.5-flash-lite"), ("gemini", tiers._SECOND_GEMINI), ("ollama", tiers._LOCAL_MODEL),
     ]

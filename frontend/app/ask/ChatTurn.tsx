@@ -272,6 +272,8 @@ export function ChatTurn({
                   leadWithVerdict={answer.lead_with_verdict ?? true}
                   reason={answer.risk_assessment.reason}
                   confidenceTier={answer.confidence_tier}
+                  confidenceReason={answer.confidence_reason}
+                  showBoundary={(answer.routing?.matched_intent_rows ?? []).includes("ZONES_TO_AVOID")}
                   weather={answer.weather_summary ?? { wave_height_m: null, wind_speed_ms: null, lightning_active: false, cyclone_alert: null }}
                   hazard={answer.hazard_breakdown ?? { imbl_distance_nm: null, imbl_alert_level: null, mpa_violation: false, mpa_alert_level: null }}
                   ocean={answer.ocean_summary ?? { tide: null, nearest_pfz: null, sector_status: null, productivity_diagnosis: null }}

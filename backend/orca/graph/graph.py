@@ -963,9 +963,17 @@ def reporting_run(state: ORCAState) -> AgentResult:
     geo = state.get("geospatial_data") or {}
     if geo:
         geo_confidence = geo.get("confidence") or Confidence(score="MEDIUM", rationale="geospatial")
+        # The boundary distance is narrated only when the question was about
+        # boundaries or it is part of why the verdict is not GO; otherwise
+        # "146.6 nm to the Maldives line" tailed every answer about fishing zones.
+        boundary_asked = "ZONES_TO_AVOID" in (state.get("matched_intent_rows") or []) or (
+            (state.get("risk_assessment") or {}).get("go_no_go") not in (None, "GO")
+        )
         results.append(AgentResult(
             agent_name="geospatial", query_id=query_id, reasoning_depth=depth,
-            inputs_consumed={}, outputs={"imbl_distance_nm": geo.get("imbl_distance_nm"), "mpa_violation": geo.get("mpa_violation")},
+            inputs_consumed={},
+            outputs={"imbl_distance_nm": geo.get("imbl_distance_nm") if boundary_asked else None,
+                     "mpa_violation": geo.get("mpa_violation")},
             source_provenance=SourceProvenance(
                 dataset=geo.get("dataset", "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA"),
                 # Same vintage the geospatial node cites — the boundary files'
@@ -1081,6 +1089,13 @@ def reporting_run(state: ORCAState) -> AgentResult:
                 {"agent_name": r.agent_name, "tier": r.confidence.score, "rationale": r.confidence.rationale}
                 for r in results
             ],
+            # What made the answer LOW_DATA, so "Data limited" can say why
+            # instead of reading as doubt about the safety check.
+            # (minus the "[score N: …]" suffix _scored appends for the trace).
+            "confidence_reason": ("; ".join(
+                r.confidence.rationale.split(" [score ")[0] for r in results
+                if r.confidence.score == "LOW_DATA" and r.agent_name != "risk_assessment"
+            ) or None) if assembled.confidence_tier == "LOW_DATA" else None,
         },
         source_provenance=SourceProvenance(dataset="ORCA synthesis (Agent 9, thin — no LLM pass, plan §4 S6)", acquisition_timestamp="", freshness_minutes=0),
         confidence=Confidence(
@@ -1100,6 +1115,7 @@ def reporting_node(state: ORCAState) -> dict:
         "response_engine": result.engine,
         "evidence_citations": result.outputs["citations"],
         "confidence_tier": result.confidence.score,
+        "confidence_reason": result.outputs.get("confidence_reason"),
         "early_exit_triggered": result.outputs.get("early_exit_triggered", False),
         "audit_trace_log": [entry],
         "completed_nodes": ["reporting"],
@@ -1253,6 +1269,7 @@ def language_egress_node(state: ORCAState) -> dict:
     vernacular = (result.outputs or {}).get("final_vernacular_response") or state.get("final_english_response", "")
     return {
         "final_vernacular_response": vernacular,
+        "confidence_reason": (result.outputs or {}).get("confidence_reason") or state.get("confidence_reason"),
         "audit_trace_log": [entry],
         "completed_nodes": ["language_egress"],
     }

@@ -590,6 +590,7 @@ async def _query_stream(
             # being answered as turn one (docs/ORCA_DLC_Extension_Pack.md R-AUTH-3).
             "context_turns": len(session_history or []),
             "confidence_tier": final_state.get("confidence_tier", "LOW_DATA"),
+            "confidence_reason": final_state.get("confidence_reason"),
             # Per-agent scored labels, carried on the answer itself because a
             # query-cache hit replays only this event — no agent_span events —
             # and the /ask strip would otherwise draw bare ticks for it.
