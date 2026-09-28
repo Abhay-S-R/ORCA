@@ -2822,3 +2822,28 @@ Remarks:
 - **Commit:** — (uncommitted)
 - **Root cause:** `tiers.chain_for` adds the second Gemini rung only when `GEMINI_API_KEY`/`GOOGLE_API_KEY` is set (a keyless rung is useless). A developer's `.env` has one, CI does not, so the test passed locally and failed on CI. The code is right; the test now sets the key itself.
 - **Verification:** the file passes with the keys blanked (41 passed).
+
+### [2026-09-28] Diagnosis only — prompt routing lets word lists refuse or misread prompts; revamp planned
+
+- **By:** Claude (Opus 5.5).
+- **Files:** `docs/ORCA_Prompt_Routing_Revamp.md` (new). No code changed.
+- **Commit:** — (uncommitted)
+- **Symptoms:**
+  - Slow and inconsistent "which place?" replies (16–23 s).
+  - The Karnataka reply lost the "whole coastline" intro.
+  - "pfzs near ktaka" was refused as out of scope.
+  - "wats time now" was refused.
+- **Root causes:**
+  - Gemini `gemini-3.5-flash-lite` is returning 503/504. `_ChainClient` retries it and re-tries it on every call, with no cooldown.
+  - `write_guard_reply`'s prompt lets the model drop the reason sentence.
+  - Exact-match lists (`_MARINE_VOCAB`, `_SELF_CONTEXT_PHRASES`, `_TEMPORAL_PATTERNS`, …) decide scope, intent and time before any model reads the prompt. Probing also found missed distress paraphrases, and relative dates answered silently for the wrong day.
+- **Priority: CRITICAL.** The user set this on 2026-09-28: the chatbot must read and answer prompts the way a general LLM assistant does (typos, context changes, message history, conversational replies). This work blocks all other feature fixes and new features. See section 0 of the doc.
+- **Decided:** a model reads every prompt, and code validates what it extracts. Lists become the fast path and the offline fallback only.
+- **Open work, in the order agreed:**
+  1. Reassign the Groq and Gemini keys properly and add a per-rung cooldown.
+  2. The Understand call and its validation.
+  3. System prompt changes: the Understand prompt, the guard-reply prompt, and a review of the rest.
+  4. A distress model check that can only escalate.
+  5. Delete the synonym and word-overlap fallback.
+  6. A messy-prompt test file.
+- **Details:** the evidence, the list inventory and the plan are in `docs/ORCA_Prompt_Routing_Revamp.md`.

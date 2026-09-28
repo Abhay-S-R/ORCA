@@ -1,3 +1,27 @@
+## The founding principle — read this first
+
+> **Talk like a chatbot, stay accurate like an instrument.**
+
+ORCA's `/ask` chatbot is the product; everything else exists to serve it.
+
+- **Talk like a chatbot.** A language model *reads* every prompt and *writes*
+  every reply, the way a general LLM assistant would. That means it handles typos,
+  plurals, shortenings, slang and mixed-language text, and follows context changes
+  across turns using the message history. It answers small talk, the clock and
+  off-topic messages naturally, in the user's language. A hand-written word list
+  is only a fast path or the offline fallback. It never refuses, misroutes or
+  silently reinterprets a prompt. A miss is never fixed by adding the missing word
+  to a list.
+- **Stay accurate like an instrument.** Facts, numbers and the go/no-go safety
+  verdict come from the agents, the data and deterministic code, never from the
+  model. The model may not invent a place, a date or a value, or change a verdict.
+  What the model extracts from a prompt is validated against real data (the
+  gazetteer, the forecast horizon, the routing rows) before anything acts on it.
+
+Any defect in how the chatbot reads or answers a prompt is critical and comes
+before every other feature fix. The current plan is
+`docs/ORCA_Prompt_Routing_Revamp.md`.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
