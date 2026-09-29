@@ -1,7 +1,7 @@
 "use client";
 
 // The live agent activity strip (differentiator 1 — "what makes the UI
-// visibly agentic", §4.5). Up to ten agents execute per query; this is how a
+// visibly agentic", §4.5). Up to twelve agents execute per query; this is how a
 // user sees that happening instead of watching a spinner.
 //
 // No per-agent glyph and no static connector arrow: status reads through

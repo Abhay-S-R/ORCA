@@ -580,7 +580,7 @@ function ReasoningContent() {
                 </span>
               </div>
               <p className="text-[11px] text-ink-dim">
-                Real-time execution telemetry across 10 specialized intelligence agents
+                Real-time execution telemetry across 12 specialized intelligence agents
               </p>
             </div>
           </div>
@@ -706,8 +706,8 @@ function ReasoningContent() {
             <input
               value={queryInput}
               onChange={(e) => setQueryInput(e.target.value)}
-              aria-label="Ask ORCA"
-              placeholder="Ask ORCA a question to observe real-time agentic reasoning..."
+              aria-label="Ask Sagar Sarathi"
+              placeholder="Ask Sagar Sarathi a question to observe real-time agentic reasoning..."
               className="w-full rounded-xl border border-hairline bg-abyss/70 py-2.5 pl-10 pr-4 text-sm text-ink placeholder:text-ink-dim/60 transition-colors hover:border-hairline-strong focus:border-ocean-cyan/70 focus:outline-none"
             />
           </div>

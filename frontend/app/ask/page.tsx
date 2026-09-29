@@ -49,7 +49,7 @@ const INTENT_ICON: Record<QueryIntent, typeof Waves> = {
   general: MapPin,
 };
 
-// Iconic PS SIH26176 queries in the fishermen & maritime users' own words
+// Example queries in the fishermen & maritime users' own words
 const EXAMPLES = [
   "Is it safe to venture into the sea tomorrow morning?",
   "Where is the nearest Potential Fishing Zone (PFZ) today?",

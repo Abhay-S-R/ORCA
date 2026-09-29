@@ -97,7 +97,7 @@ const notoOriya = Noto_Sans_Oriya({
 });
 
 export const metadata: Metadata = {
-  title: "ORCA — Marine decision support",
+  title: "Sagar Sarathi — Marine decision support",
   description: "Marine safety intelligence, fishing zones and hazard charts for the Indian coastline.",
 };
 

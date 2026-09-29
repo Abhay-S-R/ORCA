@@ -129,9 +129,9 @@ function planToGpx(plan: VoyagePlanResponse): string {
     })
     .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="ORCA" xmlns="http://www.topografix.com/GPX/1/1">
+<gpx version="1.1" creator="Sagar Sarathi" xmlns="http://www.topografix.com/GPX/1/1">
   <rte>
-    <name>ORCA voyage ${plan.voyage_id}</name>
+    <name>Sagar Sarathi voyage ${plan.voyage_id}</name>
     <desc>${plan.verdict}: ${plan.verdict_reason}</desc>
 ${rtepts}
   </rte>
@@ -319,7 +319,7 @@ function VoyageContent() {
         .then(setTide)
         .catch(() => {});
     } catch {
-      setError("Could not reach ORCA. Check the backend is running and try again.");
+      setError("Could not reach Sagar Sarathi. Check the backend is running and try again.");
     } finally {
       setLoading(false);
     }
@@ -363,7 +363,7 @@ function VoyageContent() {
     <PageBody className="mx-auto max-w-7xl">
       <PageHeader
         title="Plan a voyage"
-        lede="Tap the chart to drop an origin and destination, or type coordinates. ORCA classifies every leg — shallows, boundaries, protected areas, rough sea and lightning — at that leg's own arrival time, not just conditions right now."
+        lede="Tap the chart to drop an origin and destination, or type coordinates. Sagar Sarathi classifies every leg — shallows, boundaries, protected areas, rough sea and lightning — at that leg's own arrival time, not just conditions right now."
       />
 
       <div className="grid gap-6 lg:grid-cols-[380px_1fr] print:block">
@@ -679,7 +679,7 @@ function VoyageContent() {
                   <Navigation className="mt-0.5 size-3.5 shrink-0 text-ocean-cyan" aria-hidden="true" />
                   <span>
                     <span className="font-semibold text-ink">Rerouted.</span> The direct line was blocked, so this
-                    plan is the best clearing alternate ORCA found — see the reason above for which one and why.
+                    plan is the best clearing alternate Sagar Sarathi found — see the reason above for which one and why.
                   </span>
                 </div>
               )}
@@ -708,7 +708,7 @@ function VoyageContent() {
               {plan.route_layer_dropped.length > 0 && (
                 <ErrorState
                   title="Route layer degraded"
-                  body={`The map overlay for this route failed ORCA's own validation and was dropped: ${plan.route_layer_dropped.join("; ")}. The waypoint table below is still the full, real result.`}
+                  body={`The map overlay for this route failed Sagar Sarathi's own validation and was dropped: ${plan.route_layer_dropped.join("; ")}. The waypoint table below is still the full, real result.`}
                 />
               )}
 

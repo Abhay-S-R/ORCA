@@ -167,7 +167,7 @@ async function authenticate(path: "/api/login" | "/api/register", body: object):
       body: JSON.stringify(body),
     });
   } catch {
-    return { ok: false, error: "Can't reach ORCA right now. Check your connection and try again." };
+    return { ok: false, error: "Can't reach Sagar Sarathi right now. Check your connection and try again." };
   }
   if (res.ok) {
     storePair(await res.json());

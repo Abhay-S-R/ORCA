@@ -32,10 +32,10 @@ export const TOUR_NEXT_STEP: Record<Persona, { label: string; href: string }> = 
 };
 
 const STEP_COPY: Record<1 | 2 | 3 | 4 | 5, { title: string; body: string }> = {
-  1: { title: "Step 1 of 5 — Ask your first question", body: "This is the question most people ask ORCA first. Run it and watch a real verdict arrive." },
+  1: { title: "Step 1 of 5 — Ask your first question", body: "This is the question most people ask Sagar Sarathi first. Run it and watch a real verdict arrive." },
   2: { title: "Step 2 of 5 — Watch the agents work", body: "Each one streams in below as it finishes — this is the actual pipeline running, not a recording." },
   3: { title: "Step 3 of 5 — Open a citation", body: "Every number on the answer card names its source. Tap a source chip above to see its dataset, timestamp and freshness." },
-  4: { title: "Step 4 of 5 — Ask a follow-up, in another language", body: "ORCA answers in whatever language you ask in. This follow-up is in Tamil." },
+  4: { title: "Step 4 of 5 — Ask a follow-up, in another language", body: "Sagar Sarathi answers in whatever language you ask in. This follow-up is in Tamil." },
   5: { title: "Step 5 of 5 — Why, and what's next", body: "See the full reasoning trace behind that answer, then move on to what you'd actually do next." },
 };
 
@@ -69,7 +69,7 @@ export function TourCard({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 16 }}
       role="dialog"
-      aria-label="ORCA tour"
+      aria-label="Sagar Sarathi tour"
       className="glass fixed bottom-4 right-4 z-40 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-hairline-strong/80 p-4 shadow-2xl"
     >
       <div className="flex items-start justify-between gap-2">

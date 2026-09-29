@@ -161,7 +161,7 @@ export function ChatTurn({
         <span className="min-w-0 break-words">{askedQuery}</span>
       </p>
 
-      {/* Differentiator 1 (§4.5): up to ten agents run per query. Inline
+      {/* Differentiator 1 (§4.5): up to twelve agents run per query. Inline
           while it thinks, staying permanently inspectable once the answer
           lands — with tick marks on all completed agents. */}
       {(displaySpans.length > 0 || runningAgent) && (

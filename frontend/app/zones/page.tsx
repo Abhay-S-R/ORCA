@@ -257,7 +257,7 @@ export default function ZonesPage() {
               </div>
               {data.nearest_pfz.beyond_reach && data.nearest_pfz.max_km != null && (
                 <p className="mb-2 text-xs text-caution">
-                  No advisory within {Math.round(data.nearest_pfz.max_km)} km — this is the nearest ORCA
+                  No advisory within {Math.round(data.nearest_pfz.max_km)} km — this is the nearest Sagar Sarathi
                   holds, beyond a realistic day trip.
                 </p>
               )}

@@ -136,7 +136,7 @@ export default function TrendsPage() {
 
       {error && (
         <ErrorState
-          title="Could not reach the ORCA API"
+          title="Could not reach the Sagar Sarathi API"
           body="The trends service did not respond. Start the backend, then reload this page."
         />
       )}
@@ -304,7 +304,7 @@ export default function TrendsPage() {
                 title="No reference period for this coast"
                 body={
                   data.wind_anomaly.note ??
-                  "ORCA holds no ERA5 baseline here, so it will not call anything anomalous."
+                  "Sagar Sarathi holds no ERA5 baseline here, so it will not call anything anomalous."
                 }
               />
             )}

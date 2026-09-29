@@ -101,9 +101,9 @@ export function NavRail() {
       >
         {/* "/" is the public landing page, outside this rail entirely —
             inside the app, the mark goes back to Ask, the app's own home. */}
-        <Link href="/ask" aria-label="ORCA home" className="group mb-3 relative grid place-items-center transition-transform hover:scale-105">
+        <Link href="/ask" aria-label="Sagar Sarathi home" className="group mb-3 relative grid place-items-center transition-transform hover:scale-105">
           <OrcaMark className="size-9" />
-          <span className="sr-only">ORCA</span>
+          <span className="sr-only">Sagar Sarathi</span>
         </Link>
         {visible.map(({ href, visibility }) => {
           const { Icon } = NAV[href];
@@ -284,7 +284,7 @@ export function SosButton() {
         {/* Never claim a delivery that did not happen. */}
         <p className="mt-3 border-t border-hairline pt-3 text-xs text-ink-dim">
           {reachedBackend === false
-            ? "ORCA could not reach its server, so nothing was logged. The numbers above are the nationwide Coast Guard contacts — call them directly."
+            ? "Sagar Sarathi could not reach its server, so nothing was logged. The numbers above are the nationwide Coast Guard contacts — call them directly."
             : "The handoff to DAT-SG is SIMULATED in this build: no alert has been transmitted. Calling is what reaches help."}
         </p>
 

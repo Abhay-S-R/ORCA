@@ -21,7 +21,7 @@ import { signOut, useAuth } from "./lib/auth";
 import { Greeting } from "./components/Greeting";
 
 const STATS = [
-  { label: "Agents in the crew", value: "10" },
+  { label: "Agents in the crew", value: "12" },
   { label: "Command stations", value: "4" },
   { label: "Languages", value: "10" },
   { label: "Coastline covered", value: "7,516 km" },
@@ -47,7 +47,7 @@ const STAKEHOLDER_STATIONS = [
     id: "researcher" as const,
     title: "Researcher",
     tagline: "The full reasoning trace behind a verdict, with every figure attributed and exportable.",
-    bullets: ["Ten-agent reasoning trace", "Chlorophyll & SST trends", "CSV / JSON export"],
+    bullets: ["Twelve-agent reasoning trace", "Chlorophyll & SST trends", "CSV / JSON export"],
     icon: Workflow,
   },
   {
@@ -96,7 +96,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-2.5">
             <OrcaMark className="size-9" />
             <span className="font-mono text-[11px] font-semibold tracking-widest text-ink-dim uppercase">
-              SIH26176 · Marine EcOsystem Reasoning with Collaborative Agents
+              Marine Ecosystem Reasoning with Collaborative Agents
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -119,7 +119,7 @@ export default function LandingPage() {
                   href="/ask"
                   className="inline-flex items-center gap-1.5 rounded-lg border border-ink bg-ink px-4 py-2 text-sm font-bold text-on-accent transition-transform hover:scale-[1.02] active:scale-[0.98]"
                 >
-                  Open ORCA
+                  Open Sagar Sarathi
                   <ArrowRight className="size-3.5" />
                 </Link>
                 <button
@@ -150,21 +150,21 @@ export default function LandingPage() {
               initial={reduce ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
-              className="font-display text-6xl font-black tracking-tight text-ink sm:text-8xl"
+              className="font-display text-5xl font-black tracking-tight text-ink sm:text-7xl lg:text-8xl"
             >
-              ORCA
+              Sagar Sarathi
             </motion.h1>
-            <svg viewBox="0 0 220 12" className="mt-1 h-3 w-56 text-ocean-cyan/60" aria-hidden="true">
-              <path d="M2 6 Q 20 -2, 38 6 T 74 6 T 110 6 T 146 6 T 182 6 T 218 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <svg viewBox="0 0 340 12" className="mt-1 h-3 w-72 max-w-full text-ocean-cyan/60" aria-hidden="true">
+              <path d="M2 6 Q 20 -2, 38 6 T 74 6 T 110 6 T 146 6 T 182 6 T 218 6 T 254 6 T 290 6 T 326 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
 
             <p className="mt-6 max-w-lg font-display text-2xl leading-snug font-semibold text-ink sm:text-3xl">
-              Ten agents read the sea. One safe,{" "}
+              Twelve agents read the sea. One safe,{" "}
               <span className="text-ocean-cyan">explainable</span> decision.
             </p>
 
             <p className="mt-5 max-w-xl text-sm leading-relaxed text-ink-muted sm:text-base">
-              ORCA fuses ISRO satellite observation, INCOIS ocean advisories, IMD weather and GIS boundary
+              Sagar Sarathi fuses ISRO satellite observation, INCOIS ocean advisories, IMD weather and GIS boundary
               geofences into one conversation — a fisherman, a navigator, a researcher and a coastal authority
               each get the same underlying facts, rendered for what they actually decide.
             </p>
@@ -189,7 +189,7 @@ export default function LandingPage() {
                 onClick={() => setPersona("fisherman")}
                 className="inline-flex items-center gap-2 rounded-lg border border-ink bg-ink px-5 py-2.5 text-sm font-bold text-on-accent transition-transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
               >
-                Log in to ORCA
+                Log in to Sagar Sarathi
                 <ArrowRight className="size-4" />
               </Link>
               <button
@@ -300,7 +300,7 @@ export default function LandingPage() {
         <section className="mt-20 border-t border-hairline pt-10">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
-              How ORCA decides
+              How Sagar Sarathi decides
             </h2>
             <span className="font-mono text-[11px] text-ink-dim">
               deterministic safety floors · nothing hidden
@@ -333,7 +333,7 @@ export default function LandingPage() {
             <Link href="/reasoning" className="hover:text-ink">Reasoning</Link>
           </div>
           <p className="mt-4 text-center text-xs text-ink-dim">
-            ORCA — Marine EcOsystem Reasoning with Collaborative Agents. Decision support, never a replacement
+            Sagar Sarathi — Marine Ecosystem Reasoning with Collaborative Agents. Decision support, never a replacement
             for an official advisory. Always follow the Coast Guard and government warnings.
           </p>
         </footer>

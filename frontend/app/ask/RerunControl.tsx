@@ -3,7 +3,7 @@
 // "Try again" on an answer card, plus the switcher for the runs it replaced.
 //
 // Re-running is not free here the way it is in a plain chat product: it puts
-// ten agents back through real datasets. So the control is quiet — a ghost
+// twelve agents back through real datasets. So the control is quiet — a ghost
 // icon in the card's top-right corner, not a button competing with the
 // answer — and it says what it does on hover, because "regenerate" would not
 // tell a fisherman that the boundary distance is about to be recomputed.
