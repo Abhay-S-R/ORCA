@@ -2877,3 +2877,17 @@ Remarks:
     - Full suite with keys and chains blanked (CI conditions): 879 passed. The 2 failures are the known `test_notifications` local-DB one and the flaky GDACS breaker.
     - ruff, mypy, eslint and the tiers self-check are clean. tsc shows only the stale `.next/types` errors.
 - **Noticed, not fixed:** the backend log shows `intent embeddings unavailable (ImportError: … is_torch_npu_available …)`. Tier 2 has been silently running on word overlap on this machine. This is relevant to revamp item 5.
+
+### [2026-09-30] Frontend readied for Vercel; deployment doc started
+
+- **By:** Claude (Opus 5.5).
+- **Files:** `frontend/next.config.ts`, `docs/ORCA_Deployment.md` (new).
+- **Commit:** — (uncommitted)
+- **Change:** on a Vercel build (`VERCEL` set), `next.config.ts` now fails the build unless `NEXT_PUBLIC_API_BASE_URL` starts with `https://`. Before this, a missing value silently baked `http://localhost:8000` into the bundle, and an `http://` value would be blocked as mixed content. Local builds are unaffected.
+- **Doc:** `docs/ORCA_Deployment.md` holds the status table, the Vercel dashboard steps (Root Directory `frontend`, the env vars, redeploying after an env change) and the backend candidates. The backend section is still to be written.
+- **Verification:**
+  - `VERCEL=1 NEXT_PUBLIC_API_BASE_URL=https://api.example.test npm run build`: 20 static routes built, and the URL is present in `.next/static/chunks`.
+  - Unset: the build fails with the guard's message.
+  - `http://x.test`: the build fails with the guard's message.
+  - `git ls-files -o -i --exclude-standard frontend`: no file the build needs is ignored.
+- **Not done:** the Vercel project itself has not been created. That needs the user's Vercel account.
