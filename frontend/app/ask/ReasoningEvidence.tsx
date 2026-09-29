@@ -43,10 +43,12 @@ export function RoutingLine({
   routing,
   latency,
   llmCalls,
+  failedAttempts,
 }: {
   routing: RoutingSummary;
   latency?: FinalResponse["latency"];
   llmCalls?: number;
+  failedAttempts?: number;
 }) {
   const tier = routing.routing_tier ? TIER_LABEL[routing.routing_tier] ?? routing.routing_tier : null;
 
@@ -80,8 +82,13 @@ export function RoutingLine({
       )}
 
       {llmCalls != null && (
-        <span className="font-mono" title="Provider calls actually made for this query — measured, not estimated.">
+        <span className="font-mono" title="Provider calls that returned an answer for this query — measured, not estimated. Failed attempts on a model that was down are counted separately.">
           {llmCalls} LLM {llmCalls === 1 ? "call" : "calls"}
+          {!!failedAttempts && (
+            <span className="text-ink-dim/80">
+              {" "}· {failedAttempts} failed {failedAttempts === 1 ? "attempt" : "attempts"}
+            </span>
+          )}
         </span>
       )}
     </div>

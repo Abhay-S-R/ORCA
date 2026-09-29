@@ -137,6 +137,8 @@ export type FinalResponse = {
   };
   // P2.13 — measured provider calls for this query, not an estimate.
   llm_call_count?: number;
+  // Attempts that failed (a provider down, then a fallback) — not calls.
+  llm_failed_attempts?: number;
   // P2.11 — whether any LLM was reachable for this query.
   llm_enabled?: boolean;
   // Chatbot plan C0.2 — which engine wrote the answer text. "Deterministic — …"

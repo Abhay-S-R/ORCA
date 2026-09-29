@@ -2847,3 +2847,33 @@ Remarks:
   5. Delete the synonym and word-overlap fallback.
   6. A messy-prompt test file.
 - **Details:** the evidence, the list inventory and the plan are in `docs/ORCA_Prompt_Routing_Revamp.md`.
+
+### [2026-09-29] Logged, not fixed — "12 LLM calls" counts failed attempts, not calls
+
+- **By:** Claude (Opus 5.5). No code changed.
+- **Symptom:** one PFZ question showed "12 LLM calls", 43.3 s of agent time, and the Critic slowest at 16.2 s.
+- **Cause:** `orca/llm/tiers.py` counts in `_TieredClient.complete`, which runs once per attempt. With Gemini returning 503, each of about four real calls (Planning, Reporting, Critic judge and revise) costs a Gemini attempt, a retry and then Groq.
+- **To do:** count only the calls that returned text, and show failed attempts separately. See section 8 of `docs/ORCA_Prompt_Routing_Revamp.md`.
+
+### [2026-09-29] LLM chain — Groq/Gemini reassigned per agent; failing model skipped for 2 min; "LLM calls" counts answers
+
+- **Implements:** revamp item 1 and the section 8 counter fix in `docs/ORCA_Prompt_Routing_Revamp.md`.
+- **By:** Claude (Opus 5.5).
+- **Files:** `.env` (the three `ORCA_LLM_*_CHAIN` lines; no key values touched), `.env.example`, `backend/orca/llm/tiers.py`, `backend/orca/api/main.py`, `frontend/app/ask/ReasoningEvidence.tsx`, `frontend/app/ask/ChatTurn.tsx`, `frontend/app/ask/useAskThread.ts`, `backend/tests/unit/test_response_guarantee.py`, `backend/tests/unit/test_phase2_reasoning.py`.
+- **Commit:** — (uncommitted)
+- **Assignment:**
+  - Planning (cheap): `groq gpt-oss-20b` → `gemini flash-lite-latest` → `groq gpt-oss-120b`.
+  - Reporting and all guard replies (mid): `groq gpt-oss-120b` → `gemini flash-lite-latest` → `gemini 3.5-flash-lite` → local `gemma4:e4b`.
+  - Critic (reasoning): `gemini flash-lite-latest` → `groq gpt-oss-20b`, so a different company's model reviews Groq's answer.
+  - Probe that day: Groq 0.4–0.7 s, Gemini flash-lite-latest 0.7–1.2 s, 3.5-flash-lite 0.8–6.1 s after a day of 503/504s.
+- **Cooldown:** a hosted rung that fails is skipped by every call for 120 s (`_COOLDOWN_S`). It goes to the back of the order rather than out of it, so it is still the last resort. A success clears it. A 503 is retried on the same rung only when no healthy rung comes after it. The local rung is never cooled.
+- **Counter:** `reset_llm_call_count()` is now `[answered, failed]`. The payload adds `llm_failed_attempts`, and the routing line reads "N LLM calls · M failed attempts". The "12 LLM calls" turn had made about four calls.
+- **Verification:** own backend on :8001, real `/query`:
+  - "wheres the nearest fishing zone near kochi": 13.8 s, 4 calls, 0 failed. Reporting on Groq in 1.4–1.6 s, Critic on Gemini in 2.1 s. The rest of the time is the data agents (weather 4.1 s, ocean 3.2 s).
+  - "is it safe to go to sea tomorrow near rameswaram": 12.6 s, 2 calls, 0 failed.
+  - "hi": 4.0 s.
+  - Checks:
+    - 4 new or updated chain tests.
+    - Full suite with keys and chains blanked (CI conditions): 879 passed. The 2 failures are the known `test_notifications` local-DB one and the flaky GDACS breaker.
+    - ruff, mypy, eslint and the tiers self-check are clean. tsc shows only the stale `.next/types` errors.
+- **Noticed, not fixed:** the backend log shows `intent embeddings unavailable (ImportError: … is_torch_npu_available …)`. Tier 2 has been silently running on word overlap on this machine. This is relevant to revamp item 5.

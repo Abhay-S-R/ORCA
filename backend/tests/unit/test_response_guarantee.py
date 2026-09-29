@@ -83,6 +83,7 @@ def providers(monkeypatch):
     monkeypatch.delenv("ORCA_LLM_MID_BUDGET_S", raising=False)
     monkeypatch.delenv("ORCA_LLM_ENABLED", raising=False)
     monkeypatch.setattr(tiers, "_RETRY_BACKOFF_S", 0)
+    monkeypatch.setattr(tiers, "_cooling_until", {})
 
     def install(script: dict) -> _Scripted:
         fake = _Scripted(script)
@@ -102,12 +103,44 @@ def test_a_stalled_primary_is_not_retried_and_the_next_rung_answers(providers):
     assert [m for m, _ in fake.calls] == ["primary", "second"], "a timeout must not be retried on the same rung"
 
 
-def test_a_busy_primary_is_retried_once_before_moving_on(providers):
-    fake = providers({"primary": [_BUSY, "second try worked"], "second": "unused"})
+def test_a_busy_primary_moves_straight_to_a_healthy_next_rung(providers):
+    fake = providers({"primary": [_BUSY, "unused"], "second": "written by the second model"})
+    client = tiers.llm("mid")
+    assert client.complete([{"role": "user", "content": "x"}]) == "written by the second model"
+    assert [m for m, _ in fake.calls] == ["primary", "second"], "the same overloaded model is a worse retry than the next one"
+
+
+def test_a_busy_last_hosted_rung_is_retried_once(providers, monkeypatch):
+    monkeypatch.setenv("ORCA_LLM_MID_CHAIN", "gemini:primary")
+    fake = providers({"primary": [_BUSY, "second try worked"]})
     client = tiers.llm("mid")
     assert client.complete([{"role": "user", "content": "x"}]) == "second try worked"
     assert client.engine == "gemini · primary"
     assert [m for m, _ in fake.calls] == ["primary", "primary"]
+
+
+def test_a_failed_rung_is_skipped_by_later_calls_until_its_cooldown_ends(providers, monkeypatch):
+    fake = providers({"primary": [_BUSY, "primary is back"], "second": "second"})
+    assert tiers.llm("mid").complete([{"role": "user", "content": "x"}]) == "second"
+    fake.calls.clear()
+    client = tiers.llm("mid")
+    assert client.complete([{"role": "user", "content": "x"}]) == "second"
+    assert [m for m, _ in fake.calls] == ["second"], "a rung in its cooldown must not be tried first"
+    assert client.engine == "gemini · second (fallback)"
+
+    # Cooldown over: the primary is tried first again, and answering clears it.
+    monkeypatch.setattr(tiers, "_cooling_until", {k: 0.0 for k in tiers._cooling_until})
+    fake.calls.clear()
+    client = tiers.llm("mid")
+    assert client.complete([{"role": "user", "content": "x"}]) == "primary is back"
+    assert client.engine == "gemini · primary"
+    assert ("gemini", "primary") not in tiers._cooling_until
+
+
+def test_a_cooling_rung_is_still_the_last_resort(providers):
+    providers({"primary": [_BUSY, "primary recovered"], "second": _TIMEOUT, "local": RuntimeError("no ollama")})
+    tiers._cooling_until[("gemini", "primary")] = float("inf")
+    assert tiers.llm("mid").complete([{"role": "user", "content": "x"}]) == "primary recovered"
 
 
 def test_an_empty_reply_is_not_an_answer(providers):

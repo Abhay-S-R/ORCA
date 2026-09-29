@@ -110,10 +110,13 @@ _call_count: ContextVar[list[int] | None] = ContextVar("orca_llm_calls", default
 
 def reset_llm_call_count() -> list[int]:
     """Starts a fresh counter for this request and returns the list it will
-    be counted into — a one-element list rather than an int because a
-    ContextVar set on a worker thread would not be visible to the caller,
-    whereas a mutation of a shared list is."""
-    counter = [0]
+    be counted into — a list rather than an int because a ContextVar set on a
+    worker thread would not be visible to the caller, whereas a mutation of a
+    shared list is. `[answered, failed]`: found 2026-09-29, one question showed
+    "12 LLM calls" while making four — each attempt on an overloaded Gemini
+    (try, retry, then Groq) was counted as a call. Failed attempts still cost
+    quota, so they are counted, just not as calls."""
+    counter = [0, 0]
     _call_count.set(counter)
     return counter
 
@@ -123,10 +126,15 @@ def llm_call_count() -> int:
     return counter[0] if counter else 0
 
 
-def _count_call() -> None:
+def llm_failed_call_count() -> int:
+    counter = _call_count.get()
+    return counter[1] if counter else 0
+
+
+def _count_call(*, failed: bool = False) -> None:
     counter = _call_count.get()
     if counter:
-        counter[0] += 1
+        counter[1 if failed else 0] += 1
 
 
 @dataclass
@@ -140,15 +148,18 @@ class _TieredClient:
         return f"{self.provider_name} · {self.model}"
 
     def complete(self, messages: list[dict[str, str]], **kw: Any) -> str:
-        _count_call()
         try:
-            return get_provider(self.provider_name).complete(messages, model=self.model, **kw)
+            text = get_provider(self.provider_name).complete(messages, model=self.model, **kw)
         except LLMUnavailable:
+            _count_call(failed=True)
             raise
         except Exception as exc:  # a 429 must degrade, not crash
+            _count_call(failed=True)
             reason = _classify_provider_failure(exc)
             logger.warning("llm %s/%s: %s", self.provider_name, self.model, reason)
             raise LLMUnavailable(reason) from exc
+        _count_call()
+        return text
 
     def stream(self, messages: list[dict[str, str]], **kw: Any) -> Iterator[str]:
         _count_call()
@@ -201,9 +212,20 @@ _LOCAL_RESERVE_S = 20.0
 _MIN_ATTEMPT_S = 2.0
 _RETRY_BACKOFF_S = 1.0
 
+# A hosted rung that just failed is skipped by every call for this long, then
+# tried again. Found 2026-09-28: with gemini-3.5-flash-lite returning 503s,
+# every call on every question re-paid 10-20 s of failure before Groq answered
+# in ~1 s, because nothing remembered the rung was down. Now the first caller
+# pays once and the rest go straight to the next rung. Process-wide on purpose
+# (an outage is not per-request); a success clears it early.
+_COOLDOWN_S = 120.0
+_cooling_until: dict[tuple[str, str], float] = {}
+
 # A failure worth one immediate retry on the same rung: the provider answered
 # fast and said "not right now". A timeout is not in here — waiting the same
 # 12 s again on the model that just stalled is budget the next rung needs.
+# Retried only when no healthy rung comes after it: a different model is a
+# better second try than the same overloaded one.
 _RETRYABLE = ("429", "resource_exhausted", "rate limit", "500", "502", "503", "unavailable", "overloaded")
 _TIMEOUTS = ("timeout", "timed out", "deadline exceeded", "504")
 
@@ -273,9 +295,13 @@ class _ChainClient:
         budget = float(os.environ.get(f"ORCA_LLM_{self.tier.upper()}_BUDGET_S") or _BUDGET_S[self.tier])
         deadline = time.monotonic() + budget
         failures: list[str] = []
-        for i, (provider, model) in enumerate(self.rungs):
+        # Rungs in their cooldown go to the back, not out: if everything else
+        # fails too, one of them may have recovered, and an answer beats none.
+        now = time.monotonic()
+        order = sorted(self.rungs, key=lambda r: _cooling_until.get(r, 0.0) > now)
+        for i, (provider, model) in enumerate(order):
             local = provider == "ollama"
-            reserve = sum(_LOCAL_RESERVE_S for p, _ in self.rungs[i + 1:] if p == "ollama")
+            reserve = sum(_LOCAL_RESERVE_S for p, _ in order[i + 1:] if p == "ollama")
             for attempt in range(1 if local else 2):
                 left = deadline - time.monotonic() - reserve
                 timeout = left if local else min(_HOSTED_CAP_S, left)
@@ -286,7 +312,11 @@ class _ChainClient:
                     text = _TieredClient(provider, model).complete(messages, timeout_s=timeout, **kw)
                 except LLMUnavailable as exc:
                     failures.append(f"{provider}/{model}: {exc.reason}")
-                    if attempt == 0 and not local and _retryable(exc):
+                    if local:
+                        break
+                    _cooling_until[(provider, model)] = time.monotonic() + _COOLDOWN_S
+                    healthy_after = any(_cooling_until.get(r, 0.0) <= time.monotonic() for r in order[i + 1:])
+                    if attempt == 0 and _retryable(exc) and not healthy_after:
                         time.sleep(_RETRY_BACKOFF_S)
                         continue
                     break
@@ -294,7 +324,9 @@ class _ChainClient:
                     # A safety block or an empty candidate is not an answer.
                     failures.append(f"{provider}/{model}: empty reply")
                     break
-                self.engine = f"{provider} · {model}" + (" (fallback)" if i else "")
+                _cooling_until.pop((provider, model), None)
+                fallback = (provider, model) != self.rungs[0]
+                self.engine = f"{provider} · {model}" + (" (fallback)" if fallback else "")
                 return text
         raise LLMUnavailable("; ".join(failures) or f"no provider configured for tier {self.tier!r}")
 

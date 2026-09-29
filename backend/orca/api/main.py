@@ -735,6 +735,8 @@ async def _query_stream(
             # P2.13 — measured, not asserted. §6.2's cost-per-query number is
             # computed from this rather than from an estimate of it.
             "llm_call_count": llm_calls[0],
+            # Failed attempts cost quota too, but are not calls (2026-09-29).
+            "llm_failed_attempts": llm_calls[1],
             # P2.11 — whether any LLM was reachable for this query at all, so
             # the UI can label a deterministic run instead of it silently
             # looking like an ordinary one.

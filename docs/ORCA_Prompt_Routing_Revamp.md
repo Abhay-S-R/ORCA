@@ -164,6 +164,8 @@ pays the Gemini failure on every message.
 
 ## 7. Work items, in order
 
+_Status 2026-09-29: item 1 and the section 8 counter fix are done (see the implementation log). Items 2–6 are open._
+
 1. **LLM keys and chain: reassign the Groq and Gemini keys properly** and add a
    per-rung cooldown. Gemini is returning 5xx.
    - Re-check which key each provider reads (`GEMINI_API_KEY`/`GOOGLE_API_KEY`,
@@ -201,3 +203,19 @@ pays the Gemini failure on every message.
 Before implementing, these are to be written as numbered points in the DLC
 implementation plan, per the standing planning rule. Each point is recorded in
 `DLC_implementation_log.md` as it lands.
+
+## 8. Logged 2026-09-29: the "N LLM calls" counter counts failed attempts
+
+A "nearest fishing zone from my current location" turn showed **"12 LLM calls"**
+and 43.3 s of agent time, with the Critic slowest at 16.2 s.
+
+- **Cause:** `tiers._count_call()` runs inside `_TieredClient.complete`, which
+  runs once per *attempt*, not once per answered call.
+- **What that turn made:** it made about four real model calls: Planning's
+  classifier, the Reporting narrative, the Critic judge and the Critic revise.
+  But while Gemini returns 503, each call is a Gemini attempt, a retry and then
+  Groq, so 4 × 3 = 12.
+- **What to fix:** report the calls that returned text, and optionally the
+  failed attempts separately (e.g. "4 LLM calls · 8 failed attempts"). Once the
+  per-rung cooldown in item 1 lands, the failed-attempt count should mostly fall
+  to zero on its own.

@@ -196,7 +196,7 @@ export function ChatTurn({
               beside it, because "how long did that take" is the other
               question every judge asks about an agent graph. */}
           {answer?.routing && answer.routing.matched_intent_rows.length > 0 && (
-            <RoutingLine routing={answer.routing} latency={answer.latency} llmCalls={answer.llm_call_count} />
+            <RoutingLine routing={answer.routing} latency={answer.latency} llmCalls={answer.llm_call_count} failedAttempts={answer.llm_failed_attempts} />
           )}
         </div>
       )}

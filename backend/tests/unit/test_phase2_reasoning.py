@@ -469,7 +469,8 @@ def test_a_rate_limited_provider_degrades_to_the_deterministic_line() -> None:
 
 def test_every_provider_call_is_counted_including_ones_that_fail() -> None:
     """§6.2's cost-per-query number is measured, so a failed call still cost a
-    request against the quota and has to be in it."""
+    request against the quota and has to be in it — as a failed attempt, not
+    as a call (a question making four calls once showed "12 LLM calls")."""
     from orca.llm import tiers
 
     class _Boom:
@@ -481,7 +482,7 @@ def test_every_provider_call_is_counted_including_ones_that_fail() -> None:
         client = tiers._TieredClient("gemini", "m")
         with pytest.raises(LLMUnavailable):
             client.complete([{"role": "user", "content": "x"}])
-    assert tiers.llm_call_count() == 1
+    assert (tiers.llm_call_count(), tiers.llm_failed_call_count()) == (0, 1)
 
 
 # --- found by looking at the running UI, not by the tests above -------------
