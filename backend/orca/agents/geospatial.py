@@ -460,7 +460,9 @@ def bathymetry_heatmap_points(stride: int | None = None) -> list[dict[str, float
         stride = max(1, round(max(ds.sizes["lat"], ds.sizes["lon"]) / 45))
     lats = ds["lat"].values[::stride]
     lons = ds["lon"].values[::stride]
-    elevation = ds["elevation"].values[::stride, ::stride]
+    # Stride before .values: the other order read the whole national grid
+    # (~190 MB) to keep 1 cell in `stride`², enough alone to OOM a 512 MB host.
+    elevation = ds["elevation"][::stride, ::stride].values
     points: list[dict[str, float]] = []
     for i, lat in enumerate(lats):
         for j, lon in enumerate(lons):

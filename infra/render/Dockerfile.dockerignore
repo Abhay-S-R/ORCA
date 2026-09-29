@@ -1,0 +1,4 @@
+# Allowlist: only what infra/render/Dockerfile copies. Keeps .env, frontend/ and the rest out.
+*
+!data
+!scripts/refresh_fishing_ban_order.py

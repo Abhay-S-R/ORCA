@@ -47,6 +47,7 @@ import wave
 from dataclasses import dataclass
 from typing import Literal, Protocol, get_args
 
+from orca import local_models
 from orca.agents.language import Language
 
 # ISO 639-3-ish codes facebook/mms-tts-<code> expects — a different code
@@ -169,9 +170,12 @@ class FasterWhisperBackend:
 
     def _get_model(self):
         if self._model is None:
-            from faster_whisper import WhisperModel
+            with local_models.loading("faster-whisper"):
+                if self._model is not None:  # loaded by the thread that held the lock
+                    return self._model
+                from faster_whisper import WhisperModel
 
-            self._model = WhisperModel("small", device="cpu", compute_type="int8")
+                self._model = WhisperModel("small", device="cpu", compute_type="int8")
         return self._model
 
     def transcribe(self, audio: bytes, language_hint: Language | None) -> TranscriptionResult:
@@ -246,18 +250,21 @@ class MmsTtsBackend:
 
     def _get_model(self, lang_code: str):
         if lang_code not in self._models:
-            t0 = time.monotonic()
-            from transformers import AutoTokenizer, VitsModel
+            with local_models.loading("MMS-TTS"):
+                if lang_code in self._models:
+                    return self._models[lang_code]
+                t0 = time.monotonic()
+                from transformers import AutoTokenizer, VitsModel
 
-            tokenizer = AutoTokenizer.from_pretrained(f"facebook/mms-tts-{lang_code}")
-            # Same lazy-module resolution as language.py's IndicTrans2 loader:
-            # transformers' public names are not statically visible, so this
-            # working call reads as calling None.
-            # pyrefly: ignore[not-callable]
-            model = VitsModel.from_pretrained(f"facebook/mms-tts-{lang_code}")
-            model.eval()
-            self._models[lang_code] = (tokenizer, model)
-            logger.info("MMS-TTS model loaded for %s in %.1fs", lang_code, time.monotonic() - t0)
+                tokenizer = AutoTokenizer.from_pretrained(f"facebook/mms-tts-{lang_code}")
+                # Same lazy-module resolution as language.py's IndicTrans2 loader:
+                # transformers' public names are not statically visible, so this
+                # working call reads as calling None.
+                # pyrefly: ignore[not-callable]
+                model = VitsModel.from_pretrained(f"facebook/mms-tts-{lang_code}")
+                model.eval()
+                self._models[lang_code] = (tokenizer, model)
+                logger.info("MMS-TTS model loaded for %s in %.1fs", lang_code, time.monotonic() - t0)
         return self._models[lang_code]
 
     def speak(self, text: str, language: Language) -> bytes:

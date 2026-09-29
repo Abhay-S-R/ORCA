@@ -2891,3 +2891,67 @@ Remarks:
   - `http://x.test`: the build fails with the guard's message.
   - `git ls-files -o -i --exclude-standard frontend`: no file the build needs is ignored.
 - **Not done:** the Vercel project itself has not been created. That needs the user's Vercel account.
+
+### [2026-09-30] `ORCA_PRELOAD_LOCAL_MODELS=0` switch; Render free (512 MB) measured, does not fit
+
+- **By:** Claude (Opus 5.5).
+- **Files:** `backend/orca/api/main.py`, `.env.example`, `docs/ORCA_Deployment.md`.
+- **Commit:** — (uncommitted)
+- **Change:** `_lifespan` wraps every startup warm-up in `if ORCA_PRELOAD_LOCAL_MODELS != "0"`. The warm-ups cover IndicTrans2, faster-whisper, MMS-TTS, the e5 intent model and the Ollama model. The default (blank or `1`) is unchanged. With `0`, each model still loads lazily on first use.
+- **Verification:** real `backend/Dockerfile` image, `docker run --memory=512m --memory-swap=512m`.
+  - Default: OOM-killed (`OOMKilled=true`, exit 137) about 15 s after startup. Uncapped it measured 824 MB after warm-up and 864 MB after two queries.
+  - Switch at `0`: startup survives at about 175 MB. The first query ("hi") was then OOM-killed, because the e5 intent model loads lazily on the first query (165 → 677 MB uncapped).
+  - Switch at `0` with e5 also unloadable: 5 queries survived, most of them served from Redis cache. An uncached romanised-Hindi safety query near Rameswaram was OOM-killed while the data agents were fetching and processing, with no model loading. Uncapped with `fresh=true`, one safety query used 633 MB and memory settled around 880 MB after 4 queries.
+  - `ruff check` passes on `main.py`.
+- **Conclusion:** 512 MB cannot run the normal query path even with every local model skipped. At least 2 GB is needed. The switch is still useful on a 2 GB host, to leave headroom.
+- **Noticed, not fixed:** the slim image lacks `libexpat1`, so xarray's rasterio engine fails to load in the container.
+
+### [2026-09-30] `ORCA_LOCAL_MODELS` switch, image import fixes, query-path memory cut to fit Render free (512 MB)
+
+- **By:** Claude (Opus 5.5).
+- **Files:**
+  - Switch: `backend/orca/local_models.py` (new), `backend/orca/agents/language.py`, `backend/orca/agents/voice.py`, `backend/orca/intent_embeddings.py`, `backend/orca/llm/tiers.py`, `backend/orca/api/main.py`, `.env.example`.
+  - Memory: `backend/orca/agents/geospatial.py`, `backend/orca/data/satellite_loaders.py`.
+  - Image: `backend/requirements.txt`, `backend/Dockerfile`, `infra/render/Dockerfile` (new), `infra/render/Dockerfile.dockerignore` (new).
+  - Docs: `docs/ORCA_Deployment.md` §2.
+- **Commit:** — (uncommitted)
+- **Switch:**
+  - `ORCA_LOCAL_MODELS=0` replaces the earlier `ORCA_PRELOAD_LOCAL_MODELS` (same day, never committed). It is now enforced at every loader through `local_models.loading()`, so a model is never loaded, whether at startup or on first use. That covers IndicTrans2 (both models and the processor), faster-whisper, MMS-TTS, e5 and the Ollama rung, which `tiers.chain_for` drops.
+  - When off, a loader raises `RuntimeError`, which every existing fallback chain already treats as "rung unavailable". Bhashini handles translation and speech, word overlap handles routing, and the hosted LLMs handle answers.
+  - Blank or `1` leaves behaviour unchanged.
+- **Import fix:**
+  - `ImportError: cannot import name 'is_torch_npu_available'` in e5 was a race: two warm-up threads imported `transformers` for the first time at once. It was reproduced (parallel fails, sequential loads).
+  - `loading()` holds one process-wide RLock, so loads never overlap. In the image, e5 now logs `intent embeddings ready`.
+- **Install fixes:**
+  - `IndicTransToolkit>=1.1; sys_platform != "win32"` added. The IndicTrans2 processor used to fail in the image. transformers stays at 4.46.3.
+  - `libexpat1` added. xarray's rasterio engine now registers.
+  - The CMD listens on `${PORT:-8000}`.
+  - `MALLOC_ARENA_MAX=2` set.
+- **Memory:** traced with tracemalloc on the real image.
+  - `bathymetry_heatmap_points` called `.values` before striding, so it read the whole national GEBCO grid (~190 MB) per call.
+  - `_insat_grid` cached the full disc in float64, 4 slots, ~190 MB per granule. It is now float32, 1 slot, cropped to `INDIA_BBOX` ± 5° (~8% of the disc).
+  - Both return value-identical results: the GEBCO stride equals the old output, INSAT lat has 0 mismatches at 3 dp, and the SST max difference is 0.0. The loader self-check passes after the crop.
+- **Verification:**
+  - Switch on, no memory cap: every model warmed without error. "hi" and a Tamil safety query both answered, with memory at 1.3–1.8 GB. `IndicTrans2Backend` translated en→ta and ta→en in the container.
+  - Switch off, `--memory=512m`, uncached queries in a row: startup 174 MB, then Rameswaram safety 279, Tamil safety 310, `kal kochi ke paas samundar kaisa rahega` 326, `pfzs near ktaka` 337, `hi` 337. There was no OOM. Before the memory fix, the first safety query peaked at 889 MB and was killed.
+  - `ruff check orca` clean. `python -m orca.local_models` self-check ok.
+  - Unit suite: 1186 passed and 3 failed. The failures are `test_notifications.py` (2), which counts leftover rows in the local DB (22 vs 1), and `test_gdacs_tracks_circuit_breaker…`, which passes alone and is order-dependent. None of them touch these files.
+- **Noticed, not fixed:** `pfzs near ktaka` is still refused as out of scope. This is the chatbot read defect in `docs/ORCA_Prompt_Routing_Revamp.md`.
+- **Not done:** pushing the image, and creating the Neon, Key Value and Render services. These need the user's accounts; the steps are in `docs/ORCA_Deployment.md` §2.
+
+### [2026-09-30] Vercel build defaults the API URL to the planned Render backend
+
+- **By:** Claude (Opus 5.5).
+- **Files:** `frontend/next.config.ts`, `docs/ORCA_Deployment.md` §1.
+- **Commit:** — (uncommitted)
+- **Change:**
+  - On a Vercel build with `NEXT_PUBLIC_API_BASE_URL` unset, the config now bakes in `https://orca-backend.onrender.com` through Next's `env` key, instead of failing the build. This lets the frontend deploy before the backend.
+  - A dashboard value still wins, and an `http://` value still fails the build.
+  - Local builds are unchanged.
+- **Verification:** four real builds, each checked with a grep of `.next/static/chunks`.
+  - Vercel, unset: builds, with the Render URL baked in and no `localhost:8000`.
+  - Vercel, `https://api.example.test`: builds, with that URL baked in.
+  - Vercel, `http://x.test`: fails with the guard's message.
+  - Local: builds, with `localhost:8000` baked in.
+  - `eslint` and `tsc` are clean.
+- **Caveat:** if the name `orca-backend` is taken on Render when the backend is created, set the dashboard variable to the real URL and redeploy.

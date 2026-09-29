@@ -96,13 +96,19 @@ def _recency(recency_source_id: str, acquired: datetime) -> dict[str, Any]:
 
 # --- INSAT-3DR SST (HDF5) --------------------------------------------------
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=1)
 def _insat_grid(path_str: str) -> tuple[Any, Any, Any]:
-    """(lat, lon, sst_celsius) as masked float arrays for one granule.
+    """(lat, lon, sst_celsius) as masked float32 arrays for one granule,
+    cropped to the rows/columns around India.
 
     Cached because the navigation arrays are 2816x2805 int16 each and the
     payload another 2816x2805 float32 — ~60 MB of reads that must not happen
-    once per request.
+    once per request. What is cached is kept small, because the full-disc
+    float64 grids held ~190 MB and alone put a query past a 512 MB host
+    (Render free): only the rectangle covering INDIA_BBOX plus a 5° margin is
+    kept (~8% of the disc — every caller's bbox is inside INDIA_BBOX), in
+    float32 (exact past the 3-decimal lat/lon and 2-decimal SST served), in
+    one cache slot (only the newest granule is ever read).
     """
     import h5py
     import numpy as np
@@ -110,13 +116,23 @@ def _insat_grid(path_str: str) -> tuple[Any, Any, Any]:
     with h5py.File(path_str, "r") as f:
         lat_raw = f["Latitude"][:]
         lon_raw = f["Longitude"][:]
-        sst_raw = f["SST_DLY"][0, :, :]
+        pad = 5.0 / _LATLON_SCALE
+        near = (
+            (lat_raw != _LATLON_FILL) & (lon_raw != _LATLON_FILL)
+            & (lat_raw >= INDIA_BBOX["min_lat"] / _LATLON_SCALE - pad) & (lat_raw <= INDIA_BBOX["max_lat"] / _LATLON_SCALE + pad)
+            & (lon_raw >= INDIA_BBOX["min_lon"] / _LATLON_SCALE - pad) & (lon_raw <= INDIA_BBOX["max_lon"] / _LATLON_SCALE + pad)
+        )
+        rows, cols = np.nonzero(near.any(axis=1))[0], np.nonzero(near.any(axis=0))[0]
+        r0, r1, c0, c1 = rows.min(), rows.max() + 1, cols.min(), cols.max() + 1
+        lat_raw, lon_raw = lat_raw[r0:r1, c0:c1], lon_raw[r0:r1, c0:c1]
+        sst_raw = f["SST_DLY"][0, r0:r1, c0:c1]
 
-    lat = np.where(lat_raw == _LATLON_FILL, np.nan, lat_raw * _LATLON_SCALE)
-    lon = np.where(lon_raw == _LATLON_FILL, np.nan, lon_raw * _LATLON_SCALE)
-    sst = np.where(sst_raw == _SST_FILL, np.nan, sst_raw - _KELVIN_ZERO_C)
+    f32 = np.float32
+    lat = np.where(lat_raw == _LATLON_FILL, f32(np.nan), lat_raw.astype(f32) * f32(_LATLON_SCALE))
+    lon = np.where(lon_raw == _LATLON_FILL, f32(np.nan), lon_raw.astype(f32) * f32(_LATLON_SCALE))
+    sst = np.where(sst_raw == _SST_FILL, f32(np.nan), sst_raw.astype(f32) - f32(_KELVIN_ZERO_C))
     lo, hi = _SST_VALID_C
-    sst = np.where((sst >= lo) & (sst <= hi), sst, np.nan)
+    sst = np.where((sst >= lo) & (sst <= hi), sst, f32(np.nan))
     return lat, lon, sst
 
 

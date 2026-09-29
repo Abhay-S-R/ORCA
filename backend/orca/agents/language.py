@@ -45,6 +45,7 @@ import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Literal, Protocol
 
+from orca import local_models
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 
 if TYPE_CHECKING:
@@ -173,37 +174,43 @@ class IndicTrans2Backend:
 
     def _get_model(self, model_name: str):
         if model_name not in self._models:
-            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+            with local_models.loading("IndicTrans2"):
+                if model_name in self._models:  # loaded by the thread that held the lock
+                    return self._models[model_name]
+                from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
-            tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-            # transformers resolves its public names through a lazy module, so a
-            # checker sees `AutoModelForSeq2SeqLM` as None rather than a class. The
-            # sibling AutoTokenizer call above is not flagged only because it
-            # happens to resolve; both are the same real, working import.
-            # pyrefly: ignore[not-callable]
-            model = AutoModelForSeq2SeqLM.from_pretrained(model_name, trust_remote_code=True)
-            model.eval()
-            self._models[model_name] = (tokenizer, model)
+                tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+                # transformers resolves its public names through a lazy module, so a
+                # checker sees `AutoModelForSeq2SeqLM` as None rather than a class. The
+                # sibling AutoTokenizer call above is not flagged only because it
+                # happens to resolve; both are the same real, working import.
+                # pyrefly: ignore[not-callable]
+                model = AutoModelForSeq2SeqLM.from_pretrained(model_name, trust_remote_code=True)
+                model.eval()
+                self._models[model_name] = (tokenizer, model)
         return self._models[model_name]
 
     def _get_processor(self):
         if self._processor is None:
-            try:
-                from IndicTransToolkit.processor import IndicProcessor
-            except ModuleNotFoundError as exc:
-                # Optional native dependency (requires MSVC C++ Build Tools on
-                # Windows — requirements.txt leaves it commented out on a dev
-                # machine without them). Surfaced as RuntimeError so it degrades
-                # through the same "no translation backend" path as an
-                # unregistered backend, rather than crashing run_ingress/
-                # run_egress with an exception their narrower except clause
-                # doesn't catch.
-                raise RuntimeError(
-                    "IndicTransToolkit is not installed (optional dependency, "
-                    "requires MSVC C++ Build Tools on Windows — see requirements.txt)."
-                ) from exc
+            with local_models.loading("IndicTrans2 processor"):
+                if self._processor is not None:
+                    return self._processor
+                try:
+                    from IndicTransToolkit.processor import IndicProcessor
+                except ModuleNotFoundError as exc:
+                    # Optional native dependency (requires MSVC C++ Build Tools on
+                    # Windows — requirements.txt leaves it commented out on a dev
+                    # machine without them). Surfaced as RuntimeError so it degrades
+                    # through the same "no translation backend" path as an
+                    # unregistered backend, rather than crashing run_ingress/
+                    # run_egress with an exception their narrower except clause
+                    # doesn't catch.
+                    raise RuntimeError(
+                        "IndicTransToolkit is not installed (optional dependency, "
+                        "requires MSVC C++ Build Tools on Windows — see requirements.txt)."
+                    ) from exc
 
-            self._processor = IndicProcessor(inference=True)
+                self._processor = IndicProcessor(inference=True)
         return self._processor
 
     def warm(self) -> None:

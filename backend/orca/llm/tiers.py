@@ -24,6 +24,7 @@ for _p in [Path(__file__).resolve().parents[3] / ".env", Path(__file__).resolve(
     if _p.exists():
         load_dotenv(_p)
 
+from orca import local_models
 from orca.llm.registry import get_provider, groq_keys
 
 Tier = Literal["cheap", "mid", "reasoning"]
@@ -258,7 +259,8 @@ def chain_for(tier: Tier) -> list[tuple[str, str]]:
         rungs = []
         for entry in raw.split(","):
             provider, _, model = entry.strip().partition(":")
-            if provider and model and not (provider == "ollama" and model in _LOCAL_MISSING):
+            local_off = model in _LOCAL_MISSING or not local_models.enabled()
+            if provider and model and not (provider == "ollama" and local_off):
                 rungs.append((provider, model))
         return rungs
     rungs = []
@@ -270,7 +272,8 @@ def chain_for(tier: Tier) -> list[tuple[str, str]]:
     if (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")) and model != _SECOND_GEMINI:
         rungs.append(("gemini", _SECOND_GEMINI))
     local = os.environ.get("ORCA_LLM_LOCAL_MODEL") or _LOCAL_MODEL
-    if tier in _LOCAL_TIERS and local not in _LOCAL_MISSING:
+    # ORCA_LOCAL_MODELS=0 (orca/local_models.py) drops the Ollama rung like any other local model.
+    if tier in _LOCAL_TIERS and local not in _LOCAL_MISSING and local_models.enabled():
         rungs.append(("ollama", local))
     return rungs
 

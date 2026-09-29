@@ -21,7 +21,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from orca import engines, intent_actions
+from orca import engines, intent_actions, local_models
 from orca import session as session_memory
 from orca.agents import distress as distress_agent
 from orca.agents import reporting
@@ -89,42 +89,45 @@ async def _lifespan(app: FastAPI):
     # load cost, not every query.
     _translation_backend = IndicTrans2Backend()
     register_translation_backend(_translation_backend)
-    # P6.4 (orca_final §14.3) — pre-warm IndicTrans2 and Whisper now, same
-    # fire-and-forget `run_in_executor` shape as the intent-embedding warm-up
-    # directly below: a 40s model-load stall on the first Tamil/Hindi query
-    # or the first voice query is exactly what destroys a six-minute demo.
-    try:
-        from orca.agents.voice import warm_faster_whisper, warm_mms_tts
+    # ORCA_LOCAL_MODELS=0 (orca/local_models.py) skips every warm-up below, and each loader
+    # refuses a lazy load too, so a small host never holds these models in memory.
+    if local_models.enabled():
+        # P6.4 (orca_final §14.3) — pre-warm IndicTrans2 and Whisper now, same
+        # fire-and-forget `run_in_executor` shape as the intent-embedding warm-up
+        # directly below: a 40s model-load stall on the first Tamil/Hindi query
+        # or the first voice query is exactly what destroys a six-minute demo.
+        try:
+            from orca.agents.voice import warm_faster_whisper, warm_mms_tts
 
-        asyncio.get_running_loop().run_in_executor(None, _translation_backend.warm)
-        asyncio.get_running_loop().run_in_executor(None, warm_faster_whisper)
-        # P6.4 — the local TTS rung was the one warm-up missing (see
-        # voice.warm_mms_tts's own docstring): only ASR and translation were
-        # pre-warmed before this, leaving the demo's Tamil alert voice to pay
-        # a first-synthesis model load on whichever take needed it first.
-        asyncio.get_running_loop().run_in_executor(None, warm_mms_tts)
-    except Exception:  # warm-up is an optimisation, never a startup dependency
-        logging.getLogger("orca.language").warning("model warm-up not started", exc_info=True)
-    # P2.8 — load the Tier-2 intent-embedding model now, off the event loop,
-    # rather than inside the first user's query. It is optional by
-    # construction (see orca/intent_embeddings.py): a machine that cannot
-    # download it logs one warning and routes with word overlap, and startup
-    # never waits on it.
-    try:
-        from orca import intent_embeddings
+            asyncio.get_running_loop().run_in_executor(None, _translation_backend.warm)
+            asyncio.get_running_loop().run_in_executor(None, warm_faster_whisper)
+            # P6.4 — the local TTS rung was the one warm-up missing (see
+            # voice.warm_mms_tts's own docstring): only ASR and translation were
+            # pre-warmed before this, leaving the demo's Tamil alert voice to pay
+            # a first-synthesis model load on whichever take needed it first.
+            asyncio.get_running_loop().run_in_executor(None, warm_mms_tts)
+        except Exception:  # warm-up is an optimisation, never a startup dependency
+            logging.getLogger("orca.language").warning("model warm-up not started", exc_info=True)
+        # P2.8 — load the Tier-2 intent-embedding model now, off the event loop,
+        # rather than inside the first user's query. It is optional by
+        # construction (see orca/intent_embeddings.py): a machine that cannot
+        # download it logs one warning and routes with word overlap, and startup
+        # never waits on it.
+        try:
+            from orca import intent_embeddings
 
-        asyncio.get_running_loop().run_in_executor(None, intent_embeddings.warm)
-    except Exception:  # warm-up is an optimisation, never a startup dependency
-        logging.getLogger("orca.intent").warning("intent embedding warm-up not started", exc_info=True)
-    # Chatbot plan C0.2b — the local model is the last rung under every
-    # written answer, and a cold one takes minutes to load. Same
-    # fire-and-forget shape as the warm-ups above.
-    try:
-        from orca.llm.tiers import warm_local_models
+            asyncio.get_running_loop().run_in_executor(None, intent_embeddings.warm)
+        except Exception:  # warm-up is an optimisation, never a startup dependency
+            logging.getLogger("orca.intent").warning("intent embedding warm-up not started", exc_info=True)
+        # Chatbot plan C0.2b — the local model is the last rung under every
+        # written answer, and a cold one takes minutes to load. Same
+        # fire-and-forget shape as the warm-ups above.
+        try:
+            from orca.llm.tiers import warm_local_models
 
-        asyncio.get_running_loop().run_in_executor(None, warm_local_models)
-    except Exception:  # warm-up is an optimisation, never a startup dependency
-        logging.getLogger("orca.llm").warning("local model warm-up not started", exc_info=True)
+            asyncio.get_running_loop().run_in_executor(None, warm_local_models)
+        except Exception:  # warm-up is an optimisation, never a startup dependency
+            logging.getLogger("orca.llm").warning("local model warm-up not started", exc_info=True)
     # Agent 11 (Sentinel, Phase 3 D2) — an in-process asyncio poll loop,
     # single-instance via a Postgres advisory lock. Disabled with
     # ORCA_SENTINEL_ENABLED=0; a DB outage degrades it to a no-op tick, never

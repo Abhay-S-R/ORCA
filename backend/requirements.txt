@@ -50,7 +50,9 @@ torch>=2.0            # CPU build is enough; install with
                        #   pip install torch --index-url https://download.pytorch.org/whl/cpu
                        # to skip the much larger CUDA wheel on a machine with no GPU
 sentencepiece>=0.2
-# IndicTransToolkit>=1.1  # Optional: Requires MSVC C++ Build Tools on Windows to compile Cython extensions
+# IndicTransToolkit builds a Cython extension (no wheel): needs a C compiler, which the Docker
+# image has and Windows usually lacks, so it is skipped there and the IndicTrans2 rung is off.
+IndicTransToolkit>=1.1; sys_platform != "win32"
 
 # orca/db/ + orca/auth/ (Phase 2, plan §5.3/§5.4, D1) — psycopg[binary] not
 # psycopg2: prebuilt wheel, no C++ Build Tools needed on Windows (same

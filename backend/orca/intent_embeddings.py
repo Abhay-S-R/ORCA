@@ -36,6 +36,8 @@ import os
 import threading
 from typing import Any
 
+from orca import local_models
+
 logger = logging.getLogger("orca.intent")
 
 # `or`, not a get() default: .env.example lists these keys BLANK, and load_dotenv turns a blank
@@ -236,11 +238,12 @@ def _load() -> bool:
         if _unavailable_reason is not None:
             return False
         try:
-            from sentence_transformers import SentenceTransformer
-
             from orca.agents.planning import ROUTING_TABLE
 
-            model = SentenceTransformer(MODEL_NAME)
+            with local_models.loading("e5 intent model"):
+                from sentence_transformers import SentenceTransformer
+
+                model = SentenceTransformer(MODEL_NAME)
             names: list[str] = []
             phrasings: list[str] = []
             index: list[int] = []
