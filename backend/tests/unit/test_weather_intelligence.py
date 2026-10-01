@@ -301,3 +301,25 @@ def test_imd_time_parses_ist_stamp():
     assert parsed is not None
     assert parsed.utcoffset().total_seconds() == 5.5 * 3600
     assert wi._imd_time("not a timestamp") is None
+
+
+def test_fetch_goes_through_the_proxy_only_when_configured(monkeypatch):
+    """OPEN_METEO_PROXY_URL sends both Open-Meteo hosts to the Worker with the key header;
+    unset, the original URL is called with no extra header."""
+    calls = []
+
+    class Resp:
+        def raise_for_status(self): pass
+        def json(self): return {"hourly": {}}
+
+    monkeypatch.setattr(wia.httpx, "get", lambda url, **kw: calls.append((url, kw.get("headers"))) or Resp())
+    monkeypatch.delenv("OPEN_METEO_PROXY_URL", raising=False)
+    wia._fetch_open_meteo(wia.OPEN_METEO_MARINE_URL, *THOOTHUKUDI, ["wave_height"], 24)
+    assert calls[-1] == (wia.OPEN_METEO_MARINE_URL, None)
+
+    monkeypatch.setenv("OPEN_METEO_PROXY_URL", "https://relay.example.workers.dev/")
+    monkeypatch.setenv("OPEN_METEO_PROXY_KEY", "k")
+    wia._fetch_open_meteo(wia.OPEN_METEO_MARINE_URL, *THOOTHUKUDI, ["wave_height"], 24)
+    wia._fetch_open_meteo(wia.OPEN_METEO_FORECAST_URL, *THOOTHUKUDI, ["wind_speed_10m"], 24)
+    assert calls[-2] == ("https://relay.example.workers.dev/v1/marine", {"X-Orca-Key": "k"})
+    assert calls[-1] == ("https://relay.example.workers.dev/v1/forecast", {"X-Orca-Key": "k"})

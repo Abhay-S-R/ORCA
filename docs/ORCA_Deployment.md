@@ -7,10 +7,10 @@
 
 | Part | Host | Status |
 |---|---|---|
-| Frontend (Next.js, `frontend/`) | Vercel, Hobby plan (free) | **Deployed** at <https://sagarsarathi.vercel.app>. It still points at the placeholder backend URL until `NEXT_PUBLIC_API_BASE_URL` is set and it is redeployed (§1.2, step 7). |
-| Backend (FastAPI, `backend/`) + `data/` | **Not decided.** Every candidate is in §3. The Render steps are in §2. | The repo is ready (§2.1). The image is built locally but not pushed. |
-| Postgres + PostGIS | Supabase, free plan (§2.3). The same whichever backend host is chosen. | Not started |
-| Redis | Upstash, free plan (§2.4). The same whichever backend host is chosen. | Not started |
+| Frontend (Next.js, `frontend/`) | Vercel, Hobby plan (free) | **Deployed** at <https://sagarsarathi.vercel.app>. Points at the backend once `NEXT_PUBLIC_API_BASE_URL` is set and it is redeployed (§1.2, step 7). |
+| Backend (FastAPI, `backend/`) + `data/` | Render free, Singapore (§2) | **Deployed** at <https://orca-backend-render.onrender.com> on 2026-10-01, image `asrsyshash/orca-backend:render`. `/health` and `/query?q=hi` answered. Stress test pending (`docs/ORCA_Render_Stress_Test.md`). |
+| Postgres + PostGIS | Supabase, free plan, Singapore (§2.3) | **Done.** All 10 migrations applied, PostGIS 3.3 checked. |
+| Redis | Upstash, free plan, Singapore (§2.4) | **Done.** `PING` and set/get checked. |
 
 **Until the backend is deployed, the Vercel site loads but every API call fails.** Every page is
 built statically and gets all of its data from the backend.
@@ -56,7 +56,7 @@ built.** To update it, re-run the refresh scripts locally, then rebuild and push
 ### 1.1 What the repo already does for Vercel
 
 - **On Vercel, `frontend/next.config.ts` defaults `NEXT_PUBLIC_API_BASE_URL` to the planned Render
-  backend, `https://orca-backend.onrender.com`,** so the frontend deploys before the backend
+  backend, `https://orca-backend-render.onrender.com`,** so the frontend deploys before the backend
   exists. A value set in the Vercel dashboard always wins. Next.js bakes the value into the
   JavaScript at build time. Without the default, every call would silently fall back to
   `http://localhost:8000` (`app/lib/apiBase.ts`). **An `http://` value fails the build**, because a
@@ -73,7 +73,7 @@ built.** To update it, re-run the refresh scripts locally, then rebuild and push
 Checked on 2026-09-30:
 
 - `VERCEL=1 npm run build` with the variable unset: the build passes, and
-  `orca-backend.onrender.com` is in `.next/static/chunks` with no `localhost:8000`.
+  `orca-backend-render.onrender.com` is in `.next/static/chunks` with no `localhost:8000`.
 - `VERCEL=1 NEXT_PUBLIC_API_BASE_URL=https://api.example.test npm run build`: that URL is baked
   in, not the Render default.
 - With the variable set to `http://…`: the build fails with the guard's message.
@@ -101,7 +101,7 @@ Checked on 2026-09-30:
 
      | Name | Value | Required |
      |---|---|---|
-     | `NEXT_PUBLIC_API_BASE_URL` | The backend's public **https** URL, with no trailing slash | **Yes, once the backend exists.** Until then it defaults to `https://orca-backend.onrender.com`, which is only right if the backend lands on Render under that exact name. On any other host, set it to that host's URL and redeploy (step 7). |
+     | `NEXT_PUBLIC_API_BASE_URL` | The backend's public **https** URL, with no trailing slash | **Yes, once the backend exists.** Until then it defaults to `https://orca-backend-render.onrender.com`, which is only right if the backend lands on Render under that exact name. On any other host, set it to that host's URL and redeploy (step 7). |
      | `NEXT_PUBLIC_CARTO_KEY` | A CARTO basemap key | No. Without it the keyless CARTO light style is used. |
      | `NEXT_PUBLIC_BASEMAP_STYLE` | A full MapLibre style URL | No. It overrides the basemap. |
 
@@ -117,7 +117,7 @@ Checked on 2026-09-30:
    time.
 
 **Deploying before the backend exists:** leave the variable unset. The site deploys pointing at
-`https://orca-backend.onrender.com`. Pages load, but anything that needs the API shows an error
+`https://orca-backend-render.onrender.com`. Pages load, but anything that needs the API shows an error
 until the Render service with that name is live (§2.5). Nothing needs redeploying then, unless
 Render assigns a different URL.
 
@@ -325,8 +325,8 @@ Sources, checked 2026-09-30: [Upstash Redis pricing](https://upstash.com/pricing
    - Credential: the one you just added.
    - Click **Connect**.
 3. Configure:
-   - **Name:** `orca-backend`, which gives `https://orca-backend.onrender.com`. If that name is
-     taken, Render adds a suffix. Use whatever URL it shows.
+   - **Name:** `orca-backend`. That name was already taken on Render, so it added a suffix and
+     gave `https://orca-backend-render.onrender.com`. Use whatever URL Render shows.
    - **Region:** Singapore. It is the closest to India, and it should match Supabase and Upstash (§2.3, §2.4).
    - **Instance type:** Free.
    - **Health check path** (under Advanced): `/health`.
@@ -394,6 +394,46 @@ Deploy latest reference**. Pushing the same tag does not redeploy on its own.
   querying at the same moment could still exceed it. **Render Starter** ($7/month) is also
   512 MB, so it does not help. **Standard** ($25/month, 2 GB) does, and it also fits
   `ORCA_LOCAL_MODELS=1`.
+
+### 2.9 Open-Meteo relay on Cloudflare Workers (free)
+
+**The problem.** On Render, `api.open-meteo.com` answered `429 Too Many Requests` (Render log,
+2026-10-01), so every safety answer used the cached weather snapshot (233 h old) and said
+CAUTION. Open-Meteo's free API counts requests per IP address, and Render free sends from IPs it
+shares with other customers, who use up that quota. Locally the same calls get 200.
+
+**The fix.** `infra/cloudflare/open-meteo-proxy.js` is a Cloudflare Worker that forwards ORCA's
+two Open-Meteo calls. Open-Meteo counts Worker traffic by the `CF-Worker` header Cloudflare adds,
+not by IP ([open-meteo#1727](https://github.com/open-meteo/open-meteo/pull/1727)), so the Worker
+spends its own free quota (10,000 calls a day). The data is the same Open-Meteo data, unchanged
+and uncached. The Worker forwards only `/v1/forecast` and `/v1/marine`, and only with the
+`X-Orca-Key` header, so it is not an open proxy and nobody else can spend the quota.
+
+The backend uses it when `OPEN_METEO_PROXY_URL` is set (`_fetch_open_meteo` in
+`orca/agents/weather_intelligence.py`). Unset, it calls Open-Meteo directly, as locally.
+
+Steps:
+
+1. Make a key: `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+2. Sign up at <https://dash.cloudflare.com> (free). **Workers & Pages → Create → Start with Hello
+   World** (or **Create Worker**), name it `orca-open-meteo`, **Deploy**.
+3. **Edit code**, replace everything with `infra/cloudflare/open-meteo-proxy.js`, **Deploy**.
+4. The Worker → **Settings → Variables and Secrets → Add**: type **Secret**, name
+   `ORCA_PROXY_KEY`, value the key from step 1. **Deploy**.
+5. Check it from Git Bash, with the Worker's URL from its overview page:
+   ```bash
+   W=https://orca-open-meteo.<you>.workers.dev; K=<the key>
+   Q='?latitude=9.28&longitude=79.31&hourly=wind_speed_10m&forecast_days=1'
+   curl -s -o /dev/null -w "%{http_code} forecast\n" -H "X-Orca-Key: $K" "$W/v1/forecast$Q"
+   curl -s -o /dev/null -w "%{http_code} marine\n"   -H "X-Orca-Key: $K" "$W/v1/marine$Q"
+   curl -s -o /dev/null -w "%{http_code} no key (expect 403)\n" "$W/v1/forecast$Q"
+   ```
+   Expect `200`, `200`, `403`.
+6. In Render → Environment add `OPEN_METEO_PROXY_URL` (the Worker URL, no trailing slash) and
+   `OPEN_METEO_PROXY_KEY` (the same key). Rebuild and push the image (§2.2), then **Manual
+   Deploy → Deploy latest reference**.
+7. Ask a safety question on the site. The answer must not say "cached tier1 fallback" or
+   "233 h old", and Render's Logs should show `v1/forecast ... 200 OK` with the Worker's host.
 
 ---
 

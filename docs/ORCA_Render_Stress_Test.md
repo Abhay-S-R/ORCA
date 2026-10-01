@@ -14,11 +14,15 @@ Keep three Render tabs open next to the website the whole time (Render dashboard
 
 | Render tab | What to look at |
 |---|---|
-| **Metrics** | The **Memory** graph. Set the range to the last hour. This is the main reading. |
-| **Events** | Any **"Ran out of memory"** or **"Instance failed"** line. One of these means the test failed. |
+| **Metrics** | The **Memory** graph. **Paid plans only:** on Render free this tab says "Upgrade to any paid compute plan to view application metrics" and shows nothing. |
+| **Events** | Any **"Ran out of memory"** or **"Instance failed"** line. One of these means the test failed. On free, this is the only memory signal Render gives. |
 | **Logs** | `Traceback`, `Error` or `Killed` lines while you test. |
 
-Write the memory reading down after each stage, in the table at the bottom.
+On Render free the site tells you *whether* it ran out of memory (Events, a 502 page, answers
+that stop half way), not *how close* it came. To get the numbers, run the same questions against
+the same image locally with `--memory=512m` and read `/sys/fs/cgroup/memory.stat` (`anon` is the
+real usage; `file` is cache the kernel frees under pressure). The 2026-10-01 results below were
+measured that way.
 
 ## What "pass" means
 
@@ -158,4 +162,24 @@ Any status other than `200`, or an out-of-memory event, is a failure.
 
 | Date | Idle (MB) | End of stage 2 (MB) | Highest seen (MB), and in which stage | End of stage 6 (MB) | Most people at once that passed | Out-of-memory events | Pass? | Notes |
 |---|---|---|---|---|---|---|---|---|
-| | | | | | | | | |
+| 2026-10-01 | 151 | 409 after 18 different questions | 500, three questions at once | not run | **2** (peak 459) | Render: one, after ~17 questions sent one at a time plus browser use. Local: one, at 3 at once. | **No** | See below. |
+
+**2026-10-01 findings.** Questions on Render were sent one at a time from a script; numbers are
+from the same image (`asrsyshash/orca-backend:render`) run locally with `--memory=512m
+--cpus=1`, Redis off, every question uncached.
+
+- **Memory climbs as each new kind of question first loads its data**: 151 MB at start, 282
+  after the first question, 409 after 18 different ones. It is never given back: still 409
+  after a minute idle.
+- **After that it creeps about 2 MB per question**: the same 12 questions again went 410 → 436.
+- **One question at a time peaked at 438 MB. Two at once peaked at 459. Three at once reached
+  500 and the container was OOM-killed**, losing all three answers. On Render the service went
+  down (502) during this testing and came back about two minutes later.
+- **Separate problem: on Render the live Open-Meteo weather fetch failed on every forecast
+  question**, so every safety answer used the cached snapshot (233 h old) and said CAUTION. The
+  same questions locally got live weather and GO. **Cause, from Render's logs: Open-Meteo answers
+  `429 Too Many Requests`** to `api.open-meteo.com/v1/forecast` (wind and lightning), while
+  `marine-api.open-meteo.com` answers 200. Open-Meteo's free API limits requests per IP address,
+  and a Render free service sends from IPs it shares with other customers, so the limit is
+  used up by others before ORCA asks. `get_marine_weather` needs both calls, so the 429 on wind
+  alone sends the whole answer to the cached snapshot.

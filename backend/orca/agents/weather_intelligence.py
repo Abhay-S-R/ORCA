@@ -29,9 +29,11 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -100,9 +102,18 @@ def _fetch_open_meteo(url: str, lat: float, lon: float, variables: list[str], ho
     """
     if resilience.circuit_open("open_meteo"):
         raise httpx.ConnectError("circuit_open: open_meteo is in its cool-down, skipping live attempt")
+    # OPEN_METEO_PROXY_URL (infra/cloudflare/open-meteo-proxy.js): on a host whose outbound IP is
+    # shared, Open-Meteo's per-IP free quota is spent by other tenants and it answers 429. The
+    # Worker forwards the same request with its own quota. Unset, Open-Meteo is called directly.
+    headers = None
+    proxy = os.environ.get("OPEN_METEO_PROXY_URL")
+    if proxy:
+        url = proxy.rstrip("/") + urlsplit(url).path
+        headers = {"X-Orca-Key": os.environ.get("OPEN_METEO_PROXY_KEY") or ""}
     try:
         resp = httpx.get(
             url,
+            headers=headers,
             params={
                 "latitude": lat,
                 "longitude": lon,
