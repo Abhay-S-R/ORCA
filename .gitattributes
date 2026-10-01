@@ -1,1 +1,4 @@
 graphify-out/graph.json merge=graphify
+# Shell scripts run inside Linux containers and on Linux hosts; CRLF breaks them
+# ("set: pipefail: invalid option name") on a Windows checkout with core.autocrlf=true.
+*.sh text eol=lf
