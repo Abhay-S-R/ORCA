@@ -227,6 +227,15 @@ is what an x86 Windows machine builds.
    The first push uploads several GB: the code image plus about 2.8 GB of `data/`. Later pushes
    upload only the changed layers. Render's limit is 10 GB compressed.
 
+   **Automated deployments:**
+   - **Code-only updates:** Handled automatically on `git push main` by GitHub Actions
+     (`.github/workflows/deploy-render.yml`), patching code onto the existing DockerHub image and
+     hitting Render's deploy hook.
+   - **Data updates:** `scripts/deploy_data.cmd` automates the build, push, and Render hook
+     trigger. Both `scripts/cron/refresh_daily.cmd` and `scripts/cron/refresh_weekly.cmd`
+     automatically call `scripts/deploy_data.cmd` after their freshness gate passes.
+
+
 ### 2.3 Postgres + PostGIS on Supabase (free), for every host
 
 **This step is the same whichever backend host is chosen.** The local database is 79 MB

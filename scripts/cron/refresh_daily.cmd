@@ -19,4 +19,15 @@ REM MOSDAC last: 54 MB granules over a link that drops, by far the longest step.
 
 cd backend
 ..\%PY% -m orca.data.freshness
+set FRESHNESS_EXIT=%ERRORLEVEL%
+cd /d "%~dp0..\.."
+
+if %FRESHNESS_EXIT% neq 0 (
+    echo [ERROR] Freshness gate failed (exit code %FRESHNESS_EXIT%). Skipping deployment to Render.
+    exit /b %FRESHNESS_EXIT%
+)
+
+echo.
+echo Freshness gate passed! Deploying refreshed data to Render...
+call scripts\deploy_data.cmd
 exit /b %ERRORLEVEL%
