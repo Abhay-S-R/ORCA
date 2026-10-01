@@ -58,7 +58,7 @@ jobs:
 
       - name: Trigger Render Deploy Hook
         env:
-          RENDER_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK || secrets.RENDER_DEPLOY_HOOK_URL }}
+          RENDER_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
           echo "Triggering Render redeployment..."
           if [ -z "$RENDER_HOOK" ]; then
