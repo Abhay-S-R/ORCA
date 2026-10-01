@@ -1,0 +1,72 @@
+name: Deploy Backend to Render
+
+# Deploys code changes to Render whenever backend code is pushed to main.
+# Reuses the existing multi-GB data/ layer from Docker Hub so CI stays fast
+# without needing gitignored data/ on the GitHub Actions runner.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'infra/render/**'
+      - 'scripts/refresh_fishing_ban_order.py'
+      - '.github/workflows/deploy-render.yml'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions UI
+
+jobs:
+  deploy:
+    name: Build & Deploy to Render
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull existing Render image (with baked /data)
+        run: |
+          echo "Pulling existing image ${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:render..."
+          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:render
+
+      - name: Patch updated code onto image
+        run: |
+          # Build a lightweight patch layer on top of the existing image that already has /data.
+          cat << 'EOF' > Dockerfile.patch
+          FROM ${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:render
+          WORKDIR /app
+          COPY backend/requirements.txt .
+          RUN pip install --no-cache-dir -r requirements.txt
+          COPY backend/orca ./orca
+          COPY scripts/refresh_fishing_ban_order.py /scripts/
+          EOF
+
+          docker build -f Dockerfile.patch -t ${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:render .
+
+      - name: Push updated image to Docker Hub
+        run: |
+          echo "Pushing updated code image to Docker Hub..."
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:render
+
+      - name: Trigger Render Deploy Hook
+        run: |
+          echo "Triggering Render redeployment..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "Render response (HTTP $HTTP_STATUS): $BODY"
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "::error::Render deploy hook returned HTTP $HTTP_STATUS"
+            exit 1
+          fi
+          echo "Render deploy triggered successfully!"
