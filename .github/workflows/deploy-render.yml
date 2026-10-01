@@ -57,9 +57,16 @@ jobs:
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:render
 
       - name: Trigger Render Deploy Hook
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK || secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
           echo "Triggering Render redeployment..."
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+          if [ -z "$RENDER_HOOK" ]; then
+            echo "::error::Secret RENDER_DEPLOY_HOOK is not set or empty! Check GitHub Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+          RESPONSE=$(curl -sS -w "\n%{http_code}" -X POST "$RENDER_HOOK")
           HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
           BODY=$(echo "$RESPONSE" | sed '$d')
 
@@ -70,3 +77,4 @@ jobs:
             exit 1
           fi
           echo "Render deploy triggered successfully!"
+
