@@ -476,6 +476,7 @@ def _sse(payload: dict) -> str:
 
 
 @app.get("/health")
+@app.head("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 

@@ -2955,3 +2955,46 @@ Remarks:
   - Local: builds, with `localhost:8000` baked in.
   - `eslint` and `tsc` are clean.
 - **Caveat:** if the name `orca-backend` is taken on Render when the backend is created, set the dashboard variable to the real URL and redeploy.
+
+### [2026-10-01] Cloudflare Worker proxy for Open-Meteo API (solves Render 429 rate limit)
+
+- **Implements:** fixes `api.open-meteo.com` returning `429 Too Many Requests` on Render free tier due to shared outbound IP quotas.
+- **Files:** `infra/cloudflare/open-meteo-proxy.js` (new), `backend/orca/agents/weather_intelligence.py` (`_fetch_open_meteo`), `docs/ORCA_Deployment.md` §2.9.
+- **Commit:** `e058e8f`
+- **What changed:**
+  - `infra/cloudflare/open-meteo-proxy.js`: lightweight Cloudflare Worker forwarding `/v1/forecast` and `/v1/marine` with `X-Orca-Key` authentication check.
+  - `weather_intelligence.py`: when `OPEN_METEO_PROXY_URL` and `OPEN_METEO_PROXY_KEY` are configured, routes upstream calls through the worker. Open-Meteo counts requests by `CF-Worker` header rather than Render's shared IP, providing a dedicated 10,000 requests/day quota.
+  - Unset, falls back to direct Open-Meteo calls for local development.
+- **Verification:** tested live via curl: 200 on forecast, 200 on marine, 403 when key missing.
+
+### [2026-10-01] Token leak fix in uvicorn access logs & memory watchdog for Render
+
+- **Implements:** stops JWT tokens from being logged in uvicorn access logs on SSE routes (`/api/notifications/stream?token=...`) and adds memory monitoring.
+- **Files:** `backend/orca/logging_utils.py` (`_StripQueryStringFilter`, `install_uvicorn_access_filter`, `log_startup_memory`, `start_memory_watchdog`), `backend/orca/api/main.py`.
+- **Commit:** `cf193e3`
+- **What changed:**
+  - Added `_StripQueryStringFilter` to `uvicorn.access` logger to strip query strings (including `?token=...`) from access log entries, preventing token exposure in Render log drains.
+  - Added `log_startup_memory()` to record baseline RSS at startup.
+  - Added `start_memory_watchdog()` background task running during lifespan, logging memory usage periodically and warning if approaching Render's 512 MB limit.
+- **Verification:** verified filter installation, startup memory log, and self-checks pass.
+
+### [2026-10-02] GitHub Actions workflow for automated Render deployments
+
+- **Implements:** automates code-only deployments to Render whenever backend code is pushed to `main`.
+- **Files:** `.github/workflows/deploy-render.yml` (new).
+- **Commits:** `73587f7`, `f99b19a`, `9208f62`
+- **What changed:**
+  - Runs on push to `main` with paths matching `backend/**`, `infra/render/**`, or manually via `workflow_dispatch`.
+  - Reuses the existing multi-GB `asrsyshash/orca-backend:render` image from Docker Hub (which contains the baked `/data` directory).
+  - Patches updated `backend/orca` code and requirements onto the image, pushes the updated tag, and triggers Render's deploy hook (`RENDER_DEPLOY_HOOK`).
+- **Verification:** validated workflow syntax, verified secret resolution, test run triggered on push.
+
+### [2026-10-02] Automated Render data deployment from daily and weekly cron jobs
+
+- **Implements:** automates building and pushing updated `data/` images to Docker Hub and redeploying Render when scheduled cron jobs finish.
+- **Files:** `scripts/deploy_data.cmd` (new), `scripts/cron/refresh_daily.cmd`, `scripts/cron/refresh_weekly.cmd`, `docs/ORCA_Deployment.md`.
+- **Commit:** `8d22f01`
+- **What changed:**
+  - `scripts/deploy_data.cmd`: checks if Docker Desktop is running (warns and safely exits if not, preventing cron failures). Builds `orca-backend` base and `asrsyshash/orca-backend:render` with latest `data/`, pushes to Docker Hub, and hits `RENDER_DEPLOY_HOOK` from `.env`.
+  - Both `refresh_daily.cmd` and `refresh_weekly.cmd`: updated to verify `orca.data.freshness` exits 0 (freshness gate passed) before calling `deploy_data.cmd`.
+- **Verification:** scripts tested locally, paths and exit code handling verified.
