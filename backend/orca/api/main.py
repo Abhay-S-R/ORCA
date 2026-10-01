@@ -67,7 +67,13 @@ from orca.db.repositories import get_vessel_for_owner, user_home_port
 from orca.graph.graph import build_graph
 from orca.language_command import match_language_command
 from orca.llm.tiers import llm_enabled, reset_llm_call_count, set_llm_override
-from orca.logging_utils import bind_query_id, configure_logging
+from orca.logging_utils import (
+    bind_query_id,
+    configure_logging,
+    install_uvicorn_access_filter,
+    log_startup_memory,
+    start_memory_watchdog,
+)
 from orca.place_resolution import resolve_or_ask
 from orca.profile_prompts import profile_prompt
 from orca.query_cache import get as query_cache_get
@@ -83,6 +89,14 @@ async def _lifespan(app: FastAPI):
     # Log redaction ahead of the formatter (plan §5.4 Day 10) — configured
     # once here, before any request can log a coordinate or identity value.
     configure_logging()
+    # Strip query strings (?token=…) from uvicorn's access log so SSE auth
+    # tokens never leak to Render's log drain.  Must run after
+    # configure_logging (which sets up the root handler) but before any
+    # request can arrive.
+    install_uvicorn_access_filter()
+    # OOM breadcrumb — log RSS + PID so a gap between "started" and the
+    # previous log line proves a silent OOM kill (vs. a clean redeploy).
+    log_startup_memory()
     # Registered once at startup, not per-request — IndicTrans2Backend loads
     # its models lazily on first actual translate() call, so this itself is
     # cheap; the first Tamil/Hindi query after a cold start pays the model
@@ -140,7 +154,17 @@ async def _lifespan(app: FastAPI):
         _stop_sentinel = stop_sentinel
     except Exception:  # Sentinel must never block the API coming up
         logging.getLogger("orca.sentinel").warning("sentinel failed to start", exc_info=True)
+    # Memory watchdog — log RSS every 60s so there's always a reading within
+    # the last minute before a silent Render OOM kill.
+    _memory_watchdog_task = None
+    try:
+        _memory_watchdog_task = await start_memory_watchdog()
+    except Exception:
+        logging.getLogger("orca.runtime").warning("memory watchdog not started", exc_info=True)
     yield
+    # ── Shutdown ──────────────────────────────────────────────────────
+    if _memory_watchdog_task is not None:
+        _memory_watchdog_task.cancel()
     if _stop_sentinel is not None:
         await _stop_sentinel()
 

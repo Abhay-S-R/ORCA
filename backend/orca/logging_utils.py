@@ -7,11 +7,20 @@ carries incidentally (a lat/lon in `inputs_consumed`, an email in an auth
 log message) and what must never sit in plaintext ops logs — the audit
 trail of *who* asked *where* belongs in `audit_trace_log` under RBAC, not
 in a log file anyone with server access can grep.
+
+Also:
+- `install_uvicorn_access_filter`: strips query strings from uvicorn's
+  access log so SSE `?token=…` JWTs never reach Render's log drain.
+- `log_startup_memory` / `start_memory_watchdog`: OOM breadcrumbs — on
+  Render free-tier the OOM-killer SIGKILLs the process with no log line;
+  these ensure there's always a recent RSS reading before the silence.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 import re
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -117,6 +126,134 @@ def configure_logging(level: int = logging.INFO) -> None:
     handler.addFilter(QueryIdFilter())
     handler.setFormatter(JsonFormatter())
     root.addHandler(handler)
+
+
+# ---------------------------------------------------------------------------
+# Uvicorn access-log filter — strip query strings so tokens stay out of logs
+# ---------------------------------------------------------------------------
+
+_QS_RE = re.compile(r"\?.*")
+
+
+class _StripQueryStringFilter(logging.Filter):
+    """Uvicorn's access logger formats the line with %-style args:
+        '%s - "%s %s HTTP/%s" %d'  →  (addr, method, full_path, version, status)
+    `full_path` is arg index 2 and may contain `?token=eyJ…`.
+
+    This filter rewrites that arg to strip everything after '?' *before*
+    the formatter renders the final string, so no token ever reaches the
+    log output.  Falls back gracefully if uvicorn changes its format.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.args and isinstance(record.args, tuple) and len(record.args) >= 3:
+            # Make mutable — LogRecord.args is usually a plain tuple.
+            args = list(record.args)
+            path = args[2]
+            if isinstance(path, str) and "?" in path:
+                args[2] = _QS_RE.sub("", path)
+                record.args = tuple(args)
+        return True
+
+
+def install_uvicorn_access_filter() -> None:
+    """Attach `_StripQueryStringFilter` to `uvicorn.access` so its default
+    StreamHandler never logs `?token=…` query params.
+
+    Safe to call more than once (idempotent) and safe if uvicorn is not
+    installed — the logger just won't have handlers to attach to, and the
+    filter itself is a no-op without matching log records.
+    """
+    access_logger = logging.getLogger("uvicorn.access")
+    # Avoid duplicating if called twice (e.g. --reload).
+    for f in access_logger.filters:
+        if isinstance(f, _StripQueryStringFilter):
+            return
+    access_logger.addFilter(_StripQueryStringFilter())
+    # Also add to any handlers uvicorn.access already has, so the filter
+    # runs even if the logger propagates=False (uvicorn's default).
+    for h in access_logger.handlers:
+        already = any(isinstance(f, _StripQueryStringFilter) for f in h.filters)
+        if not already:
+            h.addFilter(_StripQueryStringFilter())
+
+
+# ---------------------------------------------------------------------------
+# OOM breadcrumbs — memory logging at startup and periodically
+# ---------------------------------------------------------------------------
+
+def _rss_mb() -> float | None:
+    """Current RSS of this process in MiB, or None if unavailable."""
+    try:
+        import resource  # Unix only
+        # resource.getrusage returns ru_maxrss in KiB on Linux
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        return usage.ru_maxrss / 1024.0
+    except (ImportError, AttributeError):
+        pass
+    # Fallback: /proc on Linux (works on Render's Docker containers)
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024.0  # kB → MiB
+    except (FileNotFoundError, OSError):
+        pass
+    return None
+
+
+def log_startup_memory() -> None:
+    """Log the current RSS and a cold-start marker.
+
+    On Render free-tier the OOM-killer SIGKILLs the process with zero
+    warning — no Python handler runs, no log line is emitted. By logging
+    "orca process started" with the initial RSS, ops can diff timestamps
+    against the *previous* log line to tell whether a restart was a clean
+    redeploy or a silent OOM kill (gap > graceful-shutdown timeout ⇒ OOM).
+    """
+    _log = logging.getLogger("orca.runtime")
+    rss = _rss_mb()
+    rss_str = f"{rss:.1f} MiB" if rss is not None else "unknown"
+    _log.info(
+        "orca process started — initial RSS %s, PID %s",
+        rss_str,
+        os.getpid(),
+    )
+
+
+async def start_memory_watchdog(
+    interval_seconds: int = 60,
+    warn_threshold_mb: float = 400.0,
+) -> asyncio.Task:
+    """Spawn a background task that logs RSS every *interval_seconds*.
+
+    On Render free (512 MB) this means the logs always contain a reading
+    within the last minute before a silent OOM kill — enough to confirm
+    "memory was at 490 MiB and climbing" vs "memory was stable at 200 MiB,
+    so the restart was something else".
+
+    The task is a daemon-style fire-and-forget; cancelling the returned
+    `Task` stops it cleanly (done in lifespan teardown).
+    """
+    _log = logging.getLogger("orca.runtime")
+
+    async def _watchdog() -> None:
+        while True:
+            await asyncio.sleep(interval_seconds)
+            rss = _rss_mb()
+            if rss is None:
+                continue
+            if rss >= warn_threshold_mb:
+                _log.warning(
+                    "memory watchdog: RSS %.1f MiB (threshold %.0f MiB)",
+                    rss,
+                    warn_threshold_mb,
+                )
+            else:
+                _log.info("memory watchdog: RSS %.1f MiB", rss)
+
+    task = asyncio.create_task(_watchdog(), name="memory-watchdog")
+    return task
 
 
 if __name__ == "__main__":
