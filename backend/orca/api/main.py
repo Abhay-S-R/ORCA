@@ -599,7 +599,7 @@ async def _query_stream(
             # can label the last-resort facts paragraph ("Deterministic — …"),
             # and whether a refused message was only small talk.
             "response_engine": final_state.get("response_engine"),
-            "small_talk": bool(final_state.get("small_talk")),
+            "small_talk": final_state.get("small_talk", False),
             "detected_language": final_state.get("detected_language", "en"),
             # What the chat's context window remembers this turn as
             # (session.turn_from_final) — English query and matched routing

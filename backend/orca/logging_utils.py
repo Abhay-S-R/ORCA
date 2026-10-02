@@ -186,9 +186,12 @@ def _rss_mb() -> float | None:
     """Current RSS of this process in MiB, or None if unavailable."""
     try:
         import resource  # Unix only
-        # resource.getrusage returns ru_maxrss in KiB on Linux
-        usage = resource.getrusage(resource.RUSAGE_SELF)
-        return usage.ru_maxrss / 1024.0
+        getrusage = getattr(resource, "getrusage", None)
+        rusage_self = getattr(resource, "RUSAGE_SELF", 0)
+        if callable(getrusage):
+            # ru_maxrss is in KiB on Linux
+            usage = getrusage(rusage_self)
+            return usage.ru_maxrss / 1024.0
     except (ImportError, AttributeError):
         pass
     # Fallback: /proc on Linux (works on Render's Docker containers)

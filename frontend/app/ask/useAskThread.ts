@@ -333,10 +333,16 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     store
       .load(activeId)
       .then((chat) => {
-        if (!cancelled) show(chat ? activeId : null, chat?.turns ?? []);
+        if (!cancelled) {
+          if (!chat) writeActiveChat(null);
+          show(chat ? activeId : null, chat?.turns ?? []);
+        }
       })
       .catch(() => {
-        if (!cancelled) show(null, []);
+        if (!cancelled) {
+          writeActiveChat(null);
+          show(null, []);
+        }
       });
     return () => {
       cancelled = true;

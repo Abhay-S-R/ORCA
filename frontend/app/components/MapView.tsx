@@ -696,7 +696,7 @@ export function MapView({
         type: "geojson",
         data: EMPTY as never,
         cluster: true,
-        clusterMaxZoom: 4.5,
+        clusterMaxZoom: 4,
         clusterMinPoints: 3,
         clusterRadius: 48,
         // 2 fresh, 1 hint, 0 history — a cluster looks as current as its

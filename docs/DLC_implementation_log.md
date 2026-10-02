@@ -2998,3 +2998,21 @@ Remarks:
   - `scripts/deploy_data.cmd`: checks if Docker Desktop is running (warns and safely exits if not, preventing cron failures). Builds `orca-backend` base and `asrsyshash/orca-backend:render` with latest `data/`, pushes to Docker Hub, and hits `RENDER_DEPLOY_HOOK` from `.env`.
   - Both `refresh_daily.cmd` and `refresh_weekly.cmd`: updated to verify `orca.data.freshness` exits 0 (freshness gate passed) before calling `deploy_data.cmd`.
 - **Verification:** scripts tested locally, paths and exit code handling verified.
+
+### [2026-10-02] Fixes for Open Defects 5, 7, 9, and 10
+
+- **Implements:** Resolves remaining open items from the 2026-09-25 10 Open Defects list:
+  - **Defect 5 (CI i18n):** `npm run check:i18n` failed because 9 non-English translation files lacked 54 keys (`watches.geofenceHint`, `watches.pfzShiftHint`, and all 52 `profile.*` keys). All 54 keys were translated across all 9 languages (`hi`, `ta`, `kn`, `te`, `ml`, `mr`, `bn`, `gu`, `or`). `npm run check:i18n` now reports all 9 dictionaries match 232 keys each and exits 0.
+  - **Defect 7 (Quiet fallback on unknown/deleted chat ID):** `useAskThread.ts` now explicitly clears and drops any unknown or 404 chat ID (`writeActiveChat(null)`) quietly upon failed load, preventing endless retry loops or console noise when navigating or opening chats.
+  - **Defect 9 (Frontend warnings & type check):** `MapView.tsx` changed `clusterMaxZoom: 4.5` to integer `clusterMaxZoom: 4`, eliminating MapLibre's "Integer expected" console warning. `npx tsc --noEmit` runs clean with exit code 0.
+  - **Defect 10 (Em dash translation polish):** Polished `chatTurn.writtenWithoutModel` across all 9 non-English translation files to replace unspaced hyphens with properly formatted, natural em dashes (` — `) and vernacular grammar.
+- **Files:**
+  - `frontend/app/i18n/{hi,ta,kn,te,ml,mr,bn,gu,or}.json`
+  - `frontend/app/ask/useAskThread.ts`
+  - `frontend/app/components/MapView.tsx`
+- **Verification:**
+  - `npm run check:i18n` -> `i18n check OK — 9 dictionaries, 232 keys each, all match en.json.`
+  - `npx tsc --noEmit` -> 0 errors.
+  - `npm run lint` -> 0 errors.
+  - `ruff check orca` -> All checks passed.
+  - `pytest tests/unit/test_response_guarantee.py tests/unit/test_language.py` -> 65 passed, 1 skipped.
