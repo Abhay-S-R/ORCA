@@ -3025,3 +3025,21 @@ Remarks:
   - Rewrote `docs/<name>.md` path references to the new locations in code comments, scripts, `CLAUDE.md`, `.env.example`, the Dockerfile and the docs themselves; nothing reads these paths at runtime. The header table of this log was updated; **entries above this one still use the old flat paths** (append-only).
 - **Not done:** `docs/archive/` and `.kilo/worktrees/` references were left as they were. `docs/competition/ORCA_SIH2026_Judge_Verdict.md:33` cites `docs/data_verification_audit.md`, already wrong before the move (the file is in `docs/archive/`).
 - **Verification:** every `docs/<folder>/<name>.md` path now cited anywhere outside archive/worktrees resolves to an existing file; no flat-path references remain outside the log's historical entries.
+
+### [2026-10-04] DOCS — Pipeline Consolidation Plan: `language_ingress` audited, Phase PC5 and Appendix A added — NOTE
+
+- **Implements:** no DLC point; plan text only (`docs/plans/ORCA_Pipeline_Consolidation_Plan.md`, decisions D7–D11, open questions OPEN-1..3, points `PC5.1`–`PC5.7`, Appendix A). Nothing implemented.
+- **Decided with the user:** native-script text → Bhashini, IndicTrans2 as the existing offline rung; Latin-only text (English or romanized) is passed to planning as typed and read by the LLM, with code validating the result; mixed native + Latin text and voice input are deferred.
+- **Evidence:** live probes against Bhashini, Groq and Gemini on 2026-10-04 (Appendix A). Throwaway scripts, not committed. IndicTrans2 could not be run on the Windows dev machine (`IndicTransToolkit` is Linux/Docker only), so the local rung is unmeasured.
+- **Not done:** the 36-word English gate and the Bhashini language-detection call still exist in `language.py`; they are removed by `PC5.3`, not here.
+
+### [2026-10-04] DOCS — Consolidation Plan: ingress open questions answered; PC5 simplified — NOTE
+
+- **Implements:** no DLC point; plan text only. The user answered OPEN-1 (romanized input is answered in **English**), OPEN-2 (**show** the English reading on the card) and OPEN-3 (Groq fallback stays `openai/gpt-oss-120b`, not qwen) and confirmed the "IndicTrans2 fallback" wording for native script.
+- **Plan changes:** D11–D13 added; `reply_language` dropped; `PC5.2` is now "planning returns `english_reading`"; `PC5.4` marked REMOVED (kept so IDs stay stable); `PC5.5` unblocked. No code changed.
+
+### [2026-10-04] DOCS — Consolidation Plan: agent audit marked NOT DONE; OPEN answers flagged — NOTE
+
+- **Implements:** no DLC point; plan text only.
+- **Changed:** the plan's status now says the agent audit is **not done** and paused; any developer may continue it, an AI agent only when the user prompts it. §9 holds a per-agent status table plus code-reading findings for `marine_data_discovery` and `language_egress` (findings, not decisions). The OPEN-1/2/3 answers (D11–D13) are annotated with the user's words: *"Answered this while sleepy, subject to change but for now it works fine."*
+- **Unanswered:** whether Discovery's decision should become binding on the specialists (§9).

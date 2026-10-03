@@ -12,7 +12,7 @@ picked up cold.
 | **Extends** | `docs/plans/ORCA_Prompt_Routing_Revamp.md` §6. Where §6's target routing (separate UNDERSTAND and VALIDATE steps) disagrees with this file, **this file wins** |
 | **Founding principle** | *Talk like a chatbot, stay accurate like an instrument.* (`CLAUDE.md`) |
 | **Log** | Every point lands in `docs/logs/DLC_implementation_log.md` with a `PC` ID |
-| **Audit status** | **Part A done (this file). Part B not yet audited** — see §8. Do not add Part B points until it is |
+| **Audit status** | **NOT DONE — the agent audit is paused part-way (2026-10-04).** Any developer may continue it; an AI agent only when the user prompts it to. What has been looked at so far is recorded below and in §9 as findings, not as a finished audit. Do not add points for an agent that is not yet audited |
 
 ---
 
@@ -116,11 +116,87 @@ validates the plan and enforces the safety invariants.*
 uses the table and the old deterministic tiers, as today, and still answers.
 Local models (Ollama) stay lowest priority in the chain.
 
+### Language ingress decisions (agreed with the user, 2026-10-04)
+
+Evidence for all of these is Appendix A, measured against the live services on
+2026-10-04. Text input only; voice input is discussed separately and is not
+covered here.
+
+**D7 — Three kinds of text input, three paths.** Script detection stays; it is
+exact and costs nothing (`detect_language`, `language.py:80`).
+- **Native script** (Tamil, Devanagari, …): `language_ingress` translates to
+  English with the specialised models, Bhashini NMT first, IndicTrans2 local as
+  the existing offline rung. Measured to translate correctly. Unchanged.
+- **Latin-only text** (English, English with typos or shortforms, and romanized
+  Indic such as "kal subah samudra jaana safe hai kya"): **not translated and not
+  language-detected by ingress.** It is passed to `planning` exactly as typed, and
+  the planning LLM reads it and returns the English reading.
+- **Mixed native + Latin text:** **deferred.** It takes the native-script path
+  today and comes back half-translated (Appendix A.3). Not fixed by this plan;
+  needs its own design.
+
+**D8 — Why Latin-only text is not machine-translated.** Both specialised
+approaches fail on it, measured:
+- Bhashini language detection mislabels short typed English as another language
+  (12 of 20 prompts, e.g. "kochi weather" → Malayalam 1.00, "fish off tn coast" →
+  Odia 0.99); its confidence score does not separate right from wrong, and it
+  returned HTTP 500 on 5 of 20 ordinary prompts, including "engine failed near
+  pamban".
+- Always transliterating then translating damages English: "pfz near ktaka tmrw"
+  → "PFJ Near Cuttack TMRV"; "fish off tn coast" → "Fish of Teen Coast".
+- Bhashini translating romanized text directly returns it unchanged (a silent
+  failure that today is reported as success). With a transliteration step first it
+  works (17/24), but only if the language is known, which detection cannot supply.
+- Gemini read all 24 romanized Hindi/Tamil/Kannada prompts correctly (24/24) and
+  left English alone. Groq `gpt-oss-120b` scored 17/24 and Groq `qwen3.8-27b`
+  10/24, with fabricated meanings (Appendix A.2).
+
+**D9 — The 36-word English gate is removed.** `_COMMON_ENGLISH_WORDS` and
+`_low_english_coverage` (`language.py:107–119`) decide whether Latin text goes to
+the language detector. With D7 there is no such decision, so both go, together with
+the Latin-text branch of `detect_language_with_bhashini`. The deterministic script
+detector is not a word list and stays.
+
+**D10 — Validation is the safety net, and it has a known limit.** What the
+planning LLM reads out of Latin text is validated in code (D2), not trusted:
+- **Places** must exist in the gazetteer or region set; a misread such as
+  "Carver's" or "Chandamaruta" fails the check and the user is asked which place
+  they mean.
+- **Dates** are checked against the forecast horizon, **intents** against
+  `ROUTING_TABLE`, **agents** against the known set.
+- **Limit:** validation does not catch a wrong *meaning* with a valid place and
+  date, e.g. "safest route" read as "shortest route", or "engine stopped" read as
+  "caught fire" (both occurred in the Groq runs, Appendix A.2). This is the reason
+  for D11 and for open question OPEN-2.
+
+**D11 — Reply language (OPEN-1 answered 2026-10-04).** *Answered this while sleepy, subject to change but for now it works fine.* Native-script input is
+answered in the language of its script, as today. **Latin-only input, including
+romanized Hindi/Tamil/Kannada, is answered in English.** So no language label is
+needed for Latin text: `query_language` returns `en` for it and egress passes the
+English reply through. This removes the need for a `reply_language` field. The
+planning call instead returns `english_reading` (the English rendering of what the
+user typed), used only for display (D12), never for routing or place lookup.
+
+**D12 — The reading is shown back (OPEN-2 answered yes, 2026-10-04).** *Answered this while sleepy, subject to change but for now it works fine.* For Latin-only
+input that is not already English, the answer card shows "I understood: <English
+reading>" so a misreading (D10's known limit) is visible to the user.
+
+**D13 — Groq fallback model (OPEN-3 answered 2026-10-04).** *Answered this while sleepy, subject to change but for now it works fine.* When Gemini is
+unavailable the Groq rung uses `openai/gpt-oss-120b`, **not** `qwen/qwen3.8-27b`
+(Appendix A.2: 17/24 vs 10/24, and qwen invented an emergency). That is already
+the chain's Groq model (`orca/llm/tiers.py`, `_GROQ_MODEL`), so no change is made
+for it. Its measured weakness on romanized text is accepted, mitigated by D10
+validation and D12. Re-run Appendix A.2 before reordering the chain or changing
+that model.
+
+**Open questions:** OPEN-1, OPEN-2 and OPEN-3 were answered on 2026-10-04 (D11, D12, D13). *Answered this while sleepy, subject to change but for now it works fine.* Treat them as the working answer; revisit if the user says so.
+
 **Target flow**
 
 ```
 distress_check            (phrase list can only escalate; LLM escalate-only check)
-  → language_ingress      (unchanged in this plan; audited in Part B)
+  → language_ingress      (native script → Bhashini, IndicTrans2 fallback → English;
+                           Latin-only text passes through untouched — D7)
   → planning              (LLM read+plan → code validate → route)
         ├─ NEEDS_PLACE / OUT_OF_RANGE / non-sea kinds → END (existing replies)
         └─ sea question → marine_data_discovery → [chosen specialists, parallel]
@@ -135,7 +211,7 @@ distress_check            (phrase list can only escalate; LLM escalate-only chec
 - *Implements:* `R-EDGE-5` spirit; Revamp §7 item 6 (no such test file exists in `backend/tests/unit` today — confirm before creating).
 - *Depends:* none.
 - *Files:* new test data + test; no source change.
-- *Required:* ~60 prompts, each with expected `kind`, intent row(s), place, date window, distress flag. Must include: "hi", "pfzs near ktaka", "pfz near gujurat", "wats time now", "engine failed near pamban", "day after tomorrow near kochi", "kochi on 2026-10-30" (beyond horizon), Tamil/Hindi samples, a follow-up ("and tomorrow?"), and one prompt per `PS-Q1`–`PS-Q8`.
+- *Required:* ~60 prompts, each with expected `kind`, intent row(s), place, date window, distress flag. Must include the 24 romanized prompts and 6 English controls of Appendix A, and: "hi", "pfzs near ktaka", "pfz near gujurat", "wats time now", "engine failed near pamban", "day after tomorrow near kochi", "kochi on 2026-10-30" (beyond horizon), Tamil/Hindi samples, a follow-up ("and tomorrow?"), and one prompt per `PS-Q1`–`PS-Q8`.
 - *Done-when:* the file runs against the **current** tree with the LLM disabled and reports a pass rate; the failures are recorded in the log as the baseline. Nothing is fixed here.
 
 **PC0.2 — Baseline of cost and latency.**
@@ -227,17 +303,173 @@ distress_check            (phrase list can only escalate; LLM escalate-only chec
 
 **PC4.3 — Update the plan's own status** in `docs/plans/ORCA_Prompt_Routing_Revamp.md` §6 to point at this file.
 
-## 8. Part B — not yet audited (do not plan from this list)
+## 8. Phase PC5 — Language ingress (text input)
 
-The audit continues one agent at a time, and nothing below is a decision:
-`language_ingress` (can a multilingual model read the prompt directly, leaving
-translation for the reply side?), `marine_data_discovery`, `weather_intelligence`,
-`geospatial`, `ocean_analytics`, `risk_assessment`, `visualization`, `reporting`,
-`critic`, `language_egress`. Each gets the same questions: does it need to exist,
-does it duplicate another, is a model or code the right tool.
+Starts only after the PC2 exit gate: these points need the merged planning node
+and its prompt. Same rules as §0, in particular **one point per change set**.
 
-## 9. Not covered by this plan
+**PC5.1 — Decision record: reply language for romanized input (OPEN-1). DONE 2026-10-04** — answered in English; recorded as D11 (*answered this while sleepy, subject to change but for now it works fine*). No code, nothing to implement.
 
-- Deleting the word lists or the 120 MB embedding model (Revamp item 5).
+**PC5.2 — Planning returns `english_reading`.**
+- *Implements:* `PS-C1`, `PS-C10`. *Depends:* PC2.2.
+- *Files:* the planning schema, prompt and parse (`agents/planning.py`), `state.py`.
+- *Required:* the structured output gains `english_reading` (a short English rendering of the user's message). Stored in state, **display only**: never used for routing, place lookup or validation, so a wrong reading cannot move the verdict. Not yet shown anywhere.
+- *Done-when:* on the Appendix A prompts the trace shows a sensible English reading for each romanized prompt and, for English prompts, the prompt itself; `/ask` behaviour unchanged.
+
+**PC5.3 — Latin-only text skips detection and translation.**
+- *Implements:* `PS-C1`, `PS-C2`. *Depends:* PC5.2.
+- *Files:* `agents/language.py` (`query_language`, `english_query`, remove `_COMMON_ENGLISH_WORDS`, `_low_english_coverage` and the Latin branch of `detect_language_with_bhashini`), and the one call site in `api/main.py:1146–1151`.
+- *Now:* Latin text can be sent to Bhashini language detection and translation (Appendix A.1, A.3).
+- *Required:* text with no native-script codepoint is returned as typed with rung `passthrough`; no Bhashini detection or NMT call is made for it. Native-script behaviour is untouched.
+- *Done-when (through `/ask`):* "pfzs near rameshwaram" is answered in English and its trace shows no Bhashini call; "kal subah rameswaram ke paas samudra mein jaana safe hai kya" reaches planning as typed and is understood (Rameswaram, tomorrow, safety); a Tamil-script question still translates through Bhashini.
+- *Required, also:* `query_language` returns `en` for Latin-only text, so egress replies in English (D11); a signed-in user's saved language is used only when the message is empty (the SOS control), as today.
+
+**PC5.4 — REMOVED 2026-10-04.** It was "egress uses `reply_language`"; D11 (reply in English) makes it unnecessary and PC5.3 covers the `en` result. The ID is kept so numbering stays stable.
+
+**PC5.5 — Show the reading back (D12).**
+- *Implements:* `PS-C10`. *Depends:* PC5.2, PC5.3. *Files:* answer card / reporting, and its i18n strings (all nine dictionaries; `npm run check:i18n` must stay at zero).
+- *Required:* for Latin-only input whose reading differs from what was typed, the card shows "I understood: <english_reading>". Nothing extra for input that was already English.
+- *Done-when:* a romanized Hindi prompt shows its English reading; "pfzs near rameshwaram" shows nothing extra; the line renders in all nine UI languages.
+
+**PC5.6 — Verify, do not assume: romanized distress and the gazetteer check.**
+- *Implements:* `PS-C7`, `R-NEW-1`. *Depends:* PC5.3. *Files:* tests only, unless a gap is found.
+- *Required:* (a) romanized distress phrases ("engine nindruduchu udhavi venum", "naav ka engine kharab ho gaya, madad chahiye") are raised by the distress check **before** ingress; (b) the romanized place prompts from Appendix A produce a valid place or a "which place?" question, never the pilot default and never a wrong place.
+- *Done-when:* the cases pass, or each failing case is logged as a `NOTE` and fixed as its **own** point. Do not fix a distress gap inside this point.
+
+**PC5.7 — Honest provenance on the native-script path.**
+- *Implements:* `R-CLAIM-1` spirit. *Depends:* PC5.3. *Files:* `agents/language.py` only.
+- *Now:* an English passthrough span is labelled "IndicTrans2 (local …)" (`language.py:397–398`); a translation that returns the input unchanged is reported as `ok` (Appendix A.1).
+- *Required:* the passthrough span says no model ran; native-script output that equals its input is `degraded`. The module docstring's "Bhashini slots in later" text is corrected to say Bhashini is the primary rung.
+- *Done-when:* the reasoning page shows "no translation" for English and Latin input and the model that served for native script.
+
+**Exit gate PC5:** the Appendix A set, run live, reads at least as well as the 24/24 measured with Gemini; Latin-only input always gets an English reply; native-script behaviour is identical to before PC5.
+
+## 9. Part B — audit of the remaining agents: NOT DONE
+
+**Status: not done.** Anyone may pick this up (a developer freely; an AI agent only
+when the user prompts it). Audit **one agent at a time**, as with everything here, and
+for each ask: does it need to exist, does it duplicate another, is a model or code the
+right tool. Record the decision in §2 before writing points.
+
+| Agent | Audit status |
+|---|---|
+| `distress_check`, `query_guard`, `understand`, `planning` | Looked at (Part A, §1–§2). Not formally closed |
+| `language_ingress` | Looked at, decisions D7–D13 (answers subject to change, see above). Not formally closed |
+| `marine_data_discovery` | **Not decided.** Findings only, below |
+| `language_egress` | **Not decided.** Findings only, below |
+| `weather_intelligence`, `geospatial`, `ocean_analytics`, `risk_assessment`, `visualization`, `reporting`, `critic` | Not started |
+
+**Findings so far, not decisions** (read from the code on 2026-10-04, none run live):
+
+*`marine_data_discovery`* (`agents/discovery.py`, node at `graph.py:453`)
+- No LLM. Ranks a 29-source catalogue by authority tier then declared freshness, follows the declared fallback cascades, validates arrival for the 6 sources held on disk (live APIs are reported "unverified"), and writes a one-sentence reason per pick that the answer card and `/data` page show.
+- **The decision is not binding.** `weather_intelligence`, `geospatial` and `risk_assessment` never read `discovery_sources`; `ocean_analytics` copies it into its output. The specialists keep their own fetch logic, so Discovery decides which source is *cited*, not which is *read* (`graph.py:_attach_discovery` only records the hand-off on the span).
+- Freshness is a hard-coded per-source number in the catalogue, not measured at query time.
+- Not checked: how many of the 29 catalogue sources the specialists really fetch.
+- The catalogue and picker are also used outside the graph (`api/discovery_routes.py`, `api/analytics_routes.py`), so the module has value even if the node is thin.
+- **Question to put to the user:** should the decision become binding (specialists fetch what Discovery chose), or stay an honest source-citation layer and be labelled that way? Opinion given: keep it (`PS-ARCH`, `PS-C4`), keep it deterministic, do not make it an LLM.
+
+*`language_egress`* (`agents/language.py`, `run_egress`)
+- No LLM. Translates the finished English answer to the user's language, Bhashini then IndicTrans2, after masking numbers, units, GO/NO-GO, PFZ, IMBL and sector codes behind placeholders, then restoring them.
+- **Nothing verifies that every placeholder came back.** Unmasking is a plain string replace, so a placeholder the translator drops silently deletes that number from the user's answer.
+- After D11 it serves native-script users only (romanized input is answered in English).
+- IndicTrans2 could not be run on the Windows dev machine, so the local rung is unmeasured.
+
+## 10. Not covered by this plan
+
+- Deleting the word lists or the 120 MB embedding model (Revamp item 5). The one exception is the 36-word English gate in `language.py`, removed by PC5.3 (D9).
+- **Mixed native + Latin text** (D7): deferred, needs its own design.
+- **Voice input** (ASR, spoken-language detection): to be discussed separately.
 - The LLM key/chain cooldown (Revamp item 1) and the LLM-call counter (Revamp §8).
 - Any change to the safety thresholds or the verdict logic.
+
+---
+
+## Appendix A — language ingress measurements (2026-10-04)
+
+Live runs against Bhashini and the project's own Groq and Gemini keys, from
+throwaway scripts that were **not** added to the repo. One run per prompt, prompts
+written by the plan's author (cleaner romanization than real users', so treat
+percentages as indicative). Bhashini was given the correct language for each
+prompt, which is better than it gets in production. PC0.1 must re-create this set
+as a committed test file.
+
+### A.1 Bhashini, romanized text, today's path vs transliterate-then-translate
+
+| Input | Today (direct NMT) | Transliterate, then NMT |
+|---|---|---|
+| kal subah rameswaram ke paas samudra mein jaana safe hai kya | unchanged | is it safe to go to the sea near rameswaram tomorrow morning |
+| tum kaiso ho | "tum kaiso" (detected as Konkani, or as English and skipped) | how are you |
+| naalai kadalukku pogalama | unchanged | are you going to the ocean tomorrow |
+| repu samudram ki vellochha | garbled (detected as Nepali) | can you go to the sea tomorrow |
+| naalai Rameswaram கடலுக்கு போகலாமா (mixed) | naalai rameswaram can you go to the sea | can you go to the sea in rameswaram tomorrow |
+| kal Rameswaram ke paas मछली कहाँ मिलेगी (mixed) | kal rameswaram ke paas where to find fish | where to find fish near rameswaram tomorrow |
+
+Native-script Hindi and Tamil translate correctly. IndicTrans2 could **not** be
+run on the author's Windows machine (`IndicTransToolkit` needs a C compiler and is
+installed only on Linux/Docker), so the local rung is unmeasured here.
+
+### A.2 Romanized Hindi / Tamil / Kannada → English, three models, 24 prompts
+
+Pass = place, time and intent all present in the English output.
+
+| Model | Hindi | Tamil | Kannada | Total |
+|---|---|---|---|---|
+| Gemini `gemini-3.5-flash-lite` | 8/8 | 8/8 | 8/8 | **24/24** |
+| Bhashini (translit → NMT) | 7/8 | 5/8 | 5/8 | 17/24 |
+| Groq `openai/gpt-oss-120b` | 7/8 | 4/8 | 6/8 | 17/24 |
+| Groq `qwen/qwen3.8-27b` | 6/8 | 1/8 | 3/8 | 10/24 |
+
+The prompts (language, text → what a correct reading must contain):
+- hi: kal subah rameswaram ke paas samudra mein jaana safe hai kya → Rameswaram, tomorrow, safe
+- hi: kochi ke paas machhli kahan milegi aaj → Kochi, today, fish
+- hi: mangalore me kal lehron ki unchai kitni rahegi → Mangalore, tomorrow, wave
+- hi: chennai ke paas cyclone ka khatra hai kya → Chennai, cyclone, danger/risk
+- hi: mujhe tuticorin se pamban tak sabse surakshit raasta batao → Tuticorin, Pamban, safest, route
+- hi: aaj goa me hawa ki raftaar kitni hai → Goa, today, wind
+- hi: kya parso vizag ke samudra me jaana theek rahega → Vizag, day after tomorrow, ok
+- hi: meri naav ka engine kharab ho gaya hai pamban ke paas madad chahiye → Pamban, engine, help
+- ta: naalai kaalai rameswaram pakkam kadalukku pogalama → Rameswaram, tomorrow, sea
+- ta: kochi pakkathula innaikku meen enga kidaikkum → Kochi, today, fish
+- ta: mangalore la naalaiku alai uyaram evvalavu irukkum → Mangalore, tomorrow, wave
+- ta: chennai pakkam puyal echarikkai irukka → Chennai, cyclone/storm, warning
+- ta: tuticorin la irundhu pamban varaikkum paadhukaappana vazhi sollunga → Tuticorin, Pamban, safe, route
+- ta: indha vaaram kadal romba alaiya irukka → week, sea, rough
+- ta: ennoda padagu engine nindruduchu pamban pakkam udhavi venum → Pamban, engine, help
+- ta: naalaiku mannar kadal la kaatru vegam evvalavu → Mannar, tomorrow, wind
+- kn: naale beligge mangaluru hatra samudrakke hogodu surakshitha ideya → Mangaluru, tomorrow, safe
+- kn: karwar hatra ivattu meenu elli sigatte → Karwar, today, fish
+- kn: udupi alli naale alegala ettara eshtu irutte → Udupi, tomorrow, wave
+- kn: mangaluru hatra chandamaruta echcharike ideya → Mangaluru, cyclone/storm, warning
+- kn: karwar inda goa varege surakshitha maarga heli → Karwar, Goa, safe, route
+- kn: ivattu samudradalli gaali vega eshtu → today, wind, speed
+- kn: nanna boat engine halaaytu malpe hatra sahaya beku → Malpe, engine, help
+- kn: ee vaara samudra tumba alegalu ide ya → week, sea, rough/wave
+
+Failures that matter, because they are wrong meaning rather than a missed word:
+- Groq `gpt-oss-120b`: "safest route" read as "shortest route"; wave height read as tide height; Mannar dropped; "parso" read as "day before yesterday".
+- Groq `qwen3.8-27b`: Tamil "engine stopped, need help" read as **"engine has caught fire, I need a rescue"**; Kannada "karwar hatra…" read as a price-per-kg question; "udupi alli naale alegala ettara eshtu irutte" read as "Did you create a name for Udupi?".
+- Bhashini: Karwar → "Carver's"; Kochi dropped for "the side of the lake"; "alai uyaram" (wave height) → "tide height".
+
+English control (Latin text that is already English, should come back unchanged):
+Gemini left every completed case alone (2 of 6 calls hit a rate limit, 429, and were not measured). Groq `gpt-oss-120b` turned "pfzs near rameshwaram" into "Fish near Rameshwaram" and "pfz near ktaka tmrw" into "…Kataka tomorrow".
+
+### A.3 Bhashini language detection and always-transliterate, on typed Latin English
+
+Detection returned a non-English label for 12 of 20 short English prompts, with
+confidence 0.77–1.00 on the wrong ones (the right ones were 0.77–1.00 too), and
+HTTP 500 on 5 of 20 even after a retry ("hi", "pondy beach waves", "any cyclone
+alert near chennai", "engine failed near pamban", "show chlorophyll near goa").
+Examples: kochi weather → Malayalam 1.00; fish off tn coast → Odia 0.99; thanks →
+Kashmiri 0.89; hello → Telugu 0.89; pfzs near rameshwaram → Malayalam 0.82.
+
+English put through transliterate (en→hi) then translate (hi→en):
+- pfzs near rameshwaram → "PFJ Near Rameswaram"
+- pfz near ktaka tmrw → "PFJ Near Cuttack TMRV" (ktaka became an Odisha town)
+- fish off tn coast → "Fish of Teen Coast"
+- wats the time → "Watts was the time"
+- hi → "The same"
+- any cyclone alert near chennai → "Other Cyclone Alerts Near Chennai"
+
+Not yet confirmed through the full `/ask` path: that a wrong detection such as
+"pfzs near rameshwaram" → Malayalam actually produces a Malayalam reply.
