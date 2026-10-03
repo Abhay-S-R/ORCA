@@ -66,6 +66,12 @@ jobs:
       - name: Response guarantee (every prompt gets a written answer)
         run: python -m pytest -q tests/unit/test_response_guarantee.py
 
+      # Prompt Routing Revamp §7.6 — messy-prompt test harness.
+      # Runs with ORCA_LLM_ENABLED=0 to test the deterministic fallback
+      # (word lists → Understand fallback). Gates at zero failures.
+      - name: Prompt routing — messy prompts (fallback mode)
+        run: python -m pytest -q tests/test_messy_prompts.py
+
   frontend-lint:
     name: Frontend lint (ESLint + TypeScript)
     runs-on: ubuntu-latest

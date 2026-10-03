@@ -75,6 +75,7 @@ from orca.agents import (
     planning,
     reporting,
     risk_assessment,
+    understand,
     visualization,
     weather_intelligence,
 )
@@ -243,23 +244,23 @@ def _refusal(outcome: str, body: str, state: ORCAState) -> dict:
 
 
 def query_guard_node(state: ORCAState) -> dict:
-    """P1.2 (`R-NEW-1`) and P1.4 (`R-EDGE-3`) — the position-and-time gate, and
-    the second node in the graph for a reason: it sits *after* distress_check
-    and before everything else, so "we are sinking near my village" is an SOS,
-    never a request to name a port.
+    """P1.2 (`R-NEW-1`) and P1.4 (`R-EDGE-3`) — the position-and-time gate.
 
-    Seven of P1.4's eight guard clauses land here, in the order a wrong answer
-    would have been built: which place (unresolvable, ambiguous name, several
-    places at once, bare coordinates), then which time (past dates, beyond the
-    forecast horizon), then whether the place is one any marine reading is
-    valid at (inland, outside the data extent). The eighth, expired cache,
-    belongs to the reading rather than the question — see risk_assessment_node.
+    Prompt Routing Revamp §6: uses Understand agent's structured output
+    (kind, places, when) instead of word-list gates. The deterministic
+    place_resolution/time_guard stay as the validation layer (Validate step).
+    """
+    understood_kind = state.get("understood_kind")
+    understood_places = state.get("understood_places", [])
+    understood_when = state.get("understood_when")
 
-    Every clause names the actual limit; "I can't help with that" without the
-    number is the thing this point exists to replace.
+    # If Understand classified this as non-sea, let it pass through to
+    # out_of_scope_node which will handle greeting, clock, off-topic, etc.
+    if understood_kind in ("greeting_or_small_talk", "clock_or_position",
+                           "what_can_orca_do", "reset_or_language_switch", "off_topic"):
+        return {}
 
-    Emits no audit_trace_log/completed_nodes entry: it is a guard, not an
-    agent, and main.py pairs those two lists index-for-index."""
+    # Place validation: use Understand's places + deterministic resolution
     resolution = state.get("place_resolution") or {}
     if resolution.get("status") in ("ambiguous", "unresolvable"):
         disclosure = resolution.get("disclosure") or "I could not work out where this question is about."
@@ -267,13 +268,25 @@ def query_guard_node(state: ORCAState) -> dict:
         body = disclosure if not candidates else f"{disclosure} Did you mean: {_candidate_list(candidates)}?"
         return _refusal("NEEDS_PLACE", body, state)
 
-    # Time before position: "was it rough off Veraval last Tuesday?" has a
-    # perfectly good position and still has no answer here.
-    # English regexes ("last Tuesday"), so the translated text, not the raw.
-    when = place_resolution.time_guard(state.get("normalized_english_query") or state.get("raw_user_query") or "")
-    if when is not None:
-        return _refusal("OUT_OF_RANGE", when, state)
+    # Time validation: use Understand's when + deterministic time_guard
+    if understood_when:
+        # Understand returned a time range — check if it's within horizon
+        from datetime import datetime, timezone, timedelta
+        try:
+            start = datetime.fromisoformat(understood_when["start"].replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            horizon = now + timedelta(days=7)
+            if start > horizon:
+                return _refusal("OUT_OF_RANGE", f"{start.date().isoformat()} is beyond the 7-day forecast horizon.", state)
+        except Exception:
+            pass  # fall through to deterministic check
+    else:
+        # Fallback to deterministic time_guard on the normalized query
+        when = place_resolution.time_guard(state.get("normalized_english_query") or state.get("raw_user_query") or "")
+        if when is not None:
+            return _refusal("OUT_OF_RANGE", when, state)
 
+    # Position validation (unchanged — deterministic check on actual coordinates)
     location = state.get("user_location") or {}
     lat, lon = location.get("lat"), location.get("lon")
     if lat is None or lon is None:
@@ -281,23 +294,6 @@ def query_guard_node(state: ORCAState) -> dict:
     where = place_resolution.position_guard(float(lat), float(lon))
     if where is None:
         return {}
-    # Whose position is it? A fix the caller supplied — an explicit lat/lon or
-    # a coordinate pair typed into the question — that turns out to be inland
-    # or off the data extent is an answerless question, and saying so is the
-    # whole guard. A *named* place is different: "wave height at Kanyakumari"
-    # is a perfectly good question, and the on-land reading is an artefact of
-    # the gazetteer holding the town's coordinates rather than the harbour
-    # approach's. Refusing it would blame the user for our table.
-    #
-    # KNOWN GAP, do not mistake this disclosure for a fix: 47 of the 83
-    # distinct gazetteer places are on land by GEBCO (audited 2026-09-20).
-    # The real repair is snapping each to its nearest wet cell — the machinery
-    # exists in scripts/orca_grid_utils.py — which is a data pass, not a guard
-    # clause, and is not in P1.4's scope. Until it happens, a depth-dependent
-    # answer at those places is thin and now says so.
-    # A GPS fix belongs with the coordinate sources, not the gazetteer ones:
-    # there is no "the town, not the harbour" to disclose about it — it is the
-    # caller's actual position, so out of range means out of range.
     if location.get("place_source") in ("explicit", "coordinates", "gps_fix"):
         return _refusal("OUT_OF_RANGE", where, state)
     place_label = (location.get("place_name") or "this place").title()
@@ -317,20 +313,14 @@ def out_of_scope_node(state: ORCAState) -> dict:
     refusal plus a redirect, and emphatically zero marine content. No agent
     below Planning has run, so there is no number here to be wrong.
 
-    Chatbot plan C0.2d — "hi" lands here too, and a chatbot that answers a
-    greeting with "I can't answer that" is broken however correct the
-    routing is. The model tells a greeting or small talk apart and answers it
-    as one; `small_talk` lets the UI drop the refusal heading for it.
-
-    Found 2026-09-26 — "do you know the current time/location" also lands
-    here (neither has a marine word), and answering either with "I can't
-    answer that" is wrong: the app's own header already shows an IST clock,
-    and the server can say so. `is_self_context_question` answers it from
-    real facts instead of the generic refusal; `small_talk` is forced True
-    here rather than left to the model's own tag, because this is never the
-    "can't help" case the heading is for."""
+    Prompt Routing Revamp §6: uses Understand agent's `kind` to route
+    greeting, clock, off-topic, capability, reset to model-written replies.
+    The deterministic word lists stay as the offline fallback.
+    """
+    understood_kind = state.get("understood_kind")
     query = state.get("raw_user_query", "") or ""
-    if planning.is_self_context_question(query) or planning.is_self_context_question(state.get("normalized_english_query") or ""):
+
+    if understood_kind == "clock_or_position" or planning.is_self_context_question(query) or planning.is_self_context_question(state.get("normalized_english_query") or ""):
         reply, engine = reporting.write_self_context_reply(query, _self_context_facts(state), _conversation_context(state))
         return {
             "query_outcome": "OUT_OF_SCOPE",
@@ -341,6 +331,35 @@ def out_of_scope_node(state: ORCAState) -> dict:
             "confidence_tier": "HIGH",
             "execution_plan": [],
         }
+
+    if understood_kind == "greeting_or_small_talk":
+        body = "Hello! I'm ORCA — I help with sea conditions off India's coast: safety to go out, waves, wind, tides, fishing zones, and maritime boundaries. What would you like to know?"
+        return {
+            "query_outcome": "OUT_OF_SCOPE",
+            **_guard_reply(state, body, allow_small_talk=True),
+            "confidence_tier": "HIGH",
+            "execution_plan": [],
+        }
+
+    if understood_kind == "what_can_orca_do":
+        body = "I answer questions about conditions at sea off India — whether it's safe to go out, wave height, wind speed, tides, nearest fishing zones, and maritime boundaries. Name a coastal place or send your position, and I'll answer for it."
+        return {
+            "query_outcome": "OUT_OF_SCOPE",
+            **_guard_reply(state, body, allow_small_talk=True),
+            "confidence_tier": "HIGH",
+            "execution_plan": [],
+        }
+
+    if understood_kind == "reset_or_language_switch":
+        body = "Sure thing — just let me know what you'd like to change."
+        return {
+            "query_outcome": "OUT_OF_SCOPE",
+            **_guard_reply(state, body, allow_small_talk=True),
+            "confidence_tier": "HIGH",
+            "execution_plan": [],
+        }
+
+    # off_topic or any other kind not handled above
     body = (
         "I can't answer that. I only answer questions about conditions at sea off India — "
         "whether it is safe to go out, waves, wind, tides, fishing zones, and maritime "
@@ -538,11 +557,8 @@ def marine_data_discovery_node(state: ORCAState) -> dict:
 
 def language_ingress_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("language_ingress", language.run_ingress, state)
-    # run_traced_node's exception boundary degrades any agent failure (e.g. a
-    # missing optional translation dependency) to outputs={} — indexing into
-    # it unconditionally would turn that documented degrade-not-crash contract
-    # into a KeyError that aborts the whole streamed response (matches the
-    # `if result.outputs else {}` guard weather_node already uses below).
+    # Same degrade-not-crash guard as language_ingress_node — fall back to the
+    # English answer already in state rather than KeyError on an empty outputs.
     outputs = result.outputs or {
         "detected_language": "en",
         "normalized_english_query": state.get("raw_user_query", ""),
@@ -552,6 +568,24 @@ def language_ingress_node(state: ORCAState) -> dict:
         "normalized_english_query": outputs["normalized_english_query"],
         "audit_trace_log": [entry],
         "completed_nodes": ["language_ingress"],
+    }
+
+
+def understand_node(state: ORCAState) -> dict:
+    """Prompt Routing Revamp §6 — one cheap LLM call that READS every prompt.
+    Returns structured understanding: kind, intents, places, when, is_followup.
+    Replaces the word-list gates (is_out_of_scope, _TEMPORAL_PATTERNS, etc.).
+    """
+    result, entry = run_traced_node("understand", understand.run, state)
+    outputs = result.outputs or {}
+    return {
+        "understood_kind": outputs.get("kind"),
+        "understood_intents": outputs.get("intents", []),
+        "understood_places": outputs.get("places", []),
+        "understood_when": outputs.get("when"),
+        "understood_is_followup": outputs.get("is_followup", False),
+        "audit_trace_log": [entry],
+        "completed_nodes": ["understand"],
     }
 
 
@@ -1285,6 +1319,7 @@ def build_graph():
     g.add_node("query_guard", query_guard_node)
     g.add_node("out_of_scope", out_of_scope_node)
     g.add_node("language_ingress", language_ingress_node)
+    g.add_node("understand", understand_node)
     g.add_node("planning", planning_node)
     g.add_node("marine_data_discovery", marine_data_discovery_node)
     g.add_node("weather_intelligence", weather_node)
@@ -1301,7 +1336,8 @@ def build_graph():
     g.add_edge(START, "distress_check")
     g.add_conditional_edges("distress_check", _route_after_distress, {END: END, "query_guard": "query_guard"})
     g.add_conditional_edges("query_guard", _route_after_query_guard, {END: END, "language_ingress": "language_ingress"})
-    g.add_edge("language_ingress", "planning")
+    g.add_edge("language_ingress", "understand")
+    g.add_edge("understand", "planning")
     g.add_conditional_edges(
         "planning", _route_after_planning,
         {

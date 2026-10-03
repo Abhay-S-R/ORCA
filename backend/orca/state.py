@@ -92,6 +92,15 @@ class ORCAState(TypedDict):
     # P2.13 — how many provider calls this query actually made.
     llm_call_count: int
 
+    # Prompt Routing Revamp §6 — Understand agent's structured output,
+    # set by understand_node and consumed by query_guard, out_of_scope,
+    # and planning.
+    understood_kind: str | None  # "sea_question" | "greeting_or_small_talk" | ...
+    understood_intents: list[str]  # subset of ROUTING_TABLE row names
+    understood_places: list[dict[str, Any]]  # [{raw, normalized}, ...]
+    understood_when: dict[str, Any] | None  # {start, end} ISO or None
+    understood_is_followup: bool
+
     distress_flag: bool  # set by Agent 12's detection, checked before any other node executes
     sentinel_subscription: dict[str, Any] | None  # set on ALERT_SUBSCRIPTION intent
 

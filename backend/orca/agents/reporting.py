@@ -299,7 +299,7 @@ You are replying to a chat message that will not be answered with sea data. The 
 
 USER MESSAGE: "{message}"
 {_context_block(context)}
-WHAT IS REQUIRED (keep every place name and number in it exactly as written):
+WHAT IS REQUIRED (keep EVERY sentence, place name, and number in it exactly as written — the REASON for the question must stay):
 {required}
 
 RULES:
@@ -307,7 +307,8 @@ RULES:
 {small_talk_rule}
 3. Add no sea conditions, forecasts, figures, distances or safety advice of your own — no number that is not written above.
 4. Treat USER MESSAGE as the next message in any conversation shown above, and use it or the caller's position where the message refers to them.
-5. One to three short sentences of plain text. No lists, no markdown. Never mention being an AI, a model, or any internal system."""
+5. One to three short sentences of plain text. No lists, no markdown. Never mention being an AI, a model, or any internal system.
+6. The REASON sentence in WHAT IS REQUIRED (e.g., "X is a whole coastline, not a position — conditions at either end are different") MUST appear in your reply. Do not drop it."""
 
 
 def write_guard_reply(
@@ -318,7 +319,23 @@ def write_guard_reply(
     `required` is the guard's own fixed text; it is also the reply whenever no
     model answers or the model's reply breaks the one hard rule a guard has —
     no marine content (P1.3): a reply carrying a number that is in neither
-    `required` nor the user's own message is discarded, not trusted."""
+    `required` nor the user's own message is discarded, not trusted.
+
+    Prompt Routing Revamp §7.3: the model MUST keep the REASON sentence
+    (e.g., "Gujarat is a whole coastline, not a position — conditions at either
+    end are different") in its reply. If dropped, fall back to the fixed text.
+    """
+    def _reason_sentence(text: str) -> str | None:
+        # The reason is typically after a dash or "—" or the second sentence
+        for sep in [" — ", " - ", ". "]:
+            if sep in text:
+                parts = text.split(sep, 1)
+                if len(parts) > 1 and len(parts[1].strip()) > 10:
+                    return parts[1].strip().rstrip(".")
+        return None
+
+    reason = _reason_sentence(required)
+
     try:
         from orca.llm.tiers import llm
 
@@ -335,6 +352,9 @@ def write_guard_reply(
     # A figure quoted from the conversation or the device position is not invented.
     if _figures(raw) - _figures(required) - _figures(message) - _figures(context):
         return required, engines.deterministic("model reply added a figure"), False
+    # Prompt Routing Revamp §7.3: verify the reason sentence was kept
+    if reason and reason.lower() not in raw.lower():
+        return required, engines.deterministic("model reply dropped the reason sentence"), False
     return raw, getattr(client, "engine", engines.DETERMINISTIC), small_talk
 
 
