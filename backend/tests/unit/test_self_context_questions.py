@@ -3,7 +3,7 @@ route (found 2026-09-26). "current" is real marine vocabulary (an ocean
 current) and also an ordinary English adjective; the collision used to run
 the full marine pipeline for a plain clock/position question, and answer it
 with the pilot region's default position — a real place a caller could
-mistake for their own. See `docs/DLC_implementation_log.md`.
+mistake for their own. See `docs/logs/DLC_implementation_log.md`.
 """
 from __future__ import annotations
 

@@ -57,7 +57,7 @@ type PfzProperties = {
   distance_km?: string | number;
   depth_m?: string | number;
   valid_for?: string;
-  // docs/ORCA_Stale_Data_Policy.md — every zone carries its own age; a
+  // docs/data/ORCA_Stale_Data_Policy.md — every zone carries its own age; a
   // cloud-covered sector shows its last clear day's zones, labelled old.
   age_days?: number;
   band?: "fresh" | "hint" | "history";

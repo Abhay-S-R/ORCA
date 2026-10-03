@@ -280,7 +280,7 @@ def nearest_boundary_line(lat: float, lon: float) -> dict[str, Any] | None:
     source data — nothing to cross into. Counting them made the pilot default
     position read 0.7 nm from a "boundary" (was 47.6 nm before the Phase 5
     merge added this filter's absence) and made an ordinary Thoothukudi
-    question NO_GO (found 2026-09-25, `docs/DLC_implementation_log.md`).
+    question NO_GO (found 2026-09-25, `docs/logs/DLC_implementation_log.md`).
     `load_boundary_lines()` itself still returns all 32 — `map_layers`
     (`orca/api/geospatial_routes.py`) draws every line, baselines included,
     for context; only a verdict-relevant nearest line excludes them.

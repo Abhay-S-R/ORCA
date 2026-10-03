@@ -319,7 +319,7 @@ def warm_faster_whisper() -> None:
 # P6.4 (orca_final §14.3) — the local TTS rung (`MmsTtsBackend`) had no
 # warm-up at all until this: only ASR (Whisper) and translation
 # (IndicTrans2) were pre-warmed, so the Tamil alert voice in
-# `docs/DLC_demo_script.md` beat 6 would have paid a first-synthesis model
+# `docs/competition/DLC_demo_script.md` beat 6 would have paid a first-synthesis model
 # load (`AutoTokenizer`/`VitsModel.from_pretrained`, logged as "MMS-TTS
 # model loaded... in %.1fs") on whichever take actually needed it. Warms
 # only `ta` (the Palk Bay pilot's own language, and the one language this

@@ -5,8 +5,8 @@ see §6.1 for what was built and where it differs from the plan). §7 lists the
 work that follows it; none of §7 is started.
 **Priority:** The chatbot (`/ask`) is ORCA's main product. All other surfaces are
 necessary, but when priorities compete the chatbot comes first. Points in this
-file go ahead of other open points in `docs/DLC_implementation_plan.md`.
-**Grounding:** `docs/ORCA_PS_SIH26176_Problem_Statement.md`. The PS asks for an
+file go ahead of other open points in `docs/plans/DLC_implementation_plan.md`.
+**Grounding:** `docs/specs/ORCA_PS_SIH26176_Problem_Statement.md`. The PS asks for an
 *"intelligent conversational platform"* that lets users *"interact naturally"*
 (§ background), *"synthesize actionable recommendations through conversational
 interface"* and *"present insights through conversational responses"* (§
@@ -14,7 +14,7 @@ expected solution), plus PS-C1 (intent in natural language) and PS-C2
 (same-language response). A turn that shows only readout cards and no written
 answer fails all of those requirements, even when every agent's numbers are right.
 **Logging:** Every point implemented from this file is logged in
-`docs/DLC_implementation_log.md` with remarks, the same as DLC points.
+`docs/logs/DLC_implementation_log.md` with remarks, the same as DLC points.
 
 ---
 
@@ -363,7 +363,7 @@ implementation log. Earlier log entries are claims to re-verify, not evidence.
   chat" from an unsaved session. C0.1 removes the cause; the frontend should also
   drop an unknown current-chat id quietly.
 - **The OSF age bands are not in the narrative.** They are in the trace only,
-  covered by F1. `docs/ORCA_Stale_Data_Policy.md` §4 and §7 were corrected on
+  covered by F1. `docs/data/ORCA_Stale_Data_Policy.md` §4 and §7 were corrected on
   2026-09-24; they had claimed otherwise.
 - **The call budget is not measured per demo.** Up to 4 calls per question on
   one free-tier key, plus Critic loops. The call counts per query should be

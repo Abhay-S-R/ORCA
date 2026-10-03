@@ -57,7 +57,7 @@ tuned-until-it-looked-right number:
 | `danger_wind_kmh` | 55 km/h | same |
 | Vessel-class deltas | `mechanized_trawler` +9.3 km/h / +0.5 m; `cargo_vessel` +27.8 km/h / +1.5 m | Architecture §3.1, vessel-class tolerance table |
 | Cyclone alert → verdict | Orange/Red → NO_GO | IMD cyclonic-intensity scale (Depression → Very Severe Cyclonic Storm), the same scale INCOIS's own bulletins use |
-| IMBL proxy | MEDIUM confidence cap, 1 nm hard band | disclosed proxy, not a treaty-precision line — see `docs/DLC_implementation_log.md` P5.5/P5.6 |
+| IMBL proxy | MEDIUM confidence cap, 1 nm hard band | disclosed proxy, not a treaty-precision line — see `docs/logs/DLC_implementation_log.md` P5.5/P5.6 |
 
 `risk_assessment.py`'s own docstring states the discipline this table restates: "thresholds
 are transcribed verbatim from Architecture §3.1 — do not 'simplify' this function." Nothing

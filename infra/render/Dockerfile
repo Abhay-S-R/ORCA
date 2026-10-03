@@ -1,6 +1,6 @@
 # The Render image: backend/Dockerfile plus the gitignored data/ baked in, because Render
 # builds from git (which has no data/) and its free plan has no disk to copy data onto.
-# Build from the repo root, after the base image — docs/ORCA_Deployment.md §2:
+# Build from the repo root, after the base image — docs/deployment/ORCA_Deployment.md §2:
 #   docker build -t orca-backend backend
 #   docker build -f infra/render/Dockerfile -t <dockerhub-user>/orca-backend:render .
 # The code resolves data/ and scripts/ three levels above orca/agents/, i.e. /data, /scripts.

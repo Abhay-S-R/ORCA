@@ -20,7 +20,7 @@ ORCA's `/ask` chatbot is the product; everything else exists to serve it.
 
 Any defect in how the chatbot reads or answers a prompt is critical and comes
 before every other feature fix. The current plan is
-`docs/ORCA_Prompt_Routing_Revamp.md`.
+`docs/plans/ORCA_Prompt_Routing_Revamp.md`.
 
 ## graphify
 

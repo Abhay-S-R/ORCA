@@ -158,4 +158,4 @@ the wave layer empty until it's run again.
 | `/health` hangs or times out after editing a file | Backend started without the flag, or detached | Restart as in Step 3, in a real terminal window |
 | Pills show ticks, no letters | Answer came from the query cache | Ask a new question |
 
-Background and the full reasoning: `docs/DLC_implementation_log.md`, entries dated 2026-09-19.
+Background and the full reasoning: `docs/logs/DLC_implementation_log.md`, entries dated 2026-09-19.

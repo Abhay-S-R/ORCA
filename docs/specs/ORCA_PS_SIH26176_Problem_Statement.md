@@ -146,8 +146,8 @@ The PS names no geography. ORCA's own scope decision, recorded here so no docume
   region that silently falls back to the pilot default is **not** covered, and saying otherwise in a
   document or to a judge is a false claim.
 
-Current per-region status is maintained in `docs/ORCA_SIH26176_AllIndia_Dataset_Coverage_Guide.md` §0,
-which is the audited ledger. Requirements to close the gaps live in `docs/ORCA_DLC_Extension_Pack.md`
+Current per-region status is maintained in `docs/data/ORCA_SIH26176_AllIndia_Dataset_Coverage_Guide.md` §0,
+which is the audited ledger. Requirements to close the gaps live in `docs/specs/ORCA_DLC_Extension_Pack.md`
 §10 (all-India extension) and §11 (unrehearsed query coverage).
 
 ---

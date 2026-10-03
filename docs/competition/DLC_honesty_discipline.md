@@ -9,7 +9,7 @@
 ## The five lines
 
 1. **"The DAT-SG/Sagarmitra distress handoff is simulated."** A real structured payload is
-   built and shown verbatim (`docs/orca_final.md` §13.2) — vessel identity, position, persons
+   built and shown verbatim (`docs/specs/orca_final.md` §13.2) — vessel identity, position, persons
    aboard, nature of distress — but nothing here actually transmits to the Coast Guard's real
    DAT-SG system. Every non-in-app/web-push channel (SMS, WhatsApp, IVR, missed-call callback,
    VHF, harbour board) is rendered and stored, never sent, and is labelled `SIMULATED`
@@ -54,7 +54,7 @@
 
 ## Owner and status
 
-Built alongside `docs/DLC_demo_script.md` (P4.0/P6.6) as its companion rehearsal card — the
+Built alongside `docs/competition/DLC_demo_script.md` (P4.0/P6.6) as its companion rehearsal card — the
 shot list says *what* is on screen; this says *what to volunteer* while it is. Re-check line 2
 against `GET /api/system-status` the night of any recording, per P6.4's own offline-rehearsal
 instruction — it is the one line on this card whose truth depends on the demo environment, not

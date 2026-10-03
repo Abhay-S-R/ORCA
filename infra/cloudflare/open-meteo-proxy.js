@@ -1,4 +1,4 @@
-// ORCA's Open-Meteo relay, deployed as a Cloudflare Worker (docs/ORCA_Deployment.md §2.9).
+// ORCA's Open-Meteo relay, deployed as a Cloudflare Worker (docs/deployment/ORCA_Deployment.md §2.9).
 //
 // Why it exists: Open-Meteo's free API counts requests per IP address, and Render free sends
 // from IPs it shares with other customers, so api.open-meteo.com answered ORCA with

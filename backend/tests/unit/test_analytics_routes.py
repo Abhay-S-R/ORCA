@@ -87,7 +87,7 @@ def test_source_decision_walks_the_declared_cascade():
 
 
 def test_pfz_layer_keeps_every_sectors_latest_advisory_labelled_by_age(tmp_path, monkeypatch):
-    """docs/ORCA_Stale_Data_Policy.md. A sector cloud-covered today keeps its
+    """docs/data/ORCA_Stale_Data_Policy.md. A sector cloud-covered today keeps its
     last clear day's zones on the map, each labelled with its own age — it used
     to be dropped, which emptied the east coast whenever only Maharashtra and
     Goa were cloud-free. Archive snapshots are grouped by `valid_for`, so a

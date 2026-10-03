@@ -7,7 +7,7 @@ import type { NextConfig } from "next";
 // locally, so local builds are untouched.
 //
 // Unset on Vercel, it defaults to the deployed Render backend
-// (docs/ORCA_Deployment.md §2.5). A value set in the Vercel dashboard always
+// (docs/deployment/ORCA_Deployment.md §2.5). A value set in the Vercel dashboard always
 // wins. Render added the -render suffix because orca-backend.onrender.com
 // belongs to someone else: a default left at that name would send every
 // sign-in to a stranger's service.
@@ -18,7 +18,7 @@ const apiBase = process.env.VERCEL
   : undefined;
 if (apiBase && !apiBase.startsWith("https://")) {
   throw new Error(
-    `NEXT_PUBLIC_API_BASE_URL must be the backend's https:// URL in the Vercel project settings (got ${JSON.stringify(apiBase)}). See docs/ORCA_Deployment.md.`,
+    `NEXT_PUBLIC_API_BASE_URL must be the backend's https:// URL in the Vercel project settings (got ${JSON.stringify(apiBase)}). See docs/deployment/ORCA_Deployment.md.`,
   );
 }
 

@@ -615,7 +615,7 @@ async def _query_stream(
             # How many earlier turns this answer was given with. The chat UI
             # compares it to its own thread: 0 after earlier answers means the
             # context expired, and it says so instead of the follow-up quietly
-            # being answered as turn one (docs/ORCA_DLC_Extension_Pack.md R-AUTH-3).
+            # being answered as turn one (docs/specs/ORCA_DLC_Extension_Pack.md R-AUTH-3).
             "context_turns": len(session_history or []),
             "confidence_tier": final_state.get("confidence_tier", "LOW_DATA"),
             "confidence_reason": final_state.get("confidence_reason"),

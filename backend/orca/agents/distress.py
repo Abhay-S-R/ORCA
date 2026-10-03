@@ -42,7 +42,7 @@ from orca.state import ORCAState
 # review the point requires ("Reviewer: Dev R (native Tamil), sign-off
 # recorded... with the date") — no such sign-off exists for ANY language
 # here, Tamil included, and none is claimed. Logged BLOCKED, not DONE — see
-# docs/DLC_implementation_log.md.
+# docs/logs/DLC_implementation_log.md.
 _DISTRESS_PATTERNS: dict[str, list[str]] = {
     "en": [
         "sinking", "taking on water", "man overboard", "mayday", "capsizing", "capsized",

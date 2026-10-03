@@ -2,8 +2,8 @@
 
 **Status:** ready to run. **Audience:** anyone with a clone, no prior context needed.
 **What this checks:** all ten Phase 1 points (P1.1 – P1.10), plus the phase exit gate.
-**Companion:** `docs/DLC_implementation_plan.md` §4 says what Phase 1 builds;
-`docs/DLC_implementation_log.md` records what was actually done and why.
+**Companion:** `docs/plans/DLC_implementation_plan.md` §4 says what Phase 1 builds;
+`docs/logs/DLC_implementation_log.md` records what was actually done and why.
 
 **How long:** about 25 minutes if you do all three parts. Part A alone is 3 minutes.
 
@@ -678,7 +678,7 @@ Tick these off. Anything unticked is a real finding worth reporting.
 
 ## 3. Known gaps — not failures, but do not claim they are fixed
 
-These are recorded in `docs/DLC_implementation_log.md` and are deliberately still open.
+These are recorded in `docs/logs/DLC_implementation_log.md` and are deliberately still open.
 
 1. **47 of 83 places in the gazetteer sit on land.** The table's own comment claims the
    coordinates are offshore positions about 10-20 nautical miles out; for most of them that
@@ -712,8 +712,8 @@ These are recorded in `docs/DLC_implementation_log.md` and are deliberately stil
 
 ## 4. If you want to go deeper
 
-- What each point was meant to do: `docs/DLC_implementation_plan.md` §4
-- What was actually done, and every deviation and why: `docs/DLC_implementation_log.md`,
+- What each point was meant to do: `docs/plans/DLC_implementation_plan.md` §4
+- What was actually done, and every deviation and why: `docs/logs/DLC_implementation_log.md`,
   the entries dated 2026-09-20
 - The guard logic itself, heavily commented: `backend/orca/place_resolution.py`
 - The order the guards run in: `backend/orca/graph/graph.py`, top of file

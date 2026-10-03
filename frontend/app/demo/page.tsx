@@ -17,7 +17,7 @@ export default function DemoPage() {
     <PageBody className="mx-auto max-w-4xl">
       <PageHeader
         title="Scenario demonstrations"
-        lede="Five pinned scenarios, each a one-click run of the real production graph — never a video, never a hardcoded string. See docs/DLC_demo_script.md for the recorded shot list this page is built to run."
+        lede="Five pinned scenarios, each a one-click run of the real production graph — never a video, never a hardcoded string. See docs/competition/DLC_demo_script.md for the recorded shot list this page is built to run."
         action={<Compass className="size-6 text-ocean-cyan" aria-hidden="true" />}
       />
       <div className="space-y-5">

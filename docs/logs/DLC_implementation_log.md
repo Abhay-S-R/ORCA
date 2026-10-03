@@ -1,6 +1,6 @@
 # ORCA — DLC Implementation Log
 
-> **Append-only.** Every point in `docs/DLC_implementation_plan.md` is claimed here before work
+> **Append-only.** Every point in `docs/plans/DLC_implementation_plan.md` is claimed here before work
 > starts and logged here when it finishes. A point with no `DONE` entry is not done, whatever the
 > code says. Never edit or delete someone else's entry — append a new one that corrects it.
 >
@@ -10,11 +10,11 @@
 
 | | |
 |---|---|
-| **Plan** | `docs/DLC_implementation_plan.md` — 118 points, Phase 0 – Phase 7 (22 added 2026-09-18, 27 on 2026-09-19) |
-| **Target** | `docs/orca_final.md` — every feature; reconciled with the plan and the tree 2026-09-19 |
-| **Audit** | `docs/DLC_verification_report.md` — DLC vs `orca_final.md` vs the tree, 2026-09-18 |
-| **Requirements** | `docs/ORCA_DLC_Extension_Pack.md` — historical origin of the `R-*` IDs; superseded by the plan 2026-09-19 |
-| **Canonical PS** | `docs/ORCA_PS_SIH26176_Problem_Statement.md` |
+| **Plan** | `docs/plans/DLC_implementation_plan.md` — 118 points, Phase 0 – Phase 7 (22 added 2026-09-18, 27 on 2026-09-19) |
+| **Target** | `docs/specs/orca_final.md` — every feature; reconciled with the plan and the tree 2026-09-19 |
+| **Audit** | `docs/logs/DLC_verification_report.md` — DLC vs `orca_final.md` vs the tree, 2026-09-18 |
+| **Requirements** | `docs/specs/ORCA_DLC_Extension_Pack.md` — historical origin of the `R-*` IDs; superseded by the plan 2026-09-19 |
+| **Canonical PS** | `docs/specs/ORCA_PS_SIH26176_Problem_Statement.md` |
 | **Current phase** | **Phase 6 — 12 of 13 points DONE (2026-09-24)**: P6.1/P6.2/P6.4/P6.5/P6.6/P6.7/P6.8/P6.9/P6.10/P6.11/P6.12/P6.13. Open: P6.3 (3 of 4 screenshots captured — the cross-source disagreement state needs a live query this session couldn't reproduce, not a code gap). Phase 5 — closed out 2026-09-24 (P5.4/P5.13/P5.14 stay open — data procurement, not code). Phase 4 — all 17 points DONE (2026-09-23, 100%). Phase 3 — all 14 points DONE (2026-09-23, 100%). Phase 2 — all 14 points built, 11 fully verified and 3 partly (2026-09-21, ~94%). Phase 1 — all 10 points DONE (2026-09-20) |
 
 ---
@@ -3016,3 +3016,12 @@ Remarks:
   - `npm run lint` -> 0 errors.
   - `ruff check orca` -> All checks passed.
   - `pytest tests/unit/test_response_guarantee.py tests/unit/test_language.py` -> 65 passed, 1 skipped.
+
+### [2026-10-03] DOCS — Reorganised `docs/` into topic folders; wrote the Pipeline Consolidation Plan — NOTE
+
+- **Implements:** no DLC point. Housekeeping plus a new plan (`docs/plans/ORCA_Pipeline_Consolidation_Plan.md`, points `PC0.1`–`PC4.3`, nothing implemented).
+- **What changed:**
+  - Moved the 31 flat `docs/*.md` files into `specs/`, `plans/`, `logs/`, `data/`, `deployment/`, `competition/`; `docs/Guide/` became `docs/guides/`; the untracked repo-root `orca_pipeline_walkthrough.md` moved to `docs/specs/`. Index in `docs/README.md`. `docs/archive/` untouched.
+  - Rewrote `docs/<name>.md` path references to the new locations in code comments, scripts, `CLAUDE.md`, `.env.example`, the Dockerfile and the docs themselves; nothing reads these paths at runtime. The header table of this log was updated; **entries above this one still use the old flat paths** (append-only).
+- **Not done:** `docs/archive/` and `.kilo/worktrees/` references were left as they were. `docs/competition/ORCA_SIH2026_Judge_Verdict.md:33` cites `docs/data_verification_audit.md`, already wrong before the move (the file is in `docs/archive/`).
+- **Verification:** every `docs/<folder>/<name>.md` path now cited anywhere outside archive/worktrees resolves to an existing file; no flat-path references remain outside the log's historical entries.

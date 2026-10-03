@@ -102,7 +102,7 @@ def test_ten_coastal_places_across_five_states_each_resolve_within_their_own_sta
 
 
 def test_cmems_picks_the_current_file_even_if_a_stale_one_was_written_last():
-    """`docs/ORCA_Stale_Data_Cleanup.md` §6.2. `_cmems_newest` used to sort by
+    """`docs/data/ORCA_Stale_Data_Cleanup.md` §6.2. `_cmems_newest` used to sort by
     mtime, which records when the bytes landed on this machine rather than the
     date the data describes. Restoring a backup, or re-copying `data/`,
     reorders the directory and would hand the SST fallback rung an August

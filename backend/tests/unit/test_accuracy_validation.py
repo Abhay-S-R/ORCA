@@ -1,5 +1,5 @@
 """P6.1 (`R-EVID-1`) — the golden-case regression table behind
-`docs/DLC_accuracy_validation.md`, run in CI so the confusion-matrix numbers
+`docs/competition/DLC_accuracy_validation.md`, run in CI so the confusion-matrix numbers
 quoted in the deck and the demo script cannot silently rot.
 
 The held-out window is the Cyclone Gaja replay (`orca/replay/gaja.py`) — the
@@ -48,7 +48,7 @@ def _confusion_matrix() -> dict[str, int]:
 
 
 def test_confusion_matrix_matches_the_published_evidence_numbers():
-    """The exact TP/FN/FP/TN cited in docs/DLC_accuracy_validation.md's
+    """The exact TP/FN/FP/TN cited in docs/competition/DLC_accuracy_validation.md's
     table — a change here means that document is now wrong and must be
     regenerated from this same function, not hand-edited."""
     m = _confusion_matrix()

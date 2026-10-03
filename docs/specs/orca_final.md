@@ -14,7 +14,7 @@
 | **Languages** | **8 core Indian languages** with full text and voice (English, Tamil, Hindi, Telugu, Malayalam, Kannada, Bengali, Marathi); Gujarati and Odia text-only until verified |
 | **Datasets** | 28 catalogued sources in the discovery registry across 4 authority tiers — the count shown is always the measured registry count |
 
-> **What this document is.** The target specification: a single consolidated statement of every capability ORCA has when the build is complete — agent by agent, surface by surface, dataset by dataset. It is written in the present tense on purpose. What is already in the tree and what is still to be built is tracked in `docs/DLC_implementation_plan.md` (the route from today's tree to this document) and `docs/DLC_implementation_log.md` (what has been done). Anything shown to judges must describe the tree as it is on that day, not this document. Features that were considered and deliberately left out of this build are listed in §34, with the reason.
+> **What this document is.** The target specification: a single consolidated statement of every capability ORCA has when the build is complete — agent by agent, surface by surface, dataset by dataset. It is written in the present tense on purpose. What is already in the tree and what is still to be built is tracked in `docs/plans/DLC_implementation_plan.md` (the route from today's tree to this document) and `docs/logs/DLC_implementation_log.md` (what has been done). Anything shown to judges must describe the tree as it is on that day, not this document. Features that were considered and deliberately left out of this build are listed in §34, with the reason.
 
 ---
 
@@ -1200,7 +1200,7 @@ The numeric fallback comes from **NOAA CoastWatch ERDDAP** (or NASA's `earthacce
 
 Every ingested product is registered with source, licence, spatial extent, temporal coverage, update cadence, acquisition timestamp, record count and a checksum. `/data` renders this catalogue live, with per-source health and last-successful-fetch times. **A value without provenance cannot be rendered** — enforced by a provenance test in CI, not by convention. Nothing anywhere in the system invents a number to fill a gap; a missing value is reported as missing.
 
-**Freshness is a contract, not a label.** Every source is classed LIVE, DAILY, WEEKLY or STATIC (`docs/ORCA_Data_Freshness_Contract.md`), and caches expire by class: past its max age a cache is regenerated, or served with its real acquisition date and dropped to REFERENCE. LIVE sources — Open-Meteo, INCOIS hazard bulletins, INCOIS tide gauges — are fetched live with the same timeout and cascade discipline.
+**Freshness is a contract, not a label.** Every source is classed LIVE, DAILY, WEEKLY or STATIC (`docs/data/ORCA_Data_Freshness_Contract.md`), and caches expire by class: past its max age a cache is regenerated, or served with its real acquisition date and dropped to REFERENCE. LIVE sources — Open-Meteo, INCOIS hazard bulletins, INCOIS tide gauges — are fetched live with the same timeout and cascade discipline.
 
 **One refresh command.** `scripts/refresh_all.py` runs every download and scrape first, then every derived artefact (national PFZ build, wave-tile pyramid, vector caches, Copernicus products through the official `copernicusmarine` CLI subset to the India bbox), and writes `data/refresh_manifest.json` with `last_refresh_utc`, `content_valid_for`, `row_count` and `ok` per dataset. A failure is recorded, not fatal. It is scheduled with **Windows Task Scheduler** on the machine that serves the data (CI cannot persist a refresh, because `data/` is gitignored), and a one-command freshness check reports any breach.
 
@@ -1636,7 +1636,7 @@ Every requirement family from the problem statement and the extension pack, mapp
 
 ## 34. Beyond This Build — Roadmap & Deliberate Exclusions
 
-Everything above is in the target build. The items below were specified and considered; each is left out **by decision**, with the reason, so that nothing in this document claims a capability ORCA will not have. `docs/DLC_implementation_plan.md` §13.2 records the same decisions.
+Everything above is in the target build. The items below were specified and considered; each is left out **by decision**, with the reason, so that nothing in this document claims a capability ORCA will not have. `docs/plans/DLC_implementation_plan.md` §13.2 records the same decisions.
 
 ### 34.1 Roadmap — sound designs, deferred
 

@@ -59,7 +59,7 @@ _OFF = ("0", "false", "no", "off")
 def llm_enabled() -> bool:
     """Whether any LLM tier may be reached at all. The per-request override
     wins over the environment; `ORCA_LLM_ENABLED=0` is the env form
-    `docs/orca_final.md` §5.5/§28 already names."""
+    `docs/specs/orca_final.md` §5.5/§28 already names."""
     override = _llm_enabled_override.get()
     if override is not None:
         return override

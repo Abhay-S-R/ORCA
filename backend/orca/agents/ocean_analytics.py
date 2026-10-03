@@ -323,7 +323,7 @@ def predict_tides(
     # its honest acquisition time. The Stormglass rung is a dated external
     # pull — reporting it as fetched "now" would hide how old that pull is,
     # even though the predictions it contains stay valid until their window
-    # runs out (docs/ORCA_Stale_Data_Policy.md §6).
+    # runs out (docs/data/ORCA_Stale_Data_Policy.md §6).
     acquired = when
     if fell_back:
         cached = al.load_stormglass_cache_date(code)
@@ -574,7 +574,7 @@ class NearestPFZ:
     longitude: float | None
     valid_for: str | None
     sector_id: str | None
-    # docs/ORCA_Stale_Data_Policy.md — the advisory's age, so no surface can
+    # docs/data/ORCA_Stale_Data_Policy.md — the advisory's age, so no surface can
     # present a cloud-season zone as today's. None when nothing was found.
     age_days: int | None = None
     band: str | None = None  # fresh | hint | history

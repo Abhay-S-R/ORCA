@@ -532,7 +532,7 @@ function VoyageContent() {
               {/* The SOI table needs no caveat — it's computed fresh every
                   call. The Stormglass fallback is a dated external pull, so
                   it gets the same "acquired when" chip route_layer already
-                  carries (docs/ORCA_Stale_Data_Policy.md §6). */}
+                  carries (docs/data/ORCA_Stale_Data_Policy.md §6). */}
               {tide.fell_back && (
                 <div className="mt-2">
                   <SourceChip

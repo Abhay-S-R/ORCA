@@ -3,7 +3,7 @@
 > Every number below is either measured against the running application (with the exact
 > command that produced it) or explicitly marked as a figure to confirm against a live rate
 > card before the pitch — never a number typed in from memory. This document is the input to
-> the demo script's closing card (`docs/DLC_demo_script.md`), which quotes it.
+> the demo script's closing card (`docs/competition/DLC_demo_script.md`), which quotes it.
 
 ## 1. Cost per query, measured
 
@@ -81,7 +81,7 @@ would have to trust from scratch.
 ## 4. What it displaces
 
 Not a competing forecast — INCOIS/IMD remain the authority ORCA cites, never overrides
-(`docs/DLC_implementation_plan.md`'s own honesty discipline, P6.5). What it displaces is the
+(`docs/plans/DLC_implementation_plan.md`'s own honesty discipline, P6.5). What it displaces is the
 **manual interpretation step**: a fisherman or a district officer today reads a bulletin
 written for a whole sector and has to work out, unaided, whether it applies to their specific
 position, vessel class, and the next six hours — the step ORCA's deterministic verdict,

@@ -1,18 +1,18 @@
 # ORCA — DLC Extension Pack
 
 > **Superseded as the source of truth — 2026-09-19.** ORCA now has two working documents:
-> `docs/orca_final.md` describes every feature ORCA has when the build is complete, and
-> `docs/DLC_implementation_plan.md` is the single list of work remaining to get there, and **wins on
+> `docs/specs/orca_final.md` describes every feature ORCA has when the build is complete, and
+> `docs/plans/DLC_implementation_plan.md` is the single list of work remaining to get there, and **wins on
 > any conflict with this Pack**. This Pack is kept as the historical origin of the `R-*` requirement
 > IDs and their `Accept:` criteria, which the plan still cites. Its `Now:` lines are dated snapshots
-> and many are stale (see `docs/DLC_verification_report.md` §2); do not plan from them.
+> and many are stale (see `docs/logs/DLC_verification_report.md` §2); do not plan from them.
 
 **Everything that must be built, fixed, or proven to turn ORCA from a strong national finalist into the PS 26176 winner.**
 
 | | |
 |---|---|
-| **Grounded in** | `docs/ORCA_PS_SIH26176_Problem_Statement.md` — the canonical PS text. Clause IDs (`PS-Q*`, `PS-C*`, `PS-ARCH`) used here are defined there |
-| **Sources merged** | `docs/ORCA_SIH2026_Judge_Verdict.md` (code-forensic audit), `docs/ORCA_SIH2026_Grand_Finale_Judge_Audit.md` (PPT + repo audit, external), the verbatim PS 26176 capability list, the five flags raised by the internal-round judge, and the 2026-09-13 dataset wiring audit in `docs/ORCA_SIH26176_AllIndia_Dataset_Coverage_Guide.md` §0. §7.1 additionally folds in the PS-grounded requirements surfaced by `orca_final.md`, the consolidated feature specification |
+| **Grounded in** | `docs/specs/ORCA_PS_SIH26176_Problem_Statement.md` — the canonical PS text. Clause IDs (`PS-Q*`, `PS-C*`, `PS-ARCH`) used here are defined there |
+| **Sources merged** | `docs/competition/ORCA_SIH2026_Judge_Verdict.md` (code-forensic audit), `docs/competition/ORCA_SIH2026_Grand_Finale_Judge_Audit.md` (PPT + repo audit, external), the verbatim PS 26176 capability list, the five flags raised by the internal-round judge, and the 2026-09-13 dataset wiring audit in `docs/data/ORCA_SIH26176_AllIndia_Dataset_Coverage_Guide.md` §0. §7.1 additionally folds in the PS-grounded requirements surfaced by `orca_final.md`, the consolidated feature specification |
 | **Written for** | Team GeekMaxxers, SIH 2026 Grand Finale |
 | **Prime directive** | The PS is a **conversational agentic platform** first. The chatbot, the agents, and their visible collaboration are the product. Everything else is evidence that the product is real. |
 | **Rule of this document** | Every requirement has a file-level root cause and a **binary acceptance test**. If the test can't be run in front of a judge, the requirement isn't done. |
@@ -30,7 +30,7 @@ Requirements are numbered `R-<area>-<n>` so they can be assigned and tracked. Ea
 
 Priority bands are defined in §8, not inline, so that the requirements can be read as a specification rather than a to-do list.
 
-**Precedence.** `docs/ORCA_PS_SIH26176_Problem_Statement.md` is canonical for *what the PS asks*; where
+**Precedence.** `docs/specs/ORCA_PS_SIH26176_Problem_Statement.md` is canonical for *what the PS asks*; where
 this document and that one disagree, that one wins. This document is the source of truth for *what gets
 built and how it is proven* — every implementation plan, sprint doc and demo script in this repo should
 cite an `R-` ID from here and, through it, the `PS-` clause that `R-` ID serves. `orca_final.md` is a
@@ -823,7 +823,7 @@ false yes today. These five requirements fix the mechanism, not the files.
   exactly as `R-SAFE-1` does for staleness; a WEEKLY source at three months does the same. No dataset
   is silently presented as current because nobody classified it.
 - **Effort:** 0.5 day on top of `R-SAFE-1`.
-- **Recorded in:** `docs/ORCA_Data_Freshness_Contract.md` — the normative version of this list, with a
+- **Recorded in:** `docs/data/ORCA_Data_Freshness_Contract.md` — the normative version of this list, with a
   per-dataset justification for every class assignment, the measured state of `data/` on 2026-09-18,
   and the mechanism that makes each class hold. Implemented by `backend/orca/data/freshness.py`; the
   document and `SOURCE_CLASS` change together.
@@ -929,7 +929,7 @@ Load a verdict → turn on airplane mode in front of the judges → the app stil
 ## 10. All-India extension — from a Tamil Nadu pilot to a national platform
 
 The PS names no geography, and a judge will not confine their questions to one. The full audit lives
-in `docs/ORCA_SIH26176_AllIndia_Dataset_Coverage_Guide.md`; this section is the requirement set derived
+in `docs/data/ORCA_SIH26176_AllIndia_Dataset_Coverage_Guide.md`; this section is the requirement set derived
 from it. **The headline finding: national coverage is blocked by three pieces of code, not by missing
 data.** 8 of INCOIS's 14 PFZ sectors carry live advisories on disk today, spanning both coasts from
 Gujarat to West Bengal plus Lakshadweep; ETOPO bathymetry is national; the EEZ polygon is national;
@@ -1289,4 +1289,4 @@ this pack exists to prevent.
 
 ---
 
-*Compiled from the ORCA code-forensic judge verdict, the external Grand Finale judge audit (corrected per §1), the verbatim PS 26176 capability list, the internal-round judge's flags, and the 2026-09-13 dataset wiring audit. Every "Now" statement in this document was verified against the working tree, not inferred from documentation. The PS clauses cited throughout are defined in `docs/ORCA_PS_SIH26176_Problem_Statement.md`, which is canonical — where this document and that one disagree about what the PS asks for, that one wins.*
+*Compiled from the ORCA code-forensic judge verdict, the external Grand Finale judge audit (corrected per §1), the verbatim PS 26176 capability list, the internal-round judge's flags, and the 2026-09-13 dataset wiring audit. Every "Now" statement in this document was verified against the working tree, not inferred from documentation. The PS clauses cited throughout are defined in `docs/specs/ORCA_PS_SIH26176_Problem_Statement.md`, which is canonical — where this document and that one disagree about what the PS asks for, that one wins.*

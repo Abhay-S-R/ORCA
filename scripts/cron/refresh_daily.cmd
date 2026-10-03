@@ -1,6 +1,6 @@
 @echo off
 REM ORCA daily refresh — the 6 DAILY-class sources plus their derived artefacts.
-REM Scheduled by docs/Guide/ORCA_Data_Refresh_Cron_Guide.md. Exits 1 if any source is
+REM Scheduled by docs/guides/ORCA_Data_Refresh_Cron_Guide.md. Exits 1 if any source is
 REM in breach afterwards, so Task Scheduler's Last Run Result is the alarm.
 cd /d "%~dp0..\.."
 set PY=backend\.venv\Scripts\python.exe

@@ -1,6 +1,6 @@
 # ORCA — DLC Verification Report (2026-09-18)
 
-> **What this is.** A check of `docs/DLC_implementation_plan.md` against `docs/orca_final.md` (the
+> **What this is.** A check of `docs/plans/DLC_implementation_plan.md` against `docs/specs/orca_final.md` (the
 > complete feature list) and against the working tree. It answers four questions: are the DLC's
 > points still true, what does orca_final ask for that the DLC never planned, where do the two
 > contradict each other and which side should win, and which stack choices should change.
@@ -345,13 +345,13 @@ to it.
 
 ## 9. What changed in this commit
 
-- `docs/DLC_verification_report.md` — this file.
-- `docs/DLC_implementation_plan.md` — 14 stale points rewritten; new points P0.12–P0.14, P2.12–P2.13,
+- `docs/logs/DLC_verification_report.md` — this file.
+- `docs/plans/DLC_implementation_plan.md` — 14 stale points rewritten; new points P0.12–P0.14, P2.12–P2.13,
   P3.8–P3.10, P4.11–P4.13, P5.14–P5.17, P6.6–P6.10, P7.3–P7.4; §11 coverage and the non-build
   decisions extended; §13 added (orca_final reconciliation); counts corrected.
-- `docs/DLC_implementation_log.md` — one `NOTE` entry recording the audit, and status-table rows for
+- `docs/logs/DLC_implementation_log.md` — one `NOTE` entry recording the audit, and status-table rows for
   the new points.
-- **Not changed:** `docs/orca_final.md` (team decision; P0.14 owns that),
-  `docs/ORCA_DLC_Extension_Pack.md`. **Note:** the plan's §2 rule says a stale `Now:` line
+- **Not changed:** `docs/specs/orca_final.md` (team decision; P0.14 owns that),
+  `docs/specs/ORCA_DLC_Extension_Pack.md`. **Note:** the plan's §2 rule says a stale `Now:` line
   should be fixed in the Extension Pack in the same change. The 14 corrections in §2 above haven't
   been made there yet, and are listed in the log entry so whoever does it has the list.

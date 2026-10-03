@@ -15,7 +15,7 @@ leaks from one chat into the next.
 Every write also lands in a small in-process mirror, read whenever Redis
 can't answer. Without it a Redis outage (or a dev machine with no Redis at
 all) silently turned every follow-up back into turn one — no error, no
-disclosure — which is exactly the failure docs/ORCA_DLC_Extension_Pack.md
+disclosure — which is exactly the failure docs/specs/ORCA_DLC_Extension_Pack.md
 R-AUTH-3 describes. For a cache that's a latency hit; for conversation
 memory it is the whole feature.
 """

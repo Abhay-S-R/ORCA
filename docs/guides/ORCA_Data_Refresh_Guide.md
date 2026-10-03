@@ -2,10 +2,10 @@
 
 **Status:** operational. **Audience:** every developer with a clone of this repo.
 **Grounded in:** the canonical SIH26176 problem statement (PS-C3 "near real-time", PS-C10
-citation requirement), via `docs/ORCA_Data_Freshness_Contract.md`, which is the normative
+citation requirement), via `docs/data/ORCA_Data_Freshness_Contract.md`, which is the normative
 document. This one is the *procedure*; the contract is the *obligation*. If they disagree,
 the contract wins and this file is wrong.
-**Companion:** `docs/ORCA_Stale_Data_Cleanup.md` — what to delete once you have refreshed.
+**Companion:** `docs/data/ORCA_Stale_Data_Cleanup.md` — what to delete once you have refreshed.
 
 ---
 
@@ -184,7 +184,7 @@ That distinction is the entire reason this system exists — see the contract §
 
 There is no `schedule:` trigger in CI, and there cannot usefully be one: `data/` is gitignored,
 so a CI run has nowhere to persist what it downloads. The realistic answer is a local scheduled
-task — Task Scheduler on Windows, `cron` elsewhere. **`docs/Guide/ORCA_Data_Refresh_Cron_Guide.md`
+task — Task Scheduler on Windows, `cron` elsewhere. **`docs/guides/ORCA_Data_Refresh_Cron_Guide.md`
 sets that up**: which of the 27 sources actually need a timer (11 do), the two jobs that cover
 them, and the wrapper scripts. Beyond it lies point
 P5.12 (`R-FRESH-4`, `refresh_all.py`) in the DLC implementation plan; the command list above is
@@ -199,7 +199,7 @@ than hope.
 ## 6. After refreshing: clean up
 
 Refreshing adds; it does not remove. Superseded granules stay on disk and `data/` grows past
-20 GB. `docs/ORCA_Stale_Data_Cleanup.md` lists exactly what is safe to delete, what is not,
+20 GB. `docs/data/ORCA_Stale_Data_Cleanup.md` lists exactly what is safe to delete, what is not,
 and why.
 
 **Read it before deleting anything.** The careful half of that document is the *keep* list: a

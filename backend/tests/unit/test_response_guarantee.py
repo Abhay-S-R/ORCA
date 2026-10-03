@@ -1,6 +1,6 @@
 """Chatbot plan C0.2(f) — every prompt that reaches /ask gets a written answer.
 
-The rule (docs/ORCA_Chatbot_Response_Plan.md §1): a model writes the answer,
+The rule (docs/plans/ORCA_Chatbot_Response_Plan.md §1): a model writes the answer,
 whatever the prompt and whichever provider is down; the model never changes the
 verdict; and when no model at all can be reached, the answer is still never
 blank and never only the bare verdict line (which the chat hides as a repeat of
@@ -19,7 +19,7 @@ from orca.agents import reporting
 from orca.contracts import AgentResult, Confidence, SourceProvenance
 from orca.llm import tiers
 
-# The PS's three sample questions (docs/ORCA_PS_SIH26176_Problem_Statement.md),
+# The PS's three sample questions (docs/specs/ORCA_PS_SIH26176_Problem_Statement.md),
 # a greeting, an inland place, and a vernacular question.
 PROMPTS = [
     "Where is the nearest Potential Fishing Zone today?",

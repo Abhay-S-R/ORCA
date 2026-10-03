@@ -19,7 +19,7 @@ and the tile builders both need its dependencies):
 
 Schedule on the demo laptop with Windows Task Scheduler (`data/` is
 gitignored, so CI cannot persist a refresh) — see
-docs/DLC_implementation_plan.md P5.12.
+docs/plans/DLC_implementation_plan.md P5.12.
 """
 from __future__ import annotations
 

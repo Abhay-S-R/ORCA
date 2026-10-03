@@ -8,7 +8,7 @@
 | Part | Host | Status |
 |---|---|---|
 | Frontend (Next.js, `frontend/`) | Vercel, Hobby plan (free) | **Deployed** at <https://sagarsarathi.vercel.app>. Points at the backend once `NEXT_PUBLIC_API_BASE_URL` is set and it is redeployed (§1.2, step 7). |
-| Backend (FastAPI, `backend/`) + `data/` | Render free, Singapore (§2) | **Deployed** at <https://orca-backend-render.onrender.com> on 2026-10-01, image `asrsyshash/orca-backend:render`. `/health` and `/query?q=hi` answered. Stress test pending (`docs/ORCA_Render_Stress_Test.md`). |
+| Backend (FastAPI, `backend/`) + `data/` | Render free, Singapore (§2) | **Deployed** at <https://orca-backend-render.onrender.com> on 2026-10-01, image `asrsyshash/orca-backend:render`. `/health` and `/query?q=hi` answered. Stress test pending (`docs/deployment/ORCA_Render_Stress_Test.md`). |
 | Postgres + PostGIS | Supabase, free plan, Singapore (§2.3) | **Done.** All 10 migrations applied, PostGIS 3.3 checked. |
 | Redis | Upstash, free plan, Singapore (§2.4) | **Done.** `PING` and set/get checked. |
 
@@ -397,7 +397,7 @@ Deploy latest reference**. Pushing the same tag does not redeploy on its own.
 ### 2.8 Known, not fixed
 
 - **`pfzs near ktaka` is refused as out of scope.** It is a chatbot read defect covered by
-  `docs/ORCA_Prompt_Routing_Revamp.md`, not a deployment issue. With `ORCA_LOCAL_MODELS=0` the e5
+  `docs/plans/ORCA_Prompt_Routing_Revamp.md`, not a deployment issue. With `ORCA_LOCAL_MODELS=0` the e5
   routing tier is off, so routing relies on the LLM read and on word overlap.
 - The 512 MB headroom was measured with the queries above run one after another. Several judges
   querying at the same moment could still exceed it. **Render Starter** ($7/month) is also

@@ -1,4 +1,4 @@
-// Stale-data policy (docs/ORCA_Stale_Data_Policy.md): the shared shape and
+// Stale-data policy (docs/data/ORCA_Stale_Data_Policy.md): the shared shape and
 // label for "how old is this" across every page that shows a dated item —
 // `/zones` (PFZ advisories) and `/trends` (SST/chlorophyll granules) so far.
 export type Recency = {

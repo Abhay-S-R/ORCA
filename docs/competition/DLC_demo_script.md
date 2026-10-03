@@ -1,7 +1,7 @@
 # ORCA — Demo Camera Script (P4.0)
 
 > **What this is.** The recording's shot list: every surface on screen, every line of narration,
-> and how long each surface holds. `docs/orca_final.md` §29 describes the *scenarios and tour
+> and how long each surface holds. `docs/specs/orca_final.md` §29 describes the *scenarios and tour
 > beats* (the what); this is the *how* — the actual 3–5 minute cut. It is the input P4.10's
 > refinement pass ranks against, and the input every deck slide about the product is built to
 > match. Total runtime target: **4:30**. Five surfaces carry the video; the other ten routes in
@@ -52,5 +52,5 @@ question live, but no shot budgets time for them.
 ## Owner and status
 
 **Owner: Dev A** per the plan's own assignment (P4.0, §7). Drafted by Claude (Sonnet 5) against
-`docs/orca_final.md` §7.2, §29.1–§29.4 and the Phase 4 exit gate, for Dev A to rehearse against
+`docs/specs/orca_final.md` §7.2, §29.1–§29.4 and the Phase 4 exit gate, for Dev A to rehearse against
 and amend — the ranked list and shot timings are a first cut, not a locked recording order.

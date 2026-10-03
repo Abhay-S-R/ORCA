@@ -1,10 +1,10 @@
 # ORCA Scheduled Refresh (cron / Task Scheduler) Guide
 
 **Status:** operational. **Audience:** every developer with a clone.
-**Companion:** `docs/Guide/ORCA_Data_Refresh_Guide.md` — the manual procedure and the credential
+**Companion:** `docs/guides/ORCA_Data_Refresh_Guide.md` — the manual procedure and the credential
 setup. Do that once, by hand, and confirm `0 breach(es)` **before** you automate anything.
 Automating a run you have never seen succeed just schedules a silent failure.
-**Normative source:** `docs/ORCA_Data_Freshness_Contract.md` §3 assigns every class below.
+**Normative source:** `docs/data/ORCA_Data_Freshness_Contract.md` §3 assigns every class below.
 
 ---
 
@@ -252,4 +252,4 @@ Python entry point that does the same thing with proper logging and per-source f
 reporting. When that lands, the task actions change to call it and the schedule stays as it is.
 
 Refreshing only ever adds files. Once these jobs have been running for a while, `data/` grows —
-see `docs/ORCA_Stale_Data_Cleanup.md`, and read its *keep* list before deleting anything.
+see `docs/data/ORCA_Stale_Data_Cleanup.md`, and read its *keep* list before deleting anything.

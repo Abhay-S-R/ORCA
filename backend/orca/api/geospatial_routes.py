@@ -32,7 +32,7 @@ from orca.data.analytics_loaders import load_boundary_provenance
 from orca.data.freshness import max_age_minutes, read_json_if_fresh
 
 # Derived-cache windows, taken from the class of the source each is derived from
-# (docs/ORCA_Data_Freshness_Contract.md): HYCOM currents are DAILY, scatterometer
+# (docs/data/ORCA_Data_Freshness_Contract.md): HYCOM currents are DAILY, scatterometer
 # wind is WEEKLY. A derived artefact may never claim to be fresher than its input.
 CURRENT_VECTOR_TTL_MINUTES = max_age_minutes("DAILY")
 WIND_VECTOR_TTL_MINUTES = max_age_minutes("WEEKLY")

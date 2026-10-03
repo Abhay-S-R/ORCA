@@ -2,7 +2,7 @@
 
 Phase 1 shipped only the seed registry and `select_best_source`. Phase 2 D2
 Day 8 grows this into the full catalog across all 25 datasets in
-`docs/ORCA_Dataset_Master_List.md`, wires in the declared per-source fallback
+`docs/data/ORCA_Dataset_Master_List.md`, wires in the declared per-source fallback
 cascades from Architecture §12.1, and makes `select_source_with_fallback`
 return the *comparison narrative* the PS calls "tool selection made visible"
 — not a log line, a first-class output the `/data` surface and the answer
@@ -47,7 +47,7 @@ class SelectedSource:
     reason: str
 
 
-# Full catalog — every dataset in docs/ORCA_Dataset_Master_List.md that ORCA
+# Full catalog — every dataset in docs/data/ORCA_Dataset_Master_List.md that ORCA
 # is allowed to cite. `covers` keys are the data_type strings specialist
 # agents ask for; `typical_freshness_minutes` is 0 for static reference
 # geometry (boundaries, bathymetry). The nine Phase-1 ids are unchanged —

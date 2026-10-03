@@ -3,7 +3,7 @@
 **Problem Statement:** SIH26176 · ISRO / Department of Space · Theme: Disaster Management
 **Team:** GeekMaxxers
 **Evaluation date:** 2026-09-11
-**Evaluation basis:** Local codebase only — no PPT, no remote repository. PS read from `docs/ORCA_Master_Analysis_and_Requirements.md`.
+**Evaluation basis:** Local codebase only — no PPT, no remote repository. PS read from `docs/specs/ORCA_Master_Analysis_and_Requirements.md`.
 **Verification:** Every claim below is traced to a file or a command output. Test suite executed: **372 passed, 2 skipped, 138.66s**.
 
 > This document is an adversarial evaluation written from the perspective of a strict SIH Grand Finale

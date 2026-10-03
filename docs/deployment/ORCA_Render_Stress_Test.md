@@ -1,8 +1,8 @@
 # ORCA — Render memory stress test (on the deployed site)
 
-> Run this **after** deploying the backend on Render (`docs/ORCA_Deployment.md` §2), from the
+> Run this **after** deploying the backend on Render (`docs/deployment/ORCA_Deployment.md` §2), from the
 > live website. It tries to push the Render free service past its memory limit the way real
-> users would. Why 512 MB is tight is explained in `docs/ORCA_Deployment.md` §2.1.
+> users would. Why 512 MB is tight is explained in `docs/deployment/ORCA_Deployment.md` §2.1.
 
 ## What you watch
 
@@ -90,7 +90,7 @@ history on `/ask` (open an old chat), and voice (speak a question, play a spoken
 
 ## Stage 4. Several people asking at the same moment
 
-This is the case that has never been tested (`docs/ORCA_Deployment.md` §2.8). Ask **different
+This is the case that has never been tested (`docs/deployment/ORCA_Deployment.md` §2.8). Ask **different
 places** so no two questions share data, and press Enter on all of them within a few seconds.
 
 Use separate windows: one normal, one incognito (sign in again there), plus phones and
@@ -150,7 +150,7 @@ Any status other than `200`, or an out-of-memory event, is a failure.
    was running just before it.
 2. After the service restarts, ask **only that question** on its own (use try again) and watch
    the graph. If one question alone pushes past 512 MB, it is a single-request bug like the
-   depth-grid and sea-temperature reads fixed before (`docs/ORCA_Deployment.md` §2.1). Look
+   depth-grid and sea-temperature reads fixed before (`docs/deployment/ORCA_Deployment.md` §2.1). Look
    for a whole grid read into memory before it is cropped.
 3. If every question passes alone and only stage 3, 4 or 5 fails, the limit is people at once,
    not one request. Either move to a 2 GB plan, or limit how many questions the backend runs
