@@ -23,7 +23,8 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from orca.graph.graph import query_guard_node
+# PC2.3: query_guard folded into planning_node
+from orca.graph.graph import planning_node as query_guard_node
 from orca.place_resolution import FORECAST_HORIZON_DAYS
 
 # ---------------------------------------------------------------------------

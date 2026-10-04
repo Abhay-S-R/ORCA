@@ -100,6 +100,10 @@ class ORCAState(TypedDict):
     understood_places: list[dict[str, Any]]  # [{raw, normalized}, ...]
     understood_when: dict[str, Any] | None  # {start, end} ISO or None
     understood_is_followup: bool
+    # PC2.1 (`R-AGENT-2`, `PS-ARCH`) — the agent set Understand suggested for this
+    # query, validated against _KNOWN_SPECIALISTS in understand.py. Recorded here
+    # for the trace and for PC2+ to consume; routing is unchanged until PC3.
+    planned_agents: list[str]  # subset of understand._KNOWN_SPECIALISTS
 
     distress_flag: bool  # set by Agent 12's detection, checked before any other node executes
     sentinel_subscription: dict[str, Any] | None  # set on ALERT_SUBSCRIPTION intent

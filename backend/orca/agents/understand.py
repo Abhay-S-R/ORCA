@@ -18,6 +18,20 @@ from orca.llm.tiers import LLMUnavailable, llm
 from orca.state import ORCAState
 
 
+# PC2.1 (`R-AGENT-2`, `PS-ARCH`) — the set of specialist agent names Understand
+# may suggest. Hallucinated names are silently dropped in _parse_understand_output.
+# These are the graph node names from graph.py (the only names the graph knows).
+_KNOWN_SPECIALISTS = frozenset({
+    "marine_data_discovery",
+    "weather_intelligence",
+    "ocean_analytics",
+    "geospatial",
+    "risk_assessment",
+    "visualization",
+    "reporting",
+})
+
+
 @dataclass(frozen=True)
 class UnderstoodPrompt:
     kind: Literal[
@@ -33,6 +47,7 @@ class UnderstoodPrompt:
     places: list[dict[str, Any]]  # each: {"raw": str, "normalized": str | None}
     when: dict[str, Any] | None  # {"start": iso, "end": iso} or None
     is_followup: bool
+    agents: list[str]  # PC2.1: subset of _KNOWN_SPECIALISTS; recorded, not yet acted on
 
 
 _ROUTING_ROW_NAMES = (
@@ -82,33 +97,65 @@ def _build_understand_prompt(
 USER MESSAGE: "{message}"
 {history_block}
 {location_block}
-CURRENT TIME (IST): {current_time_iso}
+CURRENT TIME: {current_time_iso}
+DATA EXTENT: India's maritime waters (5.0°N to 25.0°N, 66.0°E to 96.0°E — Arabian Sea, Lakshadweep, Bay of Bengal, Andaman & Nicobar).
+FORECAST HORIZON: Up to 7 days ahead.
+
+CAPABILITY CATALOGUE:
+- Sea Safety & Go/No-Go: Real-time risk assessment, boat safety thresholds, advisory warnings.
+- Sea Conditions: Wave height, swell, wind speed & direction, current, sea surface temperature.
+- Tides: High/low tide timings, tidal heights, ebb/flood directions.
+- Potential Fishing Zones (PFZ): INCOIS PFZ coordinates, bearing, distance, persistence.
+- Maritime Boundaries: International Maritime Boundary Line (IMBL), EEZ borders, restricted zones.
+- Severe Weather: Cyclone tracking, storm surge, squall alerts, lightning hazards.
+- Trip Optimization: Best departure timing, endurance/range limits, fuel economics.
 
 ROUTING CATEGORIES (intents): {row_names}
 KIND VALUES: {kind_values}
 
-OUTPUT FORMAT — JSON only, no extra text:
+OUTPUT FORMAT — JSON only, no markdown wrapping, no extra text:
 {{
   "kind": "<one of the KIND_VALUES>",
   "intents": ["<zero or more routing category names>"],
-  "places": [{{"raw": "<text as typed>", "normalized": "<gazetteer name or null>"}}],
+  "places": [{{"raw": "<text as typed>", "normalized": "<gazetteer coastal place name or null>"}}],
   "when": {{"start": "<ISO datetime>", "end": "<ISO datetime>"}} or null,
-  "is_followup": true/false
+  "is_followup": true/false,
+  "agents": ["<zero or more specialist names>"]
 }}
 
+KNOWN SPECIALISTS (agents field): marine_data_discovery, weather_intelligence, ocean_analytics, geospatial, risk_assessment, visualization, reporting
+Pick the specialists this query most likely needs. Use an empty list for non-sea queries. Do NOT invent names outside the known list.
+
 RULES:
-1. kind = "distress" ONLY when the message clearly signals an emergency at sea (sinking, capsized, man overboard, mayday, medical emergency at sea, engine failure adrift, no fuel adrift). If unsure, use "sea_question" — the deterministic distress_check node runs separately and can escalate.
-2. kind = "clock_or_position" for "what time is it", "where am I", "current location/time" — questions about ORCA's own context, not the sea.
-3. kind = "greeting_or_small_talk" for "hi", "hello", "thanks", "who are you", "what can you do" — conversational openers.
-4. kind = "what_can_orca_do" for capability questions ("what do you do", "help me with").
-5. kind = "reset_or_language_switch" for "reset", "change language", "switch to Tamil".
-6. kind = "off_topic" for clearly non-marine content (recipes, sports, stocks, jokes).
-7. kind = "sea_question" for everything else about conditions at sea off India.
-8. intents: pick zero or more from the routing categories. A "wave height at Kochi" -> ["CONDITIONS"]. "safe to go tomorrow near Kochi" -> ["SAFETY_CHECK", "TIMING"]. "nearest fishing zone" -> ["PFZ_NEAREST"].
-9. places: extract every place mention as typed. normalized = gazetteer name if you recognize it (e.g. "ktaka" -> "Karnataka", "pondy" -> "Puducherry"), else null.
-10. when: if the message implies a time range (today, tomorrow, day after, next Friday, in 3 days), return ISO start/end in IST. "now" -> null. If ambiguous, return null.
-11. is_followup: true if this continues the previous turn (short, starts with "and", "what about", "how about", "also", "then", "or", "but", "in a", "on a", "with a").
-12. NEVER invent numbers, distances, or sea conditions. Only classify.
+1. kind = "distress" ONLY when the message clearly signals an active emergency at sea (sinking, capsized, boat taking on water, man overboard, mayday, medical emergency at sea, engine failure adrift, no fuel adrift). If unsure, use "sea_question".
+2. kind = "clock_or_position" for "what time is it", "where am I", "current location/time", "what is my position" — questions about ORCA's own context, not the sea.
+3. kind = "greeting_or_small_talk" for "hi", "hello", "namaste", "vanakkam", "thanks", "who are you", "good morning" — conversational openers.
+4. kind = "what_can_orca_do" for capability questions ("what do you do", "help me", "how can you assist", "features").
+5. kind = "reset_or_language_switch" for "reset", "clear conversation", "change language", "switch to Tamil", "talk in Hindi".
+6. kind = "off_topic" for clearly non-marine content (recipes, sports, stocks, movies, coding, general trivia).
+7. kind = "sea_question" for questions about conditions, safety, fishing, weather, or navigation at sea off India.
+8. MIXED LANGUAGE & TRANSLITERATION: The message may be in Romanized Indian languages (Hinglish, Tanglish, Manglish, etc., e.g., "machli kahan milegi", "nale kadal povan pattuva", "pondi la nalaiku safe ah"). Classify according to its marine meaning.
+9. TYPOS & INFORMAL PHRASING: Tolerate typos and abbreviations (e.g. "whr is pfz", "is it sf to go", "wav hight", "tide tmrw").
+10. PLACES & STATE SHORTFORMS: Extract all place mentions. Recognize Indian coastal state shortforms and common names:
+    - TN / Tamil Nadu (Chennai, Tuticorin, Rameswaram, Cuddalore, Nagapattinam, Kanyakumari)
+    - KL / Kerala (Kochi, Cochin, Vizhinjam, Beypore, Calicut, Kollam, Munambam)
+    - AP / Andhra Pradesh (Vizag, Visakhapatnam, Kakinada, Machilipatnam, Krishnapatnam)
+    - MH / Maharashtra (Mumbai, Bombay, Ratnagiri, Malvan, Alibaug)
+    - KA / KTK / Karnataka (Mangalore, Mangaluru, Karwar, Malpe)
+    - GA / Goa (Panaji, Mormugao)
+    - WB / West Bengal (Digha, Haldia, Diamond Harbour)
+    - OD / Odisha (Paradip, Puri, Gopalpur, Dhamra)
+    - Pondy / PY / Puducherry / Pondicherry
+    - Gujarat (Veraval, Porbandar, Okha, Kandla, Mangrol)
+    - Island territories (Port Blair, Havelock, Lakshadweep, Kavaratti, Agatti, Minicoy)
+    In `normalized`, provide the standard English gazetteer name if recognizable, else null.
+11. WHEN: Parse explicit and relative times into ISO strings:
+    - "today", "now", "current" -> start: today 00:00, end: today 23:59 (or null if "now").
+    - "tomorrow", "tmrw" -> start: tomorrow 00:00, end: tomorrow 23:59.
+    - "day after tomorrow", "in 2 days" -> corresponding ISO dates.
+    - Out of range (> 7 days ahead or past dates) should still be parsed with their ISO dates so validation can catch them.
+12. FOLLOW-UPS: is_followup = true if the query is a continuation of the previous turn (e.g. "and tomorrow?", "what about in a fiber boat?", "how about wind?", "also check tides").
+13. NEVER invent numbers, distances, or mock data. Only classify and extract.
 """
 
 
@@ -135,12 +182,16 @@ def _parse_understand_output(raw: str) -> UnderstoodPrompt | None:
 
     is_followup = bool(data.get("is_followup", False))
 
+    # PC2.1 — validate against known specialist names; hallucinated names are dropped.
+    agents = [a for a in data.get("agents", []) if a in _KNOWN_SPECIALISTS]
+
     return UnderstoodPrompt(
         kind=kind,  # type: ignore[arg-type]
         intents=intents,
         places=places,
         when=when,
         is_followup=is_followup,
+        agents=agents,
     )
 
 
@@ -166,31 +217,31 @@ def _fallback_understand(message: str, session_history: list[dict] | None) -> Un
     det = detect_distress_signal(message)
     if det["is_distress"]:
         return UnderstoodPrompt(
-            kind="distress", intents=[], places=[], when=None, is_followup=False
+            kind="distress", intents=[], places=[], when=None, is_followup=False, agents=[],
         )
 
     # Injection / non-marine tasks
     if any(p in lowered for p in _INJECTION_PATTERNS):
-        return UnderstoodPrompt(kind="off_topic", intents=[], places=[], when=None, is_followup=False)
+        return UnderstoodPrompt(kind="off_topic", intents=[], places=[], when=None, is_followup=False, agents=[])
     if any(p in lowered for p in _NON_MARINE_TASKS):
-        return UnderstoodPrompt(kind="off_topic", intents=[], places=[], when=None, is_followup=False)
+        return UnderstoodPrompt(kind="off_topic", intents=[], places=[], when=None, is_followup=False, agents=[])
 
     # Self-context (clock/position)
     if is_self_context_question(lowered):
-        return UnderstoodPrompt(kind="clock_or_position", intents=[], places=[], when=None, is_followup=False)
+        return UnderstoodPrompt(kind="clock_or_position", intents=[], places=[], when=None, is_followup=False, agents=[])
 
     # Greeting / small talk / capability
     greetings = {"hi", "hello", "hey", "thanks", "thank you", "who are you", "what are you", "what can you do", "help"}
     if any(g in lowered.split() for g in greetings) and len(lowered.split()) <= 5:
-        return UnderstoodPrompt(kind="greeting_or_small_talk", intents=[], places=[], when=None, is_followup=False)
+        return UnderstoodPrompt(kind="greeting_or_small_talk", intents=[], places=[], when=None, is_followup=False, agents=[])
 
     # Reset / language switch
     if any(w in lowered for w in ("reset", "change language", "switch language", "language")):
-        return UnderstoodPrompt(kind="reset_or_language_switch", intents=[], places=[], when=None, is_followup=False)
+        return UnderstoodPrompt(kind="reset_or_language_switch", intents=[], places=[], when=None, is_followup=False, agents=[])
 
     # Out of scope (no marine vocab, no known place, not self-context)
     if is_out_of_scope(lowered):
-        return UnderstoodPrompt(kind="off_topic", intents=[], places=[], when=None, is_followup=False)
+        return UnderstoodPrompt(kind="off_topic", intents=[], places=[], when=None, is_followup=False, agents=[])
 
     # Sea question — use deterministic classifier for intents
     intents = [name for name, _ in classify_intent_deterministic(lowered)]
@@ -200,8 +251,13 @@ def _fallback_understand(message: str, session_history: list[dict] | None) -> Un
     # Follow-up detection
     followup = is_continuation(lowered) and bool(session_history)
 
+    # PC2.1 — offline fallback derives agents from the same planning table LLM would use.
+    from orca.agents.planning import generate_execution_plan
+    fallback_agents = [a for a in generate_execution_plan(intents, "SHALLOW") if a in _KNOWN_SPECIALISTS]
+
     return UnderstoodPrompt(
-        kind="sea_question", intents=intents, places=places, when=None, is_followup=followup
+        kind="sea_question", intents=intents, places=places, when=None, is_followup=followup,
+        agents=fallback_agents,
     )
 
 
@@ -239,6 +295,7 @@ def run(state: ORCAState) -> AgentResult:
             "places": understood.places,
             "when": understood.when,
             "is_followup": understood.is_followup,
+            "agents": understood.agents,  # PC2.1
         },
         source_provenance=SourceProvenance(
             dataset="LLM prompt understanding (cheap tier) or deterministic fallback",

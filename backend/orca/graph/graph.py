@@ -77,7 +77,6 @@ from orca.agents import (
     planning,
     reporting,
     risk_assessment,
-    understand,
     visualization,
     weather_intelligence,
 )
@@ -245,66 +244,6 @@ def _refusal(outcome: str, body: str, state: ORCAState) -> dict:
     }
 
 
-def query_guard_node(state: ORCAState) -> dict:
-    """P1.2 (`R-NEW-1`) and P1.4 (`R-EDGE-3`) — the position-and-time gate.
-
-    Consolidation Plan §4 PC1.2: runs after `understand`.
-    Uses `validate_reading` with the model's `places` / `when`.
-    The deterministic `time_guard` stays only as the fallback when
-    `understood_when` is empty because the model was down.
-    """
-    understood_kind = state.get("understood_kind")
-    understood_places = state.get("understood_places", [])
-    understood_when = state.get("understood_when")
-
-    # If Understand classified this as non-sea, let it pass through to
-    # out_of_scope_node which will handle greeting, clock, off-topic, etc.
-    if understood_kind in ("greeting_or_small_talk", "clock_or_position",
-                           "what_can_orca_do", "reset_or_language_switch", "off_topic"):
-        return {}
-
-    # Validate the model's reading (places, when, user_location)
-    outcome = place_resolution.validate_reading(
-        understood_places,
-        understood_when,
-        state.get("user_location"),
-    )
-    if outcome is not None:
-        return _refusal(outcome.code, outcome.body, state)
-
-    # Fallback to deterministic place check when the model found no places (e.g. LLM down)
-    if not understood_places:
-        resolution = state.get("place_resolution") or {}
-        if resolution.get("status") in ("ambiguous", "unresolvable"):
-            disclosure = resolution.get("disclosure") or "I could not work out where this question is about."
-            candidates = resolution.get("candidates") or []
-            body = disclosure if not candidates else f"{disclosure} Did you mean: {_candidate_list(candidates)}?"
-            return _refusal("NEEDS_PLACE", body, state)
-
-    # Fallback to deterministic time_guard when understood_when is empty (e.g. LLM down)
-    if not understood_when:
-        when = place_resolution.time_guard(state.get("normalized_english_query") or state.get("raw_user_query") or "")
-        if when is not None:
-            return _refusal("OUT_OF_RANGE", when, state)
-
-    # Soft land disclosure for inferred user_location (validate_reading returns None for this)
-    location = state.get("user_location") or {}
-    lat, lon = location.get("lat"), location.get("lon")
-    if lat is not None and lon is not None:
-        where = place_resolution.position_guard(float(lat), float(lon))
-        if where is not None and location.get("place_source") not in ("explicit", "coordinates", "gps_fix"):
-            place_label = (location.get("place_name") or "this place").title()
-            disclosure = (
-                f"{float(lat):.4f}, {float(lon):.4f} is on land. The position held for {place_label} "
-                "is the town centre rather than the harbour approach, so depth-dependent readings here may be missing."
-            )
-            return {"disclosures": [disclosure]}
-
-    return {}
-
-
-def _route_after_query_guard(state: ORCAState) -> str:
-    return END if state.get("query_outcome") in ("NEEDS_PLACE", "OUT_OF_RANGE") else "planning"
 
 
 def out_of_scope_node(state: ORCAState) -> dict:
@@ -399,6 +338,12 @@ def _self_context_facts(state: ORCAState) -> str:
 
 
 def _route_after_planning(state: ORCAState) -> list[str] | str:
+    """PC2.3 — validation folded into planning. If query_outcome is a refusal
+    (NEEDS_PLACE or OUT_OF_RANGE), route to END. Otherwise route to out_of_scope
+    for non-marine queries, or marine_data_discovery to start the specialist run.
+    """
+    if state.get("query_outcome") in ("NEEDS_PLACE", "OUT_OF_RANGE"):
+        return END
     if OUT_OF_SCOPE_ROW in (state.get("matched_intent_rows") or []):
         return "out_of_scope"
     # P2.6 — the fan-out no longer starts here. Agent 3 decides the sources
@@ -570,35 +515,40 @@ def language_ingress_node(state: ORCAState) -> dict:
     }
 
 
-def understand_node(state: ORCAState) -> dict:
-    """Prompt Routing Revamp §6 — one cheap LLM call that READS every prompt.
-    Returns structured understanding: kind, intents, places, when, is_followup.
-    Replaces the word-list gates (is_out_of_scope, _TEMPORAL_PATTERNS, etc.).
+def planning_node(state: ORCAState) -> dict:
+    """PC2.2 & PC2.3 — planning now owns prompt understanding, validation (folded
+    from query_guard), and routing in one node.
+    Stores understood_* classification fields, validation outcome, and routing fields.
     """
-    result, entry = run_traced_node("understand", understand.run, state)
+    result, entry = run_traced_node("planning", planning.run, state)
     outputs = result.outputs or {}
-    return {
+    update = {
+        # Understood classification fields (previously set by understand_node)
         "understood_kind": outputs.get("kind"),
         "understood_intents": outputs.get("intents", []),
         "understood_places": outputs.get("places", []),
         "understood_when": outputs.get("when"),
         "understood_is_followup": outputs.get("is_followup", False),
-        "audit_trace_log": [entry],
-        "completed_nodes": ["understand"],
-    }
-
-
-def planning_node(state: ORCAState) -> dict:
-    result, entry = run_traced_node("planning", planning.run, state)
-    update = {
-        "matched_intent_rows": result.outputs["matched_intent_rows"],
-        "execution_plan": result.outputs["execution_plan"],
+        "planned_agents": outputs.get("agents", []),  # PC2.1
+        # Validation / guard fields (PC2.3)
+        "query_outcome": outputs.get("query_outcome"),
+        # Routing fields
+        "matched_intent_rows": outputs.get("matched_intent_rows", []),
+        "execution_plan": outputs.get("execution_plan", []),
         "audit_trace_log": [entry],
         "completed_nodes": ["planning"],
     }
+    # PC2.3: If validation produced a refusal (NEEDS_PLACE or OUT_OF_RANGE),
+    # generate the refusal response directly so the graph routes to END.
+    if outputs.get("query_outcome") in ("NEEDS_PLACE", "OUT_OF_RANGE"):
+        refusal_update = _refusal(outputs["query_outcome"], outputs.get("query_outcome_body") or "", state)
+        update.update(refusal_update)
+    elif outputs.get("disclosures"):
+        update["disclosures"] = outputs["disclosures"]
+
     # A "why has the catch dropped?" question is what DEEP exists for — the
     # productivity diagnosis only runs there (P5.29). Only ever raises depth.
-    if "DIAGNOSTIC" in update["matched_intent_rows"]:
+    if "DIAGNOSTIC" in (update.get("matched_intent_rows") or []):
         update["reasoning_depth"] = "DEEP"
     return update
 
@@ -1315,10 +1265,9 @@ def build_graph():
     # pyrefly: ignore[bad-specialization]
     g = StateGraph(ORCAState)
     g.add_node("distress_check", distress_check_node)
-    g.add_node("query_guard", query_guard_node)
     g.add_node("out_of_scope", out_of_scope_node)
     g.add_node("language_ingress", language_ingress_node)
-    g.add_node("understand", understand_node)
+    # PC2.2 & PC2.3: understand & query_guard removed; planning owns LLM understanding & validation.
     g.add_node("planning", planning_node)
     g.add_node("marine_data_discovery", marine_data_discovery_node)
     g.add_node("weather_intelligence", weather_node)
@@ -1334,12 +1283,13 @@ def build_graph():
 
     g.add_edge(START, "distress_check")
     g.add_conditional_edges("distress_check", _route_after_distress, {END: END, "language_ingress": "language_ingress"})
-    g.add_edge("language_ingress", "understand")
-    g.add_edge("understand", "query_guard")
-    g.add_conditional_edges("query_guard", _route_after_query_guard, {END: END, "planning": "planning"})
+    # PC2.2 & PC2.3: language_ingress goes straight to planning, which validates reading
+    # and routes to END (refusal), out_of_scope (non-marine), or marine_data_discovery (sea question).
+    g.add_edge("language_ingress", "planning")
     g.add_conditional_edges(
         "planning", _route_after_planning,
         {
+            END: END,
             "out_of_scope": "out_of_scope",
             "marine_data_discovery": "marine_data_discovery",
         },

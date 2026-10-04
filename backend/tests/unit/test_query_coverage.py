@@ -245,9 +245,7 @@ def test_the_graph_applies_these_guards_in_this_order():
     edges = {(e.source, e.target) for e in compiled.edges}
     assert ("__start__", "distress_check") in edges
     assert ("distress_check", "language_ingress") in edges
-    assert ("language_ingress", "understand") in edges
-    assert ("understand", "query_guard") in edges
-    assert ("query_guard", "planning") in edges
+    assert ("language_ingress", "planning") in edges
     assert ("planning", "out_of_scope") in edges
     # Nothing reaches the scope or place guards ahead of Agent 12.
-    assert not any(t in ("query_guard", "out_of_scope") for s, t in edges if s == "__start__")
+    assert not any(t in ("planning", "out_of_scope") for s, t in edges if s == "__start__")

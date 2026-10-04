@@ -7,13 +7,18 @@ Ground Rule 1, load-bearing here specifically: classify_intent inspects
 (normalized_query, session_history) — NEVER persona. This is the exact
 function where the v1.0 routing bug would be reintroduced if persona ever
 leaked in, which is why the CI persona-leak guard scans this whole package.
+
+PC2.2 (`R-PS-1`, `PS-C1`) — planning.run() now owns the single cheap-tier
+LLM call (previously in agents/understand.py). It calls the understand
+helpers directly: _build_understand_prompt, _parse_understand_output,
+_fallback_understand. The understand node has been removed from the graph;
+its trace span is now named "planning". The offline fallback is kept as-is.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-
-from orca import engines
+from datetime import datetime, timezone
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.state import ORCAState
 
@@ -520,46 +525,136 @@ def generate_execution_plan(matched_intent_rows: list[str], reasoning_depth: str
 
 
 def run(state: ORCAState) -> AgentResult:
-    """(ORCAState) -> AgentResult. Distress bypass (Architecture §4, last
-    row) is NOT handled here — it happens in orca/graph/ before Planning is
-    even invoked, per the architecture's own framing: distress "bypasses
-    this table entirely," which means bypassing this agent, not a branch
-    inside it.
+    """(ORCAState) -> AgentResult. PC2.2 — this function now makes the single
+    cheap-tier LLM call that Understand previously made. It reads the prompt,
+    classifies it (kind, intents, places, when, is_followup, agents), then does
+    the routing-table lookup — one node, one span, one LLM call.
 
-    Prompt Routing Revamp §6: uses Understand agent's structured output
-    (kind, intents, places, when, is_followup) instead of tiered routing.
+    Distress bypass (Architecture §4) is NOT handled here — it happens in
+    orca/graph/ before this node is even invoked.
     """
-    query = state.get("normalized_english_query") or state.get("raw_user_query", "")
+    from orca.agents.understand import (
+        _build_understand_prompt,
+        _parse_understand_output,
+        _fallback_understand,
+    )
+    from orca.llm.tiers import LLMUnavailable, llm
+
+    raw_query = state.get("raw_user_query", "") or ""
+    query = state.get("normalized_english_query") or raw_query
     history = state.get("session_history")
+    user_location = state.get("user_location")
+    current_time_iso = datetime.now(timezone.utc).astimezone().isoformat()
     tier_out: list[str] = []
     carried = False
+    understand_engine: str
 
-    # Use Understand output as the primary routing signal
-    understood_kind = state.get("understood_kind")
-    understood_intents = state.get("understood_intents", [])
-    understood_is_followup = state.get("understood_is_followup", False)
+    # --- Step 1: Run understand (LLM or fallback) or use pre-populated fields ---
+    if state.get("understood_kind") is not None or state.get("understood_places") is not None or state.get("understood_when") is not None:
+        from orca.agents.understand import UnderstoodPrompt
+        understood = UnderstoodPrompt(
+            kind=state.get("understood_kind") or "sea_question",
+            intents=state.get("understood_intents", []),
+            places=state.get("understood_places", []),
+            when=state.get("understood_when"),
+            is_followup=state.get("understood_is_followup", False),
+            agents=state.get("planned_agents", []),
+        )
+        understand_engine = "injected_state"
+        tier_out.append("understand_injected")
+    else:
+        try:
+            client = llm("cheap")
+            prompt = _build_understand_prompt(raw_query, history, user_location, current_time_iso)
+            raw = client.complete([{"role": "user", "content": prompt}]).strip()
+            understood = _parse_understand_output(raw)
+            if understood is None:
+                raise ValueError("invalid understand output")
+            understand_engine = getattr(client, "engine", "unknown")
+            tier_out.append("understand_llm")
+        except (LLMUnavailable, Exception):
+            understood = _fallback_understand(raw_query, history)
+            understand_engine = "deterministic (fallback)"
+            tier_out.append("understand_fallback")
 
-    # Distress is handled by distress_check_node before planning runs
-    # Self-context questions (clock/position) are answered by graph.out_of_scope_node
-    # Off-topic and non-marine go to out_of_scope_node
-    # Greeting/small_talk go to out_of_scope_node (with allow_small_talk=True)
-    # Reset/language_switch go to out_of_scope_node
-    # Sea questions use the intents from Understand
+    understood_kind = understood.kind
+    understood_intents = understood.intents
+    understood_is_followup = understood.is_followup
+    understood_agents = understood.agents  # PC2.1
+
+    # --- Step 2: Validate reading (PC2.3: folded from query_guard) ---
+    from orca.place_resolution import position_guard, time_guard, validate_reading
+
+    query_outcome: str | None = None
+    query_outcome_body: str | None = None
+    soft_disclosures: list[str] = []
 
     if understood_kind in ("distress", "clock_or_position", "greeting_or_small_talk",
                            "what_can_orca_do", "reset_or_language_switch", "off_topic"):
-        # These kinds are handled by guards before/after planning; planning just passes through
+        # Non-sea kinds pass through without place/time validation
+        pass
+    else:
+        # Validate the model's reading (places, when, user_location)
+        outcome = validate_reading(
+            understood.places,
+            understood.when,
+            user_location,
+        )
+        if outcome is not None:
+            query_outcome = outcome.code
+            query_outcome_body = outcome.body
+        else:
+            # Fallback to deterministic place check when the model found no places (e.g. LLM down)
+            if not understood.places:
+                resolution = state.get("place_resolution") or {}
+                if resolution.get("status") in ("ambiguous", "unresolvable"):
+                    disclosure = resolution.get("disclosure") or "I could not work out where this question is about."
+                    candidates = resolution.get("candidates") or []
+                    cand_str = ", ".join(f"{c['name'].title()} ({c['lat']:.2f}N {c['lon']:.2f}E)" for c in candidates) if candidates else ""
+                    body = disclosure if not candidates else f"{disclosure} Did you mean: {cand_str}?"
+                    query_outcome = "NEEDS_PLACE"
+                    query_outcome_body = body
+
+            # Fallback to deterministic time_guard when understood_when is empty (e.g. LLM down)
+            if query_outcome is None and not understood.when:
+                when_text = time_guard(query or raw_query)
+                if when_text is not None:
+                    query_outcome = "OUT_OF_RANGE"
+                    query_outcome_body = when_text
+
+        # Soft land disclosure for inferred user_location (validate_reading returns None for this)
+        if query_outcome is None:
+            location = user_location or {}
+            lat, lon = location.get("lat"), location.get("lon")
+            if lat is not None and lon is not None:
+                where = position_guard(float(lat), float(lon))
+                if where is not None and location.get("place_source") not in ("explicit", "coordinates", "gps_fix"):
+                    place_label = (location.get("place_name") or "this place").title()
+                    soft_disclosures.append(
+                        f"{float(lat):.4f}, {float(lon):.4f} is on land. The position held for {place_label} "
+                        "is the town centre rather than the harbour approach, so depth-dependent readings here may be missing."
+                    )
+
+    # --- Step 3: Route using the understood classification ---
+    # Distress is handled by distress_check_node before planning runs.
+    # Validation refusals stop here (empty execution plan).
+    # Self-context, off-topic, greetings etc. are routed to out_of_scope_node
+    # by _route_after_planning; planning just records kind and returns empty matches.
+    if query_outcome in ("NEEDS_PLACE", "OUT_OF_RANGE"):
+        matches: list[tuple[str, float]] = []
+        tier_out.append("validation_refusal")
+    elif understood_kind in ("distress", "clock_or_position", "greeting_or_small_talk",
+                           "what_can_orca_do", "reset_or_language_switch", "off_topic"):
         matches = []
         tier_out.append("understand_gate")
     else:
-        # Sea question: use Understand's intents as the primary match
-        # Validate intents against known routing rows
+        # Sea question: use Understand's intents as the primary match.
         valid_intents = [i for i in understood_intents if i in {row.name for row in ROUTING_TABLE}]
         if valid_intents:
             matches = [(name, 1.0) for name in valid_intents]
             tier_out.append("understand_intents")
         else:
-            # Fallback to deterministic tiers if Understand returned no valid intents
+            # Fallback to deterministic tiers if Understand returned no valid intents.
             matches = _tier1_rules(query)
             if matches:
                 tier_out.append("tier1_rules_fallback")
@@ -583,8 +678,8 @@ def run(state: ORCAState) -> AgentResult:
                             carried = True
                             tier_out.append("continuation_kept_previous_intent")
 
-    # Also honor Understand's followup flag for carried intent
-    if understood_is_followup and not carried:
+    # Honor Understand's followup flag for carried intent.
+    if understood_is_followup and not carried and not query_outcome:
         carried_rows = carry_intent(history)
         if carried_rows:
             matched_names = {name for name, _ in matches}
@@ -595,14 +690,23 @@ def run(state: ORCAState) -> AgentResult:
                 tier_out.append("understand_followup_carried")
 
     routing_tier = tier_out[0] if tier_out else "no_match"
-    out_of_scope = not matches and is_out_of_scope(query)
-    if out_of_scope:
-        matched_rows, execution_plan = [OUT_OF_SCOPE_ROW], []
+    out_of_scope = not matches and is_out_of_scope(query) and not query_outcome
+    if query_outcome in ("NEEDS_PLACE", "OUT_OF_RANGE"):
+        matched_rows: list[str] = []
+        execution_plan: list[str] = []
+    elif out_of_scope:
+        matched_rows = [OUT_OF_SCOPE_ROW]
+        execution_plan = []
     else:
         matched_rows = [name for name, _ in matches]
         execution_plan = generate_execution_plan(matched_rows, state.get("reasoning_depth", "SHALLOW"))
 
-    if out_of_scope:
+    if query_outcome in ("NEEDS_PLACE", "OUT_OF_RANGE"):
+        confidence = Confidence(
+            score="HIGH",
+            rationale=f"Validation stopped query: {query_outcome}",
+        )
+    elif out_of_scope:
         confidence = Confidence(
             score="HIGH",
             rationale="Deterministically out of scope — no marine vocabulary, no known place, "
@@ -621,27 +725,43 @@ def run(state: ORCAState) -> AgentResult:
             ),
         )
     else:
-        confidence = Confidence(score="MEDIUM", rationale="No routing row matched — answering the closest general-conditions interpretation")
+        confidence = Confidence(
+            score="MEDIUM",
+            rationale="No routing row matched — answering the closest general-conditions interpretation",
+        )
 
     return AgentResult(
         agent_name="planning",
         query_id=state.get("query_id", ""),
         reasoning_depth=coerce_reasoning_depth(state.get("reasoning_depth", "SHALLOW")),
-        inputs_consumed={"normalized_query": query, "understood_kind": understood_kind},
+        inputs_consumed={
+            "normalized_query": query,
+            "understood_kind": understood_kind,
+            "understand_engine": understand_engine,
+        },
         outputs={
+            # Understand fields — now set by this node (PC2.2)
+            "kind": understood_kind,
+            "intents": understood_intents,
+            "places": understood.places,
+            "when": understood.when,
+            "is_followup": understood_is_followup,
+            "agents": understood_agents,  # PC2.1
+            # Validation / guard fields (PC2.3)
+            "query_outcome": query_outcome,
+            "query_outcome_body": query_outcome_body,
+            "disclosures": soft_disclosures,
+            # Routing / planning fields
             "matched_intent_rows": matched_rows,
             "execution_plan": execution_plan,
             "routing_tier": routing_tier,
             "routing_scores": [{"row": name, "score": score} for name, score in matches],
         },
         source_provenance=SourceProvenance(
-            dataset="Understand agent (cheap-tier LLM) + deterministic routing table (Architecture §4)",
-            acquisition_timestamp="",
+            dataset="Understand+Planning merged node (cheap-tier LLM) + deterministic routing table (Architecture §4)",
+            acquisition_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             freshness_minutes=0,
         ),
         confidence=confidence,
-        engine=(
-            engines.llm_engine("cheap") if "tier3" in routing_tier or "understand" in routing_tier
-            else engines.DETERMINISTIC
-        ),
+        engine=understand_engine,
     )
