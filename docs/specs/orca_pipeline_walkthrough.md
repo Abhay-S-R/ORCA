@@ -1,7 +1,7 @@
 # ORCA Agentic Pipeline — End-to-End Walkthrough
 
 > **Example prompt:** `"pfzs near rameshwaram"`
-> **Pipeline:** 14 nodes in a LangGraph, ~4-6 LLM calls, ~5-15 seconds
+> **Pipeline:** 15 nodes in LangGraph (9 active for standard sea query), ~3-4 LLM calls, ~5-10 seconds
 
 ---
 
@@ -10,25 +10,23 @@
 ```mermaid
 graph TD
     A["User: 'pfzs near rameshwaram'"] --> B["1. distress_check"]
-    B -->|not distress| C["2. query_guard"]
-    C -->|place OK, time OK| D["3. language_ingress"]
-    D --> E["4. understand"]
-    E --> F["5. planning"]
-    F -->|sea_question| G["6. marine_data_discovery"]
-    G --> H["7. weather_intelligence"]
-    G --> I["8. geospatial"]
-    G --> J["9. ocean_analytics"]
-    H --> K["10. risk_assessment"]
-    I --> K
+    B -->|not distress| C["2. language_ingress"]
+    C --> D["3. planning (understand + validate + plan)"]
+    D -->|sea_question & valid| E["4. marine_data_discovery"]
+    E --> F["5. weather_intelligence"]
+    E --> G["6. geospatial"]
+    E --> H["7. ocean_analytics"]
+    F --> I["8. risk_assessment"]
+    G --> I
+    H --> I
+    F --> J["9. visualization"]
+    G --> J
+    H --> J
+    I --> K["10. reporting"]
     J --> K
-    H --> L["11. visualization"]
-    I --> L
-    J --> L
-    K --> M["12. reporting"]
-    L --> M
-    M --> N["13. critic"]
-    N --> O["14. language_egress"]
-    O --> P["Final Response"]
+    K --> L["11. critic"]
+    L --> M["12. language_egress"]
+    M --> N["Final Response"]
 ```
 
 ---
@@ -57,29 +55,9 @@ graph TD
 
 ---
 
-### 2. `query_guard` — Position & Time Gate
-**File:** [graph.py L246-304](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/graph/graph.py#L246-L304)
-**LLM calls:** 0
-
-**What it does:**
-- Reads `understood_kind` from state (set by step 4, but on first pass this is None — the guard runs before understand on the initial path)
-- **Place validation:** Checks `place_resolution` status — if "ambiguous" or "unresolvable", asks "which place do you mean?"
-- **Time validation:** If `understood_when` has a date range, checks it's within the 7-day forecast horizon. Falls back to deterministic `time_guard()` on the raw text
-- **Position validation:** If GPS coordinates are on land, warns the user
-
-**For "pfzs near rameshwaram":**
-- No understood_kind yet (runs before understand) — passes through
-- Place resolution already ran in the API handler → Rameswaram found in gazetteer → OK
-- No time mention → OK
-- **Passes through** to language_ingress
-
-**Deterministic lists used:**
-- `place_resolution.time_guard()` — `_TEMPORAL_PATTERNS` (7 regex patterns: today, tomorrow, tonight, this morning, in N hours)
-- `place_resolution.position_guard()` — checks lat/lon against India's coastline shapefile
-
 ---
 
-### 3. `language_ingress` — Agent 1 (Translation In)
+### 2. `language_ingress` — Agent 1 (Translation In)
 **File:** [language.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/language.py)
 **LLM calls:** 0 (translation is a separate ML model, not an LLM)
 
@@ -99,71 +77,39 @@ graph TD
 
 ---
 
-### 4. `understand` — Agent 13 (Prompt Reading)
-**File:** [understand.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/understand.py)
+### 3. `planning` — Agent 2 (Unified Planning, Understanding & Validation)
+**File:** [planning.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/planning.py) & [understand.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/understand.py)
 **LLM calls:** 1 (cheap tier)
 
-**What it does (the Revamp's core):**
-- Sends the message + last 5 turns + user location + current time to a **cheap-tier LLM** (Groq or Gemini)
-- LLM returns structured JSON:
-
+**What it does (consolidated in Phase PC2):**
+- **LLM Prompt Understanding:** Sends the message + conversation history + user location + clock to a cheap-tier LLM. The model returns structured understanding:
 ```json
 {
   "kind": "sea_question",
   "intents": ["PFZ_NEAREST"],
   "places": [{"raw": "rameshwaram", "normalized": "Rameswaram"}],
   "when": null,
+  "planned_agents": ["ocean_analytics", "geospatial", "visualization"],
   "is_followup": false
 }
 ```
-
-- **Validation:** Checks `kind` is one of 7 values, `intents` are valid ROUTING_TABLE rows, `places` have raw+normalized
-- **Fallback:** If LLM is down, uses `_fallback_understand()` which runs the old deterministic word lists
-
-**For "pfzs near rameshwaram":**
-- LLM understands "pfzs" = plural of "PFZ" (Potential Fishing Zone), maps "rameshwaram" to "Rameswaram"
-- Old word lists would have FAILED here: `_MARINE_VOCAB` has "pfz" but not "pfzs", so `is_out_of_scope` would have refused it
-- **This is the key improvement** — the LLM handles typos, plurals, abbreviations
-
-**Deterministic fallback lists (used only when LLM is down):**
-- `_MARINE_VOCAB` — 136 marine terms (pfz, wave, tide, current, etc.)
-- `_NON_MARINE_TASKS` — 20 phrases (recipe, stock, cricket, etc.)
-- `_INJECTION_PATTERNS` — 14 patterns (ignore your instructions, etc.)
-- `_SELF_CONTEXT_PHRASES` — 20 phrases (what time is it, where am I, etc.)
-- `_CONTINUATION_OPENERS` — 12 phrases (what about, and, also, etc.)
-- `classify_intent_deterministic()` — tier-1 keyword match against ROUTING_TABLE's 128 keywords
-
----
-
-### 5. `planning` — Agent 2 (Orchestrator)
-**File:** [planning.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/planning.py)
-**LLM calls:** 0 (uses Understand's output)
-
-**What it does:**
-- Reads `understood_kind` and `understood_intents` from state
-- If kind is non-sea (greeting, clock, off-topic, etc.) → routes to `out_of_scope`
-- If kind is `sea_question`:
-  - Uses `understood_intents` as the primary routing signal
-  - Validates intents against `ROUTING_TABLE` (19 rows)
-  - Each routing row maps to which agents to run (e.g., PFZ_NEAREST → marine_data_discovery, ocean_analytics, geospatial, visualization)
-  - Falls back to deterministic tiers only if Understand returned no intents
+- **Folded Validation (`validate_reading`):** Replaces the old standalone `query_guard` node. Checks resolved places (ambiguous/unresolvable → `NEEDS_PLACE`), horizon limits (past or >7-day forecast → `OUT_OF_RANGE`), and coastline position. Refusals set `query_outcome` and route immediately to `END`.
+- **Execution Plan Generation:** If `kind` is non-sea (greeting, off-topic), routes to `out_of_scope`. For `sea_question`, validates intents against `ROUTING_TABLE` (19 rows) and computes `execution_plan` (e.g. `["marine_data_discovery", "ocean_analytics", "geospatial", "visualization"]`).
 
 **For "pfzs near rameshwaram":**
-- `understood_kind = "sea_question"`, `understood_intents = ["PFZ_NEAREST"]`
-- Matches `ROUTING_TABLE` row: `PFZ_NEAREST` → agents: marine_data_discovery, ocean_analytics, geospatial, visualization
+- LLM understands "pfzs" = plural of "PFZ" (Potential Fishing Zone), resolves "rameshwaram" to "Rameswaram"
+- Validation checks out: Rameswaram is in the gazetteer, position is coastal, no out-of-range horizon
 - Generates `execution_plan = ["marine_data_discovery", "ocean_analytics", "geospatial", "visualization"]`
 - **Routes to** `marine_data_discovery`
 
-**Deterministic lists used:**
-- `ROUTING_TABLE` — 19 rows × keywords × agent assignments:
-  - SAFETY_CHECK, PFZ_NEAREST, CONDITIONS, HAZARD_ALERTS, ZONES_TO_AVOID, ROUTE, DIAGNOSTIC, REGULATORY, META, EXPORT, SUBSCRIPTION, ADMINISTRATIVE, WORTHWHILENESS, TIMING, COUNTERFACTUAL, COMPARISON, ENDURANCE, FUEL_ECONOMICS, HISTORICAL
-- `_tier1_rules()` — exact keyword match (fallback only)
-- `carry_intent()` — carries intent from previous turn for follow-ups
-- `is_out_of_scope()` — checks if query has any marine vocabulary (fallback only)
+**Deterministic lists and helpers used:**
+- `place_resolution.validate_reading()` — validates place resolution and 7-day time horizon
+- `ROUTING_TABLE` — 19 rows × keywords × specialist agent assignments
+- `_fallback_understand()` — offline fallback if LLM is unavailable (~136 marine terms, ~20 non-marine terms, 14 injection patterns)
 
 ---
 
-### 6. `marine_data_discovery` — Agent 3 (Source Selection)
+### 4. `marine_data_discovery` — Agent 3 (Source Selection)
 **File:** [discovery.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/discovery.py)
 **LLM calls:** 0
 
@@ -188,9 +134,9 @@ graph TD
 
 ---
 
-### 7-9. Three Specialists (run in PARALLEL)
+### 5-7. Three Specialists (run in PARALLEL)
 
-#### 7. `weather_intelligence` — Agent 4
+#### 5. `weather_intelligence` — Agent 4
 **File:** [weather_intelligence.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/weather_intelligence.py) (39KB)
 **LLM calls:** 0
 
@@ -199,7 +145,7 @@ graph TD
 - Uses `_TEMPORAL_PATTERNS` for time parsing (today/tomorrow/tonight)
 - Has `_WATER_BODY_WORDS` for water-body-specific adjustments
 
-#### 8. `geospatial` — Agent 6
+#### 6. `geospatial` — Agent 6
 **File:** [geospatial.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/geospatial.py) (40KB)
 **LLM calls:** 0
 
@@ -214,7 +160,7 @@ graph TD
 - `_REGION_KEYS` — 28 coastal state/UT identifiers
 - `_COASTAL_STATES` — 13 Indian coastal states
 
-#### 9. `ocean_analytics` — Agent 5
+#### 7. `ocean_analytics` — Agent 5
 **File:** [ocean_analytics.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/ocean_analytics.py) (85KB — the largest agent)
 **LLM calls:** 0
 
@@ -230,7 +176,7 @@ graph TD
 
 ---
 
-### 10. `risk_assessment` — Agent 7 (Safety Verdict)
+### 8. `risk_assessment` — Agent 7 (Safety Verdict)
 **File:** [risk_assessment.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/risk_assessment.py)
 **LLM calls:** 0 (NEVER — this is life-safety code)
 
@@ -255,7 +201,7 @@ graph TD
 
 ---
 
-### 11. `visualization` — Agent 8 (Maps & Charts)
+### 9. `visualization` — Agent 8 (Maps & Charts)
 **File:** [visualization.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/visualization.py)
 **LLM calls:** 0
 
@@ -271,7 +217,7 @@ graph TD
 
 ---
 
-### 12. `reporting` — Agent 9 (Write the Answer)
+### 10. `reporting` — Agent 9 (Write the Answer)
 **File:** [reporting.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/reporting.py)
 **LLM calls:** 1 (mid tier — the most important call)
 
@@ -293,7 +239,7 @@ graph TD
 
 ---
 
-### 13. `critic` — Agent 10 (LLM-as-Judge)
+### 11. `critic` — Agent 10 (LLM-as-Judge)
 **File:** [critic.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/critic.py)
 **LLM calls:** 1 (reasoning tier)
 
@@ -313,7 +259,7 @@ graph TD
 
 ---
 
-### 14. `language_egress` — Agent 1 (Translation Out)
+### 12. `language_egress` — Agent 1 (Translation Out)
 **File:** [language.py](file:///c:/Users/Abhay%20S%20R/Desktop/orca/backend/orca/agents/language.py)
 **LLM calls:** 0 (translation model, not LLM)
 
@@ -332,18 +278,16 @@ graph TD
 | # | Node | Agent | LLM? | What it does | Key deterministic data |
 |---|---|---|---|---|---|
 | 1 | distress_check | 12 | 0-1 | Pattern-match distress phrases, LLM escalate-only | ~150 phrases in 7 languages |
-| 2 | query_guard | — | 0 | Validate place, time, position | `time_guard` regexes, coastline shapefile |
-| 3 | language_ingress | 1 | 0 | Detect script, translate to English | Unicode block ranges |
-| 4 | **understand** | 13 | **1** | LLM reads the prompt → kind, intents, places, when | Fallback: ~1,400 word-list entries |
-| 5 | planning | 2 | 0 | Route intents to agents | `ROUTING_TABLE` (19 rows × 128 keywords) |
-| 6 | marine_data_discovery | 3 | 0 | Pick best data sources | 25+ source catalog with fallback chains |
-| 7 | weather_intelligence | 4 | 0 | Fetch live weather/wave/wind | API clients, temporal patterns |
-| 8 | geospatial | 6 | 0 | Compute distances/boundaries | GeoJSON shapefiles, 249-place gazetteer |
-| 9 | ocean_analytics | 5 | 0 | PFZ persistence, tides, SST | Historical analysis, sector data |
-| 10 | risk_assessment | 7 | 0 | **GO/CAUTION/NO_GO** verdict | Hard-coded safety thresholds |
-| 11 | visualization | 8 | 0 | Map layers + charts | Shapely geometry validation |
-| 12 | **reporting** | 9 | **1** | Write the conversational answer | Narrative prompt, citation builder |
-| 13 | **critic** | 10 | **1** | Review answer quality | Rubric checklist |
-| 14 | language_egress | 1 | 0 | Translate answer back | Bhashini/IndicTrans2 |
+| 2 | language_ingress | 1 | 0 | Detect script, translate to English | Unicode block ranges |
+| 3 | **planning** | 2 | **1** | LLM reads prompt & intents + validates place/horizon + builds plan | `ROUTING_TABLE`, `validate_reading`, fallback word lists |
+| 4 | marine_data_discovery | 3 | 0 | Pick best data sources | 25+ source catalog with fallback chains |
+| 5 | weather_intelligence | 4 | 0 | Fetch live weather/wave/wind | API clients, temporal patterns |
+| 6 | geospatial | 6 | 0 | Compute distances/boundaries | GeoJSON shapefiles, 249-place gazetteer |
+| 7 | ocean_analytics | 5 | 0 | PFZ persistence, tides, SST | Historical analysis, sector data |
+| 8 | risk_assessment | 7 | 0 | **GO/CAUTION/NO_GO** verdict | Hard-coded safety thresholds |
+| 9 | visualization | 8 | 0 | Map layers + charts | Shapely geometry validation |
+| 10 | **reporting** | 9 | **1** | Write the conversational answer | Narrative prompt, citation builder |
+| 11 | **critic** | 10 | **1** | Review answer quality | Rubric checklist |
+| 12 | language_egress | 1 | 0 | Translate answer back | Bhashini/IndicTrans2 |
 
-**Total LLM calls for this query: ~3-4** (understand + reporting + critic + maybe distress model check)
+**Total LLM calls for this query: ~3-4** (planning + reporting + critic + maybe distress model check)

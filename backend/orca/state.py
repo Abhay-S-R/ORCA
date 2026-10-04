@@ -92,9 +92,8 @@ class ORCAState(TypedDict):
     # P2.13 — how many provider calls this query actually made.
     llm_call_count: int
 
-    # Prompt Routing Revamp §6 — Understand agent's structured output,
-    # set by understand_node and consumed by query_guard, out_of_scope,
-    # and planning.
+    # Prompt Routing Revamp §6 & Pipeline Consolidation PC2 — Planning agent's
+    # structured understanding and validation output (unified in planning_node).
     understood_kind: str | None  # "sea_question" | "greeting_or_small_talk" | ...
     understood_intents: list[str]  # subset of ROUTING_TABLE row names
     understood_places: list[dict[str, Any]]  # [{raw, normalized}, ...]
