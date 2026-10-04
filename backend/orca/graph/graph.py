@@ -572,6 +572,14 @@ def _attach_discovery(entry: dict, state: ORCAState, data_types: tuple[str, ...]
 
 
 def weather_node(state: ORCAState) -> dict:
+    # PC3.3: Check execution_plan to allow skipping (consistent with ocean_analytics pattern)
+    plan = state.get("execution_plan") or []
+    if plan and "weather_intelligence" not in plan:
+        return _skipped(
+            "weather_intelligence", state,
+            f"not in this query's execution plan ({', '.join(plan)})",
+        )
+
     result, entry = run_traced_node("weather_intelligence", weather_intelligence.run, state)
     _attach_discovery(entry, state, ("wave_height", "wind_speed", "lightning", "cyclone"))
     return {
@@ -714,6 +722,14 @@ def geospatial_run(state: ORCAState) -> AgentResult:
 
 
 def geospatial_node(state: ORCAState) -> dict:
+    # PC3.3: Check execution_plan to allow skipping (consistent with ocean_analytics pattern)
+    plan = state.get("execution_plan") or []
+    if plan and "geospatial" not in plan:
+        return _skipped(
+            "geospatial", state,
+            f"not in this query's execution plan ({', '.join(plan)})",
+        )
+
     result, entry = run_traced_node("geospatial", geospatial_run, state)
     _attach_discovery(entry, state, ("boundary",))
     update: dict[str, Any] = {

@@ -154,6 +154,86 @@ ROUTING_TABLE: tuple[RoutingRow, ...] = (
 NO_MATCH_FALLBACK_AGENTS = ("marine_data_discovery", "weather_intelligence", "ocean_analytics", "visualization")
 
 
+# PC3.3 — D3 invariants: enforce planning invariants on the model's proposed agent set.
+# Known specialist agents in the graph (excludes distress, language_ingress/egress, planning,
+# marine_data_discovery, critic which are structural/fixed).
+_KNOWN_SPECIALISTS: frozenset[str] = frozenset({
+    "weather_intelligence",
+    "geospatial",
+    "ocean_analytics",
+    "risk_assessment",
+    "visualization",
+    "reporting",
+    "critic",
+})
+
+# Agents that ALWAYS run for a sea question (D3): they produce the verdict inputs.
+# The verdict is never produced or altered by the model.
+_CORE_SEA_AGENTS: tuple[str, ...] = (
+    "weather_intelligence",
+    "geospatial",
+    "risk_assessment",
+)
+
+# Agents that the model MAY skip for a sea question (D3).
+_SKIPPABLE_SEA_AGENTS: tuple[str, ...] = (
+    "ocean_analytics",
+    "visualization",
+)
+
+# Fixed dependency order (D3): discovery → specialists (parallel) → risk/visualization → reporting → critic → egress
+# This is the execution order, not the fan-out order.
+_EXECUTION_ORDER: tuple[str, ...] = (
+    "marine_data_discovery",
+    "weather_intelligence",
+    "geospatial",
+    "ocean_analytics",
+    "risk_assessment",
+    "visualization",
+    "reporting",
+    "critic",
+    "language_egress",
+)
+
+
+def enforce_planning_invariants(planned_agents: list[str], is_sea_question: bool) -> list[str]:
+    """Enforce D3 invariants on the model's proposed agent set.
+
+    D3 invariants:
+    - Unknown agent names are dropped.
+    - Dependency order is code's, not the model's (discovery → specialists in
+      parallel → risk and visualization → reporting → critic → egress).
+    - weather_intelligence, geospatial and risk_assessment always run for a
+      sea question, because the GO/CAUTION/NO_GO verdict is computed for every
+      sea query from wave, wind, boundary, lightning and cyclone.
+    - reporting, critic, language_egress always run.
+    - ocean_analytics and visualization are the candidates the model may skip.
+    - The verdict is never produced or altered by the model.
+    """
+    # Drop unknown agents
+    valid_agents = [a for a in planned_agents if a in _KNOWN_SPECIALISTS]
+
+    if not is_sea_question:
+        # For non-sea questions, only run what the model planned (validated)
+        # but always include marine_data_discovery as the first step
+        ordered = ["marine_data_discovery"] + [a for a in _EXECUTION_ORDER if a in valid_agents and a != "marine_data_discovery"]
+        return ordered
+
+    # For sea questions: enforce core agents always run
+    core_agents = set(_CORE_SEA_AGENTS)
+    # Model can only skip skippable agents
+    skippable = set(_SKIPPABLE_SEA_AGENTS)
+    model_choices = set(valid_agents) & skippable
+    # Required agents = core + (model's choices from skippable) + always-run downstream
+    required = core_agents | model_choices | {"reporting", "critic"}
+    # Always include marine_data_discovery first
+    required.add("marine_data_discovery")
+
+    # Order by fixed execution order
+    ordered = [a for a in _EXECUTION_ORDER if a in required]
+    return ordered
+
+
 # P1.3 (`R-EDGE-1`) — the out-of-scope test, ahead of every routing tier.
 #
 # The bias is deliberate and one-directional: **refusing a real marine
@@ -691,6 +771,7 @@ def run(state: ORCAState) -> AgentResult:
 
     routing_tier = tier_out[0] if tier_out else "no_match"
     out_of_scope = not matches and is_out_of_scope(query) and not query_outcome
+    is_sea_question = query_outcome not in ("NEEDS_PLACE", "OUT_OF_RANGE") and not out_of_scope and understood_kind not in ("distress", "clock_or_position", "greeting_or_small_talk", "what_can_orca_do", "reset_or_language_switch", "off_topic")
     if query_outcome in ("NEEDS_PLACE", "OUT_OF_RANGE"):
         matched_rows: list[str] = []
         execution_plan: list[str] = []
@@ -699,7 +780,8 @@ def run(state: ORCAState) -> AgentResult:
         execution_plan = []
     else:
         matched_rows = [name for name, _ in matches]
-        execution_plan = generate_execution_plan(matched_rows, state.get("reasoning_depth", "SHALLOW"))
+        # PC3.3: Use model's planned_agents with D3 invariants enforced
+        execution_plan = enforce_planning_invariants(understood_agents, is_sea_question)
 
     if query_outcome in ("NEEDS_PLACE", "OUT_OF_RANGE"):
         confidence = Confidence(

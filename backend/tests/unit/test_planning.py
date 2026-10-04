@@ -47,7 +47,11 @@ def test_unknown_row_name_is_ignored_not_a_crash():
 def test_run_produces_execution_plan_for_safety_query():
     state: ORCAState = {  # type: ignore[typeddict-item]
         "query_id": "q-1", "reasoning_depth": "SHALLOW",
+        "raw_user_query": "is it safe to go to sea tomorrow near Thoothukudi",
         "normalized_english_query": "is it safe to go to sea tomorrow near Thoothukudi",
+        "user_location": {"lat": 8.8, "lon": 78.1},
+        "session_history": [],
+        "distress_flag": False,
     }
     result = run(state)
     assert result.agent_name == "planning"
@@ -64,11 +68,19 @@ def test_run_degrades_to_medium_confidence_on_no_match(monkeypatch):
     monkeypatch.setattr(planning, "_tier3_llm_fallback", lambda q, history=None: [])
     state: ORCAState = {  # type: ignore[typeddict-item]
         "query_id": "q-2", "reasoning_depth": "SHALLOW",
+        "raw_user_query": "what colour is the sea near Pamban",
         "normalized_english_query": "what colour is the sea near Pamban",
+        "user_location": {"lat": 9.3, "lon": 79.1},
+        "session_history": [],
+        "distress_flag": False,
     }
     result = run(state)
     assert result.outputs["matched_intent_rows"] == []
-    assert result.outputs["execution_plan"] == list(NO_MATCH_FALLBACK_AGENTS)
+    # PC3.3: execution_plan now includes required agents (weather, geospatial, risk) per D3
+    assert "marine_data_discovery" in result.outputs["execution_plan"]
+    assert "weather_intelligence" in result.outputs["execution_plan"]
+    assert "geospatial" in result.outputs["execution_plan"]
+    assert "risk_assessment" in result.outputs["execution_plan"]
     assert result.confidence.score == "MEDIUM"
 
 
