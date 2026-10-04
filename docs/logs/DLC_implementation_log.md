@@ -3101,9 +3101,27 @@ Remarks:
 - **Verification:** `pytest tests/unit/test_validate_reading.py tests/unit/test_place_resolution.py -v` → **32 passed, 0 failed** (2.11 s). All Done-when cases covered: unknown place → `NEEDS_PLACE`; past date → `OUT_OF_RANGE`; beyond horizon → `OUT_OF_RANGE`; explicit outside-extent position → `OUT_OF_RANGE`; valid inputs → `None`. Existing guard tests all pass untouched.
 - **Not in scope / next:** PC1.2 (rewire graph edges + call `validate_reading` from `query_guard_node`).
 
-### [2026-10-04] PC1.2 — Run the guard after understand — CLAIMED
+### [2026-10-04] PC1.2 — Run the guard after understand — DONE
 
 - **Implements:** `R-NEW-1`. Consolidation Plan §4 PC1.2.
 - **Depends:** PC1.1 (satisfied).
-- **Files targeted:** `backend/orca/graph/graph.py` (edges and `query_guard_node`), `backend/tests/unit/test_query_coverage.py`.
-- **Target:** Rewire `distress_check → language_ingress → understand → query_guard → planning`. `query_guard_node` calls `validate_reading` with the model's `places` / `when`. Deterministic `time_guard` stays as fallback when `understood_when` is empty (model down).
+- **Files changed:** `backend/orca/graph/graph.py` (edges rewired, `query_guard_node` updated to call `validate_reading`), `backend/tests/unit/test_pc1_query_guard.py` (new, 13 tests).
+- **What was built / verified:**
+  - Graph wiring confirmed as `distress_check → language_ingress → understand → query_guard → planning` (lines 1335–1339 of `graph.py`).
+  - `query_guard_node` calls `place_resolution.validate_reading(understood_places, understood_when, user_location)` with the model's structured output. Hard stops (NEEDS_PLACE / OUT_OF_RANGE) are returned immediately via `_refusal`.
+  - Fallback paths preserved: when `understood_places` is empty, the deterministic `place_resolution` dict from state is checked; when `understood_when` is absent, `time_guard` is called on the normalised/raw query text.
+  - Soft land disclosure for inferred positions (non-explicit `place_source`) is still handled by the node — `validate_reading` returns `None` for those.
+  - Non-sea `understood_kind` values (`greeting_or_small_talk`, `clock_or_position`, etc.) short-circuit the guard so they reach `out_of_scope_node`.
+  - **NOTE:** `query_guard_node`'s fallback calls `time_guard` on `normalized_english_query` first (before `raw_user_query`) — tests must populate that field when checking the fallback path.
+- **Done-when test (unit):** `pytest backend/tests/unit/test_pc1_query_guard.py -v` → **13 passed** (0 failed).
+  - `understood_when` beyond horizon → `OUT_OF_RANGE` ✓
+  - `understood_when` in past → `OUT_OF_RANGE` ✓
+  - `understood_when` within horizon → passes through ✓
+  - Unknown place in `understood_places` → `NEEDS_PLACE` ✓
+  - Known place (Rameswaram) → passes through ✓
+  - `understood_when=None` + far-future ISO date in raw text → `OUT_OF_RANGE` (time_guard fallback) ✓
+  - `understood_when=None` + no date in raw text → passes through ✓
+  - All 5 non-sea kinds → guard short-circuits (no hard stop) ✓
+  - Explicit GPS outside extent → `OUT_OF_RANGE` ✓
+- **No-regression check:** `pytest backend/tests/unit/test_pc0_baseline.py backend/tests/unit/test_validate_reading.py backend/tests/unit/test_place_resolution.py` → **66 passed, 13 xfailed** (same xfail set as PC0 baseline).
+- **Exit gate PC1 status:** PC0 baseline re-run shows no prompt got worse. The Understand-based branches of `query_guard` are demonstrably live — unit tests inject `understood_places` and `understood_when` directly and confirm the guard uses them. Full `/ask` path verification (LLM up + LLM down) to be done by a human against the running server.
