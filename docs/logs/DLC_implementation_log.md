@@ -3043,3 +3043,96 @@ Remarks:
 - **Implements:** no DLC point; plan text only.
 - **Changed:** the plan's status now says the agent audit is **not done** and paused; any developer may continue it, an AI agent only when the user prompts it. §9 holds a per-agent status table plus code-reading findings for `marine_data_discovery` and `language_egress` (findings, not decisions). The OPEN-1/2/3 answers (D11–D13) are annotated with the user's words: *"Answered this while sleepy, subject to change but for now it works fine."*
 - **Unanswered:** whether Discovery's decision should become binding on the specialists (§9).
+
+### [2026-10-04] PC0.1 — Messy-prompt baseline file — DONE
+
+- **Implements:** `R-EDGE-5` spirit; Revamp §7 item 6
+- **By:** Antigravity agent (user-prompted 2026-10-04)
+- **Files:** `backend/tests/unit/test_pc0_baseline.py` (new), no source change
+- **Depends:** none
+- **Commit:** —
+- **What changed:**
+  - Created `backend/tests/unit/test_pc0_baseline.py` containing 67 annotated prompts covering:
+    - Problem statement queries `PS-Q1`–`PS-Q8`
+    - All named prompts required by PC0.1 (`hi`, `pfzs near ktaka`, `pfz near gujurat`, `wats time now`, `engine failed near pamban`, `day after tomorrow near kochi`, `kochi on 2026-10-30`, `and tomorrow?`)
+    - 24 romanized Indic prompts from Appendix A.2 (8 Hindi, 8 Tamil, 8 Kannada)
+    - 6 English controls from Appendix A.3
+    - Native Tamil script queries
+    - Edge cases (past date, beyond 7-day horizon, off-extent coordinates, adversarial injection)
+  - Each prompt is structured with `expected` shape (`ROUTED`, `DISCLOSED`, `NEEDS_PLACE`, `OUT_OF_RANGE`, `REFUSED`, `DISTRESS`, or `LLM_NEEDED`), `note`, and metadata attributes (`intent_rows`, `place`, `date_window`, `is_distress`).
+  - Added safe ASCII slugs for test IDs to ensure cross-platform Windows console compatibility without `UnicodeEncodeError`.
+- **Baseline Measurements (deterministic layer only, LLM disabled):**
+  - **Total prompts:** 67
+  - **LLM_NEEDED (skipped):** 25 (requires LLM to resolve; deterministic layer cannot classify)
+  - **Deterministic cases tested:** 42
+  - **Passed:** 29
+  - **Failed:** 13
+  - **Baseline Pass Rate:** 69.0%
+- **Baseline Failures (recorded as baseline, not fixed in PC0):**
+  1. `[needs_place]` expected, `[routed_disclosed]` got -- `'What are the tide weather and sea conditions near my fishing location'`
+     - *Note:* PS-Q3 — `'my fishing location'` is `_UNPLACEABLE_SELF_REFERENCE`; deterministic layer defaults to fallback coordinates.
+  2. `[needs_place]` expected, `[refused]` got -- `'pfzs near ktaka'`
+     - *Note:* PC0.1 named: `'ktaka'` is abbreviation for Karnataka region; refused as out of scope by Tier-1.
+  3. `[distress]` expected, `[None]` got -- `'engine failed near pamban'`
+     - *Note:* PC0.1 named: `'engine failure'` pattern did not match `'engine failed'`.
+  4. `[routed_disclosed]` expected, `[None]` got -- `'day after tomorrow near kochi'`
+     - *Note:* PC0.1 named: bare time + place with no intent keywords falls through Tier-1.
+  5. `[distress]` expected, `[None]` got -- `'meri naav ka engine kharab ho gaya hai pamban ke paas madad chahiye'`
+     - *Note:* AppA hi-8: romanized Hindi distress falls through deterministic distress regex.
+  6. `[distress]` expected, `[None]` got -- `'nanna boat engine halaaytu malpe hatra sahaya beku'`
+     - *Note:* AppA kn-7: romanized Kannada distress falls through deterministic distress regex.
+  7. `[routed]` expected, `[None]` got -- `'pfzs near rameshwaram'`
+     - *Note:* AppA English-1: plural `'pfzs'` not matched by `'pfz'` keyword in Tier-1.
+  8. `[needs_place]` expected, `[None]` got -- `'pfz near ktaka tmrw'`
+     - *Note:* AppA English-2: `'ktaka'` abbreviation with `'tmrw'`; falls through.
+  9. `[needs_place]` expected, `[None]` got -- `'fish off tn coast'`
+     - *Note:* AppA English-3: `'tn coast'` is a region, not a single coastal point.
+  10. `[routed]` expected, `[None]` got -- `'தூத்துக்குடியில் கடல் பாதுகாப்பானதா'`
+      - *Note:* Native Tamil: requires translation or ingress; deterministic shape without translation gets `None`.
+  11. `[routed]` expected, `[None]` got -- `'பாம்பன் அருகே அலை உயரம்'`
+      - *Note:* Native Tamil: wave height in native script; falls through without ingress.
+  12. `[routed]` expected, `[None]` got -- `'மன்னார் கடலில் இன்று காற்று வேகம் எவ்வளவு'`
+      - *Note:* Native Tamil: wind speed in native script; falls through without ingress.
+  13. `[distress]` expected, `[needs_place]` got -- `'naav ka engine kharab ho gaya madad chahiye'`
+      - *Note:* PC5.6 case-b: romanized Hindi without place; distress pattern missed, place resolution triggered `needs_place`.
+- **Verification:**
+  - `python -m pytest tests/unit/test_pc0_baseline.py` -> `34 passed, 13 xfailed in 6.20s` (exit code 0).
+  - `python -m pytest tests/unit/test_pc0_baseline.py -k "test_pc0_baseline_report" -s` -> prints full formatted 69.0% report.
+  - `ruff check tests/unit/test_pc0_baseline.py` -> `All checks passed!`.
+- **NOTE (observed defect in unrelated file, untouched per Rule 3):**
+  - In `backend/orca/agents/reporting.py:356`, commit `35eb311` introduced a strict reason-sentence check (`reason.lower() not in raw.lower()`) inside `write_guard_reply` that causes `test_a_greeting_gets_a_model_written_reply_not_a_refusal` in `test_response_guarantee.py:384` to fail because small-talk replies (`allow_small_talk=True`) do not repeat the reason sentence. Left untouched; to be addressed in the appropriate point.
+
+### [2026-10-04] PC0.2 — Baseline of cost and latency — DONE
+
+- **Implements:** Consolidation Plan §3 (PC0.2)
+- **By:** Antigravity agent (user-prompted 2026-10-04)
+- **Files:** none (log only)
+- **Depends:** PC0.1
+- **Commit:** —
+- **Measurement Setup:**
+  - Live graph execution through the real `/query` API route (`fastapi.testclient.TestClient(app)`) with `llm="on"`, `fresh="true"`.
+  - Real LLM calls to active Gemini model chain (`gemini-3.5-flash-lite` / `gemini-flash-lite-latest`).
+  - Recorded exact `llm_call_count` (from `final_response["llm_call_count"]`), wall time (seconds), and `routing_tier` (from `final_response["routing"]["routing_tier"]`).
+- **Baseline Measurements (current tree, LLM enabled):**
+
+| # | Prompt | Label / Scope | Outcome | `routing_tier` | Matched Intents | Dispatched Agents | Real LLM Calls | Wall Time | Agent Time (sum) |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | `"Where is the nearest Potential Fishing Zone today near Rameswaram"` | `PS-Q1` (Resource / PFZ) | `ANSWERED` | `understand_intents` | `PFZ_NEAREST` | 4 (`marine_data_discovery`, `ocean_analytics`, `geospatial`, `visualization`) | **4** | 32.18s | 25,936 ms |
+| 2 | `"Is it safe to venture into the sea tomorrow morning near Kochi"` | `PS-Q2` (Safety / Multi-intent) | `ANSWERED` | `understand_intents` | `SAFETY_CHECK`, `TIMING`, `CONDITIONS` | 5 (`marine_data_discovery`, `weather_intelligence`, `ocean_analytics`, `risk_assessment`, `visualization`) | **6** | 29.28s | 22,936 ms |
+| 3 | `"Are there any lightning or cyclone alerts near Mangalore"` | `PS-Q4` (Hazard alert) | `ANSWERED` | `understand_intents` | `HAZARD_ALERTS`, `COMPARISON` | 5 (`weather_intelligence`, `risk_assessment`, `visualization`, `marine_data_discovery`, `ocean_analytics`) | **4** | 18.38s | 9,374 ms |
+| 4 | `"hi"` | Named PC0.1 (Greeting / gate) | `OUT_OF_SCOPE` | `understand_gate` | `OUT_OF_SCOPE` | 0 (refused/handled at gate) | **3** | 11.77s | 2,251 ms |
+| 5 | `"kal subah rameswaram ke paas samudra mein jaana safe hai kya"` | Appendix A (Romanized Hindi) | `ANSWERED` | `understand_intents` | `SAFETY_CHECK`, `CONDITIONS`, `TIMING` | 5 (`marine_data_discovery`, `weather_intelligence`, `ocean_analytics`, `risk_assessment`, `visualization`) | **4** | 28.18s | 20,103 ms |
+
+- **Target for Consolidation (PC2.x Ceiling):**
+  - In the current two-node architecture (`understand` -> `planning`), understanding runs as its own separate LLM call prior to planning.
+  - Per PC2.2 Done-when: *"LLM-call count per turn is not higher than recorded in PC0.2; /ask works LLM-up and LLM-down"*.
+  - Ceilings recorded:
+    - Maximum LLM calls for standard sea query: **4–6 calls** (Understand + Data Discovery + Reporting + Critic / secondary).
+    - Maximum LLM calls for greeting / non-marine gate: **3 calls**.
+    - Merging `understand` into `planning` in PC2.2 must strictly reduce or maintain this budget (expected reduction of 1 call per query turn).
+- **Exit Gate PC0 Status:**
+  - **PC0.1:** 67 prompts baseline recorded in `backend/tests/unit/test_pc0_baseline.py` (pass rate: 69.0%, 13 failing prompts cataloged in log).
+  - **PC0.2:** Cost and latency baseline recorded for 5 representative prompts with real LLM calls and `routing_tier`.
+  - **Exit gate PC0 is SATISFIED.** Ready to proceed to Phase PC1 upon user request.
+
+
