@@ -271,6 +271,80 @@ class GroqProvider:
             yield text
 
 
+class GatewayProvider:
+    """LLM Gateway provider using LangChain's ChatOpenAI connected to
+    https://llm-gateway-jugn.vercel.app/v1 (or LLM_GATEWAY_BASE_URL)."""
+
+    def __init__(self) -> None:
+        self._base_url = (
+            os.environ.get("LLM_GATEWAY_BASE_URL")
+            or os.environ.get("OPENAI_BASE_URL")
+            or "https://llm-gateway-jugn.vercel.app/v1"
+        )
+        self._api_key = (
+            os.environ.get("LLM_GATEWAY_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or "gw_live_V9r2sNiCMr-8O_X2h5hMK-6M0J7YwYTuwiE-4UxxzLY"
+        )
+        if not self._api_key:
+            raise KeyError("Neither LLM_GATEWAY_API_KEY nor OPENAI_API_KEY is set in environment")
+
+    def get_client(self, model: str = "smart", timeout_s: float | None = None, **extra: Any) -> Any:
+        from langchain_openai import ChatOpenAI
+
+        timeout = timeout_s if timeout_s is not None else 30.0
+        # For thinking-capable models on this gateway, thinking tokens count towards max_tokens.
+        # Ensure a generous ceiling if low max_tokens was passed.
+        max_tokens = extra.pop("max_tokens", None)
+        if max_tokens is not None and int(max_tokens) < 1024:
+            max_tokens = 2048
+
+        kwargs: dict[str, Any] = {
+            "base_url": self._base_url,
+            "api_key": self._api_key,
+            "model": model or "smart",
+            "request_timeout": timeout,
+        }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        kwargs.update(extra)
+        return ChatOpenAI(**kwargs)
+
+    def complete(self, messages: list[dict[str, str]], *, model: str, **kw: Any) -> str:
+        timeout_s = kw.pop("timeout_s", None)
+        client = self.get_client(model=model, timeout_s=timeout_s, **kw)
+        resp = client.invoke(messages)
+        content = getattr(resp, "content", "")
+        if isinstance(content, list):
+            text = "".join(
+                part.get("text", "") if isinstance(part, dict) else str(part)
+                for part in content
+            )
+        else:
+            text = str(content or "")
+        return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+    def stream(self, messages: list[dict[str, str]], *, model: str, **kw: Any) -> Iterator[str]:
+        timeout_s = kw.pop("timeout_s", None)
+        client = self.get_client(model=model, timeout_s=timeout_s, **kw)
+        for chunk in client.stream(messages):
+            yield str(chunk.content or "")
+
+
+def get_chat_openai(model: str = "smart", **kwargs: Any) -> Any:
+    """Returns a configured LangChain ChatOpenAI instance pointing to the LLM gateway."""
+    provider = get_provider("gateway")
+    if isinstance(provider, GatewayProvider):
+        return provider.get_client(model=model, **kwargs)
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(
+        base_url=os.environ.get("LLM_GATEWAY_BASE_URL", "https://llm-gateway-jugn.vercel.app/v1"),
+        api_key=os.environ.get("LLM_GATEWAY_API_KEY", "gw_live_V9r2sNiCMr-8O_X2h5hMK-6M0J7YwYTuwiE-4UxxzLY"),
+        model=model,
+        **kwargs,
+    )
+
+
 # name -> lazy factory. Lazy so importing the registry never requires every
 # vendor SDK to be installed — only the ones a tier actually resolves to.
 _FACTORIES: dict[str, Callable[[], Provider]] = {
@@ -278,6 +352,8 @@ _FACTORIES: dict[str, Callable[[], Provider]] = {
     "gemini": GeminiProvider,
     "groq": GroqProvider,
     "ollama": OllamaProvider,
+    "gateway": GatewayProvider,
+    "openai": GatewayProvider,
 }
 _instances: dict[str, Provider] = {}
 

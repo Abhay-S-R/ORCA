@@ -241,6 +241,8 @@ def _primary(tier: Tier) -> tuple[str, str]:
     model = os.environ.get(f"ORCA_LLM_{tier.upper()}_MODEL")
     if provider and model:
         return provider, model
+    if os.environ.get("LLM_GATEWAY_API_KEY") or os.environ.get("OPENAI_API_KEY"):
+        return "gateway", "smart"
     if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
         return "gemini", "gemini-3.5-flash-lite"
     if os.environ.get("ANTHROPIC_API_KEY"):
