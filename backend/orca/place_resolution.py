@@ -74,6 +74,29 @@ class PlaceResolution:
         }
 
 
+# PC1.1 (`R-NEW-1`, `R-EDGE-3`) ─────────────────────────────────────────────
+# A single, pure, graph-independent validation step.  `query_guard_node` will
+# call this in PC1.2 with the planning model's structured output instead of the
+# current mix of raw-text word-lists and pre-graph API-handler work.
+
+@dataclass(frozen=True)
+class ValidationOutcome:
+    """Hard-stop result from :func:`validate_reading`.
+
+    ``code`` is one of the ``query_outcome`` values the graph routes on
+    (``"NEEDS_PLACE"`` or ``"OUT_OF_RANGE"``).  ``body`` is the sentence the
+    guard reply must contain — it is also stored verbatim in ``disclosures``
+    so the answer card always shows the reason even when a model rephrases
+    the reply.
+
+    A return of ``None`` from :func:`validate_reading` means every check
+    passed and the query may proceed.
+    """
+
+    code: Literal["NEEDS_PLACE", "OUT_OF_RANGE"]
+    body: str
+
+
 # Phrases that name a location the speaker can see and we cannot. These are
 # the "near my village" case from the Phase 1 exit gate: the query IS about a
 # place, so falling back to the pilot default and answering confidently is the
@@ -358,6 +381,134 @@ def position_guard(lat: float, lon: float) -> str | None:
 # reason, and `confidence_score` bands it. A second implementation in this
 # file could only disagree with that one. What Phase 1 adds is putting the
 # same fact on the card as a disclosure — see graph.risk_assessment_node.
+
+
+# PC1.1 (`R-NEW-1`, `R-EDGE-3`) ─────────────────────────────────────────────
+
+def _format_candidates(candidates: list[ResolvedPlace], limit: int = 6) -> str:
+    """A human-readable list of candidate places with coordinates, used in
+    ``validate_reading``'s NEEDS_PLACE messages."""
+    return ", ".join(
+        f"{c.name.title()} ({c.lat:.2f}N {c.lon:.2f}E)"
+        for c in candidates[:limit]
+    )
+
+
+def validate_reading(
+    places: list[dict],
+    when: dict | None,
+    user_location: dict | None,
+    now: datetime | None = None,
+) -> ValidationOutcome | None:
+    """Validate the planning model's structured reading against the gazetteer,
+    forecast horizon and data extent.  Returns ``None`` when everything is in
+    order; returns a :class:`ValidationOutcome` naming the stop code and the
+    sentence to show the user when something is not.
+
+    This is deliberately a **pure function** of its arguments: no LangGraph
+    state, no LLM calls, no side-effects.  PC1.2 will wire it into
+    ``query_guard_node`` so the guard reads the model's structured output
+    instead of the current pre-graph word-list and API-handler mix.
+
+    Parameters
+    ----------
+    places:
+        The ``understood_places`` list from the planning model —
+        ``[{"raw": str, "normalized": str}, ...]``.  Each entry's
+        ``"normalized"`` name is checked against the gazetteer.
+        An empty list means the model found no place; the function
+        does not refuse for that — it is the caller's decision whether
+        to require one.
+    when:
+        The ``understood_when`` dict from the planning model —
+        ``{"start": ISO-string, "end": ISO-string} | None``.
+        Only ``"start"`` is checked against the horizon.
+    user_location:
+        The ``user_location`` dict from ``ORCAState`` —
+        ``{"lat": float, "lon": float, "place_source": str, ...}``.
+        A position outside the data extent or on land triggers
+        ``OUT_OF_RANGE`` **only** when ``place_source`` is one of
+        ``"explicit"``, ``"coordinates"``, ``"gps_fix"`` — an
+        inferred position that happens to be on land is a soft
+        disclosure the caller adds to ``disclosures``, not a hard stop.
+    now:
+        The current UTC time (injectable for tests).  Defaults to
+        ``datetime.now(timezone.utc)``.
+    """
+    now = now or datetime.now(timezone.utc)
+    today = now.date()
+    horizon = today + timedelta(days=FORECAST_HORIZON_DAYS)
+
+    # 1 ── Place validation ──────────────────────────────────────────────────
+    # Each entry in `places` is a place name the model extracted from the
+    # user's text.  We verify each against the gazetteer by feeding the
+    # normalized name into resolve_or_ask.  A `resolved` status means the
+    # name unambiguously maps to a real coastal position we hold data for.
+    # Any other status means we need to ask the user to clarify — we must
+    # not silently substitute the regional default for a model misread.
+    for entry in places:
+        normalized = (entry.get("normalized") or entry.get("raw") or "").strip()
+        if not normalized:
+            continue
+        resolution = resolve_or_ask(normalized)
+        if resolution.status == "resolved":
+            continue
+        # ambiguous, unresolvable, or fallback (not found in gazetteer) —
+        # all three mean we cannot honestly answer at the place the model named.
+        body = resolution.disclosure or (
+            f"I could not find \u201c{normalized}\u201d in my records. "
+            "Name a port, landing centre or stretch of coast, "
+            "or send your position."
+        )
+        if resolution.candidates:
+            body = f"{body} Did you mean: {_format_candidates(resolution.candidates)}?"
+        return ValidationOutcome("NEEDS_PLACE", body)
+
+    # 2 ── Time / horizon validation ─────────────────────────────────────────
+    # The model returns a structured time window rather than raw text, so we
+    # check the ISO start date directly instead of running time_guard's regex
+    # on the raw query.  time_guard stays as the offline fallback (PC1.2 will
+    # call it when `when` is absent because the model was down).
+    if when:
+        start_raw = (when.get("start") or "").strip()
+        try:
+            start_dt = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+            start_date = start_dt.date()
+            if start_date < today:
+                return ValidationOutcome(
+                    "OUT_OF_RANGE",
+                    f"{start_date.isoformat()} is in the past. ORCA holds forecasts, "
+                    f"not an archive of past conditions \u2014 I can answer from "
+                    f"{today.isoformat()} to {horizon.isoformat()}.",
+                )
+            if start_date > horizon:
+                return ValidationOutcome(
+                    "OUT_OF_RANGE",
+                    f"{start_date.isoformat()} is beyond the {FORECAST_HORIZON_DAYS}-day "
+                    f"forecast every source here runs to. "
+                    f"I can answer up to {horizon.isoformat()}.",
+                )
+        except (ValueError, AttributeError):
+            pass  # malformed ISO string — time_guard covers it as the fallback
+
+    # 3 ── Position / extent validation ─────────────────────────────────────
+    # position_guard returns the sentence to show, or None when the position
+    # is a valid sea location.  A hard stop is raised only when the position
+    # is *user-supplied* (explicit/coordinates/gps_fix) — a position that was
+    # inferred from a place name and happens to fall on land is a soft
+    # disclosure that the caller appends to disclosures, not a gate.
+    if user_location:
+        lat = user_location.get("lat")
+        lon = user_location.get("lon")
+        if lat is not None and lon is not None:
+            where = position_guard(float(lat), float(lon))
+            if where is not None:
+                source = user_location.get("place_source") or ""
+                if source in ("explicit", "coordinates", "gps_fix"):
+                    return ValidationOutcome("OUT_OF_RANGE", where)
+                # Non-explicit source — caller handles as a soft disclosure.
+
+    return None
 
 
 if __name__ == "__main__":  # self-check; `python -m orca.place_resolution`

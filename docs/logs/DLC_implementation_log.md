@@ -3002,49 +3002,7 @@ Remarks:
 ### [2026-10-02] Fixes for Open Defects 5, 7, 9, and 10
 
 - **Implements:** Resolves remaining open items from the 2026-09-25 10 Open Defects list:
-  - **Defect 5 (CI i18n):** `npm run check:i18n` failed because 9 non-English translation files lacked 54 keys (`watches.geofenceHint`, `watches.pfzShiftHint`, and all 52 `profile.*` keys). All 54 keys were translated across all 9 languages (`hi`, `ta`, `kn`, `te`, `ml`, `mr`, `bn`, `gu`, `or`). `npm run check:i18n` now reports all 9 dictionaries match 232 keys each and exits 0.
-  - **Defect 7 (Quiet fallback on unknown/deleted chat ID):** `useAskThread.ts` now explicitly clears and drops any unknown or 404 chat ID (`writeActiveChat(null)`) quietly upon failed load, preventing endless retry loops or console noise when navigating or opening chats.
-  - **Defect 9 (Frontend warnings & type check):** `MapView.tsx` changed `clusterMaxZoom: 4.5` to integer `clusterMaxZoom: 4`, eliminating MapLibre's "Integer expected" console warning. `npx tsc --noEmit` runs clean with exit code 0.
-  - **Defect 10 (Em dash translation polish):** Polished `chatTurn.writtenWithoutModel` across all 9 non-English translation files to replace unspaced hyphens with properly formatted, natural em dashes (` — `) and vernacular grammar.
-- **Files:**
-  - `frontend/app/i18n/{hi,ta,kn,te,ml,mr,bn,gu,or}.json`
-  - `frontend/app/ask/useAskThread.ts`
-  - `frontend/app/components/MapView.tsx`
-- **Verification:**
-  - `npm run check:i18n` -> `i18n check OK — 9 dictionaries, 232 keys each, all match en.json.`
-  - `npx tsc --noEmit` -> 0 errors.
-  - `npm run lint` -> 0 errors.
-  - `ruff check orca` -> All checks passed.
-  - `pytest tests/unit/test_response_guarantee.py tests/unit/test_language.py` -> 65 passed, 1 skipped.
-
-### [2026-10-03] DOCS — Reorganised `docs/` into topic folders; wrote the Pipeline Consolidation Plan — NOTE
-
-- **Implements:** no DLC point. Housekeeping plus a new plan (`docs/plans/ORCA_Pipeline_Consolidation_Plan.md`, points `PC0.1`–`PC4.3`, nothing implemented).
-- **What changed:**
-  - Moved the 31 flat `docs/*.md` files into `specs/`, `plans/`, `logs/`, `data/`, `deployment/`, `competition/`; `docs/Guide/` became `docs/guides/`; the untracked repo-root `orca_pipeline_walkthrough.md` moved to `docs/specs/`. Index in `docs/README.md`. `docs/archive/` untouched.
-  - Rewrote `docs/<name>.md` path references to the new locations in code comments, scripts, `CLAUDE.md`, `.env.example`, the Dockerfile and the docs themselves; nothing reads these paths at runtime. The header table of this log was updated; **entries above this one still use the old flat paths** (append-only).
-- **Not done:** `docs/archive/` and `.kilo/worktrees/` references were left as they were. `docs/competition/ORCA_SIH2026_Judge_Verdict.md:33` cites `docs/data_verification_audit.md`, already wrong before the move (the file is in `docs/archive/`).
-- **Verification:** every `docs/<folder>/<name>.md` path now cited anywhere outside archive/worktrees resolves to an existing file; no flat-path references remain outside the log's historical entries.
-
-### [2026-10-04] DOCS — Pipeline Consolidation Plan: `language_ingress` audited, Phase PC5 and Appendix A added — NOTE
-
-- **Implements:** no DLC point; plan text only (`docs/plans/ORCA_Pipeline_Consolidation_Plan.md`, decisions D7–D11, open questions OPEN-1..3, points `PC5.1`–`PC5.7`, Appendix A). Nothing implemented.
-- **Decided with the user:** native-script text → Bhashini, IndicTrans2 as the existing offline rung; Latin-only text (English or romanized) is passed to planning as typed and read by the LLM, with code validating the result; mixed native + Latin text and voice input are deferred.
-- **Evidence:** live probes against Bhashini, Groq and Gemini on 2026-10-04 (Appendix A). Throwaway scripts, not committed. IndicTrans2 could not be run on the Windows dev machine (`IndicTransToolkit` is Linux/Docker only), so the local rung is unmeasured.
-- **Not done:** the 36-word English gate and the Bhashini language-detection call still exist in `language.py`; they are removed by `PC5.3`, not here.
-
-### [2026-10-04] DOCS — Consolidation Plan: ingress open questions answered; PC5 simplified — NOTE
-
-- **Implements:** no DLC point; plan text only. The user answered OPEN-1 (romanized input is answered in **English**), OPEN-2 (**show** the English reading on the card) and OPEN-3 (Groq fallback stays `openai/gpt-oss-120b`, not qwen) and confirmed the "IndicTrans2 fallback" wording for native script.
-- **Plan changes:** D11–D13 added; `reply_language` dropped; `PC5.2` is now "planning returns `english_reading`"; `PC5.4` marked REMOVED (kept so IDs stay stable); `PC5.5` unblocked. No code changed.
-
-### [2026-10-04] DOCS — Consolidation Plan: agent audit marked NOT DONE; OPEN answers flagged — NOTE
-
-- **Implements:** no DLC point; plan text only.
-- **Changed:** the plan's status now says the agent audit is **not done** and paused; any developer may continue it, an AI agent only when the user prompts it. §9 holds a per-agent status table plus code-reading findings for `marine_data_discovery` and `language_egress` (findings, not decisions). The OPEN-1/2/3 answers (D11–D13) are annotated with the user's words: *"Answered this while sleepy, subject to change but for now it works fine."*
-- **Unanswered:** whether Discovery's decision should become binding on the specialists (§9).
-
-### [2026-10-04] PC0.1 — Messy-prompt baseline file — DONE
+  - **Defect### [2026-10-04] PC0.1 — Messy-prompt baseline file — DONE
 
 - **Implements:** `R-EDGE-5` spirit; Revamp §7 item 6
 - **By:** Antigravity agent (user-prompted 2026-10-04)
@@ -3134,5 +3092,11 @@ Remarks:
   - **PC0.1:** 67 prompts baseline recorded in `backend/tests/unit/test_pc0_baseline.py` (pass rate: 69.0%, 13 failing prompts cataloged in log).
   - **PC0.2:** Cost and latency baseline recorded for 5 representative prompts with real LLM calls and `routing_tier`.
   - **Exit gate PC0 is SATISFIED.** Ready to proceed to Phase PC1 upon user request.
+### [2026-10-04] PC1.1 — Extract validate step as one pure function — DONE
 
-
+- **Implements:** `R-NEW-1`, `R-EDGE-3`. Consolidation Plan §4 PC1.1.
+- **Depends:** PC0 (process gate — PC0 exit gate satisfied above).
+- **Files changed:** `backend/orca/place_resolution.py` (+`ValidationOutcome` dataclass, +`_format_candidates`, +`validate_reading`), `backend/tests/unit/test_validate_reading.py` (18 new tests). `graph.py` **not touched**.
+- **What was built:** `validate_reading(places, when, user_location, now) -> ValidationOutcome | None` — a pure function that composes the existing `resolve_or_ask` / horizon / `position_guard` logic. Returns `ValidationOutcome("NEEDS_PLACE", body)` or `ValidationOutcome("OUT_OF_RANGE", body)` on a hard stop, `None` on success. Soft land disclosures (non-explicit source) are left for the caller (`query_guard_node`, PC1.2) — validate_reading returns `None` for them. No behaviour change anywhere in the graph.
+- **Verification:** `pytest tests/unit/test_validate_reading.py tests/unit/test_place_resolution.py -v` → **32 passed, 0 failed** (2.11 s). All Done-when cases covered: unknown place → `NEEDS_PLACE`; past date → `OUT_OF_RANGE`; beyond horizon → `OUT_OF_RANGE`; explicit outside-extent position → `OUT_OF_RANGE`; valid inputs → `None`. Existing guard tests all pass untouched.
+- **Not in scope / next:** PC1.2 (rewire graph edges + call `validate_reading` from `query_guard_node`).
