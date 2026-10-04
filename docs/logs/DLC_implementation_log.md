@@ -3100,3 +3100,10 @@ Remarks:
 - **What was built:** `validate_reading(places, when, user_location, now) -> ValidationOutcome | None` — a pure function that composes the existing `resolve_or_ask` / horizon / `position_guard` logic. Returns `ValidationOutcome("NEEDS_PLACE", body)` or `ValidationOutcome("OUT_OF_RANGE", body)` on a hard stop, `None` on success. Soft land disclosures (non-explicit source) are left for the caller (`query_guard_node`, PC1.2) — validate_reading returns `None` for them. No behaviour change anywhere in the graph.
 - **Verification:** `pytest tests/unit/test_validate_reading.py tests/unit/test_place_resolution.py -v` → **32 passed, 0 failed** (2.11 s). All Done-when cases covered: unknown place → `NEEDS_PLACE`; past date → `OUT_OF_RANGE`; beyond horizon → `OUT_OF_RANGE`; explicit outside-extent position → `OUT_OF_RANGE`; valid inputs → `None`. Existing guard tests all pass untouched.
 - **Not in scope / next:** PC1.2 (rewire graph edges + call `validate_reading` from `query_guard_node`).
+
+### [2026-10-04] PC1.2 — Run the guard after understand — CLAIMED
+
+- **Implements:** `R-NEW-1`. Consolidation Plan §4 PC1.2.
+- **Depends:** PC1.1 (satisfied).
+- **Files targeted:** `backend/orca/graph/graph.py` (edges and `query_guard_node`), `backend/tests/unit/test_query_coverage.py`.
+- **Target:** Rewire `distress_check → language_ingress → understand → query_guard → planning`. `query_guard_node` calls `validate_reading` with the model's `places` / `when`. Deterministic `time_guard` stays as fallback when `understood_when` is empty (model down).

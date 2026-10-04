@@ -1,11 +1,13 @@
 """LangGraph pipeline:
 
     distress_check --[distress_flag]--> END (response built in this node)
-                   --[else]-----------> query_guard
+                   --[else]-----------> language_ingress
+                                            |
+                                        understand
+                                            |
+                                        query_guard
                                             |
                         --[can't place it / can't reach that time]--> END
-                                            |
-                                     language_ingress
                                             |
                                          planning
                                             |
@@ -200,7 +202,7 @@ def _route_after_distress(state: ORCAState) -> str:
     # END is untyped (a plain interned str, not a Literal) in langgraph's own
     # stubs, so this can't be a Literal return type without mypy complaining
     # about the exact thing that makes END work at all.
-    return END if state.get("distress_flag") else "query_guard"
+    return END if state.get("distress_flag") else "language_ingress"
 
 
 def _candidate_list(candidates: list[dict]) -> str:
@@ -246,9 +248,10 @@ def _refusal(outcome: str, body: str, state: ORCAState) -> dict:
 def query_guard_node(state: ORCAState) -> dict:
     """P1.2 (`R-NEW-1`) and P1.4 (`R-EDGE-3`) — the position-and-time gate.
 
-    Prompt Routing Revamp §6: uses Understand agent's structured output
-    (kind, places, when) instead of word-list gates. The deterministic
-    place_resolution/time_guard stay as the validation layer (Validate step).
+    Consolidation Plan §4 PC1.2: runs after `understand`.
+    Uses `validate_reading` with the model's `places` / `when`.
+    The deterministic `time_guard` stays only as the fallback when
+    `understood_when` is empty because the model was down.
     """
     understood_kind = state.get("understood_kind")
     understood_places = state.get("understood_places", [])
@@ -260,52 +263,48 @@ def query_guard_node(state: ORCAState) -> dict:
                            "what_can_orca_do", "reset_or_language_switch", "off_topic"):
         return {}
 
-    # Place validation: use Understand's places + deterministic resolution
-    resolution = state.get("place_resolution") or {}
-    if resolution.get("status") in ("ambiguous", "unresolvable"):
-        disclosure = resolution.get("disclosure") or "I could not work out where this question is about."
-        candidates = resolution.get("candidates") or []
-        body = disclosure if not candidates else f"{disclosure} Did you mean: {_candidate_list(candidates)}?"
-        return _refusal("NEEDS_PLACE", body, state)
+    # Validate the model's reading (places, when, user_location)
+    outcome = place_resolution.validate_reading(
+        understood_places,
+        understood_when,
+        state.get("user_location"),
+    )
+    if outcome is not None:
+        return _refusal(outcome.code, outcome.body, state)
 
-    # Time validation: use Understand's when + deterministic time_guard
-    if understood_when:
-        # Understand returned a time range — check if it's within horizon
-        from datetime import datetime, timezone, timedelta
-        try:
-            start = datetime.fromisoformat(understood_when["start"].replace("Z", "+00:00"))
-            now = datetime.now(timezone.utc)
-            horizon = now + timedelta(days=7)
-            if start > horizon:
-                return _refusal("OUT_OF_RANGE", f"{start.date().isoformat()} is beyond the 7-day forecast horizon.", state)
-        except Exception:
-            pass  # fall through to deterministic check
-    else:
-        # Fallback to deterministic time_guard on the normalized query
+    # Fallback to deterministic place check when the model found no places (e.g. LLM down)
+    if not understood_places:
+        resolution = state.get("place_resolution") or {}
+        if resolution.get("status") in ("ambiguous", "unresolvable"):
+            disclosure = resolution.get("disclosure") or "I could not work out where this question is about."
+            candidates = resolution.get("candidates") or []
+            body = disclosure if not candidates else f"{disclosure} Did you mean: {_candidate_list(candidates)}?"
+            return _refusal("NEEDS_PLACE", body, state)
+
+    # Fallback to deterministic time_guard when understood_when is empty (e.g. LLM down)
+    if not understood_when:
         when = place_resolution.time_guard(state.get("normalized_english_query") or state.get("raw_user_query") or "")
         if when is not None:
             return _refusal("OUT_OF_RANGE", when, state)
 
-    # Position validation (unchanged — deterministic check on actual coordinates)
+    # Soft land disclosure for inferred user_location (validate_reading returns None for this)
     location = state.get("user_location") or {}
     lat, lon = location.get("lat"), location.get("lon")
-    if lat is None or lon is None:
-        return {}
-    where = place_resolution.position_guard(float(lat), float(lon))
-    if where is None:
-        return {}
-    if location.get("place_source") in ("explicit", "coordinates", "gps_fix"):
-        return _refusal("OUT_OF_RANGE", where, state)
-    place_label = (location.get("place_name") or "this place").title()
-    disclosure = (
-        f"{float(lat):.4f}, {float(lon):.4f} is on land. The position held for {place_label} "
-        "is the town centre rather than the harbour approach, so depth-dependent readings here may be missing."
-    )
-    return {"disclosures": [disclosure]}
+    if lat is not None and lon is not None:
+        where = place_resolution.position_guard(float(lat), float(lon))
+        if where is not None and location.get("place_source") not in ("explicit", "coordinates", "gps_fix"):
+            place_label = (location.get("place_name") or "this place").title()
+            disclosure = (
+                f"{float(lat):.4f}, {float(lon):.4f} is on land. The position held for {place_label} "
+                "is the town centre rather than the harbour approach, so depth-dependent readings here may be missing."
+            )
+            return {"disclosures": [disclosure]}
+
+    return {}
 
 
 def _route_after_query_guard(state: ORCAState) -> str:
-    return END if state.get("query_outcome") in ("NEEDS_PLACE", "OUT_OF_RANGE") else "language_ingress"
+    return END if state.get("query_outcome") in ("NEEDS_PLACE", "OUT_OF_RANGE") else "planning"
 
 
 def out_of_scope_node(state: ORCAState) -> dict:
@@ -1334,10 +1333,10 @@ def build_graph():
     g.add_node("language_egress", language_egress_node)
 
     g.add_edge(START, "distress_check")
-    g.add_conditional_edges("distress_check", _route_after_distress, {END: END, "query_guard": "query_guard"})
-    g.add_conditional_edges("query_guard", _route_after_query_guard, {END: END, "language_ingress": "language_ingress"})
+    g.add_conditional_edges("distress_check", _route_after_distress, {END: END, "language_ingress": "language_ingress"})
     g.add_edge("language_ingress", "understand")
-    g.add_edge("understand", "planning")
+    g.add_edge("understand", "query_guard")
+    g.add_conditional_edges("query_guard", _route_after_query_guard, {END: END, "planning": "planning"})
     g.add_conditional_edges(
         "planning", _route_after_planning,
         {
