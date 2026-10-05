@@ -326,7 +326,7 @@ if __name__ == "__main__":
     # Self-check: no network
     os.environ["ORCA_LLM_ENABLED"] = "0"
     from orca.state import ORCAState
-    state: ORCAState = {
+    state: ORCAState = {  # type: ignore[typeddict-item]  # a partial state is enough for this check
         "query_id": "test-1",
         "raw_user_query": "hi",
         "session_history": [],

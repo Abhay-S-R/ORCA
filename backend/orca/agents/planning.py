@@ -644,7 +644,7 @@ def run(state: ORCAState) -> AgentResult:
     if state.get("understood_kind") is not None or state.get("understood_places") is not None or state.get("understood_when") is not None:
         from orca.agents.understand import UnderstoodPrompt
         understood = UnderstoodPrompt(
-            kind=state.get("understood_kind") or "sea_question",
+            kind=state.get("understood_kind") or "sea_question",  # type: ignore[arg-type]  # state holds a plain str
             intents=state.get("understood_intents", []),
             places=state.get("understood_places", []),
             when=state.get("understood_when"),
@@ -658,9 +658,10 @@ def run(state: ORCAState) -> AgentResult:
             client = llm("cheap")
             prompt = _build_understand_prompt(raw_query, history, user_location, current_time_iso)
             raw = client.complete([{"role": "user", "content": prompt}]).strip()
-            understood = _parse_understand_output(raw)
-            if understood is None:
+            parsed = _parse_understand_output(raw)
+            if parsed is None:
                 raise ValueError("invalid understand output")
+            understood = parsed
             understand_engine = getattr(client, "engine", "unknown")
             tier_out.append("understand_llm")
         except (LLMUnavailable, Exception):
