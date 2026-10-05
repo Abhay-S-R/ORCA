@@ -17,7 +17,7 @@ its trace span is now named "planning". The offline fallback is kept as-is.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.state import ORCAState
@@ -196,10 +196,16 @@ _EXECUTION_ORDER: tuple[str, ...] = (
 )
 
 
-def enforce_planning_invariants(planned_agents: list[str], is_sea_question: bool) -> list[str]:
+def enforce_planning_invariants(
+    planned_agents: list[str], is_sea_question: bool, intent_rows: list[str] | None = None,
+) -> list[str]:
     """Enforce D3 invariants on the model's proposed agent set.
 
     D3 invariants:
+    - The agents the matched routing rows name always run. The model can add to
+      them but never subtract: `ocean_analytics` is the only agent that finds a
+      PFZ, and a model that left it out answered "no PFZ data" with the data on
+      disk (D-9).
     - Unknown agent names are dropped.
     - Dependency order is code's, not the model's (discovery → specialists in
       parallel → risk and visualization → reporting → critic → egress).
@@ -224,8 +230,11 @@ def enforce_planning_invariants(planned_agents: list[str], is_sea_question: bool
     # Model can only skip skippable agents
     skippable = set(_SKIPPABLE_SEA_AGENTS)
     model_choices = set(valid_agents) & skippable
-    # Required agents = core + (model's choices from skippable) + always-run downstream
-    required = core_agents | model_choices | {"reporting", "critic"}
+    # What the matched routing rows name is the intent's own requirement.
+    rows = {r.name: r for r in ROUTING_TABLE}
+    intent_needs = {a for name in intent_rows or () if name in rows for a in rows[name].agents}
+    # Required agents = core + intent's own + (model's choices from skippable) + always-run downstream
+    required = core_agents | (intent_needs & _KNOWN_SPECIALISTS) | model_choices | {"reporting", "critic"}
     # Always include marine_data_discovery first
     required.add("marine_data_discovery")
 
@@ -614,6 +623,7 @@ def run(state: ORCAState) -> AgentResult:
     orca/graph/ before this node is even invoked.
     """
     from orca.agents.understand import (
+        NON_SEA_KINDS,
         _build_understand_prompt,
         _parse_understand_output,
         _fallback_understand,
@@ -657,6 +667,19 @@ def run(state: ORCAState) -> AgentResult:
             understand_engine = "deterministic (fallback)"
             tier_out.append("understand_fallback")
 
+    # The model says a place is inland; the gazetteer has the last word. A coastal place or a whole
+    # coastline in the message means the model misjudged it, and the question is a sea question.
+    # (An inland call only ever leads to a no-data reply, never to a number, so the check guards
+    # the other direction: refusing a real coastal question.)
+    if understood.kind == "inland_place":
+        from orca.data.loaders import is_region_name
+        from orca.place_resolution import resolve_or_ask
+
+        names = [(p.get("normalized") or p.get("raw") or "").strip() for p in understood.places]
+        if any(n and (is_region_name(n) or resolve_or_ask(n).status == "resolved") for n in names):
+            understood = replace(understood, kind="sea_question")
+            tier_out.append("inland_overruled_by_gazetteer")
+
     understood_kind = understood.kind
     understood_intents = understood.intents
     understood_is_followup = understood.is_followup
@@ -669,8 +692,7 @@ def run(state: ORCAState) -> AgentResult:
     query_outcome_body: str | None = None
     soft_disclosures: list[str] = []
 
-    if understood_kind in ("distress", "clock_or_position", "greeting_or_small_talk",
-                           "what_can_orca_do", "reset_or_language_switch", "off_topic"):
+    if understood_kind in NON_SEA_KINDS:
         # Non-sea kinds pass through without place/time validation
         pass
     else:
@@ -723,8 +745,7 @@ def run(state: ORCAState) -> AgentResult:
     if query_outcome in ("NEEDS_PLACE", "OUT_OF_RANGE"):
         matches: list[tuple[str, float]] = []
         tier_out.append("validation_refusal")
-    elif understood_kind in ("distress", "clock_or_position", "greeting_or_small_talk",
-                           "what_can_orca_do", "reset_or_language_switch", "off_topic"):
+    elif understood_kind in NON_SEA_KINDS:
         matches = []
         tier_out.append("understand_gate")
     else:
@@ -759,7 +780,9 @@ def run(state: ORCAState) -> AgentResult:
                             tier_out.append("continuation_kept_previous_intent")
 
     # Honor Understand's followup flag for carried intent.
-    if understood_is_followup and not carried and not query_outcome:
+    # A message the model read as non-sea (chat about the last reply, a greeting …) carries no
+    # sea intent forward: that would run the sea agents for a message that is not a sea question.
+    if understood_is_followup and not carried and not query_outcome and understood_kind not in NON_SEA_KINDS:
         carried_rows = carry_intent(history)
         if carried_rows:
             matched_names = {name for name, _ in matches}
@@ -770,8 +793,13 @@ def run(state: ORCAState) -> AgentResult:
                 tier_out.append("understand_followup_carried")
 
     routing_tier = tier_out[0] if tier_out else "no_match"
-    out_of_scope = not matches and is_out_of_scope(query) and not query_outcome
-    is_sea_question = query_outcome not in ("NEEDS_PLACE", "OUT_OF_RANGE") and not out_of_scope and understood_kind not in ("distress", "clock_or_position", "greeting_or_small_talk", "what_can_orca_do", "reset_or_language_switch", "off_topic")
+    # The model's kind decides for the non-sea kinds it owns: a word list must not send "so you
+    # can't give me a weather forecast?" (a chat message) into the sea agents because it says
+    # "weather". `distress` and `off_topic` keep the old rule (a missed distress must never be
+    # turned into a refusal here; off_topic is a separate decision).
+    model_owned = understood_kind in NON_SEA_KINDS and understood_kind not in ("distress", "off_topic")
+    out_of_scope = not matches and (model_owned or is_out_of_scope(query)) and not query_outcome
+    is_sea_question = query_outcome not in ("NEEDS_PLACE", "OUT_OF_RANGE") and not out_of_scope and understood_kind not in NON_SEA_KINDS
     if query_outcome in ("NEEDS_PLACE", "OUT_OF_RANGE"):
         matched_rows: list[str] = []
         execution_plan: list[str] = []
@@ -781,7 +809,7 @@ def run(state: ORCAState) -> AgentResult:
     else:
         matched_rows = [name for name, _ in matches]
         # PC3.3: Use model's planned_agents with D3 invariants enforced
-        execution_plan = enforce_planning_invariants(understood_agents, is_sea_question)
+        execution_plan = enforce_planning_invariants(understood_agents, is_sea_question, matched_rows)
 
     if query_outcome in ("NEEDS_PLACE", "OUT_OF_RANGE"):
         confidence = Confidence(

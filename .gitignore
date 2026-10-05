@@ -53,3 +53,5 @@ Thumbs.db
 skills-lock.json
 .playwright-mcp/
 .impeccable
+
+temp/

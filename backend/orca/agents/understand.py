@@ -40,6 +40,8 @@ class UnderstoodPrompt:
         "clock_or_position",
         "what_can_orca_do",
         "reset_or_language_switch",
+        "chat_followup",
+        "inland_place",
         "distress",
         "off_topic",
     ]
@@ -59,8 +61,13 @@ _ROUTING_ROW_NAMES = (
 
 _KIND_VALUES = (
     "sea_question", "greeting_or_small_talk", "clock_or_position",
-    "what_can_orca_do", "reset_or_language_switch", "distress", "off_topic",
+    "what_can_orca_do", "reset_or_language_switch", "chat_followup", "inland_place", "distress", "off_topic",
 )
+
+# Every kind that is answered without running the sea agents. The one list the
+# graph and planning both read, so adding a kind cannot be forgotten in one of
+# them (a kind missing from a copy of this list would be run as a sea question).
+NON_SEA_KINDS = frozenset(_KIND_VALUES) - {"sea_question"}
 
 
 def _build_understand_prompt(
@@ -75,7 +82,11 @@ def _build_understand_prompt(
         for i, t in enumerate(session_history[-5:], 1):
             q = t.get("english_query") or t.get("query")
             if q:
-                turns.append(f'{i}. "{q}"')
+                turns.append(f'{i}. User: "{q}"')
+                # What ORCA replied is what a short follow-up refers to: "more
+                # detail" after a capability answer is not "more detail" after a PFZ.
+                if t.get("answer"):
+                    turns.append(f'   ORCA replied: "{str(t["answer"])[:240]}"')
         if turns:
             history_block = f"\nRECENT TURNS (oldest first, max 5):\n" + "\n".join(turns)
 
@@ -132,7 +143,7 @@ RULES:
 3. kind = "greeting_or_small_talk" for "hi", "hello", "namaste", "vanakkam", "thanks", "who are you", "good morning" — conversational openers.
 4. kind = "what_can_orca_do" for capability questions ("what do you do", "help me", "how can you assist", "features").
 5. kind = "reset_or_language_switch" for "reset", "clear conversation", "change language", "switch to Tamil", "talk in Hindi".
-6. kind = "off_topic" for clearly non-marine content (recipes, sports, stocks, movies, coding, general trivia).
+6. kind = "off_topic" for clearly non-marine content (recipes, sports, stocks, movies, coding, general trivia). A message that only makes sense as a reply to RECENT TURNS is never off_topic just because it has no marine words in it; see rule 14.
 7. kind = "sea_question" for questions about conditions, safety, fishing, weather, or navigation at sea off India.
 8. MIXED LANGUAGE & TRANSLITERATION: The message may be in Romanized Indian languages (Hinglish, Tanglish, Manglish, etc., e.g., "machli kahan milegi", "nale kadal povan pattuva", "pondi la nalaiku safe ah"). Classify according to its marine meaning.
 9. TYPOS & INFORMAL PHRASING: Tolerate typos and abbreviations (e.g. "whr is pfz", "is it sf to go", "wav hight", "tide tmrw").
@@ -156,6 +167,12 @@ RULES:
     - Out of range (> 7 days ahead or past dates) should still be parsed with their ISO dates so validation can catch them.
 12. FOLLOW-UPS: is_followup = true if the query is a continuation of the previous turn (e.g. "and tomorrow?", "what about in a fiber boat?", "how about wind?", "also check tides").
 13. NEVER invent numbers, distances, or mock data. Only classify and extract.
+14. MESSAGES THAT REFER TO THE CONVERSATION. Read RECENT TURNS, including what ORCA replied, then decide in this order:
+    a. The message asks for ANY sea reading: new, repeated, more detailed, or for another time, place, boat or measure ("what about tomorrow evening?", "and in a trawler?", "how about wind?", "why is that?", "more detail", "explain that", "is that zone far?"), and ORCA's last reply was a sea answer -> kind = "sea_question", is_followup = true, and leave places empty so the earlier place carries over.
+    b. Only when it wants NO sea reading, because it talks about ORCA or ORCA's last reply: asks to elaborate on a capability answer or on a refusal, challenges or questions a limit ("so you can't give me a land forecast?", "why can't you?"), or reacts ("ok", "that's not what I asked") -> kind = "chat_followup".
+    c. When ORCA's last reply was a sea answer, a short follow-up is (a). When it was a capability answer, a refusal or chat, a follow-up that wants more is (b).
+    d. A message that depends on the conversation is never "off_topic", and never a sea_question about a place the user did not name.
+15. INLAND PLACES. kind = "inland_place" when the user asks for weather, conditions or a forecast at a place that is clearly inland, far from the sea (Bengaluru, Delhi, Hyderabad, Pune, Jaipur, Lucknow). Put the place in `places` as typed. It is NOT off_topic (the user is asking about weather) and NOT a sea_question (ORCA has no sea data for it). A coastal city or port is always a sea_question: Mumbai, Chennai, Kochi, Visakhapatnam, Kolkata, Mangalore, Goa. If unsure whether a place is on the coast, use sea_question.
 """
 
 

@@ -279,11 +279,39 @@ def out_of_scope_node(state: ORCAState) -> dict:
             "execution_plan": [],
         }
 
-    if understood_kind == "what_can_orca_do":
-        body = "I answer questions about conditions at sea off India — whether it's safe to go out, wave height, wind speed, tides, nearest fishing zones, and maritime boundaries. Name a coastal place or send your position, and I'll answer for it."
+    if understood_kind == "inland_place":
+        # An inland place is not a refusal and not a sea question: say plainly that ORCA has no
+        # sea data for it and what it can do instead. No agent runs, so no number can be wrong.
+        body = (
+            "That place is inland, away from the coast, so I have no sea data for it. I only cover the sea off "
+            "India's coast. Name a coastal place or send your position and I'll tell you the conditions there."
+        )
+        facts = (
+            f"{reporting.CAPABILITY_FACTS} The place the user asked about is inland, away from the coast: "
+            "ORCA has no weather or sea data for it, and does not give land-based forecasts."
+        )
+        reply, engine = reporting.write_chat_reply(query, facts, body, _conversation_context(state))
         return {
             "query_outcome": "OUT_OF_SCOPE",
-            **_guard_reply(state, body, allow_small_talk=True),
+            "final_english_response": reply,
+            "final_vernacular_response": reply,
+            "response_engine": engine,
+            "small_talk": True,
+            "confidence_tier": "HIGH",
+            "execution_plan": [],
+        }
+
+    if understood_kind in ("what_can_orca_do", "chat_followup"):
+        # Conversation, not a refusal: the model answers the message from what ORCA can do,
+        # as the next turn of the chat. The fixed sentence is only the no-model fallback.
+        body ="I answer questions about conditions at sea off India — whether it's safe to go out, wave height, wind speed, tides, nearest fishing zones, and maritime boundaries. Name a coastal place or send your position, and I'll answer for it."
+        reply, engine = reporting.write_chat_reply(query, reporting.CAPABILITY_FACTS, body, _conversation_context(state))
+        return {
+            "query_outcome": "OUT_OF_SCOPE",
+            "final_english_response": reply,
+            "final_vernacular_response": reply,
+            "response_engine": engine,
+            "small_talk": True,
             "confidence_tier": "HIGH",
             "execution_plan": [],
         }
