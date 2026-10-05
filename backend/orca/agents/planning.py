@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.state import ORCAState
 
@@ -625,8 +626,8 @@ def run(state: ORCAState) -> AgentResult:
     from orca.agents.understand import (
         NON_SEA_KINDS,
         _build_understand_prompt,
-        _parse_understand_output,
         _fallback_understand,
+        _parse_understand_output,
     )
     from orca.llm.tiers import LLMUnavailable, llm
 

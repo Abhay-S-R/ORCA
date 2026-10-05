@@ -357,7 +357,7 @@ def detect_distress_model_check(text: str, phrase_detection: dict[str, Any]) -> 
 
     # If no model available, return phrase list result
     try:
-        from orca.llm.tiers import llm, LLMUnavailable
+        from orca.llm.tiers import LLMUnavailable, llm
         client = llm("cheap")
     except (LLMUnavailable, Exception):
         return phrase_detection

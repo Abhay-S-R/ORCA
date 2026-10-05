@@ -13,8 +13,6 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
 from orca.agents import planning
 from orca.graph.graph import _route_after_planning, build_graph, planning_node
 from orca.place_resolution import FORECAST_HORIZON_DAYS

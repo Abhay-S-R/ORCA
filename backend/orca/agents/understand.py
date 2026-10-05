@@ -17,7 +17,6 @@ from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_rea
 from orca.llm.tiers import LLMUnavailable, llm
 from orca.state import ORCAState
 
-
 # PC2.1 (`R-AGENT-2`, `PS-ARCH`) — the set of specialist agent names Understand
 # may suggest. Hallucinated names are silently dropped in _parse_understand_output.
 # These are the graph node names from graph.py (the only names the graph knows).
@@ -88,7 +87,7 @@ def _build_understand_prompt(
                 if t.get("answer"):
                     turns.append(f'   ORCA replied: "{str(t["answer"])[:240]}"')
         if turns:
-            history_block = f"\nRECENT TURNS (oldest first, max 5):\n" + "\n".join(turns)
+            history_block = "\nRECENT TURNS (oldest first, max 5):\n" + "\n".join(turns)
 
     location_block = ""
     if user_location:
@@ -193,9 +192,8 @@ def _parse_understand_output(raw: str) -> UnderstoodPrompt | None:
             places.append({"raw": p["raw"], "normalized": p.get("normalized")})
 
     when = data.get("when")
-    if when is not None:
-        if not isinstance(when, dict) or "start" not in when or "end" not in when:
-            when = None
+    if when is not None and (not isinstance(when, dict) or "start" not in when or "end" not in when):
+        when = None
 
     is_followup = bool(data.get("is_followup", False))
 
@@ -215,15 +213,12 @@ def _parse_understand_output(raw: str) -> UnderstoodPrompt | None:
 def _fallback_understand(message: str, session_history: list[dict] | None) -> UnderstoodPrompt:
     """Offline fallback using the existing word lists (planning.py)."""
     from orca.agents.planning import (
+        _INJECTION_PATTERNS,
+        _NON_MARINE_TASKS,
+        classify_intent_deterministic,
+        is_continuation,
         is_out_of_scope,
         is_self_context_question,
-        is_continuation,
-        _MARINE_VOCAB,
-        _NON_MARINE_TASKS,
-        _INJECTION_PATTERNS,
-        _SELF_CONTEXT_PHRASES,
-        _CONTINUATION_OPENERS,
-        classify_intent_deterministic,
     )
     from orca.data.loaders import resolve_all_places_from_text
 

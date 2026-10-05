@@ -3229,3 +3229,10 @@ Remarks:
   2. The critic revised 15 of 48 answers (31%), more than expected for answers the pipeline had just produced. Not investigated; each revision now passes through the new guard.
   3. The 4 pre-existing failing tests are still failing.
   4. The Veraval chip loop (D-12) is untouched.
+
+### [2026-10-06] FIX-RUFF — CI ruff step back to zero (20 errors) — DONE
+
+- **Implements:** the user's request to clear the CI ruff failure before deploying.
+- **Files (10, all lint-only, no behaviour change):** `backend/orca/agents/{distress,planning,understand}.py`, `backend/orca/graph/graph.py` and six test files (`test_pc1_query_guard`, `test_pc2_2_merged_planning`, `test_pc2_3_folded_query_guard`, `test_pc2_planned_agents`, `test_pc3_2_skip_branch_spike`, `test_pc3_4_invariant_test`). Import ordering (I001), unused imports (F401: `place_resolution` in graph.py, three names in `understand._fallback_understand`, `pytest`/`date`/`_KNOWN_SPECIALISTS` in tests; each confirmed unused by grep first), a no-placeholder f-string (F541), `import unittest.mock as mock` (PLR0402), and one nested `if` merged by hand (SIM102 in `_parse_understand_output`, same logic).
+- **Verification:** `ruff check .` in `backend/` and `ruff check scripts/` at the repo root (the two commands in `ci.yml`) both print "All checks passed!". The test files these touch plus planning, distress, PC0 and the D-9/D-10/D-11/D-13/D-14 files: 250 passed, 13 xfailed.
+- **Not done, found while checking the rest of the CI job (all fail on committed HEAD too, none caused by this change):** `mypy orca` 3 errors (`planning.py` x2, `understand.py` `__main__` self-check); `pyrefly check` 56 errors (54 in `understand.py`); `verify_ci_guards.py` guard 4 fails because `orca/agents/distress.py` imports `orca.llm` (the Revamp section 7.4 escalate-only check, against the rule that safety-path files never import a model); `tests/unit/test_response_guarantee.py::test_a_greeting_gets_a_model_written_reply_not_a_refusal` fails; `ci.yml` runs `tests/test_messy_prompts.py`, which does not exist. The Render deploy workflow does not depend on CI.

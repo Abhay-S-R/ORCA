@@ -11,9 +11,7 @@ Done-when (plan §5 PC2.2):
 from __future__ import annotations
 
 import os
-import unittest.mock as mock
-
-import pytest
+from unittest import mock
 
 os.environ.setdefault("ORCA_LLM_ENABLED", "0")
 
@@ -211,11 +209,11 @@ def test_planning_node_sets_execution_plan():
 def test_understand_helpers_still_importable():
     """understand.py helper functions must remain importable (used by planning.run)."""
     from orca.agents.understand import (  # noqa: F401
-        _build_understand_prompt,
-        _parse_understand_output,
-        _fallback_understand,
         _KNOWN_SPECIALISTS,
         UnderstoodPrompt,
+        _build_understand_prompt,
+        _fallback_understand,
+        _parse_understand_output,
     )
 
 

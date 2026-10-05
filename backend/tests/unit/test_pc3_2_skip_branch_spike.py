@@ -7,6 +7,7 @@ state key (like the real ORCA graph).
 """
 import operator
 from typing import Annotated
+
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 

@@ -67,7 +67,7 @@ from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph
 
-from orca import engines, place_resolution, query_cache, reconcile
+from orca import engines, query_cache, reconcile
 from orca.agents import (
     critic,
     distress,

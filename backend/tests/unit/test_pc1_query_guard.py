@@ -19,7 +19,7 @@ Graph wiring confirmed (Consolidation Plan §4 PC1.2):
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 

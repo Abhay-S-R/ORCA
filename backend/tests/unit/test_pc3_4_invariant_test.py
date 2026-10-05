@@ -9,7 +9,7 @@ This test verifies that the planning invariants (D3) are correctly enforced:
 """
 import pytest
 
-from orca.agents.planning import enforce_planning_invariants, _KNOWN_SPECIALISTS
+from orca.agents.planning import enforce_planning_invariants
 
 
 class TestPC34Invariants:

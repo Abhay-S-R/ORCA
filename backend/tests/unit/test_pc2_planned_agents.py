@@ -13,12 +13,11 @@ import os
 import pytest
 
 from orca.agents.understand import (
-    UnderstoodPrompt,
     _KNOWN_SPECIALISTS,
+    UnderstoodPrompt,
     _fallback_understand,
     _parse_understand_output,
 )
-
 
 # ---------------------------------------------------------------------------
 # 1. _KNOWN_SPECIALISTS is exactly the set of graph node names PC2 cares about
