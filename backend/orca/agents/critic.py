@@ -178,11 +178,27 @@ Respond with STRICT JSON only, no prose: a list of objects
 Return [] if the narrative passes on all five."""
 
 
-def _revise_prompt(narrative: str, issues: list[CritiqueIssue], verdict_header: str) -> str:
+def _revise_prompt(narrative: str, issues: list[CritiqueIssue], verdict_header: str, facts_block: str = "") -> str:
     issue_lines = "\n".join(f"- [{i.rubric_item}] {i.description}" for i in issues)
-    return f"""Revise ONLY the explanatory prose below to fix these issues. Do not change any number, \
-distance, or measured value already present. The response MUST still begin with the exact verdict \
-header "{verdict_header}" — copy it unchanged.
+    # Two different instructions, not one with a blank in it: an answer with no verdict header
+    # (any answer to a question that was not about safety) used to be told it "MUST still begin
+    # with the exact verdict header """ — and the model invented one ("VERDICT: REVISED").
+    header_rule = (
+        f'The response MUST still begin with the exact verdict header "{verdict_header}" — copy it unchanged.'
+        if verdict_header else
+        "ORIGINAL has no verdict header and the revision must not get one: no heading, title, bold label "
+        "or verdict line. Start directly with the first sentence of the prose."
+    )
+    return f"""Revise ONLY the explanatory prose below to fix these issues. {header_rule}
+
+MEASURED FACTS (the only ground truth; the reviewer judged against these):
+{facts_block or "(not supplied)"}
+
+HOW TO FIX:
+- Correct or delete the claim the issue names so that it agrees with MEASURED FACTS.
+- Never add a claim, number, date, source, or description of how fresh or current something is that is \
+not in MEASURED FACTS or already in ORIGINAL. If a claim cannot be checked against MEASURED FACTS, delete it.
+- Do not change any number, distance, or measured value that is already correct.
 
 ISSUES TO FIX:
 {issue_lines}
@@ -191,6 +207,39 @@ ORIGINAL:
 {narrative}
 
 Return only the revised text."""
+
+
+_FIGURE = re.compile(r"\d+(?:\.\d+)?")
+# A line the model made up to head an answer: "**EXPIRED / OUTDATED**", "PFZ detail (...):",
+# "VERDICT: REVISED", or a run of capitals such as "EXPIRED / OUTDATED The nearest ...".
+_BOLD_LABEL = re.compile(r"^\s*\*\*[^*\n]{1,60}\*\*")
+_CAPS_RUN = re.compile(r"^\W*[A-Z][A-Z/_ \-]{5,}[A-Z]\b")
+
+
+def _opens_with_heading(text: str) -> bool:
+    first = text.strip().split("\n", 1)[0].strip()
+    bare = first.strip("*#_ ").strip()
+    if not bare:
+        return False
+    if _BOLD_LABEL.match(text) or first.startswith("#") or _CAPS_RUN.match(first):
+        return True
+    if re.match(r"(?i)verdict\b", bare):
+        return True
+    return len(bare) <= 90 and bare.endswith(":")
+
+
+def _revision_is_safe(current: str, revised: str, verdict_header: str | None, facts_block: str) -> bool:
+    """Whether a revision may replace the text. The Critic fixes prose; it may not
+    invent a header, and it may not introduce a figure that is in neither the text
+    it was given nor the measured facts. A refused revision keeps the previous text."""
+    if not revised.strip():
+        return False
+    if verdict_header:
+        return revised.startswith(verdict_header)
+    if _opens_with_heading(revised) and not _opens_with_heading(current):
+        return False
+    known = {float(n) for n in _FIGURE.findall(current)} | {float(n) for n in _FIGURE.findall(facts_block or "")}
+    return not ({float(n) for n in _FIGURE.findall(revised)} - known)
 
 
 def run_critic_pass(
@@ -241,15 +290,16 @@ def run_critic_pass(
 
         issues_found.extend(issues)
         revised = client.complete(
-            [{"role": "user", "content": _revise_prompt(current, issues, verdict_header or "")}]
+            [{"role": "user", "content": _revise_prompt(current, issues, verdict_header or "", facts_block)}]
         ).strip()
         _note_engine(client, engine_out)
 
         # The verdict header is load-bearing: a revision that drops or
         # changes it is rejected outright and the previous text is kept —
         # the Critic amending the verdict would be Ground Rule 2 violated by
-        # exactly the agent whose job is quality control.
-        if verdict_header and not revised.startswith(verdict_header):
+        # exactly the agent whose job is quality control. The same refusal now
+        # covers a header the revision made up, and a figure it invented.
+        if not _revision_is_safe(current, revised, verdict_header, facts_block):
             return current, False, iteration, issues_found
         current = revised
 

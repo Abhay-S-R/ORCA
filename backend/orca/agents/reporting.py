@@ -573,6 +573,58 @@ def conversation_context(session_history: list[dict[str, Any]] | None, user_loca
     return "\n\n".join(parts)
 
 
+def narration_view(value: Any) -> Any:
+    """The measured outputs as the narrating model sees them: the same figures, with the
+    internal freshness `band` replaced by a plain `recency`.
+
+    The data defines `band: "fresh"` as "inside the source's normal cadence", so a 3-day-old
+    PFZ advisory is `fresh` AND `expired: True` at once (orca/data/freshness.py). Handed that
+    word, the model sometimes wrote that an expired zone was "classed as fresh", and the
+    Critic's reviser invented a reason for it. The model no longer receives the word.
+    `expired` and `age_days` are left exactly as they are."""
+    if isinstance(value, list):
+        return [narration_view(v) for v in value]
+    if not isinstance(value, dict):
+        return value
+    out = {k: narration_view(v) for k, v in value.items() if k != "band"}
+    band = value.get("band")
+    if band:
+        if band == "fresh":
+            out["recency"] = "latest_held_not_today" if value.get("expired") else "current"
+        else:
+            out["recency"] = "pointer_only_not_current"
+    return out
+
+
+# A verdict header the model wrote on its own: "GO –", "**GO**", "GO:", "VERDICT: GO". Case
+# sensitive on purpose, so an ordinary sentence that starts "Go fishing at ..." is untouched.
+_GO_OPENER = re.compile(
+    r"^\s*(?:\*{0,2}\s*VERDICT\s*:\s*)?(?:\*{0,2}GO\*\*\s*[–—:.\-]*\s*|\*{0,2}GO\s*(?:[–—:.\-]+\s*|\n+))"
+)
+
+
+def strip_unrequested_verdict(narrative: str, verdict_str: str, reason_str: str) -> str:
+    """Remove a GO header the model put on an answer that was not supposed to have one.
+
+    `lead_with_verdict` is false for a GO on a question that was not about safety
+    (`should_lead_with_verdict`). The prompt says so, but a prompt is a request, and the
+    model still opened a PFZ answer with "GO – sea conditions are safe". This is the
+    enforcement: only a GO is ever stripped, and only its header; a CAUTION or NO_GO
+    always leads, so nothing here can hide a warning. The structured verdict, the
+    "Conditions checked" line on the card and the facts in the sentence are untouched.
+    Empty result: the caller falls back to the deterministic paragraph."""
+    if verdict_str != "GO":
+        return narrative
+    text = narrative.strip()
+    stripped = _GO_OPENER.sub("", text, count=1)
+    if stripped == text:
+        return narrative
+    if reason_str and stripped.lower().startswith(reason_str.lower()):
+        stripped = stripped[len(reason_str):].lstrip(" .:–—-\n*")
+    stripped = stripped.strip()
+    return stripped[:1].upper() + stripped[1:] if stripped else ""
+
+
 def synthesize_narrative(
     query: str,
     verdict: dict[str, Any],
@@ -626,7 +678,7 @@ def synthesize_narrative(
     facts = []
     for r in results:
         if r.status in ("ok", "degraded"):
-            outputs_str = ", ".join(f"{k}={v}" for k, v in r.outputs.items() if v is not None)
+            outputs_str = ", ".join(f"{k}={v}" for k, v in narration_view(r.outputs).items() if v is not None)
             facts.append(f"- {r.agent_name} ({r.source_provenance.dataset}): {outputs_str}")
     facts_block = "\n".join(facts) if facts else "No active sensor inputs."
 
@@ -640,7 +692,9 @@ def synthesize_narrative(
         else (
             "Answer the question that was actually asked. The verdict above is a clear "
             f'"{verdict_str}" and the user did not ask about safety, so do NOT open with a '
-            "safety verdict header — mention conditions only where they bear on the answer."
+            f'safety verdict header: your first word must not be "{verdict_str}" or "VERDICT", and the '
+            "answer must not start with a title, heading or bold label. Start with the answer itself, and "
+            "mention conditions only where they bear on it."
         )
     )
 
@@ -697,12 +751,14 @@ CRITICAL RULES:
    refer back to it naturally (e.g. "unlike this morning's caution...") — but never let
    it override today's deterministic verdict or the location stated above, and never
    re-use a number from it: every figure you give comes from MEASURED TELEMETRY above.
-9. Dated data. Items in MEASURED TELEMETRY may carry valid_for, age_days, band and expired
-   (a sector's latest_advisory carries the same). band "fresh" and expired False: current,
-   state it plainly. Otherwise it is the most recent copy ORCA holds, NOT today's: give its
-   date and age in days, say it is the latest available, and for band "hint" or "history"
-   say it is a pointer to where conditions were, not a current position. Never present an
-   old item as current, and never leave it out just because it is old — an old advisory is
+9. Dated data. Items in MEASURED TELEMETRY may carry valid_for, age_days, recency and expired
+   (a sector's latest_advisory carries the same). recency "current": state it plainly.
+   recency "latest_held_not_today": the most recent copy ORCA holds, NOT today's: give its
+   date and age in days and say it is the latest available. recency "pointer_only_not_current":
+   a pointer to where conditions were, not a current position: give its date and age. When
+   expired is True the item is not current, whatever else it says: never call an expired
+   item fresh, current, active or up to date, and never invent a reason it still counts.
+   Never leave an old item out just because it is old — an old advisory is
    still the best information there is. A sector with is_data_gap true has no advisory
    today: always say today's reason in its message's words (e.g. cloud cover), and give
    its latest_advisory if it has one. A data gap means ORCA has no reading, NOT that there
@@ -736,6 +792,10 @@ CRITICAL RULES:
         # "GO: All Parameters Within Safe Operational Limits".
         if lead_with_verdict and verdict_str not in narrative:
             return f"{fallback_line}\n\n{narrative}"
+        if not lead_with_verdict:
+            narrative = strip_unrequested_verdict(narrative, verdict_str, reason_str)
+            if not narrative:
+                return facts_paragraph(verdict, results, user_location, lead_with_verdict)
         return narrative
     except Exception as exc:
         _record(engines.deterministic(getattr(exc, "reason", None) or f"narration failed ({exc})"))
