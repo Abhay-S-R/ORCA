@@ -23,6 +23,7 @@ import {
   Navigation,
   Radio,
   Sailboat,
+  Ship,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
@@ -57,6 +58,7 @@ const NAV: Record<(typeof NAV_ROUTES)[number], { label: string; Icon: LucideIcon
   "/map": { label: "Chart", Icon: MapIcon },
   "/zones": { label: "Fishing zones", Icon: Fish },
   "/voyage": { label: "Voyage", Icon: Navigation },
+  "/sea-route": { label: "Sea Route", Icon: Ship },
   "/trends": { label: "Trends", Icon: LineChart },
   "/data": { label: "Data", Icon: Database },
   "/ops": { label: "District ops", Icon: Building2 },
