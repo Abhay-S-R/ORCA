@@ -103,6 +103,10 @@ class ORCAState(TypedDict):
     # query, validated against _KNOWN_SPECIALISTS in understand.py. Recorded here
     # for the trace and for PC2+ to consume; routing is unchanged until PC3.
     planned_agents: list[str]  # subset of understand._KNOWN_SPECIALISTS
+    # PC5.2 (`PS-C1`, `PS-C10`) — the message in plain English as the planning model read it.
+    # DISPLAY ONLY: never used for routing, place lookup or validation (so a wrong reading cannot
+    # move a verdict). PC5.5 shows it on the answer card.
+    understood_english_reading: str | None
 
     distress_flag: bool  # set by Agent 12's detection, checked before any other node executes
     sentinel_subscription: dict[str, Any] | None  # set on ALERT_SUBSCRIPTION intent

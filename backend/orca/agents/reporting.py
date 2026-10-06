@@ -784,7 +784,8 @@ CRITICAL RULES:
    INCOIS's landmark for the zone; if you name it, use incois_reference for its distance
    ("INCOIS lists it as 52-57 km NW of Kunzhathur"). Never pair one origin's distance or
    direction with the other's place name.
-11. Times and timezones. Always express times in Indian Standard Time (IST). Never refer to UTC or reply with UTC timestamps — if any telemetry contains a UTC time, translate it to IST (+05:30) for the user.{critique_rule}"""
+11. Times and timezones. Always express times in Indian Standard Time (IST). Never refer to UTC or reply with UTC timestamps — if any telemetry contains a UTC time, translate it to IST (+05:30) for the user.
+12. Language. Write the whole answer in English, whatever language or script USER QUERY is written in (romanized Hindi, Tamil, Kannada and so on included). Do not reply in the user's language, do not transliterate, and do not mix languages: a translation step runs after you and the answer is checked in English.{critique_rule}"""
 
     try:
         narrative = client.complete([{"role": "user", "content": prompt}]).strip()

@@ -94,52 +94,6 @@ def detect_language(text: str) -> Language:
     return best_lang if best_count > 0 else "en"
 
 
-# P3.5 (`R-PS-2`)/P3.14 — a short, common-English word list, checked only
-# against ALL-Latin text that has no Indic codepoint at all (script-mixed
-# text, e.g. Tamil script + English words, is already correctly resolved by
-# `detect_language` above — every Indic codepoint anywhere makes it win over
-# the untracked "en" bucket). This is the other case: text with NO Indic
-# codepoint that may still not be English — "kadal safe-a irukka" (romanized
-# Tamil, P3.5/P3.14's own example). Deliberately small and unglamorous: it
-# only has to be wrong in one safe direction — treating too much as "maybe
-# not English" costs one extra (fast, local) Bhashini TLD call; treating too
-# little that way is the actual failure mode this exists to close.
-_COMMON_ENGLISH_WORDS = frozenset({
-    "the", "is", "it", "safe", "to", "go", "sea", "today", "tomorrow", "and", "in", "a", "i",
-    "am", "are", "will", "what", "when", "where", "how", "boat", "fishing", "weather", "wind",
-    "wave", "should", "can", "my", "me", "you", "please", "help", "yes", "no", "okay", "thanks",
-})
-
-
-def _low_english_coverage(text: str) -> bool:
-    words = re.findall(r"[a-zA-Z']+", text.lower())
-    if not words:
-        return False
-    known = sum(1 for w in words if w in _COMMON_ENGLISH_WORDS)
-    return (known / len(words)) < 0.5
-
-
-def detect_language_with_bhashini(text: str) -> Language:
-    """P3.5/P3.14 — `detect_language`, extended: when script detection found
-    no Indic codepoint AND the Latin text does not read as ordinary English,
-    ask Bhashini TLD (text language detection) rather than defaulting to
-    English. Falls straight back to the script-only result when Bhashini is
-    unreachable or unconfigured — there is no local rung for GENERAL
-    romanized language detection (only for the distress phrase list itself,
-    which is safety-critical and stays fully offline — see
-    orca/agents/distress.py's `_ROMANIZED_DISTRESS_PATTERNS`)."""
-    script_result = detect_language(text)
-    if script_result != "en" or not _low_english_coverage(text):
-        return script_result
-    try:
-        from orca.agents import bhashini
-
-        code = bhashini.detect_language(text)
-        return _coerce_language(code)
-    except Exception:
-        return script_result  # Bhashini unavailable/unconfigured — degrade to the script-only call
-
-
 def _coerce_language(value: str) -> Language:
     """ORCAState.detected_language is a plain `str` (Architecture §5); the
     Literal type here is stricter. Same gap as coerce_reasoning_depth
@@ -356,8 +310,16 @@ def translate_from_english(text: str, target: Language) -> str:
 
 
 def query_language(raw: str, user_language_default: str | None = None) -> Language:
-    """The language a query is written in."""
-    detected = detect_language_with_bhashini(raw)
+    """The language a query is written in, from its SCRIPT alone.
+
+    Text with no Indic codepoint, which is English and also romanized Hindi, Tamil, Kannada and the
+    rest, resolves to "en" and is passed on exactly as typed (PC5.3, decision D8). It is not sent to
+    a language detector and not machine-translated: Bhashini's detector mislabelled short English as
+    Malayalam, Odia or Kashmiri (so an English question got a reply in that language), and
+    translating romanized text without a transliteration step returns it unchanged. The planning
+    model reads the text as typed instead, and replies to such text are in English (decision D11).
+    Native script is unaffected: it is still detected by its Unicode block and translated."""
+    detected = detect_language(raw)
     # P3.1 — script detection on empty/no-Indic-codepoint text always falls
     # to "en" (module docstring); for a signed-in user that is a wrong
     # default, not a neutral one, e.g. the SOS control fires with no text

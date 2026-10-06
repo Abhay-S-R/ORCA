@@ -310,13 +310,13 @@ and its prompt. Same rules as §0, in particular **one point per change set**.
 
 **PC5.1 — Decision record: reply language for romanized input (OPEN-1). DONE 2026-10-04** — answered in English; recorded as D11 (*answered this while sleepy, subject to change but for now it works fine*). No code, nothing to implement.
 
-**PC5.2 — Planning returns `english_reading`.**
+**PC5.2 — Planning returns `english_reading`. DONE 2026-10-06** (log: PC5.2).
 - *Implements:* `PS-C1`, `PS-C10`. *Depends:* PC2.2.
 - *Files:* the planning schema, prompt and parse (`agents/planning.py`), `state.py`.
 - *Required:* the structured output gains `english_reading` (a short English rendering of the user's message). Stored in state, **display only**: never used for routing, place lookup or validation, so a wrong reading cannot move the verdict. Not yet shown anywhere.
 - *Done-when:* on the Appendix A prompts the trace shows a sensible English reading for each romanized prompt and, for English prompts, the prompt itself; `/ask` behaviour unchanged.
 
-**PC5.3 — Latin-only text skips detection and translation.**
+**PC5.3 — Latin-only text skips detection and translation. DONE 2026-10-06** (log: PC5.3; also added narrative rule 12, English whatever the user typed).
 - *Implements:* `PS-C1`, `PS-C2`. *Depends:* PC5.2.
 - *Files:* `agents/language.py` (`query_language`, `english_query`, remove `_COMMON_ENGLISH_WORDS`, `_low_english_coverage` and the Latin branch of `detect_language_with_bhashini`), and the one call site in `api/main.py:1146–1151`.
 - *Now:* Latin text can be sent to Bhashini language detection and translation (Appendix A.1, A.3).
