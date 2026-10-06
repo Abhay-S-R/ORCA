@@ -48,7 +48,7 @@ SAFETY_PATH_FILES = [
     "orca/agents/visualization.py",
 ]
 llm_import_pattern = re.compile(
-    r"^\s*(import|from)\s+(orca\.llm|anthropic|openai|google\.generativeai|google\.genai)",
+    r"^\s*(import|from)\s+(orca\.llm|orca\.agents\.distress_escalation|anthropic|openai|google\.generativeai|google\.genai)",
     re.MULTILINE,
 )
 safety_path_fails = [

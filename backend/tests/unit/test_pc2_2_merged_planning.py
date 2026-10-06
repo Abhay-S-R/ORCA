@@ -10,10 +10,19 @@ Done-when (plan §5 PC2.2):
 """
 from __future__ import annotations
 
-import os
 from unittest import mock
 
-os.environ.setdefault("ORCA_LLM_ENABLED", "0")
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _model_off(monkeypatch):
+    """`planning.run` reads the message with a language model first. These tests exercise the
+    offline path, so the model is switched off for the duration of each test only. (Several files
+    used to write ORCA_LLM_ENABLED into os.environ for the whole process, which made other tests
+    depend on collection order and made these ones call a real model on a machine with keys.)"""
+    monkeypatch.setenv("ORCA_LLM_ENABLED", "0")
+
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────

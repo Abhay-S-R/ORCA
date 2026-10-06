@@ -290,3 +290,39 @@ def test_place_check_fires_before_time_check():
     )
     assert outcome is not None
     assert outcome.code == "NEEDS_PLACE"
+
+
+# ---------------------------------------------------------------------------
+# A position the caller chose is the place (the "which did you mean?" chip)
+# ---------------------------------------------------------------------------
+
+_GUJARAT = [{"raw": "gujarat", "normalized": "gujarat"}]
+_VERAVAL_AT = {"lat": 20.90, "lon": 70.37, "place_name": "veraval", "place_source": "explicit"}
+
+
+def test_a_chosen_position_settles_a_whole_coastline_named_in_the_text():
+    """A picked chip sends "... near gujarat (at veraval)" with Veraval's coordinates."""
+    assert validate_reading(_GUJARAT, None, _VERAVAL_AT, now=_NOW) is None
+
+
+def test_the_same_coastline_still_asks_when_no_position_was_chosen():
+    for source in ("gazetteer", "gps_fix", "home_port", "session_carried", "regional_default"):
+        loc = {**_VERAVAL_AT, "place_source": source}
+        outcome = validate_reading(_GUJARAT, None, loc, now=_NOW)
+        assert outcome is not None and outcome.code == "NEEDS_PLACE", source
+
+
+def test_typed_coordinates_count_as_a_chosen_position():
+    loc = {"lat": 20.90, "lon": 70.37, "place_source": "coordinates"}
+    assert validate_reading(_GUJARAT, None, loc, now=_NOW) is None
+
+
+def test_a_chosen_position_does_not_excuse_a_date_beyond_the_horizon():
+    outcome = validate_reading(_GUJARAT, {"start": _iso(30), "end": _iso(30)}, _VERAVAL_AT, now=_NOW)
+    assert outcome is not None and outcome.code == "OUT_OF_RANGE"
+
+
+def test_a_chosen_position_outside_the_data_extent_is_still_refused():
+    loc = {"lat": 12.0, "lon": 50.0, "place_source": "explicit"}
+    outcome = validate_reading(_GUJARAT, None, loc, now=_NOW)
+    assert outcome is not None and outcome.code == "OUT_OF_RANGE"

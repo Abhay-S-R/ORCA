@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -343,70 +344,6 @@ def detect_distress_signal(text: str, ui_control_triggered: bool = False) -> dic
     return {"is_distress": False, "distress_type": None, "matched_language": None, "matched_phrase": None}
 
 
-def detect_distress_model_check(text: str, phrase_detection: dict[str, Any]) -> dict[str, Any]:
-    """Prompt Routing Revamp §7.4 — Distress model check (escalate-only).
-
-    Runs ONLY when the deterministic phrase list did NOT detect distress.
-    Can ONLY escalate (set is_distress=True), never de-escalate.
-    Catches: "engine failed near Pamban", "water coming into boat",
-    "my friend fell in the water" — paraphrases the phrase list misses.
-    """
-    # If phrase list already detected distress, don't run model (escalate-only)
-    if phrase_detection.get("is_distress"):
-        return phrase_detection
-
-    # If no model available, return phrase list result
-    try:
-        from orca.llm.tiers import LLMUnavailable, llm
-        client = llm("cheap")
-    except (LLMUnavailable, Exception):
-        return phrase_detection
-
-    prompt = f"""You are a maritime distress classifier. Read this message and determine if it describes a LIFE-THREATENING EMERGENCY AT SEA requiring immediate Coast Guard rescue.
-
-MESSAGE: "{text}"
-
-EMERGENCY SITUATIONS (answer YES only for these):
-- Vessel sinking, capsizing, taking on water, going down
-- Person overboard, man overboard, fell in the water, drowning
-- Engine failure / no fuel / adrift AT SEA (not at dock)
-- Medical emergency AT SEA (heart attack, severe injury, unconscious)
-- Lost at sea, missing vessel
-- Fire on board, explosion
-- Collision, grounding with danger to life
-- MAYDAY, SOS, "send help" in a marine context
-
-NON-EMERGENCIES (answer NO):
-- Engine trouble at dock / near shore / "engine failed near [port]"
-- "Water in boat" from rain, washing, minor leak at dock
-- General questions about safety, weather, conditions
-- Past incidents ("my friend fell in the water last year")
-- Fishing, navigation, routine operations
-- Metaphorical language ("drowning in work")
-
-OUTPUT: JSON only: {{"is_distress": true/false, "reason": "brief reason if yes"}}
-
-If YES, the reason must be one of: sinking, capsizing, man_overboard, engine_failure_adrift, medical_at_sea, lost_at_sea, fire_explosion, collision_grounding, mayday_sos.
-If NO, reason is not required."""
-
-    try:
-        raw = client.complete([{"role": "user", "content": prompt}]).strip()
-        import json
-        result = json.loads(raw)
-        if result.get("is_distress") is True:
-            return {
-                "is_distress": True,
-                "distress_type": "model_escalated",
-                "matched_language": None,
-                "matched_phrase": None,
-                "model_reason": result.get("reason"),
-            }
-    except Exception:
-        pass
-
-    return phrase_detection
-
-
 def _matches(text: str, phrase: str) -> bool:
     """Whole-word for a Latin-script phrase, plain containment otherwise.
 
@@ -537,7 +474,9 @@ def render_nabhmitra_text(handoff: dict[str, Any], vessel_name: str | None = Non
     return line if len(line) <= NABHMITRA_MAX_CHARS else line[: NABHMITRA_MAX_CHARS - 1] + "…"
 
 
-def run(state: ORCAState) -> AgentResult:
+def run(
+    state: ORCAState, escalate: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None,
+) -> AgentResult:
     """(ORCAState) -> AgentResult. Bypasses normal persona-rendering (Agent
     9's job) entirely — this agent's output is surfaced directly per
     Architecture §3.2 step 1, not synthesized."""
@@ -552,9 +491,10 @@ def run(state: ORCAState) -> AgentResult:
     combined_text = f"{raw_text} {normalized_text}"
     phrase_detection = detect_distress_signal(combined_text, ui_control_triggered=state.get("distress_flag", False))
 
-    # Prompt Routing Revamp §7.4 — Distress model check (escalate-only).
-    # Runs only when phrase list did not detect distress. Can only escalate.
-    detection = detect_distress_model_check(combined_text, phrase_detection)
+    # Prompt Routing Revamp §7.4 — the escalate-only model check. It is not imported here
+    # (this file never gains the means to call a model, CI guard 4): the caller passes it
+    # in, and it can only turn "no distress" into "distress", never the reverse.
+    detection = escalate(combined_text, phrase_detection) if escalate is not None else phrase_detection
 
     location = state.get("user_location")
     mrcc = surface_mrcc_contact(location)

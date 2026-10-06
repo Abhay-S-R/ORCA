@@ -215,6 +215,7 @@ def _fallback_understand(message: str, session_history: list[dict] | None) -> Un
     from orca.agents.planning import (
         _INJECTION_PATTERNS,
         _NON_MARINE_TASKS,
+        carry_intent,
         classify_intent_deterministic,
         is_continuation,
         is_out_of_scope,
@@ -251,8 +252,12 @@ def _fallback_understand(message: str, session_history: list[dict] | None) -> Un
     if any(w in lowered for w in ("reset", "change language", "switch language", "language")):
         return UnderstoodPrompt(kind="reset_or_language_switch", intents=[], places=[], when=None, is_followup=False, agents=[])
 
-    # Out of scope (no marine vocab, no known place, not self-context)
-    if is_out_of_scope(lowered):
+    # Out of scope (no marine vocab, no known place, not self-context). Not for a continuation of
+    # an earlier sea turn: "and tomorrow?" has no marine words of its own and inherits them. This is
+    # the rule planning applied before the planning/understand merge; without it a follow-up was
+    # refused whenever no model was reachable.
+    continues_a_sea_turn = bool(carry_intent(session_history)) and is_continuation(lowered)
+    if is_out_of_scope(lowered) and not continues_a_sea_turn:
         return UnderstoodPrompt(kind="off_topic", intents=[], places=[], when=None, is_followup=False, agents=[])
 
     # Sea question — use deterministic classifier for intents

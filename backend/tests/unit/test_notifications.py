@@ -205,16 +205,20 @@ def test_pre_dawn_briefing_fires_once_at_local_lead_time_then_stays_silent(db: S
     now = datetime(2026, 9, 23, 0, 0, tzinfo=timezone.utc)
     sent = _due_pre_dawn_briefings(db, now=now)
     db.commit()
-    assert sent == 1
+    # `sent` counts every user the shared database holds who is due, and this test (like the
+    # others in the file) commits its user and leaves it behind, so the total grows by one each
+    # run (it read 33, then 34). The behaviour under test is per user: this user is briefed.
+    assert sent >= 1
     notes = list_notifications_for_user(db, u)
     assert len(notes) == 1
     assert "Pre-dawn briefing" in notes[0].title
     assert notes[0].severity == "warning"  # CAUTION -> warning
 
     # Same local day again -- no second digest (no-spam, same discipline as watches).
-    sent_again = _due_pre_dawn_briefings(db, now=now + timedelta(hours=1))
+    _due_pre_dawn_briefings(db, now=now + timedelta(hours=1))
     db.commit()
-    assert sent_again == 0
+    # Same day again: no second digest for this user. Not asserted on the global count, which
+    # also covers other users who may only just have come due in that hour.
     assert len(list_notifications_for_user(db, u)) == 1
 
 

@@ -19,6 +19,15 @@ from orca.api import main
 
 
 @pytest.fixture(autouse=True)
+def _model_off(monkeypatch):
+    """`planning.run` reads the message with a language model first. These tests exercise the
+    offline path, so the model is switched off for the duration of each test only. (Several files
+    used to write ORCA_LLM_ENABLED into os.environ for the whole process, which made other tests
+    depend on collection order and made these ones call a real model on a machine with keys.)"""
+    monkeypatch.setenv("ORCA_LLM_ENABLED", "0")
+
+
+@pytest.fixture(autouse=True)
 def redis_down_and_clean_memory(monkeypatch):
     def down():
         raise ConnectionError("redis down")
@@ -87,7 +96,7 @@ def test_a_carried_place_survives_the_turn_that_named_it_rolling_out_of_the_wind
 def test_follow_up_with_no_routing_match_continues_the_previous_intent(monkeypatch):
     monkeypatch.setattr(planning, "_tier3_llm_fallback", lambda q, history=None: [])
     result = planning.run({
-        "query_id": "q", "normalized_english_query": "what about tomorrow evening?",
+        "query_id": "q", "raw_user_query": "what about tomorrow evening?", "normalized_english_query": "what about tomorrow evening?",
         "session_history": [_turn()],
     })
     assert result.outputs["matched_intent_rows"] == ["SAFETY_CHECK"]
@@ -99,7 +108,7 @@ def test_follow_up_with_no_routing_match_continues_the_previous_intent(monkeypat
 def test_follow_up_that_matches_on_its_own_is_not_overridden(monkeypatch):
     monkeypatch.setattr(planning, "_tier3_llm_fallback", lambda q, history=None: [])
     result = planning.run({
-        "query_id": "q", "normalized_english_query": "what is the wave height",
+        "query_id": "q", "raw_user_query": "what is the wave height", "normalized_english_query": "what is the wave height",
         "session_history": [_turn()],
     })
     assert result.outputs["matched_intent_rows"] == ["CONDITIONS"]

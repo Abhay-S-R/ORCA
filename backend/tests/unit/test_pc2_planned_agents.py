@@ -8,8 +8,6 @@ Done-when (plan §5 PC2.1):
 """
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from orca.agents.understand import (
@@ -18,6 +16,15 @@ from orca.agents.understand import (
     _fallback_understand,
     _parse_understand_output,
 )
+
+
+@pytest.fixture(autouse=True)
+def _model_off(monkeypatch):
+    """`planning.run` reads the message with a language model first. These tests exercise the
+    offline path, so the model is switched off for the duration of each test only. (Several files
+    used to write ORCA_LLM_ENABLED into os.environ for the whole process, which made other tests
+    depend on collection order and made these ones call a real model on a machine with keys.)"""
+    monkeypatch.setenv("ORCA_LLM_ENABLED", "0")
 
 # ---------------------------------------------------------------------------
 # 1. _KNOWN_SPECIALISTS is exactly the set of graph node names PC2 cares about
@@ -101,7 +108,6 @@ def test_parse_agents_with_mixed_valid_and_invalid():
 # ---------------------------------------------------------------------------
 
 def test_fallback_sea_question_yields_agents():
-    os.environ["ORCA_LLM_ENABLED"] = "0"
     result = _fallback_understand("Is it safe to go to sea near Kochi tomorrow", [])
     assert result.kind == "sea_question"
     # agents must be a subset of known specialists
@@ -111,21 +117,18 @@ def test_fallback_sea_question_yields_agents():
 
 
 def test_fallback_greeting_yields_empty_agents():
-    os.environ["ORCA_LLM_ENABLED"] = "0"
     result = _fallback_understand("hi", [])
     assert result.kind == "greeting_or_small_talk"
     assert result.agents == []
 
 
 def test_fallback_distress_yields_empty_agents():
-    os.environ["ORCA_LLM_ENABLED"] = "0"
     result = _fallback_understand("engine failed near pamban, help", [])
     assert result.kind == "distress"
     assert result.agents == []
 
 
 def test_fallback_off_topic_yields_empty_agents():
-    os.environ["ORCA_LLM_ENABLED"] = "0"
     result = _fallback_understand("tell me a cricket score", [])
     assert result.kind == "off_topic"
     assert result.agents == []
@@ -133,7 +136,6 @@ def test_fallback_off_topic_yields_empty_agents():
 
 def test_fallback_agents_are_subset_of_known_specialists():
     """All agent names from fallback must be in _KNOWN_SPECIALISTS — never hallucinated."""
-    os.environ["ORCA_LLM_ENABLED"] = "0"
     for query in [
         "Where is the nearest PFZ near Rameswaram today",
         "Are there cyclone alerts near Mangalore",
@@ -180,7 +182,6 @@ def test_understood_prompt_empty_agents_for_non_sea():
 def test_understand_node_stores_planned_agents_in_state(monkeypatch):
     """PC2.2 update: planning_node (which absorbed understand_node) must write
     planned_agents into its returned dict."""
-    os.environ["ORCA_LLM_ENABLED"] = "0"
     from orca.graph.graph import planning_node
 
     state = {
@@ -203,7 +204,6 @@ def test_understand_node_stores_planned_agents_in_state(monkeypatch):
 def test_understand_node_planned_agents_empty_for_greeting(monkeypatch):
     """PC2.2 update: planning_node (which absorbed understand_node) must return
     empty planned_agents for a greeting."""
-    os.environ["ORCA_LLM_ENABLED"] = "0"
     from orca.graph.graph import planning_node
 
     state = {
@@ -238,7 +238,6 @@ PS_QUERIES = [
 def test_fallback_ps_queries_have_plausible_agents(label, query):
     """For PS-Q* prompts, fallback must return a non-empty agent list
     that contains only known specialists — no empty dispatch, no hallucinations."""
-    os.environ["ORCA_LLM_ENABLED"] = "0"
     result = _fallback_understand(query, [])
     # PS queries are sea questions
     assert result.kind == "sea_question", f"{label}: kind={result.kind!r}"

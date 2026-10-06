@@ -446,7 +446,15 @@ def validate_reading(
     # name unambiguously maps to a real coastal position we hold data for.
     # Any other status means we need to ask the user to clarify — we must
     # not silently substitute the regional default for a model misread.
-    for entry in places:
+    # A position the caller CHOSE is the place. A picked "which did you mean?" chip sends the
+    # original question ("... near gujarat (at veraval)") together with the chip's coordinates, so
+    # the text still says "Gujarat" while the caller has already answered which port. Re-checking
+    # the words against the gazetteer would ask the same question again, ignoring the answer.
+    # Only a position the caller named counts (`explicit`, or coordinates typed in the message): a
+    # GPS fix is where the caller IS, a home port or a carried place is a guess, and none of those
+    # settle which place the text meant. The time and position checks below still apply.
+    chosen = (user_location or {}).get("place_source") in ("explicit", "coordinates")
+    for entry in [] if chosen else places:
         normalized = (entry.get("normalized") or entry.get("raw") or "").strip()
         if not normalized:
             continue

@@ -484,3 +484,41 @@ def test_an_answer_written_without_a_model_is_never_cached(monkeypatch):
     query_cache.store("written", {"response_engine": "gemini · gemini-3.5-flash-lite"})
     query_cache.store("older-shape", {})
     assert stored == ["written", "older-shape"]
+
+
+# --- the reason sentence belongs to a refusal, not to a greeting --------------------------------
+
+_NEEDS_PLACE = "Gujarat is a whole coastline, not a position — conditions at either end of it are different answers."
+
+
+def test_a_refusal_must_keep_its_reason_sentence(providers):
+    """Revamp 7.3: the reply to a stopped question may reword it but must say WHY it is asking."""
+    providers({"primary": "[REPLY] Which port in Gujarat do you mean?", "second": "", "local": ""})
+    text, engine, _ = reporting.write_guard_reply("pfzs near gujarat", _NEEDS_PLACE)
+    assert text == _NEEDS_PLACE and engine.startswith("Deterministic")
+
+
+def test_a_refusal_that_keeps_its_reason_is_used(providers):
+    reply = "[REPLY] Gujarat is a whole coastline, not a position — conditions at either end of it are different answers. Which port?"
+    providers({"primary": reply, "second": "", "local": ""})
+    text, engine, _ = reporting.write_guard_reply("pfzs near gujarat", _NEEDS_PLACE)
+    assert text.endswith("Which port?") and not engine.startswith("Deterministic")
+
+
+def test_a_small_talk_reply_is_not_forced_to_repeat_the_refusal(providers):
+    providers({"primary": "[SMALL_TALK] Hi there! Ask me about waves, wind or fishing zones off any coast.", "second": "", "local": ""})
+    text, _, small_talk = reporting.write_guard_reply("hi", _OUT_OF_SCOPE, allow_small_talk=True)
+    assert text.startswith("Hi there!") and small_talk is True
+
+
+def test_small_talk_does_not_excuse_an_invented_figure(providers):
+    providers({"primary": "[SMALL_TALK] Hi! Waves are 3.2 m today.", "second": "", "local": ""})
+    text, engine, _ = reporting.write_guard_reply("hi", _OUT_OF_SCOPE, allow_small_talk=True)
+    assert text == _OUT_OF_SCOPE and engine.startswith("Deterministic")
+
+
+def test_the_prompt_exempts_only_the_small_talk_reply_from_the_reason_rule():
+    with_small_talk = reporting._guard_prompt("hi", _NEEDS_PLACE, True)
+    without = reporting._guard_prompt("pfzs near gujarat", _NEEDS_PLACE, False)
+    assert "Unless your reply starts with [SMALL_TALK], the REASON sentence" in with_small_talk
+    assert "6. The REASON sentence in WHAT IS REQUIRED" in without and "Unless your reply" not in without

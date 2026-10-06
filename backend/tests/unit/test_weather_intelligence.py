@@ -12,6 +12,21 @@ from orca import resilience
 from orca.agents import weather_intelligence as wia
 from orca.state import ORCAState
 
+# Every source id the weather module opens a circuit breaker for. The breaker is process-global
+# and counts failures over a five-minute window, so a failure recorded by an earlier test (or an
+# earlier failed run) used to make a later breaker test trip early and see fewer live calls than
+# it expected. Each test starts and ends with them cleared, as test_satellite_loaders does.
+_BREAKER_IDS = ("gdacs_tc", "incois_hazard_bulletins", "ndma_sachet", "open_meteo")
+
+
+@pytest.fixture(autouse=True)
+def _reset_breakers():
+    for source_id in _BREAKER_IDS:
+        resilience.record_success(source_id)
+    yield
+    for source_id in _BREAKER_IDS:
+        resilience.record_success(source_id)
+
 THOOTHUKUDI = (8.822495, 78.119064)  # real coordinate from the cached fixture
 
 

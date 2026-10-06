@@ -71,6 +71,7 @@ from orca import engines, query_cache, reconcile
 from orca.agents import (
     critic,
     distress,
+    distress_escalation,
     geospatial,
     language,
     ocean_analytics,
@@ -163,6 +164,12 @@ def _scored(result: AgentResult, entry: dict) -> Confidence:
     )
 
 
+def _distress_with_escalation(state: ORCAState) -> AgentResult:
+    """Agent 12 with its escalate-only model check supplied. `distress.py` stays model-free;
+    the check is handed in here, and can only turn "no distress" into "distress"."""
+    return distress.run(state, escalate=distress_escalation.escalate_with_model)
+
+
 def distress_check_node(state: ORCAState) -> dict:
     """Runs Agent 12 exactly ONCE. Previously this node only extracted the
     boolean flag, and a separate distress_response_node re-ran distress.run()
@@ -171,7 +178,7 @@ def distress_check_node(state: ORCAState) -> dict:
     MRCC lookup and handoff formatting for no reason, and it left two
     "distress" entries in the trace for what is genuinely one agent
     invocation. Everything downstream needs is computed here, once."""
-    result, entry = run_traced_node("distress", distress.run, state)
+    result, entry = run_traced_node("distress", _distress_with_escalation, state)
     is_distress = result.outputs["detection"]["is_distress"]
     update = {
         "distress_flag": is_distress,
