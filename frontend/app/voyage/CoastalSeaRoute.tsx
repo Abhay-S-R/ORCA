@@ -1,17 +1,13 @@
 "use client";
 
-// Sea Route Voyage planner — plan §SEA-ROUTE.
-// Three modes (port→zone, port→port, map-pick) feed one shared routing engine
-// that returns a realistic coastal polyline.  The map is the same MapLibre
-// instance the rest of ORCA uses; route, zones and restricted areas are drawn
-// as MapLibre sources/layers added on top, following the same source-lifecycle
-// discipline as voyage/page.tsx and MapView.tsx.
+// Coastal Sea Route planner component — integrated into Voyage.
+// Three modes (port→zone, port→port, map-pick) feeding the coastal A* routing engine
+// with realistic polyline, IMBL boundaries, and satellite basemap switcher.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Info, Layers, Loader2, RotateCcw, Route } from "lucide-react";
 import { BASEMAP_RASTERS } from "../map/basemap";
 import { Button } from "../components/Button";
 import { Field, inputClass } from "../components/Field";
-import { PageBody, PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { Readout, ReadoutGrid } from "../components/Readout";
 import {
@@ -40,11 +36,6 @@ function hoursLabel(h: number): string {
 
 type GeoJSONData = Parameters<typeof import("maplibre-gl").GeoJSONSource.prototype.setData>[0];
 
-// ── MapLibre route overlay ────────────────────────────────────────────────────
-// We draw into a <div ref> using the raw MapLibre API so we don't duplicate
-// the full MapView.tsx (which manages its own sources). This is an iframe
-// approach: a lightweight standalone map only for the route result.
-
 function SeaRouteMap({
   result,
   mapPickMode,
@@ -57,7 +48,7 @@ function SeaRouteMap({
 }: {
   result: SeaRouteResult | null;
   mapPickMode: boolean;
-  startPin: [number, number] | null;   // [lat, lng]
+  startPin: [number, number] | null; // [lat, lng]
   endPin: [number, number] | null;
   onMapClick: (lat: number, lng: number) => void;
   zones: FishingZonesGeoJson | null;
@@ -98,13 +89,13 @@ function SeaRouteMap({
             id: "basemap-satellite-raster",
             type: "raster",
             source: "basemap-satellite",
-            layout: { visibility: satelliteRef.current ? "visible" : "none" },
-            paint: { "raster-opacity": 1 },
+            layout: { visibility: "none" },
+            paint: { "raster-opacity": 1.0 },
           },
-          firstSymbol,
+          firstSymbol
         );
 
-        // ── Fishing zones layer ─────────────────────────────────────────────
+        // ── Fishing zones layer ──────────────────────────────────────────────
         map.addSource("sea-zones", {
           type: "geojson",
           data: { type: "FeatureCollection", features: [] },
@@ -492,9 +483,7 @@ function SeaRouteMap({
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
-
-export default function SeaRoutePage() {
+export function CoastalSeaRoute() {
   const [mode, setMode] = useState<Mode>("port_to_zone");
 
   // Port → Zone
@@ -617,199 +606,192 @@ export default function SeaRoutePage() {
   const zoneList = zones?.features ?? [];
 
   return (
-    <PageBody className="mx-auto max-w-7xl">
-      <PageHeader
-        title="Sea Route Voyage"
-        lede="Calculate a realistic coastal route that follows the Indian coastline — never a straight line. Select ports, fishing zones or click the map for any two sea points."
-      />
-
-      <div className="grid gap-6 lg:grid-cols-[400px_1fr]">
-        {/* ── Left panel ─────────────────────────────────────────────────── */}
-        <div className="flex flex-col gap-4">
-          <Panel title="Route Planner" dense>
-            {/* Mode tabs */}
-            <div className="mb-4 flex rounded-lg border border-hairline overflow-hidden text-xs font-semibold">
-              {(["port_to_zone", "port_to_port", "map_pick"] as Mode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => { setMode(m); setResult(null); setError(null); }}
-                  className={`flex-1 px-2 py-2 transition-colors ${
-                    mode === m
-                      ? "bg-ocean-cyan text-on-accent"
-                      : "bg-shelf-1/60 text-ink-muted hover:bg-shelf-2/80"
-                  }`}
-                >
-                  {m === "port_to_zone" ? "Port → Zone" : m === "port_to_port" ? "Port → Port" : "Map Pick"}
-                </button>
-              ))}
-            </div>
-
-            <form onSubmit={handleSubmit} className="flex flex-col gap-1">
-              {/* ── Mode 1: Port → Fishing Zone ─────────────────────────── */}
-              {mode === "port_to_zone" && (
-                <>
-                  <Field label="From port">
-                    {(id) => (
-                      <select id={id} value={fromPortId} onChange={(e) => setFromPortId(e.target.value)} className={inputClass}>
-                        <option value="">Select a port…</option>
-                        {majorPorts.length > 0 && <optgroup label="Major Ports">{majorPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
-                        {minorPorts.length > 0 && <optgroup label="Minor Ports">{minorPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
-                        {fishingPorts.length > 0 && <optgroup label="Fishing Harbours">{fishingPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
-                      </select>
-                    )}
-                  </Field>
-                  <Field label="To fishing zone">
-                    {(id) => (
-                      <select id={id} value={toZoneId} onChange={(e) => setToZoneId(e.target.value)} className={inputClass}>
-                        <option value="">Select a zone…</option>
-                        {zoneList.map((z: FishingZoneFeature) => (
-                          <option key={z.properties.id} value={z.properties.id}>{z.properties.name}</option>
-                        ))}
-                      </select>
-                    )}
-                  </Field>
-                  <p className="mb-1 text-[11px] text-ink-dim">Route ends at the zone entry point (boundary nearest to port).</p>
-                </>
-              )}
-
-              {/* ── Mode 2: Port → Port ──────────────────────────────────── */}
-              {mode === "port_to_port" && (
-                <>
-                  <Field label="From port">
-                    {(id) => (
-                      <select id={id} value={fromPortId2} onChange={(e) => setFromPortId2(e.target.value)} className={inputClass}>
-                        <option value="">Select start port…</option>
-                        {majorPorts.length > 0 && <optgroup label="Major Ports">{majorPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
-                        {minorPorts.length > 0 && <optgroup label="Minor Ports">{minorPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
-                        {fishingPorts.length > 0 && <optgroup label="Fishing Harbours">{fishingPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
-                      </select>
-                    )}
-                  </Field>
-                  <Field label="To port">
-                    {(id) => (
-                      <select id={id} value={toPortId2} onChange={(e) => setToPortId2(e.target.value)} className={inputClass}>
-                        <option value="">Select end port…</option>
-                        {majorPorts.length > 0 && <optgroup label="Major Ports">{majorPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
-                        {minorPorts.length > 0 && <optgroup label="Minor Ports">{minorPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
-                        {fishingPorts.length > 0 && <optgroup label="Fishing Harbours">{fishingPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
-                      </select>
-                    )}
-                  </Field>
-                </>
-              )}
-
-              {/* ── Mode 3: Map Pick ─────────────────────────────────────── */}
-              {mode === "map_pick" && (
-                <div className="mb-3 flex flex-col gap-2">
-                  <div className="flex gap-2">
-                    <div className={`flex-1 rounded-lg border px-3 py-2 text-xs ${startPin ? "border-ocean-cyan/60 bg-shelf-2/60 text-ink" : "border-hairline text-ink-dim"}`}>
-                      <span className="block text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim mb-0.5">Start</span>
-                      {startPin ? `${startPin[0].toFixed(4)}°N, ${startPin[1].toFixed(4)}°E` : "Click map…"}
-                    </div>
-                    <div className={`flex-1 rounded-lg border px-3 py-2 text-xs ${endPin ? "border-accent/60 bg-shelf-2/60 text-ink" : "border-hairline text-ink-dim"}`}>
-                      <span className="block text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim mb-0.5">End</span>
-                      {endPin ? `${endPin[0].toFixed(4)}°N, ${endPin[1].toFixed(4)}°E` : "Click map…"}
-                    </div>
-                  </div>
-                  <Button type="button" variant="ghost" icon={<RotateCcw className="size-3.5" />} onClick={resetMapPick} className="self-start">
-                    Reset picks
-                  </Button>
-                  <p className="text-[11px] text-ink-dim">
-                    Picking: <span className="font-semibold text-ink">{pickingPin === "start" ? "start point" : "end point"}</span> — both must be in the sea within Indian waters.
-                  </p>
-                </div>
-              )}
-
-              {/* ── Shared controls ──────────────────────────────────────── */}
-              <div className="grid grid-cols-2 gap-x-3">
-                <Field label="Speed (knots)">
-                  {(id) => (
-                    <input id={id} type="number" min={1} max={50} step={0.5} value={speedKnots}
-                      onChange={(e) => setSpeedKnots(Number(e.target.value))} className={inputClass} />
-                  )}
-                </Field>
-                <Field label="Departure" hint="Defaults to now">
-                  {(id) => (
-                    <input id={id} type="datetime-local" value={departure}
-                      onChange={(e) => setDeparture(e.target.value)} className={inputClass} />
-                  )}
-                </Field>
-              </div>
-
-              <Button
-                type="submit"
-                variant="primary"
-                className="mt-1"
-                disabled={!canSubmit}
-                icon={loading ? <Loader2 className="size-4 animate-spin" /> : <Route className="size-4" />}
+    <div className="grid gap-6 lg:grid-cols-[400px_1fr]">
+      {/* ── Left panel ─────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-4">
+        <Panel title="Coastal Route Planner" dense>
+          {/* Mode tabs */}
+          <div className="mb-4 flex rounded-lg border border-hairline overflow-hidden text-xs font-semibold">
+            {(["port_to_zone", "port_to_port", "map_pick"] as Mode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => { setMode(m); setResult(null); setError(null); }}
+                className={`flex-1 px-2 py-2 transition-colors ${
+                  mode === m
+                    ? "bg-ocean-cyan text-on-accent"
+                    : "bg-shelf-1/60 text-ink-muted hover:bg-shelf-2/80"
+                }`}
               >
-                {loading ? "Routing…" : "Calculate Route"}
-              </Button>
-            </form>
-          </Panel>
-
-          {/* ── Result card ────────────────────────────────────────────────── */}
-          {result && (
-            <Panel title="Voyage Summary">
-              <ReadoutGrid cols={2}>
-                <Readout label="Distance" value={result.distance_nm.toFixed(1)} unit="nm" />
-                <Readout label="Distance" value={result.distance_km.toFixed(0)} unit="km" />
-                <Readout label="Duration" value={hoursLabel(result.hours)} />
-                <Readout label="ETA" value={new Date(result.eta).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })} hint="IST" />
-              </ReadoutGrid>
-
-              {result.warnings.length > 0 && (
-                <div className="mt-4 flex flex-col gap-1.5">
-                  {result.warnings.map((w, i) => (
-                    <div
-                      key={i}
-                      className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-[11px] leading-snug ${
-                        w.startsWith("DISCLAIMER") || w.startsWith("NOTE")
-                          ? "border-hairline/60 bg-shelf-2/30 text-ink-dim"
-                          : w.toLowerCase().includes("monsoon")
-                          ? "border-caution/40 bg-caution/8 text-ink-muted"
-                          : "border-no-go/30 bg-no-go/6 text-ink-muted"
-                      }`}
-                    >
-                      <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
-                      <span>{w}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Panel>
-          )}
-
-          {/* Error */}
-          {error && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-no-go/40 bg-no-go/8 px-3.5 py-3 text-xs text-no-go">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-              <span className="font-medium">{error}</span>
-            </div>
-          )}
-
-          {/* Disclaimer */}
-          <div className="flex items-start gap-2 rounded-lg border border-hairline/50 bg-shelf-2/30 px-3 py-2.5 text-[11px] text-ink-dim">
-            <Info className="mt-0.5 size-3.5 shrink-0 text-ocean-cyan" aria-hidden="true" />
-            <span>
-              Route strictly adheres to official <span className="font-semibold text-ink">International Maritime Boundary Lines (IMBL)</span> and Marine Protected Areas (MPA) geofences. Always follow Indian Coast Guard advisories and official navigational charts.
-            </span>
+                {m === "port_to_zone" ? "Port → Zone" : m === "port_to_port" ? "Port → Port" : "Map Pick"}
+              </button>
+            ))}
           </div>
-        </div>
 
-        {/* ── Right: map ───────────────────────────────────────────────────── */}
-        <SeaRouteMap
-          result={result}
-          mapPickMode={mode === "map_pick"}
-          startPin={startPin}
-          endPin={endPin}
-          onMapClick={handleMapClick}
-          zones={zones}
-          restricted={restricted}
-          boundaryLines={boundaryLines}
-        />
+          <form onSubmit={handleSubmit} className="flex flex-col gap-1">
+            {/* ── Mode 1: Port → Fishing Zone ─────────────────────────── */}
+            {mode === "port_to_zone" && (
+              <>
+                <Field label="From port">
+                  {(id) => (
+                    <select id={id} value={fromPortId} onChange={(e) => setFromPortId(e.target.value)} className={inputClass}>
+                      <option value="">Select a port…</option>
+                      {majorPorts.length > 0 && <optgroup label="Major Ports">{majorPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
+                      {minorPorts.length > 0 && <optgroup label="Minor Ports">{minorPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
+                      {fishingPorts.length > 0 && <optgroup label="Fishing Harbours">{fishingPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
+                    </select>
+                  )}
+                </Field>
+                <Field label="To fishing zone">
+                  {(id) => (
+                    <select id={id} value={toZoneId} onChange={(e) => setToZoneId(e.target.value)} className={inputClass}>
+                      <option value="">Select a zone…</option>
+                      {zoneList.map((z: FishingZoneFeature) => (
+                        <option key={z.properties.id} value={z.properties.id}>{z.properties.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </Field>
+                <p className="mb-1 text-[11px] text-ink-dim">Route ends at the zone entry point (boundary nearest to port).</p>
+              </>
+            )}
+
+            {/* ── Mode 2: Port → Port ──────────────────────────────────── */}
+            {mode === "port_to_port" && (
+              <>
+                <Field label="From port">
+                  {(id) => (
+                    <select id={id} value={fromPortId2} onChange={(e) => setFromPortId2(e.target.value)} className={inputClass}>
+                      <option value="">Select start port…</option>
+                      {majorPorts.length > 0 && <optgroup label="Major Ports">{majorPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
+                      {minorPorts.length > 0 && <optgroup label="Minor Ports">{minorPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
+                      {fishingPorts.length > 0 && <optgroup label="Fishing Harbours">{fishingPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
+                    </select>
+                  )}
+                </Field>
+                <Field label="To port">
+                  {(id) => (
+                    <select id={id} value={toPortId2} onChange={(e) => setToPortId2(e.target.value)} className={inputClass}>
+                      <option value="">Select end port…</option>
+                      {majorPorts.length > 0 && <optgroup label="Major Ports">{majorPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
+                      {minorPorts.length > 0 && <optgroup label="Minor Ports">{minorPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
+                      {fishingPorts.length > 0 && <optgroup label="Fishing Harbours">{fishingPorts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.state})</option>)}</optgroup>}
+                    </select>
+                  )}
+                </Field>
+              </>
+            )}
+
+            {/* ── Mode 3: Map Pick ─────────────────────────────────────── */}
+            {mode === "map_pick" && (
+              <div className="mb-3 flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <div className={`flex-1 rounded-lg border px-3 py-2 text-xs ${startPin ? "border-ocean-cyan/60 bg-shelf-2/60 text-ink" : "border-hairline text-ink-dim"}`}>
+                    <span className="block text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim mb-0.5">Start</span>
+                    {startPin ? `${startPin[0].toFixed(4)}°N, ${startPin[1].toFixed(4)}°E` : "Click map…"}
+                  </div>
+                  <div className={`flex-1 rounded-lg border px-3 py-2 text-xs ${endPin ? "border-accent/60 bg-shelf-2/60 text-ink" : "border-hairline text-ink-dim"}`}>
+                    <span className="block text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim mb-0.5">End</span>
+                    {endPin ? `${endPin[0].toFixed(4)}°N, ${endPin[1].toFixed(4)}°E` : "Click map…"}
+                  </div>
+                </div>
+                <Button type="button" variant="ghost" icon={<RotateCcw className="size-3.5" />} onClick={resetMapPick} className="self-start">
+                  Reset picks
+                </Button>
+                <p className="text-[11px] text-ink-dim">
+                  Picking: <span className="font-semibold text-ink">{pickingPin === "start" ? "start point" : "end point"}</span> — both must be in the sea within Indian waters.
+                </p>
+              </div>
+            )}
+
+            {/* ── Shared controls ──────────────────────────────────────── */}
+            <div className="grid grid-cols-2 gap-x-3">
+              <Field label="Speed (knots)">
+                {(id) => (
+                  <input id={id} type="number" min={1} max={50} step={0.5} value={speedKnots}
+                    onChange={(e) => setSpeedKnots(Number(e.target.value))} className={inputClass} />
+                )}
+              </Field>
+              <Field label="Departure" hint="Defaults to now">
+                {(id) => (
+                  <input id={id} type="datetime-local" value={departure}
+                    onChange={(e) => setDeparture(e.target.value)} className={inputClass} />
+                )}
+              </Field>
+            </div>
+
+            <Button
+              type="submit"
+              variant="primary"
+              className="mt-1"
+              disabled={!canSubmit}
+              icon={loading ? <Loader2 className="size-4 animate-spin" /> : <Route className="size-4" />}
+            >
+              {loading ? "Routing…" : "Calculate Route"}
+            </Button>
+          </form>
+        </Panel>
+
+        {/* ── Result card ────────────────────────────────────────────────── */}
+        {result && (
+          <Panel title="Voyage Summary">
+            <ReadoutGrid cols={2}>
+              <Readout label="Distance" value={result.distance_nm.toFixed(1)} unit="nm" />
+              <Readout label="Distance" value={result.distance_km.toFixed(0)} unit="km" />
+              <Readout label="Duration" value={hoursLabel(result.hours)} />
+              <Readout label="ETA" value={new Date(result.eta).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })} hint="IST" />
+            </ReadoutGrid>
+
+            {result.warnings.length > 0 && (
+              <div className="mt-4 flex flex-col gap-1.5">
+                {result.warnings.map((w, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-[11px] leading-snug ${
+                      w.startsWith("DISCLAIMER") || w.startsWith("NOTE")
+                        ? "border-hairline/60 bg-shelf-2/30 text-ink-dim"
+                        : w.toLowerCase().includes("monsoon")
+                        ? "border-caution/40 bg-caution/8 text-ink-muted"
+                        : "border-no-go/30 bg-no-go/6 text-ink-muted"
+                    }`}
+                  >
+                    <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+                    <span>{w}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Panel>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-no-go/40 bg-no-go/8 px-3.5 py-3 text-xs text-no-go">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <span className="font-medium">{error}</span>
+          </div>
+        )}
+
+        {/* Disclaimer */}
+        <div className="flex items-start gap-2 rounded-lg border border-hairline/50 bg-shelf-2/30 px-3 py-2.5 text-[11px] text-ink-dim">
+          <Info className="mt-0.5 size-3.5 shrink-0 text-ocean-cyan" aria-hidden="true" />
+          <span>
+            Route strictly adheres to official <span className="font-semibold text-ink">International Maritime Boundary Lines (IMBL)</span> and Marine Protected Areas (MPA) geofences. Always follow Indian Coast Guard advisories and official navigational charts.
+          </span>
+        </div>
       </div>
-    </PageBody>
+
+      {/* ── Right: map ───────────────────────────────────────────────────── */}
+      <SeaRouteMap
+        result={result}
+        mapPickMode={mode === "map_pick"}
+        startPin={startPin}
+        endPin={endPin}
+        onMapClick={handleMapClick}
+        zones={zones}
+        restricted={restricted}
+        boundaryLines={boundaryLines}
+      />
+    </div>
   );
 }
