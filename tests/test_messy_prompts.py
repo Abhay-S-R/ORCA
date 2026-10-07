@@ -11,10 +11,11 @@ from __future__ import annotations
 import json
 import os
 import sys
-import pytest
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 # Allow running from repo root
 sys.path.insert(0, str(Path(__file__).parent.parent))

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prepare maritime boundary restricted areas.
 
 Reads Marine Regions VLIZ maritime boundary lines (or uses a built-in
@@ -16,7 +15,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import math
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
@@ -37,8 +35,8 @@ def nm_to_deg(nm: float) -> float:
 
 def build_restricted(input_path: Path, buffer_nm: float) -> list[dict]:
     """Return list of GeoJSON features (Polygon) from buffered boundary lines."""
-    from shapely.geometry import shape
     from shapely import to_geojson
+    from shapely.geometry import shape
 
     if not input_path.exists():
         tier1_path = Path("data/tier1/boundaries/india_maritime_boundary_lines.geojson")
@@ -96,15 +94,15 @@ def build_restricted(input_path: Path, buffer_nm: float) -> list[dict]:
 
 def _placeholder_areas() -> list[dict]:
     """Minimal placeholder restricted areas matching the India-neighbour boundaries."""
-    from shapely.geometry import LineString
     from shapely import to_geojson
+    from shapely.geometry import LineString
 
     # Rough lines representing India's principal maritime boundaries.
     lines = [
-        dict(name="India–Pakistan IMBL (Arabian Sea)", coords=[(23.5, 66.5), (22.0, 68.0), (20.5, 67.5)]),
-        dict(name="India–Sri Lanka IMBL (Palk Bay)", coords=[(9.5, 80.0), (8.8, 80.3), (8.0, 80.6), (7.5, 81.5)]),
-        dict(name="India–Bangladesh IMBL (Bay of Bengal)", coords=[(21.5, 90.0), (20.0, 90.5), (18.5, 90.8)]),
-        dict(name="India–Myanmar IMBL (Bay of Bengal)", coords=[(18.5, 91.5), (17.0, 92.5), (15.0, 94.0)]),
+        {"name": "India–Pakistan IMBL (Arabian Sea)", "coords": [(23.5, 66.5), (22.0, 68.0), (20.5, 67.5)]},
+        {"name": "India–Sri Lanka IMBL (Palk Bay)", "coords": [(9.5, 80.0), (8.8, 80.3), (8.0, 80.6), (7.5, 81.5)]},
+        {"name": "India–Bangladesh IMBL (Bay of Bengal)", "coords": [(21.5, 90.0), (20.0, 90.5), (18.5, 90.8)]},
+        {"name": "India–Myanmar IMBL (Bay of Bengal)", "coords": [(18.5, 91.5), (17.0, 92.5), (15.0, 94.0)]},
     ]
     features = []
     buf = nm_to_deg(2.0)

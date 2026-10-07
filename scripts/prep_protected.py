@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prepare marine protected areas (MPAs) for sea-route planning.
 
 Reads UNEP-WCMC WDPA marine protected areas from data/tier1/boundaries/india_marine_mpas.geojson
@@ -14,8 +13,8 @@ import json
 import logging
 from pathlib import Path
 
-from shapely.geometry import box, shape
 from shapely import to_geojson
+from shapely.geometry import box, shape
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger("prep_protected")

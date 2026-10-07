@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Master data preparation script for Sea Route Voyage.
 
 Executes all prep steps in dependency order:
@@ -45,7 +44,7 @@ def main() -> None:
             continue
         log.info("--------------------------------------------------")
         log.info("Running %s ...", script_rel)
-        res = subprocess.run([sys.executable, str(script_path)], cwd=str(root))
+        res = subprocess.run([sys.executable, str(script_path)], cwd=str(root), check=False)
         if res.returncode != 0:
             log.error("Script %s failed with code %d", script_rel, res.returncode)
             sys.exit(res.returncode)

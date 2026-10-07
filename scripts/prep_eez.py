@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prepare the India Exclusive Economic Zone (EEZ) polygon.
 
 Reads Marine Regions VLIZ India EEZ + Andaman EEZ, simplifies slightly,
@@ -14,9 +13,9 @@ import json
 import logging
 from pathlib import Path
 
+from shapely import to_geojson
 from shapely.geometry import box, shape
 from shapely.ops import unary_union
-from shapely import to_geojson
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger("prep_eez")

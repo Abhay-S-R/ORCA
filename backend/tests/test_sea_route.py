@@ -17,14 +17,12 @@ from shapely.strtree import STRtree
 
 from orca.api.main import app
 from orca.sea_route.datasets import (
-    load_fishing_zones,
     load_land_polygons,
-    load_ports,
     load_restricted_areas,
 )
 from orca.sea_route.ports_service import get_port, list_ports
 from orca.sea_route.router import sea_route
-from orca.sea_route.zones_service import get_zone, list_zones, zone_entry_point
+from orca.sea_route.zones_service import list_zones, zone_entry_point
 
 client = TestClient(app)
 

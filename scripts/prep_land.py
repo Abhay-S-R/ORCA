@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Clip OSM land polygons to the India bbox and save land_india.geojson.
 
 USAGE
@@ -48,8 +47,8 @@ def clip_and_simplify(input_path: Path, output_path: Path, tolerance: float) -> 
     """Return the count of features written."""
     try:
         import shapefile  # pyshp — already in backend/requirements.txt
-        from shapely.geometry import box, shape
         from shapely import to_geojson
+        from shapely.geometry import box, shape
     except ImportError:
         log.error("pip install pyshp shapely")
         return 0
@@ -135,9 +134,9 @@ def main() -> None:
 
 def generate_fallback_land(output_path: Path, tolerance: float) -> int:
     import shapefile
-    from shapely.geometry import box, shape, Polygon
-    from shapely.ops import unary_union
     from shapely import to_geojson
+    from shapely.geometry import Polygon, box, shape
+    from shapely.ops import unary_union
 
     clip_box = box(BBOX_W, BBOX_S, BBOX_E, BBOX_N)
     geoms = []

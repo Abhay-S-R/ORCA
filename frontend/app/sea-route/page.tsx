@@ -7,8 +7,7 @@
 // as MapLibre sources/layers added on top, following the same source-lifecycle
 // discipline as voyage/page.tsx and MapView.tsx.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Anchor, Info, Loader2, MapPin, Navigation, RotateCcw, Route, Ship } from "lucide-react";
-import { Badge } from "../components/Badge";
+import { AlertTriangle, Info, Loader2, RotateCcw, Route } from "lucide-react";
 import { Button } from "../components/Button";
 import { Field, inputClass } from "../components/Field";
 import { PageBody, PageHeader } from "../components/PageHeader";
@@ -30,18 +29,14 @@ const INDIA_BBOX = { w: 66, e: 95, s: 5, n: 24 };
 
 type Mode = "port_to_zone" | "port_to_port" | "map_pick";
 
-const MODE_LABELS: Record<Mode, string> = {
-  port_to_zone: "Port → Fishing Zone",
-  port_to_port: "Port → Port",
-  map_pick: "Map Pick",
-};
-
 function hoursLabel(h: number): string {
   if (h < 24) return `${h.toFixed(1)} h`;
   const days = Math.floor(h / 24);
   const rem = h % 24;
   return rem > 0.5 ? `${days}d ${rem.toFixed(0)}h` : `${days} days`;
 }
+
+type GeoJSONData = Parameters<typeof import("maplibre-gl").GeoJSONSource.prototype.setData>[0];
 
 // ── MapLibre route overlay ────────────────────────────────────────────────────
 // We draw into a <div ref> using the raw MapLibre API so we don't duplicate
@@ -71,7 +66,7 @@ function SeaRouteMap({
   // Bootstrap map once.
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
-    import("maplibre-gl").then(({ Map, Marker, NavigationControl }) => {
+    import("maplibre-gl").then(({ Map, NavigationControl }) => {
       const map = new Map({
         container: containerRef.current!,
         style: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
@@ -85,7 +80,7 @@ function SeaRouteMap({
         // ── Fishing zones layer ─────────────────────────────────────────────
         map.addSource("sea-zones", {
           type: "geojson",
-          data: (zones as any) ?? { type: "FeatureCollection", features: [] },
+          data: (zones as unknown as GeoJSONData) ?? { type: "FeatureCollection", features: [] },
         });
         map.addLayer({
           id: "sea-zones-fill",
@@ -109,7 +104,7 @@ function SeaRouteMap({
         // ── Restricted areas layer ──────────────────────────────────────────
         map.addSource("sea-restricted", {
           type: "geojson",
-          data: (restricted as any) ?? { type: "FeatureCollection", features: [] },
+          data: (restricted as GeoJSONData) ?? { type: "FeatureCollection", features: [] },
         });
         map.addLayer({
           id: "sea-restricted-fill",
@@ -200,7 +195,7 @@ function SeaRouteMap({
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded() || !zones) return;
     const src = map.getSource("sea-zones");
-    if (src?.type === "geojson") (src as import("maplibre-gl").GeoJSONSource).setData(zones as any);
+    if (src?.type === "geojson") (src as import("maplibre-gl").GeoJSONSource).setData(zones as unknown as GeoJSONData);
   }, [zones]);
 
   // Update restricted source.
@@ -209,7 +204,7 @@ function SeaRouteMap({
     if (!map || !map.isStyleLoaded() || !restricted) return;
     const src = map.getSource("sea-restricted");
     if (src?.type === "geojson")
-      (src as import("maplibre-gl").GeoJSONSource).setData(restricted as Parameters<typeof import("maplibre-gl").GeoJSONSource.prototype.setData>[0]);
+      (src as import("maplibre-gl").GeoJSONSource).setData(restricted as GeoJSONData);
   }, [restricted]);
 
   // Map-pick cursor.
@@ -229,7 +224,7 @@ function SeaRouteMap({
       {/* Map-pick overlay label */}
       {mapPickMode && (
         <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-shelf-1/90 px-3.5 py-2 text-xs font-semibold text-ink shadow-lg backdrop-blur-sm ring-1 ring-hairline">
-          {!startPin ? "Click the map to set start point" : "Click the map to set end point"}
+          {!startPin ? "Click the map to set start point" : !endPin ? "Click the map to set end point" : "Points set — ready to calculate"}
         </div>
       )}
       {/* Legend */}

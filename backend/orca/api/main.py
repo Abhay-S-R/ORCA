@@ -44,6 +44,7 @@ from orca.api.notifications_routes import router as notifications_router
 from orca.api.ops_routes import router as ops_router
 from orca.api.params import OptLat, OptLon
 from orca.api.replay_routes import router as replay_router
+from orca.api.sea_route_routes import router as sea_route_router
 from orca.api.system_status_routes import router as system_status_router
 from orca.api.trace_routes import (
     _reasoning_summary,
@@ -56,7 +57,6 @@ from orca.api.trace_routes import (
 from orca.api.voice_routes import router as voice_router
 from orca.api.voyage_routes import router as voyage_router
 from orca.api.voyages_routes import router as voyages_router
-from orca.api.sea_route_routes import router as sea_route_router
 from orca.api.watches_routes import router as watches_router
 from orca.auth.rbac import get_optional_user
 from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
-from shapely.geometry import Point, box
+from shapely.geometry import Point
 from shapely.strtree import STRtree
 
 if TYPE_CHECKING:
@@ -35,8 +35,9 @@ def _nm_to_deg(nm: float, lat_deg: float) -> float:
     """Convert nautical miles to degrees at a given latitude."""
     lat_rad = math.radians(lat_deg)
     lng_per_nm = 1.0 / (60.0 * math.cos(lat_rad)) if math.cos(lat_rad) > 1e-9 else 1.0
+    lat_per_nm = 1.0 / _NM_PER_DEG_LAT
     # Use the larger of lat/lng deg-per-nm so the buffer is conservative.
-    return nm / _NM_PER_DEG_LAT
+    return nm * max(lat_per_nm, lng_per_nm)
 
 
 @dataclass
@@ -45,7 +46,7 @@ class SeaGrid:
 
     navigable[row, col] is True when a ship may traverse that cell.
     """
-    navigable: "np.ndarray"   # shape (nrows, ncols), dtype bool
+    navigable: np.ndarray   # shape (nrows, ncols), dtype bool
     cell_deg: float
     lat_max: float
     lat_min: float
@@ -98,7 +99,6 @@ def _build_blocked_index(
     eez_polygon,
 ) -> tuple[STRtree | None, STRtree | None, object | None]:
     """Return STRtrees for blocking restricted areas, blocking protected areas, EEZ."""
-    import numpy as np  # local import to avoid polluting module-level namespace
 
     block_geoms = [a.geometry for a in restricted_areas if a.mode == "block"]
     block_tree = STRtree(block_geoms) if block_geoms else None
@@ -125,6 +125,7 @@ def build_grid(
     Subsequent calls return the cached result instantly.
     """
     import numpy as np
+
     from orca.sea_route.datasets import (
         load_eez_polygon,
         load_land_polygons,
@@ -135,8 +136,8 @@ def build_grid(
     log.info("sea_route: building grid (cell=%.3f°, %.0f×%.0f) …", cell_deg,
              (lat_max - lat_min) / cell_deg, (lng_max - lng_min) / cell_deg)
 
-    nrows = int(round((lat_max - lat_min) / cell_deg))
-    ncols = int(round((lng_max - lng_min) / cell_deg))
+    nrows = round((lat_max - lat_min) / cell_deg)
+    ncols = round((lng_max - lng_min) / cell_deg)
     navigable = np.ones((nrows, ncols), dtype=bool)
 
     # Mid-latitude for buffer conversion (use India's geographic centre).

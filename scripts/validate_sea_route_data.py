@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Validate all prepared sea-route datasets.
 
 Checks:

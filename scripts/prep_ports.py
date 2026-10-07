@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Build the ports dataset.
 
 Merges:
@@ -17,12 +16,9 @@ USAGE
 """
 from __future__ import annotations
 
-import argparse
 import csv
 import json
 import logging
-import math
-import sys
 import uuid
 from pathlib import Path
 
@@ -36,19 +32,19 @@ OUTPUT = Path("data/sea_route/ports.geojson")
 
 # Seed: 11 required major ports.  lat/lng from IHO / NGA records.
 SEED_MAJOR = [
-    dict(id="IN_KAN", name="Kandla", code="INKLA", type="major", state="Gujarat",    lat=22.98, lng=70.22),
-    dict(id="IN_MUN", name="Mundra", code="INMUN", type="major", state="Gujarat",    lat=22.84, lng=69.70),
-    dict(id="IN_JNP", name="JNPT / Nhava Sheva", code="INJNP", type="major", state="Maharashtra", lat=18.95, lng=72.95),
-    dict(id="IN_MOR", name="Mormugao", code="INMRM", type="major", state="Goa",      lat=15.41, lng=73.80),
-    dict(id="IN_NMG", name="New Mangalore", code="INMNG", type="major", state="Karnataka", lat=12.92, lng=74.82),
-    dict(id="IN_KOC", name="Kochi", code="INCOK", type="major", state="Kerala",      lat=9.97,  lng=76.27),
-    dict(id="IN_TUT", name="Tuticorin", code="INTUT", type="major", state="Tamil Nadu", lat=8.76, lng=78.14),
-    dict(id="IN_CHE", name="Chennai", code="INMAA", type="major", state="Tamil Nadu", lat=13.10, lng=80.29),
-    dict(id="IN_VIZ", name="Visakhapatnam", code="INVTZ", type="major", state="Andhra Pradesh", lat=17.69, lng=83.28),
-    dict(id="IN_PAR", name="Paradip", code="INPRD", type="major", state="Odisha",    lat=20.32, lng=86.61),
-    dict(id="IN_HAL", name="Haldia", code="INHLD", type="major", state="West Bengal", lat=22.05, lng=88.07),
-    dict(id="IN_IXZ", name="Port Blair", code="INIXZ", type="major", state="Andaman & Nicobar", lat=11.67, lng=92.73),
-    dict(id="IN_KVT", name="Kavaratti", code="INKVT", type="minor", state="Lakshadweep", lat=10.57, lng=72.64),
+    {"id": "IN_KAN", "name": "Kandla", "code": "INKLA", "type": "major", "state": "Gujarat",    "lat": 22.98, "lng": 70.22},
+    {"id": "IN_MUN", "name": "Mundra", "code": "INMUN", "type": "major", "state": "Gujarat",    "lat": 22.84, "lng": 69.70},
+    {"id": "IN_JNP", "name": "JNPT / Nhava Sheva", "code": "INJNP", "type": "major", "state": "Maharashtra", "lat": 18.95, "lng": 72.95},
+    {"id": "IN_MOR", "name": "Mormugao", "code": "INMRM", "type": "major", "state": "Goa",      "lat": 15.41, "lng": 73.80},
+    {"id": "IN_NMG", "name": "New Mangalore", "code": "INMNG", "type": "major", "state": "Karnataka", "lat": 12.92, "lng": 74.82},
+    {"id": "IN_KOC", "name": "Kochi", "code": "INCOK", "type": "major", "state": "Kerala",      "lat": 9.97,  "lng": 76.27},
+    {"id": "IN_TUT", "name": "Tuticorin", "code": "INTUT", "type": "major", "state": "Tamil Nadu", "lat": 8.76, "lng": 78.14},
+    {"id": "IN_CHE", "name": "Chennai", "code": "INMAA", "type": "major", "state": "Tamil Nadu", "lat": 13.10, "lng": 80.29},
+    {"id": "IN_VIZ", "name": "Visakhapatnam", "code": "INVTZ", "type": "major", "state": "Andhra Pradesh", "lat": 17.69, "lng": 83.28},
+    {"id": "IN_PAR", "name": "Paradip", "code": "INPRD", "type": "major", "state": "Odisha",    "lat": 20.32, "lng": 86.61},
+    {"id": "IN_HAL", "name": "Haldia", "code": "INHLD", "type": "major", "state": "West Bengal", "lat": 22.05, "lng": 88.07},
+    {"id": "IN_IXZ", "name": "Port Blair", "code": "INIXZ", "type": "major", "state": "Andaman & Nicobar", "lat": 11.67, "lng": 92.73},
+    {"id": "IN_KVT", "name": "Kavaratti", "code": "INKVT", "type": "minor", "state": "Lakshadweep", "lat": 10.57, "lng": 72.64},
 ]
 
 
@@ -77,15 +73,15 @@ def _read_nga_csv(path: Path) -> list[dict]:
                 continue
             name = (row.get("Main port name") or row.get("PORT_NAME") or "Unknown").strip()
             port_num = (row.get("World Port Index Number") or row.get("INDEX_NO") or "").strip()
-            rows.append(dict(
-                id=f"nga_{port_num}" if port_num else f"nga_{uuid.uuid4().hex[:8]}",
-                name=name,
-                code=f"IN{port_num[:5]}" if port_num else "",
-                type="minor",
-                state="",
-                lat=lat,
-                lng=lng,
-            ))
+            rows.append({
+                "id": f"nga_{port_num}" if port_num else f"nga_{uuid.uuid4().hex[:8]}",
+                "name": name,
+                "code": f"IN{port_num[:5]}" if port_num else "",
+                "type": "minor",
+                "state": "",
+                "lat": lat,
+                "lng": lng,
+            })
     return rows
 
 
@@ -107,15 +103,15 @@ def _read_fishing_harbours(path: Path) -> list[dict]:
                 continue
             name = row.get("name", "Unknown").strip()
             state = row.get("state", "").strip()
-            rows.append(dict(
-                id=f"fh_{i}_{name[:8].replace(' ', '_').lower()}",
-                name=name,
-                code="",
-                type="fishing_harbour",
-                state=state,
-                lat=lat,
-                lng=lng,
-            ))
+            rows.append({
+                "id": f"fh_{i}_{name[:8].replace(' ', '_').lower()}",
+                "name": name,
+                "code": "",
+                "type": "fishing_harbour",
+                "state": state,
+                "lat": lat,
+                "lng": lng,
+            })
     return rows
 
 

@@ -6,8 +6,6 @@ the supplied reference position (the selected port).
 """
 from __future__ import annotations
 
-import math
-
 from shapely.geometry import Point
 from shapely.ops import nearest_points
 
