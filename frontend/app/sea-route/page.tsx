@@ -6,7 +6,7 @@
 // instance the rest of ORCA uses; route, zones and restricted areas are drawn
 // as MapLibre sources/layers added on top, following the same source-lifecycle
 // discipline as voyage/page.tsx and MapView.tsx.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Info, Layers, Loader2, RotateCcw, Route } from "lucide-react";
 import { BASEMAP_RASTERS } from "../map/basemap";
 import { Button } from "../components/Button";
@@ -14,7 +14,6 @@ import { Field, inputClass } from "../components/Field";
 import { PageBody, PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { Readout, ReadoutGrid } from "../components/Readout";
-import { usePersona } from "../persona/context";
 import {
   computeSeaRoute,
   fetchFishingZones,
@@ -496,26 +495,7 @@ function SeaRouteMap({
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function SeaRoutePage() {
-  const { persona } = usePersona();
-  const isFisherman = persona === "fisherman";
-  const isCommercial = persona === "commercial_navigator";
-
-  // Mode selection
-  const [selectedMode, setSelectedMode] = useState<Mode>("port_to_zone");
-
-  // Determine available modes based on persona.
-  // Fisherman: strictly Port → Fishing Zone.
-  // Commercial Navigator: strictly Port → Port.
-  // Other personas: full selection.
-  const availableModes: Mode[] = useMemo(() => {
-    if (isFisherman) return ["port_to_zone"];
-    if (isCommercial) return ["port_to_port"];
-    return ["port_to_zone", "port_to_port", "map_pick"];
-  }, [isFisherman, isCommercial]);
-
-  // Derived effective mode: strictly fixed for Fisherman and Commercial Navigator,
-  // or user-selected for other personas.
-  const mode: Mode = isFisherman ? "port_to_zone" : isCommercial ? "port_to_port" : selectedMode;
+  const [mode, setMode] = useState<Mode>("port_to_zone");
 
   // Port → Zone
   const [fromPortId, setFromPortId] = useState("");
@@ -531,7 +511,7 @@ export default function SeaRoutePage() {
   const [endPin, setEndPin] = useState<[number, number] | null>(null);
 
   // Shared
-  const [speedKnots, setSpeedKnots] = useState(() => (isCommercial ? 12 : 8));
+  const [speedKnots, setSpeedKnots] = useState(8);
   const [departure, setDeparture] = useState("");
 
   // Data
@@ -639,61 +619,31 @@ export default function SeaRoutePage() {
   return (
     <PageBody className="mx-auto max-w-7xl">
       <PageHeader
-        title={
-          isFisherman
-            ? "Fishing Zone Sea Route"
-            : isCommercial
-            ? "Port-to-Port Voyage Planner"
-            : "Sea Route Voyage"
-        }
-        lede={
-          isFisherman
-            ? "Calculate a realistic, safe coastal route from your port or fishing harbour directly to Indian potential fishing zones (PFZ), steering clear of shallow waters and restricted zones."
-            : isCommercial
-            ? "Calculate a realistic commercial coastal passage between Indian major and minor ports, adhering to maritime boundaries and safety channels."
-            : "Calculate a realistic coastal route that follows the Indian coastline — never a straight line. Select ports, fishing zones or click the map for any two sea points."
-        }
+        title="Sea Route Voyage"
+        lede="Calculate a realistic coastal route that follows the Indian coastline — never a straight line. Select ports, fishing zones or click the map for any two sea points."
       />
 
       <div className="grid gap-6 lg:grid-cols-[400px_1fr]">
         {/* ── Left panel ─────────────────────────────────────────────────── */}
         <div className="flex flex-col gap-4">
           <Panel title="Route Planner" dense>
-            {/* Mode selector or persona indicator */}
-            {availableModes.length > 1 ? (
-              <div className="mb-4 flex rounded-lg border border-hairline overflow-hidden text-xs font-semibold">
-                {availableModes.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => { setSelectedMode(m); setResult(null); setError(null); }}
-                    className={`flex-1 px-2 py-2 transition-colors ${
-                      mode === m
-                        ? "bg-ocean-cyan text-on-accent"
-                        : "bg-shelf-1/60 text-ink-muted hover:bg-shelf-2/80"
-                    }`}
-                  >
-                    {m === "port_to_zone" ? "Port → Zone" : m === "port_to_port" ? "Port → Port" : "Map Pick"}
-                  </button>
-                ))}
-              </div>
-            ) : isFisherman ? (
-              <div className="mb-4 flex items-center justify-between rounded-lg border border-ocean-cyan/30 bg-ocean-cyan/10 px-3 py-2 text-xs">
-                <span className="flex items-center gap-2 font-medium text-ink">
-                  <span className="inline-block h-2 w-2 rounded-full bg-ocean-cyan" />
-                  Fisherman Navigation: <span className="text-ocean-cyan font-semibold">Port → Fishing Zone</span>
-                </span>
-                <span className="text-[11px] text-ink-muted">PFZ Route</span>
-              </div>
-            ) : isCommercial ? (
-              <div className="mb-4 flex items-center justify-between rounded-lg border border-ocean-cyan/30 bg-ocean-cyan/10 px-3 py-2 text-xs">
-                <span className="flex items-center gap-2 font-medium text-ink">
-                  <span className="inline-block h-2 w-2 rounded-full bg-ocean-cyan" />
-                  Commercial Navigator: <span className="text-ocean-cyan font-semibold">Port → Port Voyage</span>
-                </span>
-                <span className="text-[11px] text-ink-muted">Coastal Passage</span>
-              </div>
-            ) : null}
+            {/* Mode tabs */}
+            <div className="mb-4 flex rounded-lg border border-hairline overflow-hidden text-xs font-semibold">
+              {(["port_to_zone", "port_to_port", "map_pick"] as Mode[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => { setMode(m); setResult(null); setError(null); }}
+                  className={`flex-1 px-2 py-2 transition-colors ${
+                    mode === m
+                      ? "bg-ocean-cyan text-on-accent"
+                      : "bg-shelf-1/60 text-ink-muted hover:bg-shelf-2/80"
+                  }`}
+                >
+                  {m === "port_to_zone" ? "Port → Zone" : m === "port_to_port" ? "Port → Port" : "Map Pick"}
+                </button>
+              ))}
+            </div>
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-1">
               {/* ── Mode 1: Port → Fishing Zone ─────────────────────────── */}
