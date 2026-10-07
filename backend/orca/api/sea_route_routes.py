@@ -184,8 +184,11 @@ def sea_route_fishing_zones() -> dict:
     zones = load_fishing_zones()
     features = []
     for z in zones:
+        encoded = _to_geojson(z.geometry)
+        if encoded is None:
+            continue
         try:
-            geom_dict = json.loads(_to_geojson(z.geometry))
+            geom_dict = json.loads(encoded)
         except Exception:
             continue
         features.append({
@@ -214,8 +217,11 @@ def sea_route_restricted_areas() -> dict:
     areas = list(load_restricted_areas()) + list(load_protected_areas())
     features = []
     for a in areas:
+        encoded = _to_geojson(a.geometry)
+        if encoded is None:
+            continue
         try:
-            geom_dict = json.loads(_to_geojson(a.geometry))
+            geom_dict = json.loads(encoded)
         except Exception:
             continue
         features.append({
