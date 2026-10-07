@@ -12,14 +12,13 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from shapely.geometry import Point, shape
+from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
 
 log = logging.getLogger("orca.sea_route.datasets")

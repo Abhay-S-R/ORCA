@@ -13,9 +13,7 @@ not just at discrete points.
 """
 from __future__ import annotations
 
-import math
-
-from shapely.geometry import LineString, MultiPolygon, Polygon
+from shapely.geometry import LineString
 from shapely.geometry.base import BaseGeometry
 from shapely.strtree import STRtree
 

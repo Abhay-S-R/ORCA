@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prepare fishing zones dataset.
 
 Reads either data/raw/fishing_zones.geojson or transforms INCOIS PFZ advisories
@@ -17,8 +16,8 @@ import json
 import logging
 from pathlib import Path
 
-from shapely.geometry import Point, box, shape
 from shapely import to_geojson
+from shapely.geometry import Point, box, shape
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger("prep_fishing_zones")
@@ -62,7 +61,6 @@ def build_fishing_zones(output_path: Path) -> int:
     elif pfz_file.exists():
         log.info("Transforming INCOIS PFZ advisories from %s into fishing zones", pfz_file)
         data = json.loads(pfz_file.read_text(encoding="utf-8"))
-        seen_centers = set()
         for i, feat in enumerate(data.get("features", [])):
             props = feat.get("properties", {})
             lat = props.get("latitude_dd")

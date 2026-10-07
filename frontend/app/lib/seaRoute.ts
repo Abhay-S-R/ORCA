@@ -86,3 +86,11 @@ export async function fetchRestrictedAreas(): Promise<unknown> {
   if (!res.ok) throw new Error(`restricted ${res.status}`);
   return res.json();
 }
+
+export async function fetchMaritimeBoundaryLines(): Promise<unknown> {
+  const res = await fetch(`${API_BASE}/api/map-layers`);
+  if (!res.ok) throw new Error(`map-layers ${res.status}`);
+  const data = (await res.json()) as { maritime_boundary_lines?: unknown };
+  return data.maritime_boundary_lines ?? { type: "FeatureCollection", features: [] };
+}
+

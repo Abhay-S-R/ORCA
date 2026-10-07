@@ -20,7 +20,6 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
-from typing import Literal
 
 from shapely.geometry import LineString, Point
 from shapely.strtree import STRtree
@@ -86,8 +85,6 @@ def _warn_near_restricted(
     if not restricted_areas:
         return []
     from shapely.geometry import LineString as LS
-    from shapely.geometry import Point as P
-    import math
 
     _R_NM = 3440.065
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Annotated, Any, Literal
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -184,8 +184,11 @@ def sea_route_fishing_zones() -> dict:
     zones = load_fishing_zones()
     features = []
     for z in zones:
+        encoded = _to_geojson(z.geometry)
+        if encoded is None:
+            continue
         try:
-            geom_dict = json.loads(_to_geojson(z.geometry))
+            geom_dict = json.loads(encoded)
         except Exception:
             continue
         features.append({
@@ -207,15 +210,18 @@ def sea_route_fishing_zones() -> dict:
 def sea_route_restricted_areas() -> dict:
     """Return restricted areas as a GeoJSON FeatureCollection.
 
-    PLACEHOLDER — geometry derived from Marine Regions VLIZ data.
-    Replace with official IMBL data for operational use.
+    Delimited International Maritime Boundary Lines (IMBL) buffered to 2.0 nm,
+    alongside WDPA Marine Protected Areas (MPA) for Indian waters.
     """
     from shapely import to_geojson as _to_geojson
     areas = list(load_restricted_areas()) + list(load_protected_areas())
     features = []
     for a in areas:
+        encoded = _to_geojson(a.geometry)
+        if encoded is None:
+            continue
         try:
-            geom_dict = json.loads(_to_geojson(a.geometry))
+            geom_dict = json.loads(encoded)
         except Exception:
             continue
         features.append({
@@ -231,5 +237,5 @@ def sea_route_restricted_areas() -> dict:
     return {
         "type": "FeatureCollection",
         "features": features,
-        "note": "PLACEHOLDER — maritime boundary data. Replace with official IMBL data.",
+        "note": "International Maritime Boundary Lines (IMBL) and Marine Protected Areas (MPA).",
     }

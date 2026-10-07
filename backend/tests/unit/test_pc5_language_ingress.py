@@ -7,22 +7,20 @@ Tests:
 - PC5.6: Romanized distress check and gazetteer check on Appendix A prompts.
 - PC5.7: Honest provenance on native-script path (passthrough vs translated, degraded on unchanged).
 """
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from orca.agents import language
+import pytest
+
+from orca.agents.distress import detect_distress_signal
 from orca.agents.language import (
     detect_language,
-    detect_language_with_bhashini,
     english_query,
     query_language,
     run_egress,
     run_ingress,
 )
-from orca.agents.distress import detect_distress_signal
-from orca.agents.understand import UnderstoodPrompt, _parse_understand_output
+from orca.agents.understand import _parse_understand_output
 from orca.place_resolution import resolve_or_ask, validate_reading
-
 
 # ---------------------------------------------------------------------------
 # PC5.2 — Planning / understand schema returns english_reading
@@ -96,8 +94,8 @@ def test_pc5_3_native_script_still_detects_and_translates():
 # ---------------------------------------------------------------------------
 
 def test_pc5_5_reporting_includes_english_reading():
+    from orca.contracts import AgentResult, Confidence, SourceProvenance
     from orca.graph.graph import reporting_node
-    from orca.contracts import AgentResult, SourceProvenance, Confidence
 
     fake_state = {
         "query_id": "test-pc5-5",
@@ -140,6 +138,7 @@ def test_pc5_6_romanized_distress_phrases():
 
     # Hindi phrase without 'bachao' — records honest gap if deterministic regex does not catch it
     r3 = detect_distress_signal("naav ka engine kharab ho gaya, madad chahiye")
+    assert isinstance(r3, dict)
     # Documented gap: 'madad chahiye' is currently in _DISTRESS_PATTERNS['hi'] (Devanagari),
     # not in _ROMANIZED_DISTRESS_PATTERNS['hi'].
     # PC5.6 requires: "the cases pass, or each failing case is logged as a NOTE and fixed as its own point."

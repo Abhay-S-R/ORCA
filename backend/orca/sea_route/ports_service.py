@@ -1,10 +1,7 @@
 """Port service: list ports and find their nearest sea cell."""
 from __future__ import annotations
 
-import math
-
 from orca.sea_route.datasets import Port, load_ports
-from orca.sea_route.grid import SeaGrid
 
 
 def list_ports() -> tuple[Port, ...]:
