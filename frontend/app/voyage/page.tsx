@@ -6,7 +6,7 @@
 // single point, walked along the whole passage at each leg's own ETA.
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Anchor, AlertTriangle, Bell, BellOff, Download, MapPin, Navigation, Printer, Route as RouteIcon, Save, Trash2 } from "lucide-react";
+import { Anchor, AlertTriangle, Bell, BellOff, Download, MapPin, Navigation, Printer, Save, Trash2 } from "lucide-react";
 import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
@@ -163,22 +163,7 @@ function downloadText(filename: string, content: string, mime: string) {
 
 function VoyageContent() {
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<"corridor" | "sea-route">(() => {
-    return searchParams.get("tab") === "sea-route" ? "sea-route" : "corridor";
-  });
-
-  const handleTabChange = (tab: "corridor" | "sea-route") => {
-    setActiveTab(tab);
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-      if (tab === "sea-route") {
-        url.searchParams.set("tab", "sea-route");
-      } else {
-        url.searchParams.delete("tab");
-      }
-      window.history.replaceState({}, "", url.toString());
-    }
-  };
+  void searchParams; // kept for potential future deep-link use
 
   const [mode, setMode] = useState<"origin" | "destination">("origin");
   const [origin, setOrigin] = useState<LatLon | null>(null);
@@ -380,46 +365,11 @@ function VoyageContent() {
   return (
     <PageBody className="mx-auto max-w-7xl">
       <PageHeader
-        title={activeTab === "sea-route" ? "Coastal Sea Route Planner" : "Plan a voyage"}
-        lede={
-          activeTab === "sea-route"
-            ? "Calculate safe coastal routes between major ports, fishing zones, or custom sea coordinates with obstacle avoidance, IMBL boundaries, and satellite view."
-            : "Tap the chart to drop an origin and destination, or type coordinates. Sagar Sarathi classifies every leg — shallows, boundaries, protected areas, rough sea and lightning — at that leg's own arrival time, not just conditions right now."
-        }
+        title="Plan a voyage"
+        lede="Tap the chart to drop an origin and destination, or type coordinates. Sagar Sarathi classifies every leg — shallows, boundaries, protected areas, rough sea and lightning — at that leg's own arrival time, not just conditions right now."
       />
 
-      {/* Feature Mode Switcher */}
-      <div className="mb-6 flex items-center gap-2 border-b border-edge/60 pb-3 print:hidden">
-        <button
-          type="button"
-          onClick={() => handleTabChange("corridor")}
-          className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
-            activeTab === "corridor"
-              ? "bg-ocean-subtle text-ocean border border-ocean/40 shadow-sm"
-              : "text-ink-dim hover:text-ink hover:bg-shelf-1 border border-transparent"
-          }`}
-        >
-          <Navigation className="size-3.5" />
-          Passage Risk Audit
-        </button>
-        <button
-          type="button"
-          onClick={() => handleTabChange("sea-route")}
-          className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
-            activeTab === "sea-route"
-              ? "bg-ocean-subtle text-ocean border border-ocean/40 shadow-sm"
-              : "text-ink-dim hover:text-ink hover:bg-shelf-1 border border-transparent"
-          }`}
-        >
-          <RouteIcon className="size-3.5" />
-          Coastal Sea Route Planner
-        </button>
-      </div>
-
-      {activeTab === "sea-route" ? (
-        <CoastalSeaRoute />
-      ) : (
-        <div className="grid gap-6 lg:grid-cols-[380px_1fr] print:block">
+      <div className="grid gap-6 lg:grid-cols-[380px_1fr] print:block">
         <div className="flex flex-col gap-4">
           <Panel title="Route" dense className="print:hidden">
             <form onSubmit={submit} className="flex flex-col gap-1">
@@ -862,7 +812,21 @@ function VoyageContent() {
           )}
         </div>
       </div>
-      )}
+
+      {/* ── Coastal Sea Route Planner ─────────────────────────────────────────
+          Accessible directly below the Passage Risk Audit — same page,
+          no tab switching. Uses the coastal A* engine, satellite basemap,
+          IMBL boundaries, port/zone pickers and map-pick mode. */}
+      <div className="mt-10 border-t border-edge/60 pt-8 print:hidden">
+        <div className="mb-4">
+          <h2 className="text-base font-semibold text-ink">Coastal Sea Route Planner</h2>
+          <p className="mt-0.5 text-xs text-ink-dim">
+            Calculate safe coastal routes between major ports, fishing zones, or custom sea coordinates —
+            with obstacle avoidance, IMBL boundaries, and satellite view.
+          </p>
+        </div>
+        <CoastalSeaRoute />
+      </div>
     </PageBody>
   );
 }
