@@ -6,7 +6,7 @@
 // single point, walked along the whole passage at each leg's own ETA.
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Anchor, AlertTriangle, Bell, BellOff, Download, MapPin, Navigation, Printer, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, Anchor, Bell, BellOff, Download, MapPin, Navigation, Printer, Route as RouteIcon, Save, Trash2 } from "lucide-react";
 import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
@@ -20,7 +20,7 @@ import { ErrorState } from "../components/States";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { getToken } from "../lib/auth";
 import { createVoyage, deleteVoyage, listVoyages, promoteVoyage, unpromoteVoyage, type Voyage } from "../lib/voyages";
-import { CoastalSeaRoute } from "./CoastalSeaRoute";
+import { computeSeaRoute, fetchSeaPorts, type SeaPort, type SeaRouteResult } from "../lib/seaRoute";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -163,7 +163,6 @@ function downloadText(filename: string, content: string, mime: string) {
 
 function VoyageContent() {
   const searchParams = useSearchParams();
-  void searchParams; // kept for potential future deep-link use
 
   const [mode, setMode] = useState<"origin" | "destination">("origin");
   const [origin, setOrigin] = useState<LatLon | null>(null);
@@ -184,6 +183,17 @@ function VoyageContent() {
   // states the total is missing rather than guessing a rate.
   const [fuelBurnLph, setFuelBurnLph] = useState("");
 
+  // ── Coastal sea-route port pickers ─────────────────────────────────────
+  // Ports are fetched once on mount and cached in state. Selecting a port
+  // auto-fills origin / destination so the existing Plan voyage button just
+  // works — no separate form or engine needed.
+  const [ports, setPorts] = useState<SeaPort[]>([]);
+  const [originPort, setOriginPort] = useState("");
+  const [destPort, setDestPort] = useState("");
+  // Coastal A* result — computed alongside the hazard audit when both points
+  // are known, shows obstacle-avoiding distance + ETA as extra context.
+  const [coastalResult, setCoastalResult] = useState<SeaRouteResult | null>(null);
+
   const [plan, setPlan] = useState<VoyagePlanResponse | null>(null);
   const [tide, setTide] = useState<Tide | null>(null);
   const [loading, setLoading] = useState(false);
@@ -196,6 +206,11 @@ function VoyageContent() {
   const [savedVoyages, setSavedVoyages] = useState<Voyage[] | null>(null);
   const [savingVoyage, setSavingVoyage] = useState(false);
   const [voyageBusyId, setVoyageBusyId] = useState<string | null>(null);
+
+  // Fetch ports once on mount — used by the port pickers in the Route panel.
+  useEffect(() => {
+    fetchSeaPorts().then(setPorts).catch(() => {});
+  }, []);
 
   const loadSavedVoyages = useCallback(() => {
     if (!getToken()) return;
@@ -299,6 +314,7 @@ function VoyageContent() {
     setError(null);
     setPlan(null);
     setTide(null);
+    setCoastalResult(null);
     try {
       const res = await fetch(`${API_BASE}/api/voyage-plan`, {
         method: "POST",
@@ -321,6 +337,15 @@ function VoyageContent() {
         .then((r) => r.json())
         .then(setTide)
         .catch(() => {});
+      // Coastal A* route — runs in parallel to give obstacle-avoiding
+      // distance and ETA as extra context alongside the hazard audit.
+      computeSeaRoute({
+        mode: "map_pick",
+        from_lat: o.lat, from_lng: o.lon,
+        to_lat: d.lat, to_lng: d.lon,
+        speed_knots: speedKn,
+        departure: departure ? new Date(departure).toISOString() : null,
+      }).then(setCoastalResult).catch(() => {});
     } catch {
       setError("Could not reach Sagar Sarathi. Check the backend is running and try again.");
     } finally {
@@ -373,6 +398,53 @@ function VoyageContent() {
         <div className="flex flex-col gap-4">
           <Panel title="Route" dense className="print:hidden">
             <form onSubmit={submit} className="flex flex-col gap-1">
+              {/* ── Port quick-pick ── */}
+              {ports.length > 0 && (
+                <div className="mb-3 rounded-lg border border-hairline/60 bg-shelf-1/40 px-3 py-2.5">
+                  <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
+                    <RouteIcon className="size-3" />
+                    Quick-pick from port
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-ink-dim">From</label>
+                      <select
+                        value={originPort}
+                        onChange={(e) => {
+                          setOriginPort(e.target.value);
+                          const p = ports.find((p) => p.id === e.target.value);
+                          if (p) { setOrigin({ lat: p.lat, lon: p.lng }); setOriginCheck(null); }
+                        }}
+                        className={inputClass + " text-[11px]"}
+                      >
+                        <option value="">Pick port…</option>
+                        {ports.map((p) => (
+                          <option key={p.id} value={p.id} className="bg-shelf-2">{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-ink-dim">To</label>
+                      <select
+                        value={destPort}
+                        onChange={(e) => {
+                          setDestPort(e.target.value);
+                          const p = ports.find((p) => p.id === e.target.value);
+                          if (p) { setDestination({ lat: p.lat, lon: p.lng }); setDestinationCheck(null); }
+                        }}
+                        className={inputClass + " text-[11px]"}
+                      >
+                        <option value="">Pick port…</option>
+                        {ports.map((p) => (
+                          <option key={p.id} value={p.id} className="bg-shelf-2">{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <p className="mt-1.5 text-[10px] text-ink-dim">Or tap the chart below to pin any point at sea.</p>
+                </div>
+              )}
+
               <div className="mb-2.5 flex gap-2">
                 <Button
                   type="button"
@@ -743,6 +815,48 @@ function VoyageContent() {
                     </>
                   )}
                 </ReadoutGrid>
+
+                {/* Coastal A* — obstacle-avoiding distance and ETA run in
+                    parallel with the hazard audit, shown here as extra context. */}
+                {coastalResult && (
+                  <div className="mt-4 border-t border-hairline pt-3">
+                    <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
+                      <RouteIcon className="size-3" />
+                      Coastal route (obstacle-avoiding)
+                    </p>
+                    <ReadoutGrid cols={3}>
+                      <Readout
+                        label="Distance"
+                        value={coastalResult.distance_km.toFixed(0)}
+                        unit="km"
+                        hint={`${coastalResult.distance_nm.toFixed(1)} nm`}
+                      />
+                      <Readout
+                        label="Duration"
+                        value={coastalResult.hours < 24
+                          ? `${coastalResult.hours.toFixed(1)} h`
+                          : `${Math.floor(coastalResult.hours / 24)}d ${(coastalResult.hours % 24).toFixed(0)}h`}
+                      />
+                      <Readout
+                        label="ETA"
+                        value={new Date(coastalResult.eta).toLocaleString("en-IN", {
+                          timeZone: "Asia/Kolkata",
+                          hour: "2-digit", minute: "2-digit",
+                          day: "numeric", month: "short",
+                        })}
+                        hint="IST"
+                      />
+                    </ReadoutGrid>
+                    {coastalResult.warnings.filter((w) =>
+                      !w.startsWith("DISCLAIMER") && !w.startsWith("NOTE")
+                    ).map((w, i) => (
+                      <div key={i} className="mt-2 flex items-start gap-2 rounded-md border border-caution/40 bg-caution/8 px-2.5 py-1.5 text-[11px] text-ink-muted">
+                        <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                        <span>{w}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Panel>
 
               <Panel
@@ -811,21 +925,6 @@ function VoyageContent() {
             </>
           )}
         </div>
-      </div>
-
-      {/* ── Coastal Sea Route Planner ─────────────────────────────────────────
-          Accessible directly below the Passage Risk Audit — same page,
-          no tab switching. Uses the coastal A* engine, satellite basemap,
-          IMBL boundaries, port/zone pickers and map-pick mode. */}
-      <div className="mt-10 border-t border-edge/60 pt-8 print:hidden">
-        <div className="mb-4">
-          <h2 className="text-base font-semibold text-ink">Coastal Sea Route Planner</h2>
-          <p className="mt-0.5 text-xs text-ink-dim">
-            Calculate safe coastal routes between major ports, fishing zones, or custom sea coordinates —
-            with obstacle avoidance, IMBL boundaries, and satellite view.
-          </p>
-        </div>
-        <CoastalSeaRoute />
       </div>
     </PageBody>
   );
