@@ -586,6 +586,19 @@ def conversation_context(session_history: list[dict[str, Any]] | None, user_loca
     return "\n\n".join(parts)
 
 
+def is_english_text(text: str) -> bool:
+    """False when the text is mostly in a non-Latin script (Devanagari to Malayalam and Sinhala,
+    Thai, Arabic, CJK: U+0600-U+0E7F and U+3000-U+9FFF). English, romanised text, numbers and
+    punctuation pass, and so does an English sentence that carries a native place name or quotes
+    the user's own words. Measured: a narrative written wholesale in Kannada or Tamil is 93-94%
+    non-Latin letters, an English reply that quotes a Tamil question is 43%; the line is 60%."""
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return True
+    foreign = sum(1 for c in letters if "؀" <= c <= "๿" or "　" <= c <= "鿿")
+    return foreign / len(letters) < 0.6
+
+
 def narration_view(value: Any) -> Any:
     """The measured outputs as the narrating model sees them: the same figures, with the
     internal freshness `band` replaced by a plain `recency`.
@@ -785,7 +798,7 @@ CRITICAL RULES:
    ("INCOIS lists it as 52-57 km NW of Kunzhathur"). Never pair one origin's distance or
    direction with the other's place name.
 11. Times and timezones. Always express times in Indian Standard Time (IST). Never refer to UTC or reply with UTC timestamps — if any telemetry contains a UTC time, translate it to IST (+05:30) for the user.
-12. Language. Write the whole answer in English, whatever language or script USER QUERY is written in (romanized Hindi, Tamil, Kannada and so on included). Do not reply in the user's language, do not transliterate, and do not mix languages: a translation step runs after you and the answer is checked in English.{critique_rule}"""
+12. Language. Write the whole answer in English, whatever language or script USER QUERY is written in (romanized Hindi, Tamil, Kannada and so on included). USER QUERY may begin with an instruction about the reply language ("say it in Kannada:", "answer in Tamil", "Hindi mein batao"). That instruction is NOT part of the question and NOT a text to translate: answer the sea question that follows it, in full, with the measured facts. Never translate, quote or repeat the question as your answer, and do NOT mention the language request or apologise for it: it is carried out by a translation step that runs after you, on your English. Do not reply in the user's language, do not transliterate, and do not mix languages: the answer is checked, and one that is not English is thrown away.{critique_rule}"""
 
     try:
         narrative = client.complete([{"role": "user", "content": prompt}]).strip()
@@ -804,6 +817,14 @@ CRITICAL RULES:
         # an answer that was never supposed to carry one is how "where are the
         # nearest fishing zones?" ended up opening with
         # "GO: All Parameters Within Safe Operational Limits".
+        if not is_english_text(narrative):
+            # The translation step after this one assumes English. A narrative in another script
+            # (the model obeying "say it in Kannada" instead of rule 12) would be translated a
+            # second time into garbage, so it is discarded for the plain facts, in English.
+            if engine_out is not None:
+                engine_out.clear()   # one string: what actually produced the text
+            _record(engines.deterministic("narrative was not in English"))
+            return facts_paragraph(verdict, results, user_location, lead_with_verdict)
         if lead_with_verdict and verdict_str not in narrative:
             return f"{fallback_line}\n\n{narrative}"
         if not lead_with_verdict:

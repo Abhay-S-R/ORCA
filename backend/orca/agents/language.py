@@ -397,9 +397,11 @@ def run_ingress(state: ORCAState) -> AgentResult:
 
 def run_egress(state: ORCAState) -> AgentResult:
     """(ORCAState) -> AgentResult. Translates the assembled English response
-    back to the query's detected language. English queries pass through
+    back to the requested reply language, or else the query's detected one. English queries pass through
     untouched (translate_from_english short-circuits on target == "en")."""
-    target = _coerce_language(state.get("detected_language", "en") or "en")
+    # PC5.8: an explicit "answer in <language>" request wins; otherwise the language of the
+    # question's script (English for Latin text).
+    target = _coerce_language(state.get("reply_language") or state.get("detected_language", "en") or "en")
     english_text = state.get("final_english_response", "") or ""
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 

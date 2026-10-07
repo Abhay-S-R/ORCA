@@ -84,7 +84,6 @@ export default function AskPage() {
     saveFailed,
     streaming,
     activeFocus,
-    setActiveFocus,
     ask,
     rerun,
     showVersion,
@@ -402,12 +401,7 @@ export default function AskPage() {
                   key={turn.id}
                   turn={turn}
                   persona={persona}
-                  isMapFocus={activeFocus?.nonce === turn.focus?.nonce}
                   hadEarlierAnswers={hadEarlierAnswers(turns, i)}
-                  onViewOnMap={() => {
-                    setActiveFocus(turn.focus);
-                    setMapCollapsed(false);
-                  }}
                   onRetry={() => ask(turn.askedQuery)}
                   onRerun={() => rerun(turn.id)}
                   onShowVersion={(index) => showVersion(turn.id, index)}

@@ -11,7 +11,6 @@
 // /voice/speak call then returns a cache hit in <50ms instead of 5-15s.
 import { useEffect, useRef, useState } from "react";
 import { Volume2, Square } from "lucide-react";
-import { Button } from "./Button";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
 
@@ -27,7 +26,6 @@ export function AnswerSpeaker({
   queryId: string | undefined;
 }) {
   const [playing, setPlaying] = useState(false);
-  const [rung, setRung] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const urlRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -84,7 +82,6 @@ export function AnswerSpeaker({
         cachedBlobRef.current = { text, blob, rung: ttsRung };
       }
 
-      setRung(ttsRung);
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
       const url = URL.createObjectURL(blob);
       urlRef.current = url;
@@ -109,45 +106,21 @@ export function AnswerSpeaker({
     };
   }, [queryId, persona]);
 
-  // P4.5 (R-NEW-6) — "full voice operability without reading": the mic
-  // button (P4.4) is already the loudest control on this persona's screen;
-  // hearing the answer back needs the same treatment, an icon a fisherman
-  // recognizes on sight rather than a label they have to read first.
-  if (persona === "fisherman") {
-    return (
-      <div className="flex items-center gap-2.5">
-        <button
-          type="button"
-          onClick={playing ? stop : speak}
-          aria-label={playing ? "Stop playing the answer" : "Play the answer aloud"}
-          className="inline-flex h-[52px] w-[52px] shrink-0 cursor-pointer items-center justify-center rounded-full border-2 border-ocean-cyan bg-ocean-cyan text-on-accent shadow-md transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {playing ? <Square className="size-6" aria-hidden="true" /> : <Volume2 className="size-6" aria-hidden="true" />}
-        </button>
-        {error && <span className="text-sm text-no-go">{error}</span>}
-      </div>
-    );
-  }
-
+  // P4.5 (R-NEW-6) — "full voice operability without reading": an icon recognised on sight
+  // rather than a label to read first. It was the fisherman's button only; every other
+  // persona still got the older "Play verdict" text button. Since 2026-10-06 every persona
+  // gets this one: the same tap plays, the same tap stops.
   return (
-    <div className="flex items-center gap-2">
-      <Button
+    <div className="flex items-center gap-2.5">
+      <button
         type="button"
-        variant="ghost"
-        className="text-xs"
-        icon={<Volume2 className="size-3.5" />}
-        onClick={speak}
-        disabled={playing}
+        onClick={playing ? stop : speak}
+        aria-label={playing ? "Stop playing the answer" : "Play the answer aloud"}
+        className="inline-flex h-[52px] w-[52px] shrink-0 cursor-pointer items-center justify-center rounded-full border-2 border-ocean-cyan bg-ocean-cyan text-on-accent shadow-md transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {playing ? "Playing…" : "Play verdict"}
-      </Button>
-      {playing && (
-        <Button type="button" variant="ghost" className="text-xs" icon={<Square className="size-3.5" />} onClick={stop}>
-          Stop
-        </Button>
-      )}
-      {rung && <span className="text-[11px] text-ink-dim">via {rung === "mms_tts" ? "MMS-TTS (local)" : rung}</span>}
-      {error && <span className="text-[11px] text-no-go">{error}</span>}
+        {playing ? <Square className="size-6" aria-hidden="true" /> : <Volume2 className="size-6" aria-hidden="true" />}
+      </button>
+      {error && <span className="text-sm text-no-go">{error}</span>}
     </div>
   );
 }

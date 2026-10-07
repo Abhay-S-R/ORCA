@@ -90,3 +90,10 @@ jobs:
         run: npm run lint
       - name: TypeScript type check
         run: npx tsc --noEmit
+      # Every dictionary carries every key en.json has (README "Quality gates" lists this).
+      - name: i18n dictionaries match English
+        run: npm run check:i18n
+      # A translated answer must never render blank on the card (2026-10-07: the
+      # "GO: reason" split swallowed whole Kannada/Tamil/Hindi answers).
+      - name: Verdict header never hides the answer
+        run: npm run check:verdict-header

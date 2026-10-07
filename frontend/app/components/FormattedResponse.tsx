@@ -12,6 +12,7 @@ import {
   MapPin,
 } from "lucide-react";
 import { fontClassForLanguage } from "../i18n/languages";
+import { splitVerdictHeader } from "../lib/verdictHeader";
 import { useT } from "../i18n/useT";
 
 interface FormattedResponseProps {
@@ -97,26 +98,12 @@ export function FormattedResponse({ text, className = "", language, large = fals
   const parsed = useMemo(() => {
     if (!text) return null;
 
-    let raw = text.trim();
-
-    // 1. Check for leading Verdict banner (e.g. "GO: All Parameters Within Safe Operational Limits")
-    let verdictHeader: { type: "GO" | "CAUTION" | "NO_GO"; text: string } | null = null;
-    // Non-greedy up to the first sentence break (". " + a capital letter) or
-    // end of string — so a terse "GO: reason" still captures the whole
-    // reason (no period to stop at), but "GO: reason. Then two more
-    // sentences of elaboration." puts only the reason in the banner and
-    // leaves the elaboration to flow into the normal paragraph/section
-    // parsing below, instead of one banner growing to swallow a whole
-    // paragraph.
-    const verdictMatch = raw.match(/^(GO|CAUTION|NO_GO):\s*([^\n*]+?)(?:\.\s+(?=[A-Z])|$)/i);
-    if (verdictMatch) {
-      const vType = verdictMatch[1].toUpperCase() as "GO" | "CAUTION" | "NO_GO";
-      verdictHeader = {
-        type: vType,
-        text: verdictMatch[2].trim(),
-      };
-      raw = raw.slice(verdictMatch[0].length).trim();
-    }
+    // 1. The leading "GO: reason", split off so the verdict is not said twice. The split is
+    // never allowed to swallow the whole answer (lib/verdictHeader.ts says why).
+    const split = splitVerdictHeader(text);
+    let raw = split.body;
+    const verdictHeader: { type: "GO" | "CAUTION" | "NO_GO"; text: string } | null =
+      split.verdict ? { type: split.verdict, text: split.reason } : null;
 
     // 2. Look for sections marked by "### "
     // Note: some responses have " -- ### " or "\n### "

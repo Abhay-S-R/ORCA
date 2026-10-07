@@ -600,7 +600,10 @@ async def _query_stream(
             # and whether a refused message was only small talk.
             "response_engine": final_state.get("response_engine"),
             "small_talk": final_state.get("small_talk", False),
-            "detected_language": final_state.get("detected_language", "en"),
+            # The language the ANSWER is in, which the card uses for its font, the spoken reply and
+            # the "English translation" box: an explicit "answer in <language>" request (PC5.8)
+            # wins over the language the question was typed in.
+            "detected_language": final_state.get("reply_language") or final_state.get("detected_language", "en"),
             # What the chat's context window remembers this turn as
             # (session.turn_from_final) — English query and matched routing
             # rows, so a Tamil follow-up still continues the right intent.

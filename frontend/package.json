@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "check:i18n": "node scripts/check-i18n.mjs",
+    "check:verdict-header": "node scripts/check-verdict-header.mjs",
     "copy:maplibre": "node scripts/copy-maplibre-worker.mjs",
     "predev": "npm run copy:maplibre",
     "prebuild": "npm run copy:maplibre",

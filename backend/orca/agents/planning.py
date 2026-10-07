@@ -651,6 +651,7 @@ def run(state: ORCAState) -> AgentResult:
             is_followup=state.get("understood_is_followup", False),
             agents=state.get("planned_agents", []),
             english_reading=state.get("understood_english_reading"),
+            reply_language=state.get("reply_language"),
         )
         understand_engine = "injected_state"
         tier_out.append("understand_injected")
@@ -862,6 +863,8 @@ def run(state: ORCAState) -> AgentResult:
             "agents": understood_agents,  # PC2.1
             # PC5.2: display only. Nothing in planning, routing or validation reads it.
             "english_reading": understood.english_reading,
+            # PC5.8: validated in understand._clean_reply_language; None unless explicitly asked.
+            "reply_language": understood.reply_language,
             # Validation / guard fields (PC2.3)
             "query_outcome": query_outcome,
             "query_outcome_body": query_outcome_body,

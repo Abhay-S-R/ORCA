@@ -53,6 +53,10 @@ class UnderstoodPrompt:
     # place lookup or validation, so a wrong reading cannot move a verdict; the "I understood: ..."
     # line (PC5.5) is what shows it to the user.
     english_reading: str | None = None
+    # PC5.8: the language the user EXPLICITLY asked the answer to be in ("answer in Kannada",
+    # "ಕನ್ನಡದಲ್ಲಿ ಹೇಳಿ"), as one of the ten supported codes, or None. Never inferred from the
+    # language the message is written in (that is the script's job): None means "no request".
+    reply_language: str | None = None
 
 
 _ROUTING_ROW_NAMES = (
@@ -135,7 +139,8 @@ OUTPUT FORMAT — JSON only, no markdown wrapping, no extra text:
   "when": {{"start": "<ISO datetime>", "end": "<ISO datetime>"}} or null,
   "is_followup": true/false,
   "agents": ["<zero or more specialist names>"],
-  "english_reading": "<the message in plain English, or the message itself if it is already English>"
+  "english_reading": "<the message in plain English, or the message itself if it is already English>",
+  "reply_language": "<ta|hi|te|ml|kn|bn|mr|gu|or|en, only if the user explicitly asked for the answer in a language, else null>"
 }}
 
 KNOWN SPECIALISTS (agents field): marine_data_discovery, weather_intelligence, ocean_analytics, geospatial, risk_assessment, visualization, reporting
@@ -177,11 +182,26 @@ RULES:
     c. When ORCA's last reply was a sea answer, a short follow-up is (a). When it was a capability answer, a refusal or chat, a follow-up that wants more is (b).
     d. A message that depends on the conversation is never "off_topic", and never a sea_question about a place the user did not name.
 15. INLAND PLACES. kind = "inland_place" when the user asks for weather, conditions or a forecast at a place that is clearly inland, far from the sea (Bengaluru, Delhi, Hyderabad, Pune, Jaipur, Lucknow). Put the place in `places` as typed. It is NOT off_topic (the user is asking about weather) and NOT a sea_question (ORCA has no sea data for it). A coastal city or port is always a sea_question: Mumbai, Chennai, Kochi, Visakhapatnam, Kolkata, Mangalore, Goa. If unsure whether a place is on the coast, use sea_question.
-16. ENGLISH READING. `english_reading` is one short sentence: what the user wrote, in plain English. Translate or transliterate Indian-language and romanized text ("kal subah rameswaram ke paas samudra mein jaana safe hai kya" becomes "Is it safe to go to sea near Rameswaram tomorrow morning?"). If the message is already English, copy it with its typos fixed. Keep place names. Do not answer the question, do not add facts, and do not guess a place the user did not write. It is shown to the user so they can see how they were understood.
+16. ENGLISH READING. `english_reading` is one short sentence: what the user wrote, in plain English, WITHOUT any instruction about the reply language ("answer in Kannada: pfzs near Mangalore" reads "PFZs near Mangalore"). Translate or transliterate Indian-language and romanized text ("kal subah rameswaram ke paas samudra mein jaana safe hai kya" becomes "Is it safe to go to sea near Rameswaram tomorrow morning?"). If the message is already English, copy it with its typos fixed. Keep place names. Do not answer the question, do not add facts, and do not guess a place the user did not write. It is shown to the user so they can see how they were understood.
+17. REPLY LANGUAGE. `reply_language` is set ONLY when the user explicitly asks for the answer in a language: "answer in Kannada", "reply in Tamil", "Hindi mein batao", "ಕನ್ನಡದಲ್ಲಿ ಹೇಳಿ", also when the language is misspelt ("kannda", "tamizh"). Give its code: ta Tamil, hi Hindi, te Telugu, ml Malayalam, kn Kannada, bn Bengali, mr Marathi, gu Gujarati, or Odia, en English. In every other case it is null, including when the message itself is written in an Indian language or in romanized Hindi, Tamil or Kannada: the language a message is written in is NOT a request for a reply in it. The request words are an instruction about the reply, not part of the sea question: still read the places, time and intent from the rest of the message.
 """
 
 
 _ENGLISH_READING_MAX = 240
+
+# The languages a reply can be translated into (language._ALL_LANGUAGES; a test keeps the two equal).
+# Kept as a literal here so this module does not import the translation stack.
+_REPLY_LANGUAGES = ("ta", "hi", "te", "ml", "kn", "bn", "mr", "gu", "or", "en")
+
+
+def _clean_reply_language(value: Any) -> str | None:
+    """A supported language code, or None. The model proposes, code validates: anything that is
+    not exactly one of the ten codes (a language name, a code we cannot translate to, a non-string)
+    is "no request", so a garbled value can never send the reply to an unsupported language."""
+    if not isinstance(value, str):
+        return None
+    code = value.strip().lower()
+    return code if code in _REPLY_LANGUAGES else None
 
 
 def _clean_english_reading(value: Any) -> str | None:
@@ -227,6 +247,7 @@ def _parse_understand_output(raw: str) -> UnderstoodPrompt | None:
         is_followup=is_followup,
         agents=agents,
         english_reading=_clean_english_reading(data.get("english_reading")),
+        reply_language=_clean_reply_language(data.get("reply_language")),
     )
 
 

@@ -566,6 +566,7 @@ def planning_node(state: ORCAState) -> dict:
         "understood_is_followup": outputs.get("is_followup", False),
         "planned_agents": outputs.get("agents", []),  # PC2.1
         "understood_english_reading": outputs.get("english_reading"),  # PC5.2, display only
+        "reply_language": outputs.get("reply_language"),  # PC5.8, only when explicitly requested
         # Validation / guard fields (PC2.3)
         "query_outcome": outputs.get("query_outcome"),
         # Routing fields
@@ -1082,6 +1083,11 @@ def reporting_run(state: ORCAState) -> AgentResult:
 
     assembled = reporting.assemble_response(query_id, results)
     query_text = state.get("normalized_english_query") or state.get("raw_user_query") or ""
+    reading = state.get("understood_english_reading")
+    if state.get("reply_language") and reading:
+        # PC5.8: the narrative must see the question, not "say it in Kannada:", which it obeys
+        # (writes Kannada) or translates (answers with the question itself).
+        query_text = reading
     persona = state.get("stakeholder_persona") or "fisherman"
     engine_out: list[str] = []
     # user_location travels with the verdict, not just the coordinates: Agent 9

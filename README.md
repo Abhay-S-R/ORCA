@@ -86,7 +86,7 @@ Supporting rules that every agent and API response is checked against:
 | 5 | **Quality validation runs regardless of persona.** Every query passes through the Critic. |
 | 6 | **Monitoring does not wait for a query.** The Sentinel agent runs continuously. |
 | 7 | **Every emergency signal has one owner, and it is never the model alone.** Distress detection is phrase-list matching; a model check may raise an alarm but can never clear one. |
-| 8 | **The model is optional.** Any answer can be re-run with every language model disabled; the verdict, thresholds, geofences, citations and confidence remain, and only the prose degrades to a plain statement of the measured facts. |
+| 8 | **The model is optional.** With every language model disabled (`ORCA_LLM_ENABLED=0`, or `llm=off` on `/query`), the verdict, thresholds, geofences, citations and confidence remain, and only the prose degrades to a plain statement of the measured facts. |
 | 9 | **Optimizations never trade against principles 1, 4 or 6.** |
 
 ---
@@ -371,7 +371,7 @@ Database migrations live in `infra/db/`.
 | Route | Purpose |
 |---|---|
 | `/` | Home: the conversational interface, live agent trace and answer card |
-| `/ask` | Chat with history, follow-ups, voice input and "re-run without any model" |
+| `/ask` | Chat with history, follow-ups and voice input |
 | `/map` | Full-screen map: PFZ, IMBL and MPA geofences, weather and ocean layers |
 | `/trends` | SST and chlorophyll time series |
 | `/zones` | Sector browser with PFZ status and persistence |

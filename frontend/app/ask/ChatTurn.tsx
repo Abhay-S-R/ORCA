@@ -5,7 +5,7 @@
 // because that file renders one of these per turn now instead of exactly
 // one ever — keeping it here is what keeps the thread's map() call readable.
 import { motion } from "framer-motion";
-import { History, MapPin, PowerOff, Radio } from "lucide-react";
+import { ChevronDown, History, PowerOff, Radio } from "lucide-react";
 import { AgentPill, AgentStrip, AGENT_ORDER, nextRunningAgent, type AgentStatus } from "../components/AgentPill";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
@@ -21,7 +21,7 @@ import { FormattedResponse } from "../components/FormattedResponse";
 import { SourceChip } from "../components/SourceChip";
 import { SourceNarration } from "../components/SourceNarration";
 import { ErrorState, Skeleton } from "../components/States";
-import { intentLabel, type QueryIntent } from "../lib/queryIntent";
+import { type QueryIntent } from "../lib/queryIntent";
 import { type Persona } from "../persona/config";
 import type { AgentSpan, InheritedValue, Turn } from "./useAskThread";
 import { turnVersions } from "./useAskThread";
@@ -72,9 +72,7 @@ function groupRuns(spans: AgentSpan[]): { span: AgentSpan; runs: number; latency
 export function ChatTurn({
   turn,
   persona,
-  isMapFocus,
   hadEarlierAnswers,
-  onViewOnMap,
   onRetry,
   onRerun,
   onShowVersion,
@@ -83,9 +81,7 @@ export function ChatTurn({
 }: {
   turn: Turn;
   persona: Persona;
-  isMapFocus: boolean;
   hadEarlierAnswers: boolean;
-  onViewOnMap: () => void;
   onRetry: () => void;
   onRerun: () => void;
   onShowVersion: (index: number) => void;
@@ -260,7 +256,6 @@ export function ChatTurn({
                   persona={renderedAs ?? persona}
                   queryId={answer.query_id}
                   intent={focus?.intent ?? "general"}
-                  agentsVerified={spans.filter((s) => s.status === "ok").length}
                   verdict={answer.risk_assessment.go_no_go}
                   // P2.2 (`R-JUDGE-2`) — a GO on a question that was not about
                   // safety is rendered as a quiet inline line, not a chip.
@@ -283,39 +278,17 @@ export function ChatTurn({
                 />
               )}
 
-              {/* The chat's context window (orca/session.py). Stated both
-                  ways: which earlier messages this answer followed on from,
-                  or — when the thread has earlier answers the backend no
-                  longer holds — that it was answered as a new question,
-                  rather than letting a follow-up fail silently. */}
-              {answer.context_turns != null && (answer.context_turns > 0 || hadEarlierAnswers) && (
-                <p
-                  className={`flex items-center gap-1.5 text-[11px] ${
-                    answer.context_turns > 0 ? "text-ink-dim" : "text-caution"
-                  }`}
-                >
+              {/* The chat's context window (orca/session.py). Only the WARNING is shown: when the
+                  thread has earlier answers the backend no longer holds, this one was answered as a
+                  new question, and saying so beats letting a follow-up fail silently. The routine
+                  "Following on from N earlier messages" line and the "View on map" re-sync link were
+                  removed from the card (the "Carried over" chips above the answer still name what
+                  was inherited, and the shared map moves by itself when a question is asked). */}
+              {answer.context_turns === 0 && hadEarlierAnswers && (
+                <p className="flex items-center gap-1.5 text-[11px] text-caution">
                   <History className="size-3 shrink-0" aria-hidden="true" />
-                  {answer.context_turns > 0
-                    ? t(answer.context_turns === 1 ? "chatTurn.followingOnOne" : "chatTurn.followingOnMany", { n: answer.context_turns })
-                    : t("chatTurn.contextExpired")}
+                  {t("chatTurn.contextExpired")}
                 </p>
-              )}
-
-              {/* The shared map already moved for this question the moment it
-                  was asked — clicking re-syncs it, useful once other turns
-                  have moved it elsewhere. */}
-              {focus && (
-                <button
-                  type="button"
-                  onClick={onViewOnMap}
-                  className="flex items-center gap-1.5 self-start text-[11px] text-ink-dim transition-colors hover:text-accent"
-                >
-                  <MapPin className="size-3 text-accent" aria-hidden="true" />
-                  {(() => {
-                    const label = intentLabel(t, focus.intent, answer?.user_location?.place_source === "regional_default");
-                    return t(isMapFocus ? "chatTurn.mapFocusedOn" : "chatTurn.viewOnMap", { label });
-                  })()}
-                </button>
               )}
 
               {(() => {
@@ -377,13 +350,16 @@ export function ChatTurn({
               </div>
 
               {/* Differentiator 4 — Agent 3's source-selection reasoning, on
-                  the card, not buried in the trace. */}
+                  the card, not buried in the trace. A dropdown, closed by default (2026-10-06):
+                  the source narrations are long, and the card should lead with the answer. */}
               {((answer.source_selections && answer.source_selections.length > 0) ||
                 (answer.citations && answer.citations.length > 0)) && (
-                <div className="flex flex-col gap-2 border-t border-hairline/50 pt-3.5">
-                  <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
-                    {t("chatTurn.sourcesProvenance")}
-                  </span>
+                <details className="group border-t border-hairline/50 pt-3.5">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim transition-colors hover:text-ink [&::-webkit-details-marker]:hidden">
+                    <span>{t("chatTurn.sourcesProvenance")}</span>
+                    <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" aria-hidden="true" />
+                  </summary>
+                  <div className="mt-2.5 flex flex-col gap-2">
                   {answer.source_selections && answer.source_selections.length > 0 && (
                     <div className="flex flex-col gap-1.5">
                       {answer.source_selections.map((s) => (
@@ -404,7 +380,8 @@ export function ChatTurn({
                       ))}
                     </div>
                   )}
-                </div>
+                  </div>
+                </details>
               )}
 
               {/* Follow-up suggestions — the response never dead-ends into a
@@ -427,23 +404,9 @@ export function ChatTurn({
                 </div>
               )}
 
-              {/* P2.11 (`R-NEW-3`) — prove the LLM is optional, live. Re-asks
-                  this exact question with every provider disabled; the verdict,
-                  thresholds, geofence, citations and confidence all still
-                  render, and only the prose degrades to the deterministic
-                  line. The two answers sit side by side in the thread, which
-                  is the whole demonstration. */}
-              {!llmOff && (
-                <button
-                  type="button"
-                  onClick={() => onFollowUp(askedQuery, { llm: "off" })}
-                  className="flex w-fit items-center gap-1.5 self-start rounded-lg border border-hairline/60 bg-shelf-2/50 px-2.5 py-1.5 text-[11px] text-ink-muted transition-colors hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink"
-                >
-                  <PowerOff className="size-3 text-accent" aria-hidden="true" />
-                  {t("chatTurn.rerunNoLlm")}
-                </button>
-              )}
-
+              {/* P2.11 (`R-NEW-3`): the "Re-run this without any LLM" button was removed from the card
+                  (2026-10-06). The backend still honours `llm=off`, and an answer that WAS produced
+                  that way still says so just below. */}
               {llmOff && (
                 <p className="flex items-start gap-1.5 rounded-lg border border-accent/40 bg-accent/5 p-2.5 text-[11px] leading-snug text-ink-muted">
                   <PowerOff className="mt-0.5 size-3 shrink-0 text-accent" aria-hidden="true" />

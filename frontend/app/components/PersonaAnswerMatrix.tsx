@@ -16,7 +16,6 @@ import { AlertTriangle, CheckCircle2, Compass, Cloud, Crosshair, Download, Octag
 import { Badge, verdictTone, type ConfidenceTier, type Verdict } from "./Badge";
 import { Button } from "./Button";
 import { Readout, ReadoutGrid } from "./Readout";
-import { freshnessLabel } from "./SourceChip";
 import { type Persona } from "../persona/config";
 import { type QueryIntent } from "../lib/queryIntent";
 
@@ -371,47 +370,10 @@ function windHint(value: number | null, t?: SafetyThresholds | null): string | u
   return `limit ${(t.caution_wind_kmh / 3.6).toFixed(1)} m/s caution · ${(t.danger_wind_kmh / 3.6).toFixed(1)} m/s danger`;
 }
 
-// P4.7 (R-PS-10) — "Why this answer?" for the fisherman persona: three plain
-// sentences (deciding factor, source, freshness), no agent names, no
-// jargon — everything else on this card ("IMBL distance", "MPA status")
-// is exactly the engineer-facing language this point exists to replace.
-function fishermanWhy(
-  weather: WeatherSummary,
-  thresholds: SafetyThresholds | null | undefined,
-  citations: Citation[],
-): { deciding: string; source: string; freshness: string } {
-  const waveM = weather.wave_height_m;
-  const windMs = weather.wind_speed_ms;
-  const windKmh = windMs !== null ? windMs * 3.6 : null;
-  let deciding: string;
-  if (thresholds && waveM !== null && waveM >= thresholds.danger_wave_m) {
-    deciding = `The waves were measured at ${waveM.toFixed(1)} m — too high for your boat.`;
-  } else if (thresholds && windKmh !== null && windKmh >= thresholds.danger_wind_kmh) {
-    deciding = `The wind was measured at ${windKmh.toFixed(0)} km/h — too strong for your boat.`;
-  } else if (thresholds && waveM !== null && waveM >= thresholds.caution_wave_m) {
-    deciding = `The waves were measured at ${waveM.toFixed(1)} m — close to the safe limit for your boat.`;
-  } else if (thresholds && windKmh !== null && windKmh >= thresholds.caution_wind_kmh) {
-    deciding = `The wind was measured at ${windKmh.toFixed(0)} km/h — close to the safe limit for your boat.`;
-  } else if (waveM !== null || windKmh !== null) {
-    deciding = "Wave height and wind speed were both within the safe limit for your boat.";
-  } else {
-    deciding = "No wave or wind reading was available for this answer.";
-  }
-
-  const weatherCitation = citations.find((c) => c.agent_name === "weather_intelligence");
-  const source = weatherCitation ? `Based on ${weatherCitation.dataset}.` : "No source is recorded for this reading.";
-  const freshness = weatherCitation
-    ? `That reading is ${freshnessLabel(Math.round((Date.now() - new Date(weatherCitation.acquisition_timestamp).getTime()) / 60000))}.`
-    : "";
-
-  return { deciding, source, freshness };
-}
-
 export function PersonaAnswerMatrix({
   persona,
   queryId,
   intent,
-  agentsVerified,
   verdict,
   reason,
   leadWithVerdict = true,
@@ -432,7 +394,6 @@ export function PersonaAnswerMatrix({
   // (ask/page.tsx's `focus.intent`), so the response and the chart always
   // agree on what kind of question this was.
   intent: QueryIntent;
-  agentsVerified: number;
   verdict: Verdict;
   reason: string;
   // P2.2 (`R-JUDGE-2`) — whether the verdict leads this answer. The backend
@@ -479,11 +440,6 @@ export function PersonaAnswerMatrix({
           </span>
           <p className="truncate text-sm font-bold tracking-tight text-ink">{INTENT_TITLE[intent]}</p>
         </div>
-        {agentsVerified > 0 && (
-          <Badge tone="cyan" icon={<ShieldCheck className="size-3" aria-hidden="true" />}>
-            {agentsVerified} Agents Verified
-          </Badge>
-        )}
       </div>
 
       {/* Status row — the verdict word and reason stay visible for every
@@ -518,13 +474,6 @@ export function PersonaAnswerMatrix({
             </>
           ) : (
             <div className="flex flex-col gap-1.5">
-              <p className="flex items-start gap-1.5 text-[12px] leading-relaxed text-ink-muted">
-                <VerdictIcon className="mt-0.5 size-3.5 shrink-0 text-go" aria-hidden="true" />
-                <span>
-                  Conditions checked — no hazard threshold crossed
-                  {reason ? <span className="text-ink-dim"> ({reason.toLowerCase()})</span> : null}.
-                </span>
-              </p>
               {confidenceTier === "LOW_DATA" && (
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-data-limited">
                   Data limited — verify locally
@@ -537,24 +486,6 @@ export function PersonaAnswerMatrix({
           )}
         </div>
       </div>
-
-      {persona === "fisherman" && (
-        <>
-          <Button variant="ghost" className="w-fit text-sm" icon={<ShieldCheck className="size-4" aria-hidden="true" />} onClick={() => setShowTechnical((v) => !v)}>
-            {showTechnical ? "Hide reasoning" : "Why this answer?"}
-          </Button>
-          {showTechnical && (() => {
-            const why = fishermanWhy(weather, thresholds, citations);
-            return (
-              <div className="flex flex-col gap-1.5 rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 text-base leading-relaxed text-ink backdrop-blur-md">
-                <p>{why.deciding}</p>
-                <p className="text-ink-muted">{why.source}</p>
-                {why.freshness && <p className="text-ink-muted">{why.freshness}</p>}
-              </div>
-            );
-          })()}
-        </>
-      )}
 
       {persona === "unresolved" && (
         <>
@@ -574,18 +505,6 @@ export function PersonaAnswerMatrix({
         </>
       )}
 
-      {persona === "commercial_navigator" && (
-        <div className="rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md">
-          <Group icon={<Compass className="size-3.5" />} label="Navigation readout">
-            <ReadoutGrid cols={4}>
-              {showBoundary && <Readout label="Boundary distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />}
-              <Readout label="MPA status" value={hazard.mpa_violation ? "Inside boundary" : "Clear"} hint={hazard.mpa_alert_level ?? undefined} />
-              <Readout label="Tide" value={tide.value} unit={tide.unit} hint={tide.hint} />
-              <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" hint="bathymetry/route detail: see /voyage" />
-            </ReadoutGrid>
-          </Group>
-        </div>
-      )}
 
       {persona === "researcher" && (
         <>

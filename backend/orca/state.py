@@ -107,6 +107,10 @@ class ORCAState(TypedDict):
     # DISPLAY ONLY: never used for routing, place lookup or validation (so a wrong reading cannot
     # move a verdict). PC5.5 shows it on the answer card.
     understood_english_reading: str | None
+    # PC5.8 (`PS-C2`) — the language the user EXPLICITLY asked the answer in, one of the ten
+    # supported codes, validated in understand.py; None when no language was requested. When set it
+    # overrides the language egress would otherwise pick (the script of the question).
+    reply_language: str | None
 
     distress_flag: bool  # set by Agent 12's detection, checked before any other node executes
     sentinel_subscription: dict[str, Any] | None  # set on ALERT_SUBSCRIPTION intent
