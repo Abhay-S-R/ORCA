@@ -73,7 +73,7 @@ def build_restricted(input_path: Path, buffer_nm: float) -> list[dict]:
         buffered = geom.buffer(buf_deg)
         name = props.get("line_name") or props.get("geoname") or props.get("name") or f"Maritime boundary {i}"
         is_pakistan = "pakistan" in t1 or "pakistan" in t2
-        is_palk_bay = "palk" in name.lower()
+        is_palk_bay = "historic waters" in str(props.get("source1", "")).lower() or "palk" in name.lower()
         mode = props.get("mode") or ("block" if (is_pakistan or is_palk_bay) else "warn")
 
         features.append({

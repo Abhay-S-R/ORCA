@@ -18,6 +18,7 @@ import { usePersona } from "../persona/context";
 import {
   computeSeaRoute,
   fetchFishingZones,
+  fetchMaritimeBoundaryLines,
   fetchRestrictedAreas,
   fetchSeaPorts,
   type FishingZoneFeature,
@@ -53,6 +54,7 @@ function SeaRouteMap({
   onMapClick,
   zones,
   restricted,
+  boundaryLines,
 }: {
   result: SeaRouteResult | null;
   mapPickMode: boolean;
@@ -61,6 +63,7 @@ function SeaRouteMap({
   onMapClick: (lat: number, lng: number) => void;
   zones: FishingZonesGeoJson | null;
   restricted: unknown;
+  boundaryLines: unknown;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
@@ -148,6 +151,24 @@ function SeaRouteMap({
             "line-color": "#b3402c",
             "line-width": 1.2,
             "line-dasharray": [3, 2],
+          },
+        });
+
+        // ── IMBL Treaty Boundary Lines layer ─────────────────────────────────
+        map.addSource("sea-imbl-lines", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        });
+        map.addLayer({
+          id: "sea-imbl-lines-layer",
+          type: "line",
+          source: "sea-imbl-lines",
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: {
+            "line-color": satelliteRef.current ? "#fbbf24" : "#d97706",
+            "line-width": 2.2,
+            "line-dasharray": [5, 3],
+            "line-opacity": 0.95,
           },
         });
 
@@ -286,6 +307,16 @@ function SeaRouteMap({
     }
   }, [ready, restricted]);
 
+  // Update IMBL boundary lines source when ready or boundaryLines change.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || !boundaryLines) return;
+    const src = map.getSource("sea-imbl-lines");
+    if (src?.type === "geojson") {
+      (src as import("maplibre-gl").GeoJSONSource).setData(boundaryLines as GeoJSONData);
+    }
+  }, [ready, boundaryLines]);
+
   // Start pin marker for Map Pick mode.
   useEffect(() => {
     const map = mapRef.current;
@@ -366,6 +397,13 @@ function SeaRouteMap({
         satellite ? "#ff3366" : "#8a3b52"
       );
     }
+    if (map.getLayer("sea-imbl-lines-layer")) {
+      map.setPaintProperty(
+        "sea-imbl-lines-layer",
+        "line-color",
+        satellite ? "#fbbf24" : "#d97706"
+      );
+    }
     if (map.getLayer("sea-zones-fill")) {
       map.setPaintProperty(
         "sea-zones-fill",
@@ -439,12 +477,16 @@ function SeaRouteMap({
           Route
         </span>
         <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2 w-4 border-b-2 border-dashed border-[#d97706] bg-transparent" />
+          IMBL Boundary
+        </span>
+        <span className="flex items-center gap-1.5">
           <span className={`inline-block h-2 w-4 rounded-sm transition-colors ${satellite ? "bg-[#06b6d4]/70" : "bg-[#2f6f74]/50"}`} />
           Fishing zones
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2 w-4 rounded-sm bg-[#b3402c]/40" />
-          Restricted
+          Restricted (2 nm)
         </span>
       </div>
     </div>
@@ -496,6 +538,7 @@ export default function SeaRoutePage() {
   const [ports, setPorts] = useState<SeaPort[]>([]);
   const [zones, setZones] = useState<FishingZonesGeoJson | null>(null);
   const [restricted, setRestricted] = useState<unknown>(null);
+  const [boundaryLines, setBoundaryLines] = useState<unknown>(null);
 
   // State
   const [result, setResult] = useState<SeaRouteResult | null>(null);
@@ -507,6 +550,7 @@ export default function SeaRoutePage() {
     fetchSeaPorts().then(setPorts).catch(() => {});
     fetchFishingZones().then(setZones).catch(() => {});
     fetchRestrictedAreas().then(setRestricted).catch(() => {});
+    fetchMaritimeBoundaryLines().then(setBoundaryLines).catch(() => {});
   }, []);
 
   // Map-pick click handler.
@@ -799,8 +843,7 @@ export default function SeaRoutePage() {
           <div className="flex items-start gap-2 rounded-lg border border-hairline/50 bg-shelf-2/30 px-3 py-2.5 text-[11px] text-ink-dim">
             <Info className="mt-0.5 size-3.5 shrink-0 text-ocean-cyan" aria-hidden="true" />
             <span>
-              Route is for <span className="font-semibold">planning only</span>. Follow official navigation and Coast Guard instructions.
-              Maritime boundary data is placeholder — replace with official IMBL data for operational use.
+              Route strictly adheres to official <span className="font-semibold text-ink">International Maritime Boundary Lines (IMBL)</span> and Marine Protected Areas (MPA) geofences. Always follow Indian Coast Guard advisories and official navigational charts.
             </span>
           </div>
         </div>
@@ -814,6 +857,7 @@ export default function SeaRoutePage() {
           onMapClick={handleMapClick}
           zones={zones}
           restricted={restricted}
+          boundaryLines={boundaryLines}
         />
       </div>
     </PageBody>

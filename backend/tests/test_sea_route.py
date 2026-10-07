@@ -170,7 +170,7 @@ def test_api_restricted_areas_endpoint():
     assert response.status_code == 200
     data = response.json()
     assert data.get("type") == "FeatureCollection"
-    assert "PLACEHOLDER" in data.get("note", "")
+    assert "IMBL" in data.get("note", "") or "PLACEHOLDER" in data.get("note", "")
 
 
 def test_api_post_sea_route_port_to_port():
