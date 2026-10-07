@@ -56,6 +56,7 @@ from orca.api.trace_routes import (
 from orca.api.voice_routes import router as voice_router
 from orca.api.voyage_routes import router as voyage_router
 from orca.api.voyages_routes import router as voyages_router
+from orca.api.sea_route_routes import router as sea_route_router
 from orca.api.watches_routes import router as watches_router
 from orca.auth.rbac import get_optional_user
 from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
@@ -188,6 +189,7 @@ app.include_router(conditions_router)  # P4.3 — /api/quick-conditions, the gre
 app.include_router(analytics_router)  # Agent 5 — /zones, /trends, /tides, /data (Phase 2 D2)
 app.include_router(voyage_router)  # D3 — /voyage-plan, /wind-vectors already mounted via geospatial_router
 app.include_router(voyages_router)  # P5.20 — /api/voyages: saved passage plans, promotable to a route watch
+app.include_router(sea_route_router)  # Sea Route Voyage — /api/sea-route realistic coastal pathfinding
 app.include_router(trace_router)  # D1 Phase 3 — /trace/{query_id} replay, /render persona re-render
 app.include_router(voice_router)  # D1 Phase 3 Day 16-17 — /voice/transcribe, /voice/speak
 
