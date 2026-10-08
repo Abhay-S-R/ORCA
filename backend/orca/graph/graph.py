@@ -298,7 +298,7 @@ def out_of_scope_node(state: ORCAState) -> dict:
         }
 
     if understood_kind == "greeting_or_small_talk":
-        body = "Hello! I'm ORCA — I help with sea conditions off India's coast: safety to go out, waves, wind, tides, fishing zones, and maritime boundaries. What would you like to know?"
+        body = "Hello! I'm Sagar Sarathi — I help with sea conditions off India's coast: safety to go out, waves, wind, tides, fishing zones, and maritime boundaries. What would you like to know?"
         return {
             "query_outcome": "OUT_OF_SCOPE",
             **_guard_reply(state, body, allow_small_talk=True),
@@ -315,7 +315,7 @@ def out_of_scope_node(state: ORCAState) -> dict:
         )
         facts = (
             f"{reporting.CAPABILITY_FACTS} The place the user asked about is inland, away from the coast: "
-            "ORCA has no weather or sea data for it, and does not give land-based forecasts."
+            "Sagar Sarathi has no weather or sea data for it, and does not give land-based forecasts."
         )
         reply, engine = reporting.write_chat_reply(query, facts, body, _conversation_context(state))
         return {
@@ -879,7 +879,7 @@ def risk_assessment_node(state: ORCAState) -> dict:
             update["risk_assessment"] = {**cached_verdict, "status": f"{cached_verdict.get('status', 'SAFE')}_CACHED"}
             update["confidence_tier"] = "LOW_DATA"
             update["disclosures"] = [
-                (f"Live data unavailable right now. This is ORCA's last computed verdict for this "
+                (f"Live data unavailable right now. This is Sagar Sarathi's last computed verdict for this "
                 f"location, from {age_text} ago — not a fresh read of current conditions.")
             ]
             return update

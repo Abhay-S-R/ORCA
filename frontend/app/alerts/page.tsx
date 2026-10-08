@@ -168,7 +168,7 @@ export default function AlertsPage() {
   if (auth.status === "signed_out") {
     return (
       <PageBody className="mx-auto max-w-md">
-        <PageHeader title="Alerts" lede="Sign in to see what ORCA is warning you about." />
+        <PageHeader title="Alerts" lede="Sign in to see what Sagar Sarathi is warning you about." />
         <Link href="/login?next=/alerts" className="text-accent underline">
           Sign in
         </Link>
@@ -197,7 +197,7 @@ export default function AlertsPage() {
         }
       />
 
-      {error && <ErrorState title="Could not reach the ORCA API" body="Start the backend, then reload this page." />}
+      {error && <ErrorState title="Could not reach the Sagar Sarathi API" body="Start the backend, then reload this page." />}
       {!error && items === null && (
         <div className="flex flex-col gap-2">
           {[0, 1, 2].map((i) => (

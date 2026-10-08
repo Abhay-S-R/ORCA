@@ -220,7 +220,7 @@ const FENCE_PAD_DEG = 0;
 const HEAVY_KEYS = ["srvBathymetry", "waveForecast", "currents", "wind"] as const;
 type HeavyKey = (typeof HEAVY_KEYS)[number];
 const HEAVY_LABEL: Record<HeavyKey, string> = {
-  srvBathymetry: "Depth grid (ORCA)",
+  srvBathymetry: "Depth grid (Sagar Sarathi)",
   waveForecast: "Wave height forecast",
   currents: "Surface currents",
   wind: "Wind (archived)",

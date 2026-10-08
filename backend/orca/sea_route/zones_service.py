@@ -17,8 +17,15 @@ def list_zones() -> tuple[FishingZone, ...]:
 
 
 def get_zone(zone_id: str) -> FishingZone | None:
+    if not zone_id:
+        return None
+    target = zone_id.strip().lower()
     for z in load_fishing_zones():
-        if z.id == zone_id:
+        if z.id.lower() == target or z.name.lower() == target:
+            return z
+        clean_target = target.replace("fz_", "").replace("pfz_", "")
+        clean_zid = z.id.lower().replace("fz_", "").replace("pfz_", "")
+        if clean_target == clean_zid:
             return z
     return None
 

@@ -317,7 +317,7 @@ def time_guard(text: str, now: datetime | None = None) -> str | None:
     if asked is not None:
         if asked < today:
             return (
-                f"{asked.isoformat()} is in the past. ORCA holds forecasts, not an archive of "
+                f"{asked.isoformat()} is in the past. Sagar Sarathi holds forecasts, not an archive of "
                 f"past conditions — I can answer from {today.isoformat()} to {horizon.isoformat()}."
             )
         if asked > horizon:
@@ -340,7 +340,7 @@ def time_guard(text: str, now: datetime | None = None) -> str | None:
 
     if any(re.search(rf"\b{re.escape(c)}\b", lowered) for c in _PAST_CUES):
         return (
-            "That asks about a time that has passed. ORCA holds forecasts, not an archive of past "
+            "That asks about a time that has passed. Sagar Sarathi holds forecasts, not an archive of past "
             f"conditions — I can answer from {today.isoformat()} to {horizon.isoformat()}."
         )
     return None
@@ -358,7 +358,7 @@ def position_guard(lat: float, lon: float) -> str | None:
     lat0, lat1, lon0, lon1 = DATA_EXTENT
     if not (lat0 <= lat <= lat1 and lon0 <= lon <= lon1):
         return (
-            f"{lat:.4f}, {lon:.4f} is outside the sea area ORCA holds data for "
+            f"{lat:.4f}, {lon:.4f} is outside the sea area Sagar Sarathi holds data for "
             f"({lat0:g}-{lat1:g}N, {lon0:g}-{lon1:g}E). I have nothing to answer it with."
         )
     try:
@@ -485,7 +485,7 @@ def validate_reading(
             if start_date < today:
                 return ValidationOutcome(
                     "OUT_OF_RANGE",
-                    f"{start_date.isoformat()} is in the past. ORCA holds forecasts, "
+                    f"{start_date.isoformat()} is in the past. Sagar Sarathi holds forecasts, "
                     f"not an archive of past conditions \u2014 I can answer from "
                     f"{today.isoformat()} to {horizon.isoformat()}.",
                 )

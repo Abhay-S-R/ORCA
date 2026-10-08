@@ -24,6 +24,25 @@ if (apiBase && !apiBase.startsWith("https://")) {
 
 const nextConfig: NextConfig = {
   ...(apiBase && { env: { NEXT_PUBLIC_API_BASE_URL: apiBase } }),
+  async redirects() {
+    return [
+      {
+        source: "/sea-route",
+        destination: "/voyage?tab=sea-route",
+        permanent: false,
+      },
+      {
+        source: "/sea-routes",
+        destination: "/voyage?tab=sea-route",
+        permanent: false,
+      },
+      {
+        source: "/searoute",
+        destination: "/voyage?tab=sea-route",
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

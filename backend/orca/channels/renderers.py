@@ -149,7 +149,7 @@ def render_sms(payload: dict[str, Any], *, language: str = "en") -> RenderedMess
             parts=tuple(parts), encoding="ucs2", romanized=_romanized_variant(vernacular, language),
         )
 
-    body = f"ORCA {verdict}: {hazard}. {ts}"
+    body = f"SAGAR SARATHI {verdict}: {hazard}. {ts}"
     truncated = len(body) > _SMS_MAX_CHARS
     body = body[:_SMS_MAX_CHARS]
     return RenderedMessage(
@@ -177,7 +177,7 @@ def render_ivr(payload: dict[str, Any]) -> RenderedMessage:
     Phase 3 Day 17) would actually speak."""
     verdict, hazard = _verdict_and_hazard(payload)
     verdict_spoken = " ".join(verdict.split("_"))  # "NO_GO" -> "NO GO", read as two words not one
-    sentence = f"ORCA marine safety advisory. Verdict: {verdict_spoken}. Hazard: {_spell_numerals(hazard)}."
+    sentence = f"Sagar Sarathi marine safety advisory. Verdict: {verdict_spoken}. Hazard: {_spell_numerals(hazard)}."
     script = f"{sentence} I repeat. {sentence}"
     return RenderedMessage(channel="ivr", body=script, truncated=False, encodable=True)
 
@@ -212,7 +212,7 @@ def render_whatsapp(payload: dict[str, Any]) -> RenderedMessage:
     location = payload.get("user_location") or {}
     lat, lon = location.get("lat"), location.get("lon")
     card_url = f"{_MAP_CARD_BASE_URL}?lat={lat}&lon={lon}" if lat is not None and lon is not None else _MAP_CARD_BASE_URL
-    body = f"*ORCA {verdict}*\n{hazard}.\nIssued {ts}.\nView on the chart: {card_url}"
+    body = f"*SAGAR SARATHI {verdict}*\n{hazard}.\nIssued {ts}.\nView on the chart: {card_url}"
     return RenderedMessage(channel="whatsapp", body=body, truncated=False, encodable=True)
 
 
@@ -231,7 +231,7 @@ def render_missed_call_callback(payload: dict[str, Any], *, home_port_name: str 
         if cache_age_minutes is not None else "This is the most recently cached advisory. "
     )
     verdict_spoken = " ".join(verdict.split("_"))
-    sentence = f"{age_clause}ORCA advisory for {place}. Verdict: {verdict_spoken}. Hazard: {_spell_numerals(hazard)}."
+    sentence = f"{age_clause}Sagar Sarathi advisory for {place}. Verdict: {verdict_spoken}. Hazard: {_spell_numerals(hazard)}."
     script = f"{sentence} To hear this again, stay on the line. Otherwise, goodbye."
     return RenderedMessage(channel="missed_call", body=script, truncated=False, encodable=True)
 
@@ -246,7 +246,7 @@ def render_vhf(payload: dict[str, Any]) -> RenderedMessage:
     location = payload.get("resolved_place_name") or "the reported position"
     body = (
         "Securite, securite, securite.\n"
-        "This is ORCA Marine Safety Advisory.\n"
+        "This is Sagar Sarathi Marine Safety Advisory.\n"
         f"{verdict}. {hazard}, near {location}.\n"
         "Mariners in the area are advised to proceed with caution and monitor this channel.\n"
         "Out."

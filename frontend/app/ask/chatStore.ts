@@ -443,7 +443,7 @@ export function chatToMarkdown(summary: ChatSummary, turns: Turn[]): string {
     "",
     `- Started: ${new Date(summary.started_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST`,
     `- Persona: ${summary.persona.replace("_", " ")}`,
-    `- Exported from ORCA: ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST`,
+    `- Exported from Sagar Sarathi: ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST`,
     "",
   ];
   turns.forEach((turn, i) => {

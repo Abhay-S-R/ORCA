@@ -232,7 +232,7 @@ export function IMBLCrossing() {
             CAUTION — {frame.reason}
           </p>
           <p className="rounded-md border border-hairline/60 bg-shelf-1/60 p-2 font-mono text-[11px] text-ink-muted">
-            [ORCA CAUTION] Approaching {frame.between?.filter(Boolean).join(" – ") ?? "the maritime boundary"}.
+            [SAGAR SARATHI CAUTION] Approaching {frame.between?.filter(Boolean).join(" – ") ?? "the maritime boundary"}.
             {" "}{frame.distance_nm.toFixed(1)} nm remaining. — SIMULATED, no live SMS transport in this build.
           </p>
         </div>

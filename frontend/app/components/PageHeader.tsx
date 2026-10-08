@@ -18,7 +18,7 @@ export function PageHeader({
         <div className="mb-1.5 flex items-center gap-2">
           <span className="size-1.5 rounded-full bg-ocean-cyan" aria-hidden="true" />
           <span className="font-mono text-[10px] tracking-widest text-ocean-cyan uppercase">
-            ORCA CONSOLE // OPERATIONAL SURFACE
+            SAGAR SARATHI CONSOLE // OPERATIONAL SURFACE
           </span>
         </div>
         <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">{title}</h1>

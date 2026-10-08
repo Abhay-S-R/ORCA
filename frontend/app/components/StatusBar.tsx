@@ -15,7 +15,7 @@ export function StatusBar() {
     <header className="relative z-40 flex h-10 shrink-0 items-center justify-between border-b border-hairline bg-shelf-1/70 px-4 text-[11px] backdrop-blur-md">
       <div className="flex items-center gap-3.5">
         <div className="flex items-center gap-2">
-          <span className="font-bold tracking-wider text-ink">ORCA</span>
+          <span className="font-bold tracking-wider text-ink">SAGAR SARATHI</span>
           <span className="rounded bg-shelf-3/80 px-1.5 py-0.5 text-[9px] font-mono tracking-widest text-ocean-cyan uppercase border border-ocean-cyan/30">
             ECDIS v2.4
           </span>

@@ -9,8 +9,11 @@ def list_ports() -> tuple[Port, ...]:
 
 
 def get_port(port_id: str) -> Port | None:
+    if not port_id:
+        return None
+    target = port_id.strip().lower()
     for p in load_ports():
-        if p.id == port_id:
+        if p.id.lower() == target or p.name.lower() == target or (p.code and p.code.lower() == target):
             return p
     return None
 

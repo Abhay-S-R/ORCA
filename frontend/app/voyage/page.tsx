@@ -4,14 +4,15 @@
 // chart to drop origin/destination (or type coordinates), and ORCA returns a
 // per-leg classified route: the same hazard cascade `/safety` runs for a
 // single point, walked along the whole passage at each leg's own ETA.
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Anchor, AlertTriangle, Bell, BellOff, Download, MapPin, Navigation, Printer, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, Anchor, Bell, BellOff, Download, MapPin, Navigation, Printer, Route as RouteIcon, Save, Trash2 } from "lucide-react";
 import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
 import { Field, inputClass } from "../components/Field";
-import { MapView, type MapPin as Pin, type RouteGeoJson } from "../components/MapView";
+import { type MapPin as Pin, type RouteGeoJson } from "../components/MapView";
+import { SeaRouteMap } from "./SeaRouteMap";
 import { PageHeader, PageBody } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { Readout, ReadoutGrid } from "../components/Readout";
@@ -20,6 +21,17 @@ import { ErrorState } from "../components/States";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { getToken } from "../lib/auth";
 import { createVoyage, deleteVoyage, listVoyages, promoteVoyage, unpromoteVoyage, type Voyage } from "../lib/voyages";
+import {
+  computeSeaRoute,
+  fetchFishingZones,
+  fetchMaritimeBoundaryLines,
+  fetchRestrictedAreas,
+  fetchSeaPorts,
+  type FishingZoneFeature,
+  type FishingZonesGeoJson,
+  type SeaPort,
+  type SeaRouteResult,
+} from "../lib/seaRoute";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -30,6 +42,7 @@ const VESSEL_LABELS: Record<VesselClass, string> = {
   cargo_vessel: "Cargo vessel",
 };
 
+type RoutePlanningMode = "port_to_zone" | "port_to_port" | "map_pick";
 type LatLon = { lat: number; lon: number };
 type PointCheck = { on_land: boolean; shallow_hazard: boolean; depth_m: number | null };
 type Segment = {
@@ -162,6 +175,7 @@ function downloadText(filename: string, content: string, mime: string) {
 
 function VoyageContent() {
   const searchParams = useSearchParams();
+
   const [mode, setMode] = useState<"origin" | "destination">("origin");
   const [origin, setOrigin] = useState<LatLon | null>(null);
   const [destination, setDestination] = useState<LatLon | null>(null);
@@ -181,6 +195,17 @@ function VoyageContent() {
   // states the total is missing rather than guessing a rate.
   const [fuelBurnLph, setFuelBurnLph] = useState("");
 
+  // ── Route planning modes & coastal sea-route pickers ────────────────────
+  const [routeMode, setRouteMode] = useState<RoutePlanningMode>("port_to_zone");
+  const [ports, setPorts] = useState<SeaPort[]>([]);
+  const [zones, setZones] = useState<FishingZonesGeoJson | null>(null);
+  const [fromPortId, setFromPortId] = useState("");
+  const [toZoneId, setToZoneId] = useState("");
+  const [toPortId, setToPortId] = useState("");
+  // Coastal A* result — computed alongside the hazard audit when points
+  // are known, shows obstacle-avoiding distance + ETA as extra context.
+  const [coastalResult, setCoastalResult] = useState<SeaRouteResult | null>(null);
+
   const [plan, setPlan] = useState<VoyagePlanResponse | null>(null);
   const [tide, setTide] = useState<Tide | null>(null);
   const [loading, setLoading] = useState(false);
@@ -193,6 +218,17 @@ function VoyageContent() {
   const [savedVoyages, setSavedVoyages] = useState<Voyage[] | null>(null);
   const [savingVoyage, setSavingVoyage] = useState(false);
   const [voyageBusyId, setVoyageBusyId] = useState<string | null>(null);
+
+  const [restricted, setRestricted] = useState<unknown>(null);
+  const [boundaryLines, setBoundaryLines] = useState<unknown>(null);
+
+  // Fetch ports, fishing zones, restricted areas, and IMBL boundaries on mount
+  useEffect(() => {
+    fetchSeaPorts().then(setPorts).catch(() => {});
+    fetchFishingZones().then(setZones).catch(() => {});
+    fetchRestrictedAreas().then(setRestricted).catch(() => {});
+    fetchMaritimeBoundaryLines().then(setBoundaryLines).catch(() => {});
+  }, []);
 
   const loadSavedVoyages = useCallback(() => {
     if (!getToken()) return;
@@ -236,6 +272,7 @@ function VoyageContent() {
   function loadSavedVoyage(v: Voyage) {
     const first = v.route[0];
     const last = v.route[v.route.length - 1];
+    setRouteMode("map_pick");
     setOrigin({ lat: first.lat, lon: first.lon });
     setDestination({ lat: last.lat, lon: last.lon });
     setOriginCheck(null);
@@ -274,12 +311,15 @@ function VoyageContent() {
     const from = parse(q.get("from"));
     const to = parse(q.get("to"));
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the URL only exists after mount
-    if (from) setOrigin(from);
-    if (to) setDestination(to);
+    if (from) { setOrigin(from); setRouteMode("map_pick"); }
+    if (to) { setDestination(to); setRouteMode("map_pick"); }
     if (from && !to) setMode("destination");
   }, []);
 
   function handlePointClick(lat: number, lon: number) {
+    if (routeMode !== "map_pick") {
+      setRouteMode("map_pick");
+    }
     const setPoint = mode === "origin" ? setOrigin : setDestination;
     const setCheck = mode === "origin" ? setOriginCheck : setDestinationCheck;
     setPoint({ lat, lon });
@@ -296,6 +336,7 @@ function VoyageContent() {
     setError(null);
     setPlan(null);
     setTide(null);
+    setCoastalResult(null);
     try {
       const res = await fetch(`${API_BASE}/api/voyage-plan`, {
         method: "POST",
@@ -318,6 +359,38 @@ function VoyageContent() {
         .then((r) => r.json())
         .then(setTide)
         .catch(() => {});
+      // Coastal A* route — runs in parallel to give obstacle-avoiding
+      // distance and ETA as extra context alongside the hazard audit.
+      const depIso = departure ? new Date(departure).toISOString() : null;
+      let seaReq;
+      if (routeMode === "port_to_zone" && fromPortId && toZoneId) {
+        seaReq = {
+          mode: "port_to_zone" as const,
+          port_from: fromPortId,
+          zone_id: toZoneId,
+          speed_knots: speedKn,
+          departure: depIso,
+        };
+      } else if (routeMode === "port_to_port" && fromPortId && toPortId) {
+        seaReq = {
+          mode: "port_to_port" as const,
+          port_from: fromPortId,
+          port_to: toPortId,
+          speed_knots: speedKn,
+          departure: depIso,
+        };
+      } else {
+        seaReq = {
+          mode: "map_pick" as const,
+          from_lat: o.lat,
+          from_lng: o.lon,
+          to_lat: d.lat,
+          to_lng: d.lon,
+          speed_knots: speedKn,
+          departure: depIso,
+        };
+      }
+      computeSeaRoute(seaReq).then(setCoastalResult).catch(() => {});
     } catch {
       setError("Could not reach Sagar Sarathi. Check the backend is running and try again.");
     } finally {
@@ -330,6 +403,53 @@ function VoyageContent() {
     if (!origin || !destination) return;
     await runPlan(origin, destination);
   }
+
+  // Automatically compute and display the coastal obstacle-avoiding route on the map
+  // as soon as endpoints are selected (port-to-zone, port-to-port, or map clicks).
+  useEffect(() => {
+    if (!origin || !destination) {
+      setCoastalResult(null);
+      return;
+    }
+    const depIso = departure ? new Date(departure).toISOString() : null;
+    let seaReq;
+    if (routeMode === "port_to_zone" && fromPortId && toZoneId) {
+      seaReq = {
+        mode: "port_to_zone" as const,
+        port_from: fromPortId,
+        zone_id: toZoneId,
+        speed_knots: speedKn,
+        departure: depIso,
+      };
+    } else if (routeMode === "port_to_port" && fromPortId && toPortId) {
+      seaReq = {
+        mode: "port_to_port" as const,
+        port_from: fromPortId,
+        port_to: toPortId,
+        speed_knots: speedKn,
+        departure: depIso,
+      };
+    } else {
+      seaReq = {
+        mode: "map_pick" as const,
+        from_lat: origin.lat,
+        from_lng: origin.lon,
+        to_lat: destination.lat,
+        to_lng: destination.lon,
+        speed_knots: speedKn,
+        departure: depIso,
+      };
+    }
+    let cancelled = false;
+    computeSeaRoute(seaReq)
+      .then((res) => {
+        if (!cancelled) setCoastalResult(res);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [routeMode, fromPortId, toZoneId, toPortId, origin, destination, speedKn, departure]);
 
   // P6.9 (orca_final §29.2) — `/demo`'s depth-blocked-detour scenario card
   // deep-links here with a pinned origin/destination rather than duplicating
@@ -359,6 +479,21 @@ function VoyageContent() {
   ];
   const routeProvenance = plan?.route_layer?.source_provenance?.[0];
 
+  const majorPorts = ports.filter((p) => p.type === "major");
+  const minorPorts = ports.filter((p) => p.type !== "major" && p.type !== "fishing_harbour");
+  const fishingPorts = ports.filter((p) => p.type === "fishing_harbour");
+  const zoneList = zones?.features ?? [];
+
+  const zonesBySector = useMemo(() => {
+    const groups: Record<string, typeof zoneList> = {};
+    for (const z of zoneList) {
+      const sec = z.properties.sector ? String(z.properties.sector).toUpperCase() : "REGIONAL OFFSHORE";
+      if (!groups[sec]) groups[sec] = [];
+      groups[sec].push(z);
+    }
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+  }, [zoneList]);
+
   return (
     <PageBody className="mx-auto max-w-7xl">
       <PageHeader
@@ -370,41 +505,272 @@ function VoyageContent() {
         <div className="flex flex-col gap-4">
           <Panel title="Route" dense className="print:hidden">
             <form onSubmit={submit} className="flex flex-col gap-1">
-              <div className="mb-2.5 flex gap-2">
-                <Button
-                  type="button"
-                  variant={mode === "origin" ? "primary" : "ghost"}
-                  icon={<Anchor className="size-4" />}
-                  onClick={() => setMode("origin")}
-                  className="flex-1"
-                >
-                  {origin ? `${origin.lat.toFixed(2)}, ${origin.lon.toFixed(2)}` : "Set origin"}
-                </Button>
-                <Button
-                  type="button"
-                  variant={mode === "destination" ? "primary" : "ghost"}
-                  icon={<MapPin className="size-4" />}
-                  onClick={() => setMode("destination")}
-                  className="flex-1"
-                >
-                  {destination ? `${destination.lat.toFixed(2)}, ${destination.lon.toFixed(2)}` : "Set destination"}
-                </Button>
+              {/* ── Mode selector ── */}
+              <div className="mb-3 flex rounded-lg border border-hairline overflow-hidden text-xs font-semibold">
+                {(["port_to_zone", "port_to_port", "map_pick"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => {
+                      setRouteMode(m);
+                      setError(null);
+                    }}
+                    className={`flex-1 px-2 py-2 transition-colors ${
+                      routeMode === m
+                        ? "bg-ocean-cyan text-on-accent"
+                        : "bg-shelf-1/60 text-ink-muted hover:bg-shelf-2/80"
+                    }`}
+                  >
+                    {m === "port_to_zone"
+                      ? "Port → Zone"
+                      : m === "port_to_port"
+                      ? "Port → Port"
+                      : "Map Pick"}
+                  </button>
+                ))}
               </div>
-              {pointWarning(originCheck) && (
-                <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-caution">
-                  <AlertTriangle className="size-3 shrink-0" />
-                  Origin {pointWarning(originCheck)} — pick a point further offshore.
-                </p>
+
+              {/* ── Mode 1: Port → Fishing Zone ── */}
+              {routeMode === "port_to_zone" && (
+                <>
+                  <Field label="From port">
+                    {(id) => (
+                      <select
+                        id={id}
+                        value={fromPortId}
+                        onChange={(e) => {
+                          const pId = e.target.value;
+                          setFromPortId(pId);
+                          const p = ports.find((x) => x.id === pId);
+                          if (p) {
+                            setOrigin({ lat: p.lat, lon: p.lng });
+                            setOriginCheck(null);
+                          }
+                        }}
+                        className={inputClass}
+                      >
+                        <option value="">Select a port…</option>
+                        {majorPorts.length > 0 && (
+                          <optgroup label="Major Ports">
+                            {majorPorts.map((p) => (
+                              <option key={p.id} value={p.id} className="bg-shelf-2">
+                                {p.name} ({p.state})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {minorPorts.length > 0 && (
+                          <optgroup label="Minor Ports">
+                            {minorPorts.map((p) => (
+                              <option key={p.id} value={p.id} className="bg-shelf-2">
+                                {p.name} ({p.state})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {fishingPorts.length > 0 && (
+                          <optgroup label="Fishing Harbours">
+                            {fishingPorts.map((p) => (
+                              <option key={p.id} value={p.id} className="bg-shelf-2">
+                                {p.name} ({p.state})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                    )}
+                  </Field>
+
+                  <Field label="To fishing zone">
+                    {(id) => (
+                      <select
+                        id={id}
+                        value={toZoneId}
+                        onChange={(e) => {
+                          const zId = e.target.value;
+                          setToZoneId(zId);
+                          const z = zoneList.find((x) => x.properties.id === zId);
+                          if (z) {
+                            let lat = z.properties.entry_lat;
+                            let lng = z.properties.entry_lng;
+                            if (lat == null || lng == null) {
+                              const geom = z.geometry as { type?: string; coordinates?: any };
+                              if (geom?.type === "Polygon" && geom.coordinates?.[0]?.[0]) {
+                                lng = geom.coordinates[0][0][0];
+                                lat = geom.coordinates[0][0][1];
+                              } else if (geom?.type === "Point" && geom.coordinates) {
+                                lng = geom.coordinates[0];
+                                lat = geom.coordinates[1];
+                              }
+                            }
+                            if (lat != null && lng != null) {
+                              setDestination({ lat, lon: lng });
+                              setDestinationCheck(null);
+                            }
+                          }
+                        }}
+                        className={inputClass}
+                      >
+                        <option value="">Select a fishing zone…</option>
+                        {zonesBySector.map(([sector, list]) => (
+                          <optgroup key={sector} label={`${sector} (${list.length})`}>
+                            {list.map((z) => (
+                              <option key={z.properties.id} value={z.properties.id} className="bg-shelf-2">
+                                {z.properties.name} {z.properties.depth_m ? `[depth ${z.properties.depth_m}m]` : ""}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    )}
+                  </Field>
+                  <p className="mb-2 text-[11px] text-ink-dim">
+                    Route ends at the INCOIS Potential Fishing Zone (PFZ) advisory coordinates.
+                  </p>
+                </>
               )}
-              {pointWarning(destinationCheck) && (
-                <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-caution">
-                  <AlertTriangle className="size-3 shrink-0" />
-                  Destination {pointWarning(destinationCheck)} — pick a point further offshore.
-                </p>
+
+              {/* ── Mode 2: Port → Port ── */}
+              {routeMode === "port_to_port" && (
+                <>
+                  <Field label="From port">
+                    {(id) => (
+                      <select
+                        id={id}
+                        value={fromPortId}
+                        onChange={(e) => {
+                          const pId = e.target.value;
+                          setFromPortId(pId);
+                          const p = ports.find((x) => x.id === pId);
+                          if (p) {
+                            setOrigin({ lat: p.lat, lon: p.lng });
+                            setOriginCheck(null);
+                          }
+                        }}
+                        className={inputClass}
+                      >
+                        <option value="">Select start port…</option>
+                        {majorPorts.length > 0 && (
+                          <optgroup label="Major Ports">
+                            {majorPorts.map((p) => (
+                              <option key={p.id} value={p.id} className="bg-shelf-2">
+                                {p.name} ({p.state})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {minorPorts.length > 0 && (
+                          <optgroup label="Minor Ports">
+                            {minorPorts.map((p) => (
+                              <option key={p.id} value={p.id} className="bg-shelf-2">
+                                {p.name} ({p.state})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {fishingPorts.length > 0 && (
+                          <optgroup label="Fishing Harbours">
+                            {fishingPorts.map((p) => (
+                              <option key={p.id} value={p.id} className="bg-shelf-2">
+                                {p.name} ({p.state})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                    )}
+                  </Field>
+
+                  <Field label="To port">
+                    {(id) => (
+                      <select
+                        id={id}
+                        value={toPortId}
+                        onChange={(e) => {
+                          const pId = e.target.value;
+                          setToPortId(pId);
+                          const p = ports.find((x) => x.id === pId);
+                          if (p) {
+                            setDestination({ lat: p.lat, lon: p.lng });
+                            setDestinationCheck(null);
+                          }
+                        }}
+                        className={inputClass}
+                      >
+                        <option value="">Select end port…</option>
+                        {majorPorts.length > 0 && (
+                          <optgroup label="Major Ports">
+                            {majorPorts.map((p) => (
+                              <option key={p.id} value={p.id} className="bg-shelf-2">
+                                {p.name} ({p.state})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {minorPorts.length > 0 && (
+                          <optgroup label="Minor Ports">
+                            {minorPorts.map((p) => (
+                              <option key={p.id} value={p.id} className="bg-shelf-2">
+                                {p.name} ({p.state})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {fishingPorts.length > 0 && (
+                          <optgroup label="Fishing Harbours">
+                            {fishingPorts.map((p) => (
+                              <option key={p.id} value={p.id} className="bg-shelf-2">
+                                {p.name} ({p.state})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                    )}
+                  </Field>
+                </>
               )}
-              <p className="mb-2.5 text-[11px] text-ink-dim">
-                Chart clicks set the {mode === "origin" ? "origin" : "destination"} pin — click the other button to switch.
-              </p>
+
+              {/* ── Mode 3: Map Pick ── */}
+              {routeMode === "map_pick" && (
+                <>
+                  <div className="mb-2.5 flex gap-2">
+                    <Button
+                      type="button"
+                      variant={mode === "origin" ? "primary" : "ghost"}
+                      icon={<Anchor className="size-4" />}
+                      onClick={() => setMode("origin")}
+                      className="flex-1"
+                    >
+                      {origin ? `${origin.lat.toFixed(2)}, ${origin.lon.toFixed(2)}` : "Set origin"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={mode === "destination" ? "primary" : "ghost"}
+                      icon={<MapPin className="size-4" />}
+                      onClick={() => setMode("destination")}
+                      className="flex-1"
+                    >
+                      {destination ? `${destination.lat.toFixed(2)}, ${destination.lon.toFixed(2)}` : "Set destination"}
+                    </Button>
+                  </div>
+                  {pointWarning(originCheck) && (
+                    <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-caution">
+                      <AlertTriangle className="size-3 shrink-0" />
+                      Origin {pointWarning(originCheck)} — pick a point further offshore.
+                    </p>
+                  )}
+                  {pointWarning(destinationCheck) && (
+                    <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-caution">
+                      <AlertTriangle className="size-3 shrink-0" />
+                      Destination {pointWarning(destinationCheck)} — pick a point further offshore.
+                    </p>
+                  )}
+                  <p className="mb-2.5 text-[11px] text-ink-dim">
+                    Chart clicks set the {mode === "origin" ? "origin" : "destination"} pin — click the other button to switch.
+                  </p>
+                </>
+              )}
 
               <div className="grid grid-cols-[1.3fr_1fr] gap-x-3">
                 <Field label="Vessel class">
@@ -627,15 +993,18 @@ function VoyageContent() {
         </div>
 
         <div className="flex flex-col gap-4">
-          <MapView
-            className="h-[440px] min-h-[380px] lg:h-[500px] w-full rounded-2xl shadow-xl ring-1 ring-hairline overflow-hidden print:hidden"
-            defaultCollapsedSounding={true}
-            showLayerPanel={false}
-            showRegionSwitcher={false}
-            onPointClick={handlePointClick}
-            routeGeoJson={plan?.route_layer?.geojson}
-            pins={pins}
-          />
+          <div className="print:hidden">
+            <SeaRouteMap
+              result={coastalResult}
+              mapPickMode={routeMode === "map_pick"}
+              startPin={origin ? [origin.lat, origin.lon] : null}
+              endPin={destination ? [destination.lat, destination.lon] : null}
+              onMapClick={handlePointClick}
+              zones={zones}
+              restricted={restricted}
+              boundaryLines={boundaryLines}
+            />
+          </div>
 
           {error && <ErrorState title="Voyage plan failed" body={error} />}
 
@@ -740,6 +1109,48 @@ function VoyageContent() {
                     </>
                   )}
                 </ReadoutGrid>
+
+                {/* Coastal A* — obstacle-avoiding distance and ETA run in
+                    parallel with the hazard audit, shown here as extra context. */}
+                {coastalResult && (
+                  <div className="mt-4 border-t border-hairline pt-3">
+                    <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
+                      <RouteIcon className="size-3" />
+                      Coastal route (obstacle-avoiding)
+                    </p>
+                    <ReadoutGrid cols={3}>
+                      <Readout
+                        label="Distance"
+                        value={coastalResult.distance_km.toFixed(0)}
+                        unit="km"
+                        hint={`${coastalResult.distance_nm.toFixed(1)} nm`}
+                      />
+                      <Readout
+                        label="Duration"
+                        value={coastalResult.hours < 24
+                          ? `${coastalResult.hours.toFixed(1)} h`
+                          : `${Math.floor(coastalResult.hours / 24)}d ${(coastalResult.hours % 24).toFixed(0)}h`}
+                      />
+                      <Readout
+                        label="ETA"
+                        value={new Date(coastalResult.eta).toLocaleString("en-IN", {
+                          timeZone: "Asia/Kolkata",
+                          hour: "2-digit", minute: "2-digit",
+                          day: "numeric", month: "short",
+                        })}
+                        hint="IST"
+                      />
+                    </ReadoutGrid>
+                    {coastalResult.warnings.filter((w) =>
+                      !w.startsWith("DISCLAIMER") && !w.startsWith("NOTE")
+                    ).map((w, i) => (
+                      <div key={i} className="mt-2 flex items-start gap-2 rounded-md border border-caution/40 bg-caution/8 px-2.5 py-1.5 text-[11px] text-ink-muted">
+                        <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                        <span>{w}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Panel>
 
               <Panel
