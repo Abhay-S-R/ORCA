@@ -1,8 +1,8 @@
 "use client";
 
-// Voice egress (plan §6 D1 Day 17): TTS playback of the verdict via
+// Voice egress (plan §6 D1 Day 17): TTS playback of the answer via
 // POST /voice/speak. Manual only — every persona, including fisherman,
-// gets the same "Play verdict" button. Never autoplays; playback starts
+// gets the same speaker icon, in the action row under every response. Never autoplays; playback starts
 // and stops only on explicit user action.
 //
 // Performance: on mount, fires a /voice/prefetch to warm the backend's
@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { Volume2, Square } from "lucide-react";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
+import { ghostBtn } from "../ask/RerunControl";
 
 export function AnswerSpeaker({
   text,
@@ -106,22 +107,21 @@ export function AnswerSpeaker({
     };
   }, [queryId, persona]);
 
-  // P4.5 (R-NEW-6) — "full voice operability without reading": an icon recognised on sight
-  // rather than a label to read first. It was the fisherman's button only; every other
-  // persona still got the older "Play verdict" text button. Since 2026-10-06 every persona
-  // gets this one: the same tap plays, the same tap stops.
+  // Same quiet ghost icon as copy and try again, in the row under the answer (since 2026-10-08;
+  // it was a round blue 52 px button). An icon recognised on sight rather than a label to read
+  // (P4.5, R-NEW-6): the same tap plays, the same tap stops, and while it plays it is tinted.
   return (
-    <div className="flex items-center gap-2.5">
+    <>
       <button
         type="button"
         onClick={playing ? stop : speak}
         aria-label={playing ? "Stop playing the answer" : "Play the answer aloud"}
-        className="inline-flex h-[52px] w-[52px] shrink-0 cursor-pointer items-center justify-center rounded-full border-2 border-ocean-cyan bg-ocean-cyan text-on-accent shadow-md transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+        title={playing ? "Stop" : "Play the answer aloud"}
+        className={`${ghostBtn} ${playing ? "text-ocean-cyan" : ""}`}
       >
-        {playing ? <Square className="size-6" aria-hidden="true" /> : <Volume2 className="size-6" aria-hidden="true" />}
+        {playing ? <Square className="size-[18px]" aria-hidden="true" /> : <Volume2 className="size-[18px]" aria-hidden="true" />}
       </button>
-      {error && <span className="text-sm text-no-go">{error}</span>}
-    </div>
+      {error && <span className="text-[11px] text-no-go">{error}</span>}
+    </>
   );
 }
-

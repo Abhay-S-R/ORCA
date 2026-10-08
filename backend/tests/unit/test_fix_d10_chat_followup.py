@@ -80,13 +80,13 @@ def test_the_parser_accepts_it_and_still_rejects_unknown_kinds():
 def test_the_classifier_prompt_carries_orcas_previous_reply_and_the_follow_up_rule():
     prompt = _build_understand_prompt("i need more detailed description", [CAPABILITY_TURN], None, "2026-10-05T12:00")
     assert 'User: "what all can you do"' in prompt
-    assert 'ORCA replied: "I answer questions about conditions at sea off India."' in prompt
+    assert 'Sagar Sarathi replied: "I answer questions about conditions at sea off India."' in prompt
     assert "chat_followup" in prompt and "MESSAGES THAT REFER TO THE CONVERSATION" in prompt
 
 
 def test_a_turn_without_an_answer_still_renders():
     prompt = _build_understand_prompt("and tomorrow?", [{"query": "wave height at pamban"}], None, "t")
-    assert 'User: "wave height at pamban"' in prompt and '   ORCA replied: "' not in prompt
+    assert 'User: "wave height at pamban"' in prompt and '   Sagar Sarathi replied: "' not in prompt
 
 
 # --- planning routes it as a non-sea message, and a sea follow-up still runs agents ------

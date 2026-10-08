@@ -102,16 +102,28 @@ export function ChatTurn({
   // Re-running an SOS would re-file it on the authority queue, so the control
   // is absent there rather than disabled — there is nothing to explain.
   const versions = turnVersions(turn);
-  const rerunControl = answer && !answer.distress_flag && (
-    <span className="flex items-center gap-0.5">
-      <CopyControl text={answer.final_vernacular_response || answer.final_english_response || ""} />
-      <RerunControl
-        versionCount={versions.length}
-        versionIndex={turn.versionIndex ?? 0}
-        streaming={streaming}
-        onRerun={onRerun}
-        onShowVersion={onShowVersion}
+  // The action row under EVERY response, in the same order as a chat product's: copy, play, try
+  // again. It is the same row on an answer, a chat reply and a distress answer; only try again is
+  // absent on a distress answer.
+  const answerText = answer ? answer.final_vernacular_response || answer.final_english_response || "" : "";
+  const actionRow = answer && (
+    <span className="flex flex-wrap items-center gap-0.5">
+      <CopyControl text={answerText} />
+      <AnswerSpeaker
+        text={answerText}
+        language={answer.detected_language ?? "en"}
+        persona={renderedAs ?? persona}
+        queryId={answer.query_id}
       />
+      {!answer.distress_flag && (
+        <RerunControl
+          versionCount={versions.length}
+          versionIndex={turn.versionIndex ?? 0}
+          streaming={streaming}
+          onRerun={onRerun}
+          onShowVersion={onShowVersion}
+        />
+      )}
     </span>
   );
   const weatherCitation = answer?.citations?.find((c) => c.agent_name === "weather_intelligence");
@@ -217,7 +229,7 @@ export function ChatTurn({
       {answer && answer.outcome === "RESET" && <ResetNotice answer={answer} />}
 
       {answer && answer.outcome != null && answer.outcome !== "ANSWERED" && answer.outcome !== "DISTRESS" && answer.outcome !== "RESET" && (
-        <RefusalCard answer={answer} askedQuery={askedQuery} onFollowUp={onFollowUp} actions={rerunControl} />
+        <RefusalCard answer={answer} askedQuery={askedQuery} onFollowUp={onFollowUp} actions={actionRow} />
       )}
 
       {answer && (answer.outcome == null || answer.outcome === "ANSWERED" || answer.outcome === "DISTRESS") && (
@@ -301,16 +313,8 @@ export function ChatTurn({
                     {unwritten && (
                       <p className="text-[11px] text-ink-dim">{t("chatTurn.writtenWithoutModel")}</p>
                     )}
-                    {/* Under the text, in one row: play, copy, try again. */}
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <AnswerSpeaker
-                        text={answerBody}
-                        language={answer.detected_language ?? "en"}
-                        persona={renderedAs ?? persona}
-                        queryId={answer.query_id}
-                      />
-                      {rerunControl}
-                    </div>
+                    {/* Under the text, in one row: copy, play, try again. */}
+                    <div className="-ml-2">{actionRow}</div>
                   </div>
                 );
               })()}

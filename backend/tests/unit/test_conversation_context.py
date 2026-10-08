@@ -161,7 +161,7 @@ def test_narrative_prompt_includes_the_conversation_but_keeps_the_verdict_fixed(
         )
     prompt = client.complete.call_args.args[0][0]["content"]
     assert "EARLIER IN THIS CONVERSATION" in prompt
-    assert 'ORCA answered: "GO: calm seas"' in prompt
+    assert 'Sagar Sarathi answered: "GO: calm seas"' in prompt
     assert "VERDICT: CAUTION" in prompt
 
 

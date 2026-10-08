@@ -153,5 +153,5 @@ def test_every_model_prompt_gets_the_conversation_and_the_device_position():
     assert "12.9716, 77.5946" in reply_prompt
     assert "not a place the caller named" in reply_prompt
     # "nearest port to me" has a real answer: the closest held port, never a region or open water.
-    assert "The nearest port ORCA holds data for is Thalassery" in reply_prompt
+    assert "The nearest port Sagar Sarathi holds data for is Thalassery" in reply_prompt
     assert frame["outcome"] == "OUT_OF_SCOPE"

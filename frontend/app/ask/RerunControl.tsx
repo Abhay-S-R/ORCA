@@ -14,7 +14,7 @@
 import { useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Copy, RotateCcw } from "lucide-react";
 
-const ghostBtn =
+export const ghostBtn =
   "grid size-9 place-items-center rounded-lg text-ink-dim transition-colors hover:bg-shelf-2 hover:text-ink disabled:pointer-events-none disabled:opacity-35";
 
 // P4.10 (`R-UX-3`) — "the one missing per-turn action on /ask" (re-ask,
