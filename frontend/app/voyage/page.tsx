@@ -11,7 +11,7 @@ import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
 import { Field, inputClass } from "../components/Field";
-import { type MapPin as Pin, type RouteGeoJson } from "../components/MapView";
+import { type RouteGeoJson } from "../components/MapView";
 import { SeaRouteMap } from "./SeaRouteMap";
 import { PageHeader, PageBody } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
@@ -27,7 +27,6 @@ import {
   fetchMaritimeBoundaryLines,
   fetchRestrictedAreas,
   fetchSeaPorts,
-  type FishingZoneFeature,
   type FishingZonesGeoJson,
   type SeaPort,
   type SeaRouteResult,
@@ -408,6 +407,7 @@ function VoyageContent() {
   // as soon as endpoints are selected (port-to-zone, port-to-port, or map clicks).
   useEffect(() => {
     if (!origin || !destination) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting coastal result when endpoints clear
       setCoastalResult(null);
       return;
     }
@@ -473,16 +473,12 @@ function VoyageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately one-shot on mount, not on every origin/destination edit
   }, [searchParams]);
 
-  const pins: Pin[] = [
-    ...(origin ? [{ lat: origin.lat, lon: origin.lon, label: "Origin", color: "#2f6f74" }] : []),
-    ...(destination ? [{ lat: destination.lat, lon: destination.lon, label: "Destination", color: "#8a3b52" }] : []),
-  ];
   const routeProvenance = plan?.route_layer?.source_provenance?.[0];
 
   const majorPorts = ports.filter((p) => p.type === "major");
   const minorPorts = ports.filter((p) => p.type !== "major" && p.type !== "fishing_harbour");
   const fishingPorts = ports.filter((p) => p.type === "fishing_harbour");
-  const zoneList = zones?.features ?? [];
+  const zoneList = useMemo(() => zones?.features ?? [], [zones]);
 
   const zonesBySector = useMemo(() => {
     const groups: Record<string, typeof zoneList> = {};
@@ -594,13 +590,17 @@ function VoyageContent() {
                             let lat = z.properties.entry_lat;
                             let lng = z.properties.entry_lng;
                             if (lat == null || lng == null) {
-                              const geom = z.geometry as { type?: string; coordinates?: any };
-                              if (geom?.type === "Polygon" && geom.coordinates?.[0]?.[0]) {
-                                lng = geom.coordinates[0][0][0];
-                                lat = geom.coordinates[0][0][1];
-                              } else if (geom?.type === "Point" && geom.coordinates) {
-                                lng = geom.coordinates[0];
-                                lat = geom.coordinates[1];
+                              const geom = z.geometry as { type?: string; coordinates?: unknown };
+                              if (geom?.type === "Polygon" && Array.isArray(geom.coordinates) && geom.coordinates[0]) {
+                                const polyCoords = geom.coordinates[0] as [number, number][];
+                                if (polyCoords[0]) {
+                                  lng = polyCoords[0][0];
+                                  lat = polyCoords[0][1];
+                                }
+                              } else if (geom?.type === "Point" && Array.isArray(geom.coordinates)) {
+                                const pointCoords = geom.coordinates as [number, number];
+                                lng = pointCoords[0];
+                                lat = pointCoords[1];
                               }
                             }
                             if (lat != null && lng != null) {
