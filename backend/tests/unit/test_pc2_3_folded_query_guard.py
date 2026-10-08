@@ -28,7 +28,9 @@ def _model_off(monkeypatch):
     monkeypatch.setenv("ORCA_LLM_ENABLED", "0")
 
 
-_NOW = datetime(2026, 10, 4, 6, 0, 0, tzinfo=timezone.utc)
+# The real clock: planning validates dates against it, so a pinned date here becomes a past date
+# (and OUT_OF_RANGE) as days go by. Found 2026-10-08, two days after the pin.
+_NOW = datetime.now(timezone.utc).replace(hour=6, minute=0, second=0, microsecond=0)
 _TODAY = _NOW.date()
 
 

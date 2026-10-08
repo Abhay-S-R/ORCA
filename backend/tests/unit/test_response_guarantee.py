@@ -180,7 +180,9 @@ def _no_groq(monkeypatch) -> None:
         monkeypatch.delenv(name)
 
 
-def test_only_the_answer_writing_tier_defaults_to_the_local_model(monkeypatch):
+def test_no_tier_defaults_to_a_local_model(monkeypatch):
+    """Decision 2026-10-08: Ollama is not installed on most machines, so no chain gets it unless an
+    ORCA_LLM_<TIER>_CHAIN names it (test_a_chain_override_..., below, still covers that)."""
     _no_groq(monkeypatch)
     for tier in ("CHEAP", "MID", "REASONING"):
         monkeypatch.delenv(f"ORCA_LLM_{tier}_CHAIN", raising=False)
@@ -189,11 +191,9 @@ def test_only_the_answer_writing_tier_defaults_to_the_local_model(monkeypatch):
     monkeypatch.delenv("ORCA_LLM_LOCAL_MODEL", raising=False)
     # The second Gemini rung exists only with a key; CI has none, a dev .env does.
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    assert tiers.chain_for("mid") == [
-        ("gemini", "gemini-3.5-flash-lite"), ("gemini", tiers._SECOND_GEMINI), ("ollama", tiers._LOCAL_MODEL),
-    ]
-    assert all(p != "ollama" for p, _ in tiers.chain_for("cheap"))
-    assert all(p != "ollama" for p, _ in tiers.chain_for("reasoning"))
+    assert tiers.chain_for("mid") == [("gemini", "gemini-3.5-flash-lite"), ("gemini", tiers._SECOND_GEMINI)]
+    for tier in ("cheap", "reasoning"):
+        assert all(p != "ollama" for p, _ in tiers.chain_for(tier))
 
 
 def test_a_machine_without_a_local_model_loses_nothing(providers, monkeypatch):

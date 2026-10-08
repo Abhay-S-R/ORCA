@@ -48,9 +48,7 @@ export function RefusalCard({
   answer: FinalResponse;
   askedQuery: string;
   onFollowUp: (q: string, options?: { position?: { lat: number; lon: number } }) => void;
-  // Sits on the heading row rather than in Panel's own header slot, which
-  // only renders when the panel has a title — and this card's heading carries
-  // an icon that the plain title would drop.
+  // Copy and try again, rendered in a row under the reply text.
   actions?: React.ReactNode;
 }) {
   const t = useT();
@@ -62,23 +60,21 @@ export function RefusalCard({
   return (
     <Panel>
       <div className="flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-3">
-          {/* A greeting is not a refusal: "hi" gets its reply without a "Not
-              something ORCA can answer" heading over it (chatbot plan C0.2d). */}
-          {answer.small_talk ? (
-            <span />
-          ) : (
-            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink">
-              <Icon className="size-4 shrink-0 text-caution" aria-hidden="true" />
-              {t(HEADING_KEY[outcome] ?? "disclosures.default")}
-            </p>
-          )}
-          {actions}
-        </div>
+        {/* A greeting is not a refusal: "hi" gets its reply without a "Not
+            something ORCA can answer" heading over it (chatbot plan C0.2d), and
+            without an empty row where the heading would be. */}
+        {!answer.small_talk && (
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink">
+            <Icon className="size-4 shrink-0 text-caution" aria-hidden="true" />
+            {t(HEADING_KEY[outcome] ?? "disclosures.default")}
+          </p>
+        )}
         <p className="max-w-[60ch] text-sm leading-relaxed text-ink-muted">{body}</p>
         {answer.response_engine?.startsWith("Deterministic") && (
           <p className="text-[11px] text-ink-dim">{t("chatTurn.writtenWithoutModel")}</p>
         )}
+        {/* Copy and try again, under the text like a chat product's. */}
+        {actions && <div className="-ml-2 -mt-1">{actions}</div>}
 
         {/* The redirect. A refusal that dead-ends is just a wall — each chip
             re-asks the question at a place ORCA can actually answer for. The

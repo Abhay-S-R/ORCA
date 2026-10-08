@@ -45,7 +45,7 @@ import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from orca import local_models
+from orca import engines, local_models
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 
 if TYPE_CHECKING:
@@ -260,7 +260,7 @@ def _unmask_protected_terms(text: str, tokens: list[str]) -> str:
 # both ingress and egress read, so the two spans never drift apart on wording.
 _RUNG_LABEL: dict[str, tuple[str, str]] = {
     "bhashini": ("Bhashini ASR/NMT pipeline", "Bhashini"),
-    "indictrans2": ("IndicTrans2 (local, indictrans2-indic-en-dist-200M)", "IndicTrans2, local inference"),
+    "indictrans2": ("IndicTrans2 (local, indictrans2-indic-en-dist-200M)", "IndicTrans2, local inference"),  # only if a backend is registered (tests)
 }
 
 
@@ -278,11 +278,7 @@ def _translate_with_rung(text: str, source: Language, target: Language) -> tuple
     except Exception:
         pass  # not configured, unreachable, or timed out — fall to the local rung
     if _backend is None:
-        raise RuntimeError(
-            "No translation backend registered. Pull IndicTrans2 weights via "
-            "backend/scripts/download_ml_models.py and register an IndicTrans2 "
-            "backend before calling this (plan §4 S6 pre-Phase-1 action item)."
-        )
+        raise RuntimeError("Bhashini could not translate this and no other translation backend is registered.")
     result = _backend.translate(masked, source=source, target=target)
     return _unmask_protected_terms(result, tokens), "indictrans2"
 
@@ -357,7 +353,8 @@ def run_ingress(state: ORCAState) -> AgentResult:
         # P3.8 — the span names which rung actually served, Bhashini or the
         # local offline fallback, rather than always claiming IndicTrans2.
         if rung == "passthrough":
-            dataset = "IndicTrans2 (local, indictrans2-indic-en-dist-200M)"
+            dataset = engines.NO_TRANSLATION
+            engine = engines.NO_TRANSLATION
             confidence = Confidence(score="HIGH", rationale="already English, no translation needed")
         else:
             dataset, rung_label = _RUNG_LABEL[rung]
@@ -373,7 +370,8 @@ def run_ingress(state: ORCAState) -> AgentResult:
         # will not match a Tamil/Hindi string, so this correctly falls
         # through to the no-match fallback rather than silently mistranslating.
         normalized = raw
-        dataset, _ = _RUNG_LABEL["indictrans2"]
+        dataset = engines.NO_TRANSLATION
+        engine = engines.NO_TRANSLATION
         status = "degraded"
         confidence = Confidence(score="LOW_DATA", rationale=f"No translation backend: {exc}")
         error_detail = str(exc)
@@ -409,18 +407,18 @@ def run_egress(state: ORCAState) -> AgentResult:
     try:
         vernacular, rung = (english_text, "passthrough") if target == "en" else _translate_with_rung(english_text, "en", target)
         status: Literal["ok", "degraded"] = "ok"
-        dataset = "IndicTrans2 (local, indictrans2-en-indic-dist-200M)" if rung != "bhashini" else _RUNG_LABEL["bhashini"][0]
-        engine = "Bhashini NMT" if rung == "bhashini" else None
-        rung_label = "Bhashini" if rung == "bhashini" else "IndicTrans2, local inference"
-        confidence = Confidence(
-            score="MEDIUM",
-            rationale=f"{rung_label} en->{target}" if rung != "passthrough" else "already English",
-        )
+        if rung == "passthrough":
+            dataset = engine = engines.NO_TRANSLATION
+            confidence = Confidence(score="HIGH", rationale="already English, no translation needed")
+        else:
+            dataset = _RUNG_LABEL["bhashini"][0]
+            engine = "Bhashini NMT"
+            confidence = Confidence(score="MEDIUM", rationale=f"Bhashini en->{target}")
         error_detail = None
     except RuntimeError as exc:
         vernacular = english_text  # degrade to English rather than crash the response
         rung = "passthrough"
-        dataset = "IndicTrans2 (local, indictrans2-en-indic-dist-200M)"
+        dataset = engine = engines.NO_TRANSLATION
         status = "degraded"
         confidence = Confidence(score="LOW_DATA", rationale=f"No translation backend: {exc}")
         error_detail = str(exc)

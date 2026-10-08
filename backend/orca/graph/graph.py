@@ -179,11 +179,18 @@ def distress_check_node(state: ORCAState) -> dict:
     "distress" entries in the trace for what is genuinely one agent
     invocation. Everything downstream needs is computed here, once."""
     result, entry = run_traced_node("distress", _distress_with_escalation, state)
+    return _distress_update(result, entry, "distress_check")
+
+
+def _distress_update(result: AgentResult, entry: dict, node: str) -> dict:
+    """The state update for a distress verdict: the flag, and when it is a distress
+    call the MRCC handoff written as the answer. Shared by the first-line check
+    (distress_check_node) and the planning handoff (planned_distress_node)."""
     is_distress = result.outputs["detection"]["is_distress"]
     update = {
         "distress_flag": is_distress,
         "audit_trace_log": [entry],
-        "completed_nodes": ["distress_check"],
+        "completed_nodes": [node],
     }
     if is_distress:
         # Bypasses Reporting entirely (Architecture §3.2 step 1) — surfaces
@@ -202,6 +209,19 @@ def distress_check_node(state: ORCAState) -> dict:
         )
         update["confidence_tier"] = "HIGH"
     return update
+
+
+def planned_distress_node(state: ORCAState) -> dict:
+    """FIX-D1 — planning read the message as an active emergency (`kind="distress"`)
+    that the phrase list and the escalate-only check did not flag. The model's
+    reading is the same kind of evidence as that check's, and the same rule holds: a
+    missed distress call is the worst failure, a redundant handoff is not. So it is
+    handled exactly as the SOS button is, with the same MRCC response, and never
+    reaches the sea agents. No model call here (distress.py stays model-free)."""
+    result, entry = run_traced_node(
+        "distress", lambda s: distress.run({**s, "distress_flag": True}), state,
+    )
+    return _distress_update(result, entry, "planned_distress")
 
 
 def _route_after_distress(state: ORCAState) -> str:
@@ -379,6 +399,8 @@ def _route_after_planning(state: ORCAState) -> list[str] | str:
     """
     if state.get("query_outcome") in ("NEEDS_PLACE", "OUT_OF_RANGE"):
         return END
+    if state.get("understood_kind") == "distress":
+        return "planned_distress"
     if OUT_OF_SCOPE_ROW in (state.get("matched_intent_rows") or []):
         return "out_of_scope"
     # P2.6 — the fan-out no longer starts here. Agent 3 decides the sources
@@ -575,6 +597,16 @@ def planning_node(state: ORCAState) -> dict:
         "audit_trace_log": [entry],
         "completed_nodes": ["planning"],
     }
+    # FIX-D3: for a message that was machine-translated (any non-English script), the planner's
+    # reading of the ORIGINAL text replaces the translation as the English query everything
+    # downstream sees (the narrative, the critic, the stored turn). Bhashini turned
+    # "தூத்துக்குடியில்" (Thoothukudi) into "new york"; the planner read the Tamil and found the
+    # right place, which is then checked against the gazetteer. English and romanized text were
+    # never translated, so they keep their own words.
+    reading = outputs.get("english_reading")
+    if reading and (state.get("detected_language") or "en") != "en":
+        update["normalized_english_query"] = reading
+
     # PC2.3: If validation produced a refusal (NEEDS_PLACE or OUT_OF_RANGE),
     # generate the refusal response directly so the graph routes to END.
     if outputs.get("query_outcome") in ("NEEDS_PLACE", "OUT_OF_RANGE"):
@@ -1324,6 +1356,7 @@ def build_graph():
     g = StateGraph(ORCAState)
     g.add_node("distress_check", distress_check_node)
     g.add_node("out_of_scope", out_of_scope_node)
+    g.add_node("planned_distress", planned_distress_node)
     g.add_node("language_ingress", language_ingress_node)
     # PC2.2 & PC2.3: understand & query_guard removed; planning owns LLM understanding & validation.
     g.add_node("planning", planning_node)
@@ -1349,10 +1382,12 @@ def build_graph():
         {
             END: END,
             "out_of_scope": "out_of_scope",
+            "planned_distress": "planned_distress",
             "marine_data_discovery": "marine_data_discovery",
         },
     )
     g.add_edge("out_of_scope", END)
+    g.add_edge("planned_distress", END)
     # P2.6 — the fan-out now hangs off Agent 3 rather than Planning, so the
     # three specialists consume one already-made source decision instead of
     # each making its own. Still an unconditional fan-out to all three: the

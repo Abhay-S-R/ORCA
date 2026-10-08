@@ -4,8 +4,8 @@
 //
 // Re-running is not free here the way it is in a plain chat product: it puts
 // twelve agents back through real datasets. So the control is quiet — a ghost
-// icon in the card's top-right corner, not a button competing with the
-// answer — and it says what it does on hover, because "regenerate" would not
+// icon in the row under the answer text, like a chat product's copy and
+// retry, not a button competing with the answer — and it says what it does on hover, because "regenerate" would not
 // tell a fisherman that the boundary distance is about to be recomputed.
 //
 // The answer it replaces is never thrown away; the "2/2" stepper beside it
@@ -15,7 +15,7 @@ import { useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Copy, RotateCcw } from "lucide-react";
 
 const ghostBtn =
-  "grid size-6 place-items-center rounded-md text-ink-dim transition-colors hover:bg-shelf-2 hover:text-ink disabled:pointer-events-none disabled:opacity-35";
+  "grid size-9 place-items-center rounded-lg text-ink-dim transition-colors hover:bg-shelf-2 hover:text-ink disabled:pointer-events-none disabled:opacity-35";
 
 // P4.10 (`R-UX-3`) — "the one missing per-turn action on /ask" (re-ask,
 // open trace and re-render already existed). A quiet ghost icon, same
@@ -40,7 +40,7 @@ export function CopyControl({ text }: { text: string }) {
       title={copied ? "Copied" : "Copy this answer"}
       aria-label={copied ? "Copied" : "Copy this answer"}
     >
-      {copied ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
+      {copied ? <Check className="size-[18px]" aria-hidden="true" /> : <Copy className="size-[18px]" aria-hidden="true" />}
     </button>
   );
 }
@@ -71,7 +71,7 @@ export function RerunControl({
             disabled={versionIndex <= 0}
             aria-label="Previous answer to this question"
           >
-            <ChevronLeft className="size-3.5" aria-hidden="true" />
+            <ChevronLeft className="size-4" aria-hidden="true" />
           </button>
           <span className="font-mono text-[10px] tabular-nums text-ink-dim" aria-live="polite">
             {versionIndex + 1}/{versionCount}
@@ -83,7 +83,7 @@ export function RerunControl({
             disabled={versionIndex >= versionCount - 1}
             aria-label="Next answer to this question"
           >
-            <ChevronRight className="size-3.5" aria-hidden="true" />
+            <ChevronRight className="size-4" aria-hidden="true" />
           </button>
         </span>
       )}
@@ -95,7 +95,7 @@ export function RerunControl({
         title="Try again — runs every agent again on fresh data, and keeps this answer"
         aria-label="Try again — runs every agent again on fresh data, and keeps this answer"
       >
-        <RotateCcw className={`size-3.5 ${streaming ? "animate-spin" : ""}`} aria-hidden="true" />
+        <RotateCcw className={`size-[18px] ${streaming ? "animate-spin" : ""}`} aria-hidden="true" />
       </button>
     </span>
   );

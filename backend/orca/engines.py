@@ -28,10 +28,10 @@ import os
 
 DETERMINISTIC = "Deterministic"
 
-# Agent 1's real weights (orca/agents/language.py `IndicTrans2Backend`) — local
-# inference, no API, which is the point worth showing: the translation half of
-# the pipeline is not a cloud model either.
-INDICTRANS2 = "IndicTrans2 · indictrans2-indic-en-dist-200M (local)"
+# What the language spans say when no translation ran (English or romanized text goes through as
+# typed). Translation, when it does run, is Bhashini NMT only; this used to default to an
+# IndicTrans2 label, which claimed a local model had run on every English question.
+NO_TRANSLATION = "No translation (passthrough)"
 
 # Which tier each LLM-capable agent draws from (plan §3.2). Unchanged from the
 # two copies of this ladder that previously lived in `api/main.py` and
@@ -71,8 +71,8 @@ LLM_AGENTS: frozenset[str] = frozenset({"reporting", "critic"})
 # judge is entitled to test. Planning stays here because it *is* deterministic
 # in every case but a Tier-3 fallback, and it records that case itself.
 _STATIC_ENGINE: dict[str, str] = {
-    "language_ingress": INDICTRANS2,
-    "language_egress": INDICTRANS2,
+    "language_ingress": NO_TRANSLATION,
+    "language_egress": NO_TRANSLATION,
     "distress": DETERMINISTIC,
     "distress_check": DETERMINISTIC,
     "planning": DETERMINISTIC,
@@ -141,7 +141,7 @@ def used_llm(agent_name: str, engine: str | None = None) -> bool:
     there is one — a Reporting run that fell back to its template did not use
     an LLM, whatever the agent's name is in `LLM_AGENTS`."""
     if engine:
-        return not engine.startswith(DETERMINISTIC) and engine != INDICTRANS2
+        return not engine.startswith(DETERMINISTIC) and engine != NO_TRANSLATION
     return agent_name in LLM_AGENTS
 
 
@@ -149,8 +149,8 @@ if __name__ == "__main__":
     assert engine_for("risk_assessment") == DETERMINISTIC
     assert engine_for("geospatial") == DETERMINISTIC
     assert engine_for("visualization") == DETERMINISTIC
-    assert engine_for("language_ingress") == INDICTRANS2
-    assert engine_for("language_egress") == INDICTRANS2
+    assert engine_for("language_ingress") == NO_TRANSLATION
+    assert engine_for("language_egress") == NO_TRANSLATION
     # A recorded engine always wins over the table.
     assert engine_for("reporting", "gemini · gemini-3.5-flash-lite") == "gemini · gemini-3.5-flash-lite"
     # A Reporting run that fell back records it, and the recorded value wins.
@@ -170,6 +170,6 @@ if __name__ == "__main__":
     assert engine_for("some_new_node") == DETERMINISTIC
     assert used_llm("reporting", "gemini · x") is True
     assert used_llm("reporting", deterministic("provider disabled")) is False
-    assert used_llm("language_ingress", INDICTRANS2) is False
+    assert used_llm("language_ingress", NO_TRANSLATION) is False
     assert used_llm("risk_assessment") is False
     print("engines self-check ok")

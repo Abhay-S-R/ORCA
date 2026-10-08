@@ -271,10 +271,8 @@ def chain_for(tier: Tier) -> list[tuple[str, str]]:
         rungs.append(("groq", os.environ.get("ORCA_LLM_GROQ_MODEL") or _GROQ_MODEL))
     if (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")) and model != _SECOND_GEMINI:
         rungs.append(("gemini", _SECOND_GEMINI))
-    local = os.environ.get("ORCA_LLM_LOCAL_MODEL") or _LOCAL_MODEL
-    # ORCA_LOCAL_MODELS=0 (orca/local_models.py) drops the Ollama rung like any other local model.
-    if tier in _LOCAL_TIERS and local not in _LOCAL_MISSING and local_models.enabled():
-        rungs.append(("ollama", local))
+    # No Ollama rung by default (decision 2026-10-08: it is not installed on most machines). A chain
+    # that names `ollama:<model>` in ORCA_LLM_<TIER>_CHAIN still gets it, as an explicit opt-in.
     return rungs
 
 

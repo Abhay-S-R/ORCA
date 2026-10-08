@@ -28,7 +28,7 @@ import { turnVersions } from "./useAskThread";
 import { RerunControl, CopyControl } from "./RerunControl";
 import { IntentActions } from "./IntentActions";
 import { DisclosureBanner, RefusalCard, ResetNotice } from "./Disclosures";
-import { InheritedChips, ReconciliationPanel, RoutingLine, SkippedNotice } from "./ReasoningEvidence";
+import { InheritedChips, SkippedNotice } from "./ReasoningEvidence";
 import { useT } from "../i18n/useT";
 
 // Routing rows (backend orca/agents/planning.py) that mean the question was
@@ -186,14 +186,6 @@ export function ChatTurn({
             ))}
             {runningAgent && <AgentPill name={runningAgent} status="running" />}
           </AgentStrip>
-
-          {/* P2.7 (`R-JUDGE-3`) — the routing decision, said out loud, so a
-              compound query is visibly a compound query. P2.10 — the total
-              beside it, because "how long did that take" is the other
-              question every judge asks about an agent graph. */}
-          {answer?.routing && answer.routing.matched_intent_rows.length > 0 && (
-            <RoutingLine routing={answer.routing} latency={answer.latency} llmCalls={answer.llm_call_count} failedAttempts={answer.llm_failed_attempts} />
-          )}
         </div>
       )}
 
@@ -240,7 +232,7 @@ export function ChatTurn({
           {answer.inherited && answer.inherited.length > 0 && (
             <InheritedChips inherited={answer.inherited} onRemove={onDropInherited} />
           )}
-          <Panel title="Answer" action={rerunControl}>
+          <Panel title="Answer">
             <div className="flex flex-col gap-4">
               {/* Architecture §2.6 rendering matrix — same facts, structure
                   differs by persona. Only rendered once risk_assessment
@@ -309,12 +301,16 @@ export function ChatTurn({
                     {unwritten && (
                       <p className="text-[11px] text-ink-dim">{t("chatTurn.writtenWithoutModel")}</p>
                     )}
-                    <AnswerSpeaker
-                      text={answerBody}
-                      language={answer.detected_language ?? "en"}
-                      persona={renderedAs ?? persona}
-                      queryId={answer.query_id}
-                    />
+                    {/* Under the text, in one row: play, copy, try again. */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <AnswerSpeaker
+                        text={answerBody}
+                        language={answer.detected_language ?? "en"}
+                        persona={renderedAs ?? persona}
+                        queryId={answer.query_id}
+                      />
+                      {rerunControl}
+                    </div>
                   </div>
                 );
               })()}
@@ -328,15 +324,6 @@ export function ChatTurn({
                     <span className="font-semibold text-ink-dim block mb-1.5">{t("chatTurn.englishTranslation")}</span>
                     <FormattedResponse text={answer.final_english_response} />
                   </div>
-              )}
-
-              {/* P2.4 (`R-PS-5`) — where two sources covering the same
-                  variable were compared. The disagreements are already above
-                  the answer as disclosures; this is the full record, including
-                  the pairs that agreed, because "how do you know your sources
-                  agree" deserves the comparison and not a reassurance. */}
-              {answer.reconciliation && answer.reconciliation.length > 0 && (
-                <ReconciliationPanel rows={answer.reconciliation} />
               )}
 
               {/* P2.7/P2.12 — work deliberately not done, and why. */}

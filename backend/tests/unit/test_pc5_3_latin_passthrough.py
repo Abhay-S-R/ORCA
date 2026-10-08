@@ -130,7 +130,8 @@ def test_ingress_leaves_a_romanized_question_untouched_and_marks_it_english():
 
 def test_ingress_reports_no_translation_engine_for_latin_text():
     result = _ingress("pfzs near rameshwaram")
-    assert result.engine is None and result.status == "ok"
+    # Names what ran, which is nothing: it used to be None and the span defaulted to an IndicTrans2 label.
+    assert result.engine == "No translation (passthrough)" and result.status == "ok"
     assert "already English" in result.confidence.rationale
 
 

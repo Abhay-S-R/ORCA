@@ -10,6 +10,7 @@ import json
 import logging
 import math
 import os
+import time
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
@@ -27,10 +28,8 @@ from orca.agents import distress as distress_agent
 from orca.agents import reporting
 from orca.agents.geospatial import DATA_ROOT, depth_at_point
 from orca.agents.language import (
-    IndicTrans2Backend,
     english_query,
     query_language,
-    register_translation_backend,
 )
 from orca.agents.planning import carry_intent, classify_intent_deterministic
 from orca.api.analytics_routes import router as analytics_router
@@ -98,14 +97,11 @@ async def _lifespan(app: FastAPI):
     # OOM breadcrumb — log RSS + PID so a gap between "started" and the
     # previous log line proves a silent OOM kill (vs. a clean redeploy).
     log_startup_memory()
-    # Registered once at startup, not per-request — IndicTrans2Backend loads
-    # its models lazily on first actual translate() call, so this itself is
-    # cheap; the first Tamil/Hindi query after a cold start pays the model
-    # load cost, not every query.
-    _translation_backend = IndicTrans2Backend()
-    register_translation_backend(_translation_backend)
+    # Translation is Bhashini only (decision 2026-10-08): no local translator is registered, loaded or
+    # warmed, so a machine without those weights or IndicTransToolkit starts and behaves the same.
     # ORCA_LOCAL_MODELS=0 (orca/local_models.py) skips every warm-up below, and each loader
     # refuses a lazy load too, so a small host never holds these models in memory.
+    warmups: list[asyncio.Future] = []
     if local_models.enabled():
         # P6.4 (orca_final §14.3) — pre-warm IndicTrans2 and Whisper now, same
         # fire-and-forget `run_in_executor` shape as the intent-embedding warm-up
@@ -114,13 +110,13 @@ async def _lifespan(app: FastAPI):
         try:
             from orca.agents.voice import warm_faster_whisper, warm_mms_tts
 
-            asyncio.get_running_loop().run_in_executor(None, _translation_backend.warm)
-            asyncio.get_running_loop().run_in_executor(None, warm_faster_whisper)
+            loop = asyncio.get_running_loop()
+            warmups.append(loop.run_in_executor(None, warm_faster_whisper))
             # P6.4 — the local TTS rung was the one warm-up missing (see
             # voice.warm_mms_tts's own docstring): only ASR and translation were
             # pre-warmed before this, leaving the demo's Tamil alert voice to pay
             # a first-synthesis model load on whichever take needed it first.
-            asyncio.get_running_loop().run_in_executor(None, warm_mms_tts)
+            warmups.append(loop.run_in_executor(None, warm_mms_tts))
         except Exception:  # warm-up is an optimisation, never a startup dependency
             logging.getLogger("orca.language").warning("model warm-up not started", exc_info=True)
         # P2.8 — load the Tier-2 intent-embedding model now, off the event loop,
@@ -131,18 +127,17 @@ async def _lifespan(app: FastAPI):
         try:
             from orca import intent_embeddings
 
-            asyncio.get_running_loop().run_in_executor(None, intent_embeddings.warm)
+            warmups.append(asyncio.get_running_loop().run_in_executor(None, intent_embeddings.warm))
         except Exception:  # warm-up is an optimisation, never a startup dependency
             logging.getLogger("orca.intent").warning("intent embedding warm-up not started", exc_info=True)
-        # Chatbot plan C0.2b — the local model is the last rung under every
-        # written answer, and a cold one takes minutes to load. Same
-        # fire-and-forget shape as the warm-ups above.
-        try:
-            from orca.llm.tiers import warm_local_models
-
-            asyncio.get_running_loop().run_in_executor(None, warm_local_models)
-        except Exception:  # warm-up is an optimisation, never a startup dependency
-            logging.getLogger("orca.llm").warning("local model warm-up not started", exc_info=True)
+    # FIX-COLD — the first query and the first Play Verdict used to pay one-off setup costs
+    # (the Gemini client import and TLS, the Bhashini pipeline-config lookup): measured 9.4 s vs
+    # 3.2 s for the first distress check, 5.4 s vs 3.4 s for the first speak. Pay them here.
+    warmups.append(asyncio.get_running_loop().run_in_executor(None, _prime_first_request))
+    # Everything above is waited for, so "the server is up" means "the
+    # server is fast": a request that arrives while these load competes with them for the CPU
+    # (measured: the first distress check took 9.5 s during warm-up and 3.6 s after).
+    await _wait_until_warm(warmups)
     # Agent 11 (Sentinel, Phase 3 D2) — an in-process asyncio poll loop,
     # single-instance via a Postgres advisory lock. Disabled with
     # ORCA_SENTINEL_ENABLED=0; a DB outage degrades it to a no-op tick, never
@@ -256,6 +251,61 @@ _PERSONAS = ("fisherman", "commercial_navigator", "researcher", "coastal_authori
 
 
 _DEPTHS = ("SHALLOW", "STANDARD", "DEEP")
+
+
+async def _wait_until_warm(warmups: list[asyncio.Future], cap_s: float = 90.0) -> None:
+    """FIX-COLD — hold startup until the warm-ups finish, at most `cap_s`. A warm-up that is
+    still running at the cap (a slow first download) keeps going in the background; the server
+    starts either way."""
+    if not warmups:
+        return
+    started = time.monotonic()
+    done, pending = await asyncio.wait(warmups, timeout=cap_s)
+    for fut in done:
+        fut.exception()  # each warm-up logs its own failure; this only marks it retrieved
+    logging.getLogger("orca.startup").info(
+        "ORCA ready after %.1fs of warm-up (%d done, %d still loading)", time.monotonic() - started, len(done), len(pending),
+    )
+
+
+def _prime_first_request() -> None:
+    """FIX-COLD — one tiny model call and one short synthesis, off the request path, so the
+    first real user does not pay the client imports, the TLS handshakes and the Bhashini
+    pipeline-config lookup. Every step is best-effort: priming is an optimisation, never a
+    startup dependency, and an outage here just means the first user pays as before."""
+    log = logging.getLogger("orca.startup")
+    try:
+        from orca.llm.tiers import llm, llm_enabled
+
+        if llm_enabled():
+            llm("cheap").complete([{"role": "user", "content": "Reply with the single word: ready"}])
+    except Exception:
+        log.warning("model priming skipped", exc_info=True)
+    try:
+        from orca.agents.voice import text_to_speech
+
+        text_to_speech("ORCA is ready.", "en")
+    except Exception:
+        log.warning("speech priming skipped", exc_info=True)
+    # Bhashini resolves a pipeline config per (task, language) and caches it, so the first Play or
+    # the first translated answer in each language paid its own round trip (a user saw ~5 s on the
+    # first Play). Resolve them all now; each is a small lookup, no synthesis, and one failing
+    # (Bhashini down, not configured) must not stop the others.
+    try:
+        from orca.agents import bhashini
+        from orca.agents.language import _ALL_LANGUAGES
+
+        if bhashini.bhashini_configured():
+            for lang in _ALL_LANGUAGES:
+                for task, args in (("tts", (lang,)), ("translation", ("en", lang))):
+                    if task == "translation" and lang == "en":
+                        continue
+                    try:
+                        bhashini._pipeline_config(task, *args)  # type: ignore[arg-type]
+                    except Exception:
+                        log.warning("bhashini %s config for %s not primed", task, lang)
+    except Exception:
+        log.warning("bhashini config priming skipped", exc_info=True)
 
 
 def _initial_state(
