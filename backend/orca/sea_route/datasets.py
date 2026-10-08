@@ -37,7 +37,7 @@ PROTECTED_FILE = Path(os.getenv("SEA_ROUTE_PROTECTED_FILE", str(_DATA_ROOT / "se
 PFZ_FILE = Path(os.getenv("SEA_ROUTE_PFZ_FILE", str(_DATA_ROOT / "incois_osf_pfz" / "pfz" / "all_india_pfz_advisories.geojson")))
 OCEAN_DIR = _DATA_ROOT / "tier1" / "ocean"
 
-SEED_MAJOR = [
+SEED_MAJOR: list[dict[str, Any]] = [
     {"id": "IN_KAN", "name": "Kandla", "code": "INKLA", "type": "major", "state": "Gujarat", "lat": 22.98, "lng": 70.22},
     {"id": "IN_MUN", "name": "Mundra", "code": "INMUN", "type": "major", "state": "Gujarat", "lat": 22.84, "lng": 69.70},
     {"id": "IN_JNP", "name": "JNPT / Nhava Sheva", "code": "INJNP", "type": "major", "state": "Maharashtra", "lat": 18.95, "lng": 72.95},
@@ -145,15 +145,15 @@ def load_ports() -> tuple[Port, ...]:
 
     for p in SEED_MAJOR:
         ports.append(Port(
-            id=p["id"],
-            name=p["name"],
-            code=p["code"],
-            type=p["type"],
-            state=p["state"],
+            id=str(p["id"]),
+            name=str(p["name"]),
+            code=str(p["code"]),
+            type=str(p["type"]),
+            state=str(p["state"]),
             lat=float(p["lat"]),
             lng=float(p["lng"]),
         ))
-        seen_ids.add(p["id"].lower())
+        seen_ids.add(str(p["id"]).lower())
 
     pfz_centers: dict[str, str] = {}
     if PFZ_FILE.exists():
@@ -277,7 +277,7 @@ def load_protected_areas() -> tuple[RestrictedArea, ...]:
 
 
 # Regional offshore fishing grounds across India for comprehensive coastal coverage
-PAN_INDIA_FISHING_GROUNDS = [
+PAN_INDIA_FISHING_GROUNDS: list[dict[str, Any]] = [
     {"id": "FZ_GUJ_01", "name": "Veraval Offshore Bank (Gujarat)", "sector": "Gujarat", "lat": 20.65, "lng": 70.15, "depth_m": "35-50", "distance_km": "25-35"},
     {"id": "FZ_GUJ_02", "name": "Okha Pelagic Ground (Gujarat)", "sector": "Gujarat", "lat": 22.55, "lng": 68.85, "depth_m": "40-60", "distance_km": "20-30"},
     {"id": "FZ_MAH_01", "name": "Bombay High South Fishing Grounds (Maharashtra)", "sector": "Maharashtra", "lat": 19.10, "lng": 71.80, "depth_m": "45-65", "distance_km": "50-70"},
@@ -362,26 +362,26 @@ def load_fishing_zones() -> tuple[FishingZone, ...]:
 
     # 2. Pan-India regional offshore grounds for all coastal states
     for item in PAN_INDIA_FISHING_GROUNDS:
-        zid = item["id"]
+        zid = str(item["id"])
         if zid.lower() in seen_ids:
             continue
-        poly = Point(item["lng"], item["lat"]).buffer(0.08)
+        poly = Point(float(item["lng"]), float(item["lat"])).buffer(0.08)
         props = {
             "id": zid,
-            "name": item["name"],
-            "sector": item["sector"],
-            "depth_m": item["depth_m"],
-            "distance_km": item["distance_km"],
-            "entry_lat": item["lat"],
-            "entry_lng": item["lng"],
+            "name": str(item["name"]),
+            "sector": str(item["sector"]),
+            "depth_m": str(item["depth_m"]),
+            "distance_km": str(item["distance_km"]),
+            "entry_lat": float(item["lat"]),
+            "entry_lng": float(item["lng"]),
             "source": "Coastal Regional Offshore PFZ Ground",
         }
         zones.append(FishingZone(
             id=zid,
-            name=item["name"],
+            name=str(item["name"]),
             geometry=poly,
-            entry_lat=item["lat"],
-            entry_lng=item["lng"],
+            entry_lat=float(item["lat"]),
+            entry_lng=float(item["lng"]),
             properties=props,
         ))
         seen_ids.add(zid.lower())
