@@ -297,3 +297,21 @@ def sea_route(
         cfg.cell_deg, cfg.land_buffer_nm, cfg.eez_blocking,
         is_map_pick=is_map_pick,
     )
+
+
+def sea_route_no_cache(
+    start_lat: float, start_lng: float,
+    end_lat: float, end_lng: float,
+    speed_knots: float = 8.0,
+    departure_iso: str = "",
+    cfg: SeaRouteConfig = DEFAULT_CONFIG,
+    is_map_pick: bool = False,
+) -> SeaRouteResult:
+    """Non-cached entry point for testing or dynamic configs."""
+    return _compute_route(
+        start_lat, start_lng, end_lat, end_lng,
+        speed_knots, departure_iso,
+        cfg.cell_deg, cfg.land_buffer_nm, cfg.eez_blocking,
+        is_map_pick=is_map_pick,
+    )
+

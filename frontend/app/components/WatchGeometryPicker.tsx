@@ -47,6 +47,7 @@ export function WatchGeometryPicker({
       container: container.current, style: BASEMAP_STYLE,
       center: point ? [point.lon, point.lat] : INDIA_VIEW.center,
       zoom: point ? 8 : INDIA_VIEW.zoom, attributionControl: false,
+      minZoom: 1, maxZoom: 22,
     });
     map.current = m;
     m.addControl(new maplibregl.NavigationControl(), "top-right");

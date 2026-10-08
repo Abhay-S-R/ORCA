@@ -219,3 +219,5 @@ def test_api_post_sea_route_outside_bbox_error():
     response = client.post("/api/sea-route", json=payload)
     assert response.status_code == 400
     assert "within Indian waters" in response.json()["detail"]
+
+

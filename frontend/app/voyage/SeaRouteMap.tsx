@@ -51,7 +51,9 @@ export function SeaRouteMap({
         style: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
         center: [80, 15],
         zoom: 4.5,
-        maxBounds: [[60, 2], [100, 27]],
+        minZoom: 4.5,
+        maxZoom: 22,
+        maxBounds: [[64.0, 3.0], [96.0, 27.0]],
       });
       map.addControl(new NavigationControl({ showCompass: false }), "top-right");
 
@@ -197,7 +199,16 @@ export function SeaRouteMap({
       mapRef.current = map;
     });
 
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+      ro = new ResizeObserver(() => {
+        mapRef.current?.resize();
+      });
+      ro.observe(containerRef.current);
+    }
+
     return () => {
+      ro?.disconnect();
       setReady(false);
       startMarkerRef.current?.remove();
       endMarkerRef.current?.remove();
@@ -240,12 +251,20 @@ export function SeaRouteMap({
       // Fit to route bounds with smooth easing.
       const lngs = coords.map((c) => c[0]);
       const lats = coords.map((c) => c[1]);
+      const minLng = Math.min(...lngs);
+      const maxLng = Math.max(...lngs);
+      const minLat = Math.min(...lats);
+      const maxLat = Math.max(...lats);
+      const spanLng = maxLng - minLng;
+      const spanLat = maxLat - minLat;
+      const padLng = Math.max(0.04, spanLng * 0.1);
+      const padLat = Math.max(0.04, spanLat * 0.1);
       map.fitBounds(
         [
-          [Math.min(...lngs) - 0.35, Math.min(...lats) - 0.35],
-          [Math.max(...lngs) + 0.35, Math.max(...lats) + 0.35],
+          [minLng - padLng, minLat - padLat],
+          [maxLng + padLng, maxLat + padLat],
         ],
-        { padding: 50, duration: 800, maxZoom: 12 },
+        { padding: 50, duration: 800, maxZoom: 18 },
       );
     } else {
       (src as import("maplibre-gl").GeoJSONSource).setData({
@@ -341,6 +360,44 @@ export function SeaRouteMap({
     if (!map) return;
     map.getCanvas().style.cursor = mapPickMode ? "crosshair" : "";
   }, [mapPickMode]);
+
+  /* ---- Zoom & camera bounds: locked to the surface current domain
+     [65.0°E, 4.0°N to 95.0°E, 26.0°N]. The chart cannot zoom out beyond the
+     surface currents extent, and cannot be panned outside it. Within this
+     extent, full deep zoom up to 22 is unlocked. ---- */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    map.setMaxBounds([
+      [64.0, 3.0],
+      [96.0, 27.0],
+    ]);
+  }, [ready]);
+
+  // Fit bounds when start and end pins are picked before route calculation
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || (result && result.coords.length > 0)) return;
+    if (startPin && endPin) {
+      const minLng = Math.min(startPin[1], endPin[1]);
+      const maxLng = Math.max(startPin[1], endPin[1]);
+      const minLat = Math.min(startPin[0], endPin[0]);
+      const maxLat = Math.max(startPin[0], endPin[0]);
+      const spanLng = maxLng - minLng;
+      const spanLat = maxLat - minLat;
+      const padLng = Math.max(0.08, spanLng * 0.15);
+      const padLat = Math.max(0.08, spanLat * 0.15);
+      map.fitBounds(
+        [
+          [minLng - padLng, minLat - padLat],
+          [maxLng + padLng, maxLat + padLat],
+        ],
+        { padding: 60, duration: 800, maxZoom: 16 },
+      );
+    } else if (startPin && !endPin) {
+      map.flyTo({ center: [startPin[1], startPin[0]], zoom: Math.max(map.getZoom(), 8), duration: 800 });
+    }
+  }, [ready, startPin, endPin, result]);
 
   // Toggle satellite basemap and re-style route/zone layers for high contrast.
   useEffect(() => {
