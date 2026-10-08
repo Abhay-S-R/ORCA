@@ -25,15 +25,19 @@ docker build -t orca-backend backend || (
 )
 
 echo [2/3] Building Render image with fresh data/...
-docker build -f infra/render/Dockerfile -t asrsyshash/orca-backend:render . || (
-    echo [ERROR] Failed to build asrsyshash/orca-backend:render image.
+docker build -f infra/render/Dockerfile -t asrsyshash/orca-backend:render -t asrsyshash/orca-backend:data-base . || (
+    echo [ERROR] Failed to build asrsyshash/orca-backend images.
     exit /b 1
 )
 
 REM 3. Push to Docker Hub
-echo [3/3] Pushing image to Docker Hub...
+echo [3/3] Pushing images to Docker Hub...
+docker push asrsyshash/orca-backend:data-base || (
+    echo [ERROR] Failed to push data-base image to Docker Hub.
+    exit /b 1
+)
 docker push asrsyshash/orca-backend:render || (
-    echo [ERROR] Failed to push image to Docker Hub. Ensure you are logged in via 'docker login'.
+    echo [ERROR] Failed to push render image to Docker Hub. Ensure you are logged in via 'docker login'.
     exit /b 1
 )
 
