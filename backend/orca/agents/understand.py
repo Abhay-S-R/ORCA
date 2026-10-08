@@ -93,7 +93,7 @@ def _build_understand_prompt(
                 # What ORCA replied is what a short follow-up refers to: "more
                 # detail" after a capability answer is not "more detail" after a PFZ.
                 if t.get("answer"):
-                    turns.append(f'   ORCA replied: "{str(t["answer"])[:240]}"')
+                    turns.append(f'   Sagar Sarathi replied: "{str(t["answer"])[:240]}"')
         if turns:
             history_block = "\nRECENT TURNS (oldest first, max 5):\n" + "\n".join(turns)
 
@@ -110,7 +110,7 @@ def _build_understand_prompt(
     row_names = ", ".join(_ROUTING_ROW_NAMES)
     kind_values = ", ".join(_KIND_VALUES)
 
-    return f"""You are ORCA's prompt understanding layer. Read the user's message in context and classify it.
+    return f"""You are Sagar Sarathi's prompt understanding layer. Read the user's message in context and classify it.
 
 USER MESSAGE: "{message}"
 {history_block}
@@ -148,7 +148,7 @@ Pick the specialists this query most likely needs. Use an empty list for non-sea
 
 RULES:
 1. kind = "distress" ONLY when the message clearly signals an active emergency at sea (sinking, capsized, boat taking on water, man overboard, mayday, medical emergency at sea, engine failure adrift, no fuel adrift). If unsure, use "sea_question".
-2. kind = "clock_or_position" for "what time is it", "where am I", "current location/time", "what is my position" — questions about ORCA's own context, not the sea.
+2. kind = "clock_or_position" for "what time is it", "where am I", "current location/time", "what is my position" — questions about Sagar Sarathi's own context, not the sea.
 3. kind = "greeting_or_small_talk" for "hi", "hello", "namaste", "vanakkam", "thanks", "who are you", "good morning" — conversational openers.
 4. kind = "what_can_orca_do" for capability questions ("what do you do", "help me", "how can you assist", "features").
 5. kind = "reset_or_language_switch" for "reset", "clear conversation", "change language", "switch to Tamil", "talk in Hindi".
@@ -176,12 +176,12 @@ RULES:
     - Out of range (> 7 days ahead or past dates) should still be parsed with their ISO dates so validation can catch them.
 12. FOLLOW-UPS: is_followup = true if the query is a continuation of the previous turn (e.g. "and tomorrow?", "what about in a fiber boat?", "how about wind?", "also check tides").
 13. NEVER invent numbers, distances, or mock data. Only classify and extract.
-14. MESSAGES THAT REFER TO THE CONVERSATION. Read RECENT TURNS, including what ORCA replied, then decide in this order:
-    a. The message asks for ANY sea reading: new, repeated, more detailed, or for another time, place, boat or measure ("what about tomorrow evening?", "and in a trawler?", "how about wind?", "why is that?", "more detail", "explain that", "is that zone far?"), and ORCA's last reply was a sea answer -> kind = "sea_question", is_followup = true, and leave places empty so the earlier place carries over.
-    b. Only when it wants NO sea reading, because it talks about ORCA or ORCA's last reply: asks to elaborate on a capability answer or on a refusal, challenges or questions a limit ("so you can't give me a land forecast?", "why can't you?"), or reacts ("ok", "that's not what I asked") -> kind = "chat_followup".
-    c. When ORCA's last reply was a sea answer, a short follow-up is (a). When it was a capability answer, a refusal or chat, a follow-up that wants more is (b).
+14. MESSAGES THAT REFER TO THE CONVERSATION. Read RECENT TURNS, including what Sagar Sarathi replied, then decide in this order:
+    a. The message asks for ANY sea reading: new, repeated, more detailed, or for another time, place, boat or measure ("what about tomorrow evening?", "and in a trawler?", "how about wind?", "why is that?", "more detail", "explain that", "is that zone far?"), and Sagar Sarathi's last reply was a sea answer -> kind = "sea_question", is_followup = true, and leave places empty so the earlier place carries over.
+    b. Only when it wants NO sea reading, because it talks about Sagar Sarathi or Sagar Sarathi's last reply: asks to elaborate on a capability answer or on a refusal, challenges or questions a limit ("so you can't give me a land forecast?", "why can't you?"), or reacts ("ok", "that's not what I asked") -> kind = "chat_followup".
+    c. When Sagar Sarathi's last reply was a sea answer, a short follow-up is (a). When it was a capability answer, a refusal or chat, a follow-up that wants more is (b).
     d. A message that depends on the conversation is never "off_topic", and never a sea_question about a place the user did not name.
-15. INLAND PLACES. kind = "inland_place" when the user asks for weather, conditions or a forecast at a place that is clearly inland, far from the sea (Bengaluru, Delhi, Hyderabad, Pune, Jaipur, Lucknow). Put the place in `places` as typed. It is NOT off_topic (the user is asking about weather) and NOT a sea_question (ORCA has no sea data for it). A coastal city or port is always a sea_question: Mumbai, Chennai, Kochi, Visakhapatnam, Kolkata, Mangalore, Goa. If unsure whether a place is on the coast, use sea_question.
+15. INLAND PLACES. kind = "inland_place" when the user asks for weather, conditions or a forecast at a place that is clearly inland, far from the sea (Bengaluru, Delhi, Hyderabad, Pune, Jaipur, Lucknow). Put the place in `places` as typed. It is NOT off_topic (the user is asking about weather) and NOT a sea_question (Sagar Sarathi has no sea data for it). A coastal city or port is always a sea_question: Mumbai, Chennai, Kochi, Visakhapatnam, Kolkata, Mangalore, Goa. If unsure whether a place is on the coast, use sea_question.
 16. ENGLISH READING. `english_reading` is one short sentence: what the user wrote, in plain English, WITHOUT any instruction about the reply language ("answer in Kannada: pfzs near Mangalore" reads "PFZs near Mangalore"). Translate or transliterate Indian-language and romanized text ("kal subah rameswaram ke paas samudra mein jaana safe hai kya" becomes "Is it safe to go to sea near Rameswaram tomorrow morning?"). If the message is already English, copy it with its typos fixed. Keep place names. Do not answer the question, do not add facts, and do not guess a place the user did not write. It is shown to the user so they can see how they were understood.
 17. REPLY LANGUAGE. `reply_language` is set ONLY when the user explicitly asks for the answer in a language: "answer in Kannada", "reply in Tamil", "Hindi mein batao", "ಕನ್ನಡದಲ್ಲಿ ಹೇಳಿ", also when the language is misspelt ("kannda", "tamizh"). Give its code: ta Tamil, hi Hindi, te Telugu, ml Malayalam, kn Kannada, bn Bengali, mr Marathi, gu Gujarati, or Odia, en English. In every other case it is null, including when the message itself is written in an Indian language or in romanized Hindi, Tamil or Kannada: the language a message is written in is NOT a request for a reply in it. The request words are an instruction about the reply, not part of the sea question: still read the places, time and intent from the rest of the message.
 """

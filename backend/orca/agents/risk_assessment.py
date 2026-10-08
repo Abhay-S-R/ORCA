@@ -182,7 +182,7 @@ def generate_alert_payload(
             "(orca/agents/voice.py). Falls back to English at the caller (sentinel.build_alert)."
         )
     text = f"{severity.upper()}: {hazard_type} near {location}."
-    sms = f"[ORCA {severity.upper()}] {hazard_type} near {location}. Seek safety."[:160]
+    sms = f"[SAGAR SARATHI {severity.upper()}] {hazard_type} near {location}. Seek safety."[:160]
     if language != "en":
         from orca.agents.language import translate_from_english
 

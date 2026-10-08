@@ -15,7 +15,7 @@ export type ProvenanceTier = "LIVE" | "REFERENCE" | "DERIVED" | "DEMO" | "MISSIN
 export const PROVENANCE_LEGEND: { tier: ProvenanceTier; dot: string; label: string; detail: string }[] = [
   { tier: "LIVE", dot: "🟢", label: "Live", detail: "Fetched for this query, or a periodically-refreshed feed" },
   { tier: "REFERENCE", dot: "🔵", label: "Reference", detail: "Static geometry or tables — does not go stale" },
-  { tier: "DERIVED", dot: "🟡", label: "Derived", detail: "Computed by ORCA itself, not fetched from anywhere" },
+  { tier: "DERIVED", dot: "🟡", label: "Derived", detail: "Computed by Sagar Sarathi itself, not fetched from anywhere" },
   { tier: "DEMO", dot: "🟣", label: "Demo", detail: "A pinned fixture, run for the guided demonstration" },
   { tier: "MISSING", dot: "⚪", label: "Missing", detail: "No value — never shown as a number" },
 ];

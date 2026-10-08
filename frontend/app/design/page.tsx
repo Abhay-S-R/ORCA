@@ -123,7 +123,7 @@ export default function DesignPage() {
     <PageBody className="mx-auto max-w-4xl">
       <PageHeader
         title="Design system"
-        lede="Every ORCA primitive in every state. If a surface needs something that is not on this page, it belongs on this page first."
+        lede="Every Sagar Sarathi primitive in every state. If a surface needs something that is not on this page, it belongs on this page first."
       />
 
       <div className="flex flex-col gap-4">
@@ -298,7 +298,7 @@ export default function DesignPage() {
               action={<Button variant="primary">Set a watch</Button>}
             />
             <ErrorState
-              title="Could not reach the ORCA API"
+              title="Could not reach the Sagar Sarathi API"
               body="The service did not respond. Start the backend, then try again."
               action={<Button variant="ghost">Try again</Button>}
             />

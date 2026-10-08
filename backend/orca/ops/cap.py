@@ -168,7 +168,7 @@ def _fallback_web(verdict: str, hazard: str, location: str, ts: str) -> str:
 
 def _fallback_sms(verdict: str, hazard: str, location: str, ts: str) -> str:
     # GSM-7 friendly, <=160 chars.
-    return f"[ORCA {verdict}] {hazard} near {location}. Seek safety. {ts}"[:160]
+    return f"[SAGAR SARATHI {verdict}] {hazard} near {location}. Seek safety. {ts}"[:160]
 
 
 def _fallback_ivr(verdict: str, hazard: str, location: str, ts: str) -> str:
@@ -191,12 +191,12 @@ def _fallback_ussd(verdict: str, hazard: str, location: str, ts: str) -> str:
 # inputs don't carry, so this preview stays consistent with the pattern
 # web/sms/ivr/ussd already use here rather than force-fitting the other one.
 def _fallback_whatsapp(verdict: str, hazard: str, location: str, ts: str) -> str:
-    return f"*ORCA {verdict}*\n{hazard} near {location}.\nIssued {ts}.\nView on the chart: {_MAP_CARD_BASE_URL}?place={location}"
+    return f"*SAGAR SARATHI {verdict}*\n{hazard} near {location}.\nIssued {ts}.\nView on the chart: {_MAP_CARD_BASE_URL}?place={location}"
 
 
 def _fallback_missed_call(verdict: str, hazard: str, location: str, ts: str) -> str:
     return (
-        f"This is the most recently cached advisory. ORCA advisory for {location}. "
+        f"This is the most recently cached advisory. Sagar Sarathi advisory for {location}. "
         f"Verdict: {' '.join(verdict.split('_'))}. Hazard: {hazard}. "
         "To hear this again, stay on the line. Otherwise, goodbye."
     )
@@ -205,7 +205,7 @@ def _fallback_missed_call(verdict: str, hazard: str, location: str, ts: str) -> 
 def _fallback_vhf(verdict: str, hazard: str, location: str, ts: str) -> str:
     return (
         "Securite, securite, securite.\n"
-        "This is ORCA Marine Safety Advisory.\n"
+        "This is Sagar Sarathi Marine Safety Advisory.\n"
         f"{verdict}. {hazard}, near {location}.\n"
         "Mariners in the area are advised to proceed with caution and monitor this channel.\n"
         "Out."

@@ -301,7 +301,7 @@ export default function AskPage() {
             <div className="mb-3 flex items-center justify-center gap-2">
               <span className="size-2 rounded-full bg-ocean-cyan beacon-pulse" aria-hidden="true" />
               <span className="font-mono text-[10px] font-bold tracking-widest text-ocean-cyan uppercase">
-                ORCA INTELLIGENCE CONSOLE // VHF &amp; SATELLITE
+                SAGAR SARATHI INTELLIGENCE CONSOLE // VHF &amp; SATELLITE
               </span>
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">{t("ask.heading")}</h1>
