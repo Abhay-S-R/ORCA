@@ -118,8 +118,6 @@
   "watches.simulated": "எஸ்எம்எஸ் டெலிவரி கட்டமைக்கப்படவில்லை-அனுப்பப்படும் சரியான செய்தியுடன் ஒத்ததாக காட்டப்படும் சேனல்கள்.",
   "ask.title": "சாகர் சாரதி வை கேளுங்கள்",
   "ask.chatHistoryDialog": "அரட்டை வரலாறு",
-  "ask.expandMap": "வரைபடத்தை விரிவாக்கு",
-  "ask.collapseMap": "சிதைவு வரைபடம்",
   "chatTurn.you": "நீங்கள்",
   "chatTurn.agentTrace": "முகவர் தடம்",
   "chatTurn.backendErrorTitle": "சாகர் சாரதி ஆல் பின் முனையை அடைய முடியவில்லை",

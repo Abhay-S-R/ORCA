@@ -134,6 +134,9 @@ async def _lifespan(app: FastAPI):
     # (the Gemini client import and TLS, the Bhashini pipeline-config lookup): measured 9.4 s vs
     # 3.2 s for the first distress check, 5.4 s vs 3.4 s for the first speak. Pay them here.
     warmups.append(asyncio.get_running_loop().run_in_executor(None, _prime_first_request))
+    # Marathi, Gujarati and Odia speech have no local backup: find out NOW whether Bhashini is serving them, in
+    # the background (a failing language takes 8 s to give up), so the first press of Play already knows.
+    asyncio.get_running_loop().run_in_executor(None, _probe_speech_health)
     # Everything above is waited for, so "the server is up" means "the
     # server is fast": a request that arrives while these load competes with them for the CPU
     # (measured: the first distress check took 9.5 s during warm-up and 3.6 s after).
@@ -266,6 +269,15 @@ async def _wait_until_warm(warmups: list[asyncio.Future], cap_s: float = 90.0) -
     logging.getLogger("orca.startup").info(
         "ORCA ready after %.1fs of warm-up (%d done, %d still loading)", time.monotonic() - started, len(done), len(pending),
     )
+
+
+def _probe_speech_health() -> None:
+    try:
+        from orca.agents.voice import probe_speech_health
+
+        probe_speech_health()
+    except Exception:
+        logging.getLogger("orca.startup").warning("speech health probe skipped", exc_info=True)
 
 
 def _prime_first_request() -> None:

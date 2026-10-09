@@ -118,8 +118,6 @@
   "watches.simulated": "এস. এম. এস ডেলিভারি নির্মিত নয়-চ্যানেলগুলি পাঠানো হবে এমন সঠিক বার্তা সহ সিমুলেটেড হিসাবে দেখানো হয়েছে।",
   "ask.title": "ওআরসিএ-কে জিজ্ঞাসা করুন",
   "ask.chatHistoryDialog": "চ্যাটের ইতিহাস",
-  "ask.expandMap": "মানচিত্র প্রসারিত করুন",
-  "ask.collapseMap": "ভাঙন মানচিত্র",
   "chatTurn.you": "আপনি",
   "chatTurn.agentTrace": "এজেন্ট ট্রেস",
   "chatTurn.backendErrorTitle": "ওআরসিএ ব্যাকএন্ডে পৌঁছাতে পারেনি",

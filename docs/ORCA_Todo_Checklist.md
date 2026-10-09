@@ -4,7 +4,7 @@ Written 2026-10-09 from the implementation log (`docs/logs/DLC_implementation_lo
 
 **How to read this file**
 - `[ ]` is open. **Nothing is ticked by Claude.** An item is ticked only after the user has verified it, because "done in code" has been wrong before (the voice was declared fixed once and was not).
-- Part A is new work to do. Part B is work already written, tested and logged, **waiting for the user's check**. Part C is decisions only the user can make.
+- Part A is new work to do. VOICE-8 and VOICE-9 are LOW PRIORITY and are not counted in the open total (user, 2026-10-09). Part B is work already written, tested and logged, **waiting for the user's check**. Part C is decisions only the user can make.
 - Each item has a short tag so the log, this file and the chat can point at the same thing.
 
 ---
@@ -14,11 +14,10 @@ Written 2026-10-09 from the implementation log (`docs/logs/DLC_implementation_lo
 ### A1. Voice (the English voice mispronounces words; all of these are open)
 
 *VOICE-3 (word respellings), VOICE-4 (compass points), VOICE-5 (double voice, accepted) and VOICE-6 (the check script) were implemented on 2026-10-09; they are tracked in Part B, not here.*
-- [ ] **VOICE-7: Marathi, Gujarati and Odia speech is down on Bhashini's side (confirmed 2026-10-09; this is the Gujarati/Odia "latency").** All three use the service `ai4bharat/indic-tts-coqui-indo_aryan-gpu--t4`, the same as Hindi, which answers in 0.8 s; for these three the gateway returns "504 Gateway Time-out" in 60 s even for one word, both voices, with or without the preprocessor, and our own 3 s then 12 s limit plus one retry means Play waits about 25 s and then plays the LOCAL robotic voice (Gujarati and Odia 28-30 s, Marathi 76 s the first time while its model loaded; the repeat is 0 s because it is cached). That is why it felt like the voice did not exist. *Proposed, not built:* after a Bhashini speech failure for a language, skip Bhashini for that language for ten minutes (Play then starts the local voice in about 3 s), plus the visible marker of VOICE-8. *Your call:* build the skip, or leave it and wait for Bhashini to fix their service.
-  Every Marathi speech call timed out on 2026-10-09; the app waits about 25 s, then falls to the local voice. Check if a Marathi fallback voice exists at all and show a short "voice unavailable" instead of a long wait.
-- [ ] **VOICE-8: a visible marker when the local (robotic) voice is used**
+- [x] **VOICE-7: Marathi, Gujarati and Odia say "Bhashini speech is unavailable right now" (WRITTEN 2026-10-09, waiting for your check).** Cause: Bhashini's speech service times out for these three (same service as Hindi, which works). Now: the first failure (or the probe at server start) marks the language down for ten minutes, Play answers at once with that sentence and the local robotic voice is NOT played for these three; after ten minutes one 8 s probe decides if it is back. The other seven languages keep the local voice as backup. *To verify:* start the app, choose Marathi, ask anything, press Play: the message appears within a second or two, not 25 s; repeat for Gujarati and Odia; English and Hindi still play.
+- [ ] **VOICE-8 (LOW PRIORITY, not in the count): a visible marker when the local (robotic) voice is used**
   The response already says which voice served (`X-TTS-Rung`); nothing shows it, so "the voice is off" cannot be told apart from "the fallback played".
-- [ ] **VOICE-9: spoken numbers inside Indian-language answers: first-person checks**
+- [ ] **VOICE-9 (LOW PRIORITY, not in the count): spoken numbers inside Indian-language answers: first-person checks**
   Native-reader review of `orca/agents/speech_lexicon.py` (words for to, metres, km/h, degrees, months) for Tamil, Telugu, Malayalam, Bengali, Gujarati, Odia. Kannada and Hindi were confirmed by the user.
 
 ### A2. The /ask page
@@ -27,12 +26,12 @@ Written 2026-10-09 from the implementation log (`docs/logs/DLC_implementation_lo
   For each persona (fisherman, commercial navigator, researcher, coastal authority, and the unresolved / no-vessel case) read its answers on the same ten or so prompts and decide wording, depth and facts for THAT reader; one persona per point, logged separately.
   *Starting evidence, the fisherman's answer for "nearest fishing zone near Kochi":* "about 15 km WSW of Kochi (bearing 248°), at roughly 9.915° N, 76.074° E and 28-33 m depth ... issued on 2 Oct 2026 (7 days old) and has now expired ... wave ≈ 0.66 m, wind ≈ 0.78 m/s ... small-fishing vessels." It is a navigator's answer: a bearing, coordinates and a depth range for someone who wants "go this way, about 15 km, the advisory is old"; it mixes units (wind in m/s, distances in km, where a fisherman reads wind in km/h or knots); it says "roughly" and "about" twice; it does not say whether to go. Questions for the audit: what does each persona need first, which numbers do they use, which units, how long, and what must never be missing (the go / no-go and its reason).
 
-- [ ] **PLAN-ASK-1: remove the map from /ask completely**
-  The page has a collapsible map panel, a distress pin and "view on map" chips; all go, plus the i18n keys only they use. Check first what else feeds on that shared map; other pages keep theirs.
-- [ ] **PLAN-ASK-2: composer in the ChatGPT style (the input box only)**
-  One rounded pill with the field, mic and send inside, a thin note line above. Decisions needed: what the "+" does (or leave it out) and whether "Vessel not set" moves into the pill (see Part C).
-- [ ] **PLAN-ASK-3: the composer keeps one width with the sidebar open or closed**
-  Give the thread column a fixed max width and centre it; find the layout that makes it flex rather than hard-coding a number.
+- [x] **PLAN-ASK-1: remove the map from /ask completely (WRITTEN 2026-10-09, waiting for your check)**
+  Map panel, collapse/expand buttons, distress pin, 42% map column and the two i18n keys are gone from /ask. *To verify:* open /ask, ask a question: no map, the answer uses the full column; other pages (/map) still have theirs; switch languages: no missing-text.
+- [x] **PLAN-ASK-2: composer in the ChatGPT style (WRITTEN 2026-10-09, waiting for your check)**
+  One rounded pill: ship button (vessel) at the left in place of "+", the field, a quiet mic, a round up-arrow send button. No outer card, no "Ask" word, no note line (it would need nine translations; say if you want it). Sample questions sit below the pill. The "Vessel not set" chip is replaced by the ship button (a small dot shows when no vessel is set; its menu says so). *To verify:* /ask signed in: type, press Enter and the arrow; the mic records; click the ship and pick a vessel; signed out: no ship button.
+- [x] **PLAN-ASK-3: the composer keeps one width with the sidebar open or closed (WRITTEN 2026-10-09, waiting for your check)**
+  The thread and the composer share one centred column, max width 56rem. *To verify:* open and close the chat-history sidebar with a long chat: the input box stays the same width (it only slides sideways); same on the welcome screen.
 - [ ] **PLAN-CHART-1: the weather chart on the answer card**
   It "dances" (line animation replays on every redraw, worst with the map open), uses dark-theme colours on the cream theme, puts wave (m) and wind (m/s) on one axis, shows raw ISO timestamps and overlapping labels. Fix each; removing the map (ASK-1) removes the trigger.
 - [ ] **UI-ICONS: share and "more" icons** on the action row (copy, play, try again are done)

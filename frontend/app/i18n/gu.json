@@ -118,8 +118,6 @@
   "watches.simulated": "એસ. એમ. એસ. વિતરણ બિલ્ટ નથી-ચેનલો મોકલવામાં આવશે તે ચોક્કસ સંદેશ સાથે સિમ્યુલેટેડ તરીકે દર્શાવવામાં આવે છે.",
   "ask.title": "ઓઆરસીએને પૂછો",
   "ask.chatHistoryDialog": "ચેટ ઇતિહાસ",
-  "ask.expandMap": "નકશાનું વિસ્તરણ કરો",
-  "ask.collapseMap": "પતન નકશો",
   "chatTurn.you": "તમે",
   "chatTurn.agentTrace": "એજન્ટ ટ્રેસ",
   "chatTurn.backendErrorTitle": "ઓઆરસીએ બેકએન્ડ સુધી પહોંચી શક્યું ન હતું",

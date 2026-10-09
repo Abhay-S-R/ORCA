@@ -118,8 +118,6 @@
   "watches.simulated": "एस. एम. एस. वितरण हे बिल्ट केलेले नाही-वाहिन्या पाठवल्या जाणाऱ्या अचूक संदेशासह सिम्युलेटेड म्हणून दर्शविल्या जातात.",
   "ask.title": "सागर सारथी ला विचारा",
   "ask.chatHistoryDialog": "गप्पा इतिहास",
-  "ask.expandMap": "नकाशाचा विस्तार करा",
-  "ask.collapseMap": "कोसळण्याचा नकाशा",
   "chatTurn.you": "तुम्ही",
   "chatTurn.agentTrace": "एजंट ट्रेस",
   "chatTurn.backendErrorTitle": "सागर सारथी बॅकएंडपर्यंत पोहोचू शकला नाही",

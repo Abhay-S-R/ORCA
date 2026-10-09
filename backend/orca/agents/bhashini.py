@@ -231,7 +231,9 @@ def nmt(text: str, source_lang: str, target_lang: str) -> str:
         raise BhashiniError(f"Bhashini NMT: unexpected response shape: {data}") from exc
 
 
-def tts(text: str, target_lang: str, gender: str = "female") -> bytes:
+def tts(
+    text: str, target_lang: str, gender: str = "female", *, timeout_s: float | None = None, retry: bool = True,
+) -> bytes:
     """Voice out: TTS. Returns audio bytes (ULCA's default WAV format).
 
     `gender` is REQUIRED by the Dhruva inference endpoint, not documented as
@@ -256,12 +258,15 @@ def tts(text: str, target_lang: str, gender: str = "female") -> bytes:
         },
     }
     payload = {"input": [{"source": text}]}
+    limit = timeout_s or TTS_TIMEOUT_S
     try:
-        data = _inference(config, task, payload, timeout_s=TTS_TIMEOUT_S)
+        data = _inference(config, task, payload, timeout_s=limit)
     except BhashiniError:
+        if not retry:  # a health probe wants the answer once, quickly
+            raise
         # One more try before the caller falls to the local voice: a timeout or a 5xx from the
         # service is usually gone a second later, and the local voice would be cached for this text.
-        data = _inference(config, task, payload, timeout_s=TTS_TIMEOUT_S)
+        data = _inference(config, task, payload, timeout_s=limit)
     try:
         b64 = data["pipelineResponse"][0]["audio"][0]["audioContent"]
         return base64.b64decode(b64)

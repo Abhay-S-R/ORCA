@@ -247,11 +247,37 @@ export type VoiceInputState = ReturnType<typeof useVoiceInput>;
 // than only while recording, so it reads as the thing to press first. Every
 // other persona gets the design system's normal-size, outline-until-active
 // control.
-export function VoiceMicButton({ voice, isFisherman = false }: { voice: VoiceInputState; isFisherman?: boolean }) {
+export function VoiceMicButton({
+  voice,
+  isFisherman = false,
+  quiet = false,
+}: {
+  voice: VoiceInputState;
+  isFisherman?: boolean;
+  // inside the composer pill: a round ghost icon like ChatGPT's, filled only while it is recording
+  quiet?: boolean;
+}) {
   const { state, startRecording, stopRecording } = voice;
   const isRecording = state === "recording";
   const size = isFisherman ? "h-[52px] w-[52px]" : "h-[38px] w-[38px]";
   const iconSize = isFisherman ? "size-5" : "size-3.5";
+  if (quiet) {
+    return (
+      <button
+        type="button"
+        aria-label={isRecording ? "Stop recording" : "Ask by voice — space bar also works"}
+        title={isRecording ? "Stop recording" : "Ask by voice"}
+        onClick={isRecording ? stopRecording : startRecording}
+        disabled={state === "transcribing"}
+        className={`grid size-10 shrink-0 cursor-pointer place-items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          isRecording ? "bg-ocean-cyan text-on-accent hover:bg-ocean-cyan/90" : "text-ink-dim hover:bg-shelf-2 hover:text-ink"
+        }`}
+      >
+        {isRecording ? <Square className="size-[18px]" /> : <Mic className="size-[18px]" />}
+        <span className="sr-only">{isRecording ? "Stop recording" : "Ask by voice"}</span>
+      </button>
+    );
+  }
   return (
     <button
       type="button"

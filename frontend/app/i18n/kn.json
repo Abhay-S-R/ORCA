@@ -118,8 +118,6 @@
   "watches.simulated": "ಎಸ್ಎಂಎಸ್ ವಿತರಣೆಯನ್ನು ನಿರ್ಮಿಸಲಾಗಿಲ್ಲ-ಚಾನೆಲ್ಗಳನ್ನು ಕಳುಹಿಸಲಾಗುವ ನಿಖರವಾದ ಸಂದೇಶದೊಂದಿಗೆ ಸಿಮ್ಯುಲೇಟೆಡ್ ಎಂದು ತೋರಿಸಲಾಗಿದೆ.",
   "ask.title": "ಸಾಗರ್ ಸಾರಥಿ ಗೆ ಕೇಳಿ",
   "ask.chatHistoryDialog": "ಚಾಟ್ ಇತಿಹಾಸ",
-  "ask.expandMap": "ನಕ್ಷೆಯನ್ನು ವಿಸ್ತರಿಸಿ",
-  "ask.collapseMap": "ಕುಸಿತದ ನಕ್ಷೆ",
   "chatTurn.you": "ನೀವು",
   "chatTurn.agentTrace": "ಏಜೆಂಟ್ ಟ್ರೇಸ್",
   "chatTurn.backendErrorTitle": "ಒಆರ್ಸಿಎ ಬ್ಯಾಕೆಂಡ್ ತಲುಪಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ",

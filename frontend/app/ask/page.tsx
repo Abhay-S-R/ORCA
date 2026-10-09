@@ -1,25 +1,25 @@
 "use client";
 
 // Ask (§4.2, now at `/ask` — `/` itself is the public landing page) — the
-// conversational entry point to a map-first product. A real multi-turn
-// thread now (was single-turn, replaced on every ask): the composer starts
-// centered on a blank page and docks to the bottom of the thread once the
-// first question lands, Claude-style. The map stays alongside the thread
-// once it starts, collapsible, and every answer's "view on map" chip can
-// re-point the one shared map instance back to that answer's context.
+// conversational entry point. A real multi-turn thread (was single-turn,
+// replaced on every ask): the composer starts centered on a blank page and
+// docks to the bottom of the thread once the first question lands,
+// Claude-style. There is no map on this page (removed 2026-10-09, PLAN-ASK-1):
+// the answer card carries the facts, and the maps live on their own pages.
+// The thread and the composer share ONE centred column of fixed maximum
+// width (PLAN-ASK-3), so the input box is the same size whether the chat
+// sidebar is open or closed.
 //
 // Past chats sit in a rail to the left (a drawer below lg, where a third
 // column would squeeze the thread and the chart); they are kept in this
 // browser for guests and in the account once signed in (./chatStore).
 import { useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Compass, Fish, History, Maximize2, MapPin, Minimize2, PanelLeftOpen, Plus, ShieldCheck, Waves, Wind } from "lucide-react";
+import { Compass, Fish, History, MapPin, PanelLeftOpen, Plus, ShieldCheck, Waves, Wind } from "lucide-react";
 import { Button } from "../components/Button";
 import { Greeting } from "../components/Greeting";
 import { SavedLocationChips } from "../components/SavedLocationChips";
 import { VesselChip } from "../components/VesselChip";
-import { Skeleton } from "../components/States";
 import { useVoiceInput } from "../components/VoiceInput";
 import { useAuth } from "../lib/auth";
 import { usePersona } from "../persona/context";
@@ -33,11 +33,6 @@ import { useAskThread, type InheritedValue, type Turn } from "./useAskThread";
 import { useT } from "../i18n/useT";
 import { useTour } from "../tour/useTour";
 import { TourCard, TOUR_PRESET, TOUR_FOLLOWUP } from "../tour/TourCard";
-
-const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapView), {
-  ssr: false,
-  loading: () => <Skeleton className="h-full w-full" />,
-});
 
 const INTENT_ICON: Record<QueryIntent, typeof Waves> = {
   fishing: Fish,
@@ -68,7 +63,6 @@ export default function AskPage() {
   const { language } = useLanguage();
   const store = auth.status === "loading" ? null : auth.status === "signed_in" ? accountStore : browserStore;
   const [query, setQuery] = useState("");
-  const [mapCollapsed, setMapCollapsed] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
@@ -83,7 +77,6 @@ export default function AskPage() {
     chatId,
     saveFailed,
     streaming,
-    activeFocus,
     ask,
     rerun,
     showVersion,
@@ -91,20 +84,8 @@ export default function AskPage() {
     openChat,
   } = useAskThread(persona, store, () => setHistoryVersion((v) => v + 1));
 
-  // The latest distress call in this chat with a position — pinned on the map
-  // for as long as the chat is open (P4.16). No position, no pin: the answer
-  // card already says the position is missing, the map never guesses one.
-  const distressMarkers = useMemo(() => {
-    // A regional default is where the backend computed, not where the caller is.
-    const t = [...turns]
-      .reverse()
-      .find((x) => x.answer?.distress_flag && x.answer.user_location && x.answer.user_location.place_source !== "regional_default");
-    const loc = t?.answer?.user_location;
-    return t && loc ? [{ id: t.id, lat: loc.lat, lon: loc.lon, label: loc.place_name?.replace(/\b\p{L}/gu, (c) => c.toUpperCase()) ?? "your position" }] : [];
-  }, [turns]);
-
   // P4.1 — the vessel class that actually drove the most recent verdict, so
-  // the chip above the composer shows what is real rather than an assumption.
+  // the vessel button in the composer shows what is real rather than an assumption.
   const latestVesselClass = useMemo(() => {
     for (let i = turns.length - 1; i >= 0; i--) {
       const vc = turns[i].answer?.vessel_class;
@@ -316,7 +297,6 @@ export default function AskPage() {
 
           <div className="flex flex-wrap items-center justify-center gap-2">
             <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} />
-            <VesselChip auth={auth} vesselClass={latestVesselClass} />
           </div>
           <Composer
             value={query}
@@ -327,6 +307,7 @@ export default function AskPage() {
             isFisherman={persona === "fisherman"}
             centered
             presets={PRESETS}
+            leading={<VesselChip auth={auth} vesselClass={latestVesselClass} variant="icon" />}
           />
           {!tour.active && !tour.completed && (
             <button
@@ -339,63 +320,54 @@ export default function AskPage() {
           )}
         </div>
       ) : (
-        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-4 lg:flex-row">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-            <div className="flex items-center justify-between gap-3 border-b border-hairline/60 pb-3">
-              <div className="flex min-w-0 items-baseline gap-2">
-                {railCollapsed && (
-                  <button
-                    type="button"
-                    onClick={() => collapseRail(false)}
-                    aria-label={t("common.chats")}
-                    title={t("common.chats")}
-                    className={`${iconButtonClass} hidden self-center lg:grid`}
-                  >
-                    <PanelLeftOpen className="size-3.5" aria-hidden="true" />
-                  </button>
-                )}
-                <h1 className="shrink-0 text-xs font-bold uppercase tracking-wider text-ink-dim">{t("ask.title")}</h1>
-                {firstQuestion && (
-                  <span className="truncate text-xs text-ink-muted" title={firstQuestion}>
-                    {/* The live title comes from the rail's list; the first
-                        question is the same fallback it shows for an unnamed chat. */}
-                    {chatTitle({ title: null, first_question: firstQuestion })}
-                  </span>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {saveFailed && (
-                  <span role="status" className="text-[11px] text-caution">
-                    {t(saveFailed === "rejected" ? "ask.saveRejected" : "ask.notSaved")}
-                  </span>
-                )}
-                {historyButton}
-                {mapCollapsed && (
-                  <button
-                    type="button"
-                    onClick={() => setMapCollapsed(false)}
-                    aria-label={t("ask.expandMap")}
-                    title={t("nav.map")}
-                    className={iconButtonClass}
-                  >
-                    <Maximize2 className="size-3.5" aria-hidden="true" />
-                  </button>
-                )}
-                <Button variant="ghost" icon={<Plus className="size-3.5" />} onClick={newChat}>
-                  {t("common.newChat")}
-                </Button>
-              </div>
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+          <div className="flex items-center justify-between gap-3 border-b border-hairline/60 pb-3">
+            <div className="flex min-w-0 items-baseline gap-2">
+              {railCollapsed && (
+                <button
+                  type="button"
+                  onClick={() => collapseRail(false)}
+                  aria-label={t("common.chats")}
+                  title={t("common.chats")}
+                  className={`${iconButtonClass} hidden self-center lg:grid`}
+                >
+                  <PanelLeftOpen className="size-3.5" aria-hidden="true" />
+                </button>
+              )}
+              <h1 className="shrink-0 text-xs font-bold uppercase tracking-wider text-ink-dim">{t("ask.title")}</h1>
+              {firstQuestion && (
+                <span className="truncate text-xs text-ink-muted" title={firstQuestion}>
+                  {/* The live title comes from the rail's list; the first
+                      question is the same fallback it shows for an unnamed chat. */}
+                  {chatTitle({ title: null, first_question: firstQuestion })}
+                </span>
+              )}
             </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {saveFailed && (
+                <span role="status" className="text-[11px] text-caution">
+                  {t(saveFailed === "rejected" ? "ask.saveRejected" : "ask.notSaved")}
+                </span>
+              )}
+              {historyButton}
+              <Button variant="ghost" icon={<Plus className="size-3.5" />} onClick={newChat}>
+                {t("common.newChat")}
+              </Button>
+            </div>
+          </div>
 
-            {/* `relative` is load-bearing, not decoration: it makes this
-                scroller the containing block for the absolutely positioned
-                bits inside a turn (the agent pills' sr-only status spans).
-                Without it those resolve against the panel wrapper below,
-                escape this box's clipping, and stretch the page's own scroll
-                area by the full height of the thread — the empty scroll
-                space that appeared under the composer, map and history once a
-                thread ran past one screen. */}
-            <div ref={threadRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto pr-2">
+          {/* `relative` is load-bearing, not decoration: it makes this
+              scroller the containing block for the absolutely positioned
+              bits inside a turn (the agent pills' sr-only status spans).
+              Without it those resolve against the panel wrapper below,
+              escape this box's clipping, and stretch the page's own scroll
+              area by the full height of the thread — the empty scroll
+              space that appeared under the composer and history once a
+              thread ran past one screen. The scroller spans the full width
+              (so its scrollbar sits at the edge); the column inside it is
+              the same centred max-w-4xl the composer uses. */}
+          <div ref={threadRef} className="relative min-h-0 min-w-0 flex-1 overflow-y-auto">
+            <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 pr-2">
               {turns.map((turn, i) => (
                 <ChatTurn
                   key={turn.id}
@@ -414,63 +386,21 @@ export default function AskPage() {
                   visible without the user having to scroll manually. */}
               <div ref={threadBottomRef} />
             </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} />
-              <VesselChip auth={auth} vesselClass={latestVesselClass} />
-            </div>
-            <Composer
-              value={query}
-              onChange={setQuery}
-              onSubmit={submit}
-              disabled={streaming}
-              voice={voice}
-              isFisherman={persona === "fisherman"}
-              centered={false}
-            />
           </div>
 
-          <motion.div
-            layout={!reduceMotion}
-            transition={{ duration: 0.25, ease: "easeOut" }}
-            // Collapsed: pulled out of the flex flow entirely (absolute,
-            // zero-opacity, non-interactive) so the thread covers the full
-            // width instead of yielding a reserved strip — but still
-            // rendered at its normal target size, kept mounted, one
-            // MapLibre instance for the whole session, per MapView's own
-            // layout thesis. Expanded: a normal flex sibling again.
-            className={
-              mapCollapsed
-                ? "pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl opacity-0 lg:right-0 lg:left-auto lg:w-[42%]"
-                : "relative h-64 w-full shrink-0 overflow-hidden rounded-2xl border border-hairline bg-shelf-1/60 shadow-2xl lg:h-full lg:w-[42%]"
-            }
-          >
-            {!mapCollapsed && (
-              <button
-                type="button"
-                onClick={() => setMapCollapsed(true)}
-                aria-label={t("ask.collapseMap")}
-                aria-expanded={true}
-                className="absolute top-2 left-2 z-10 flex size-7 items-center justify-center rounded-lg border border-hairline/80 bg-shelf-1/90 text-ink-dim shadow-sm backdrop-blur-sm transition-colors hover:border-ocean-cyan/60 hover:text-ocean-cyan"
-              >
-                <Minimize2 className="size-3.5" />
-              </button>
-            )}
-
-            {/* No layers on by default — layers are set precisely by query intent */}
-            <div className="h-full w-full">
-              <MapView
-                className="h-full w-full"
-                initialLayers={{ wind: false, currents: false, pfz: false, seamarks: false, watchBadges: false, cyclone: false }}
-                queryFocus={activeFocus}
-                distressMarkers={distressMarkers}
-                showLayerPanel={false}
-                showRegionSwitcher={false}
-                showLegends={false}
-                showSoundingHud={false}
-              />
-            </div>
-          </motion.div>
+          <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center gap-2">
+            <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} />
+          </div>
+          <Composer
+            value={query}
+            onChange={setQuery}
+            onSubmit={submit}
+            disabled={streaming}
+            voice={voice}
+            isFisherman={persona === "fisherman"}
+            centered={false}
+            leading={<VesselChip auth={auth} vesselClass={latestVesselClass} variant="icon" />}
+          />
         </div>
       )}
 
