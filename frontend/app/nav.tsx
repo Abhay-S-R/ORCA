@@ -15,14 +15,19 @@ import { motion, useReducedMotion } from "framer-motion";
 import {
   Bell,
   Building2,
+  Check,
+  Copy,
   Database,
   Eye,
   Fish,
   LineChart,
   Map as MapIcon,
+  MapPin,
   Navigation,
+  Phone,
   Radio,
   Sailboat,
+  ShieldAlert,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
@@ -31,25 +36,15 @@ import { usePersona } from "./persona/context";
 import { API_BASE } from "./lib/apiBase";
 import { useAuth } from "./lib/auth";
 import { useT } from "./i18n/useT";
+import {
+  resolveDistressContact,
+  HOME_PORT_MAX_RADIUS_KM,
+  NATIONWIDE_MRCC,
+} from "./lib/distressContacts";
 
-// P-HP-1 — SOS no longer sends a hardcoded Thoothukudi default position.
-// It tries the browser's Geolocation API first; if denied or unavailable it
-// reads the user's registered home port from the profile; if neither exists
-// it omits lat/lon entirely and lets the backend fall back on its own default.
-// This is imported lazily inside SosButton to avoid a top-level module import.
-
-type MrccContact = {
-  primary: { name: string; phone: string; vhf_channel: string };
-  nationwide_fallback: { name: string; phone: string; vhf_channel: string };
-};
-
-// Duplicated from the backend on purpose: this is the one number that has to
-// be on screen when nothing else works, including the ORCA server.
-const NATIONWIDE_MRCC = {
-  name: "Indian Coast Guard MRCC",
-  phone: "1554",
-  vhf_channel: "16",
-};
+// P-HP-1 — SOS routes dynamically based on proximity to home port.
+// Within 30 km: directs to local port signal station / coastal police.
+// Beyond 30 km: escalates to nationwide Coast Guard MRCC (1554).
 
 // P3.12 (orca_final §14.4) — icons only; the label itself comes from
 // useT() below, keyed as `nav.<route slug>` in app/i18n/<lang>.json (every
@@ -192,38 +187,67 @@ export function SosButton() {
   // Persistent on every screen, for every persona (§4.2) — never in a menu,
   // never dismissible. Sits above the mobile tab bar rather than on it.
   //
-  // Exit criterion 5: MRCC contact on screen in under 2 seconds, with all
-  // persona rendering bypassed. The dialog therefore opens on the tap, not
-  // on the response — the request fills the numbers in (typically a few
-  // milliseconds, since Agent 12 short-circuits the graph), and the
-  // nationwide fallback below is what shows if the backend never answers.
+  // Exit criterion 5: Contact on screen in under 2 seconds.
+  // 30 km Radius Rule:
+  // - <= 30 km from registered home port: routes to Local Port Emergency Control
+  // - > 30 km from registered home port (or deep sea): routes to National MRCC (1554)
+  //
+  // Device handling:
+  // - Mobile: `tel:` anchor triggers device dialpad with single tap
+  // - Web / Desktop: 1-click clipboard copy for phone & coordinates + VHF instructions
   const dialog = useRef<HTMLDialogElement>(null);
-  const [contact, setContact] = useState<MrccContact | null>(null);
   const [reachedBackend, setReachedBackend] = useState<boolean | null>(null);
-  // The position we sent — shown in the dialog so the user knows what was used.
   const [sentPosition, setSentPosition] = useState<{ lat: number; lon: number } | null>(null);
+  const [copiedPhone, setCopiedPhone] = useState(false);
+  const [copiedCoords, setCopiedCoords] = useState(false);
   const auth = useAuth();
   const pathname = usePathname();
   const isMapPage = pathname === "/map";
 
+  const homePort =
+    auth.status === "signed_in" && auth.profile?.home_port
+      ? auth.profile.home_port
+      : null;
+
+  const homePortName =
+    auth.status === "signed_in" && auth.profile?.home_port_name
+      ? auth.profile.home_port_name
+      : null;
+
+  // Resolve 30 km boundary against registered home port
+  const resolution = resolveDistressContact(
+    sentPosition,
+    homePort ? { lat: homePort.lat, lon: homePort.lon } : null,
+    homePortName,
+  );
+
+  function copyText(text: string, type: "phone" | "coords") {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      if (type === "phone") {
+        setCopiedPhone(true);
+        setTimeout(() => setCopiedPhone(false), 2000);
+      } else {
+        setCopiedCoords(true);
+        setTimeout(() => setCopiedCoords(false), 2000);
+      }
+    }
+  }
+
   function trigger() {
     dialog.current?.showModal();
-    setContact(null);
     setReachedBackend(null);
     setSentPosition(null);
+    setCopiedPhone(false);
+    setCopiedCoords(false);
 
-    // Try to get a live GPS fix; fall back to registered home port; fall back
-    // to omitting the position (backend applies its own geographic default).
     function fireRequest(pos: { lat: number; lon: number } | null) {
       setSentPosition(pos);
       const posParam = pos ? `&lat=${pos.lat}&lon=${pos.lon}` : "";
-      const es = new EventSource(
-        `${API_BASE}/query?distress=true${posParam}`,
-      );
+      const es = new EventSource(`${API_BASE}/query?distress=true${posParam}`);
       es.onmessage = (ev) => {
         const data = JSON.parse(ev.data);
         if (data.type !== "final_response") return;
-        if (data.mrcc_contact) setContact(data.mrcc_contact);
         setReachedBackend(true);
         es.close();
       };
@@ -233,10 +257,7 @@ export function SosButton() {
       };
     }
 
-    const homePort =
-      auth.status === "signed_in" && auth.profile?.home_port
-        ? { lat: auth.profile.home_port.lat, lon: auth.profile.home_port.lon }
-        : null;
+    const portCoord = homePort ? { lat: homePort.lat, lon: homePort.lon } : null;
 
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -244,17 +265,21 @@ export function SosButton() {
           fireRequest({ lat: geoPos.coords.latitude, lon: geoPos.coords.longitude });
         },
         () => {
-          // Permission denied or unavailable — use home port if set, else none.
-          fireRequest(homePort);
+          fireRequest(portCoord);
         },
         { timeout: 4000, maximumAge: 60_000 },
       );
     } else {
-      fireRequest(homePort);
+      fireRequest(portCoord);
     }
   }
 
-  const primary = contact?.primary ?? NATIONWIDE_MRCC;
+  const primary = resolution.primary;
+  const isLocal = resolution.isWithinHomePortRadius;
+  const cleanPhone = primary.phone.replace(/[^+\d]/g, "");
+  const formattedCoords = sentPosition
+    ? `${sentPosition.lat.toFixed(4)}° N, ${sentPosition.lon.toFixed(4)}° E`
+    : null;
 
   return (
     <>
@@ -262,73 +287,104 @@ export function SosButton() {
         type="button"
         onClick={trigger}
         aria-label="Send a distress alert"
-        className={`group fixed z-50 flex size-14 items-center justify-center rounded-full border-2 border-no-go/60 bg-no-go text-sm font-black tracking-widest text-on-accent shadow-lg transition-all hover:scale-105 active:scale-95 ${isMapPage
-          ? "left-16 bottom-12 sm:left-16.5 sm:bottom-19.5"
-          : "right-4 bottom-18 sm:right-2.5 sm:bottom-1.5"
-          }`}
+        className={`group fixed z-50 flex size-14 items-center justify-center rounded-full border-2 border-no-go/60 bg-no-go text-sm font-black tracking-widest text-on-accent shadow-lg transition-all hover:scale-105 active:scale-95 ${
+          isMapPage
+            ? "left-16 bottom-12 sm:left-16.5 sm:bottom-19.5"
+            : "right-4 bottom-18 sm:right-2.5 sm:bottom-1.5"
+        }`}
       >
         <span className="absolute inset-0 -z-10 rounded-full bg-no-go/30 animate-ping opacity-75 pointer-events-none" />
         <span className="relative z-10 font-mono text-base font-black">SOS</span>
       </button>
 
-      {/* Native <dialog>: Escape-to-close, focus containment and inertness
-          come from the platform rather than from a modal library. */}
+      {/* Native <dialog>: Escape-to-close, focus containment */}
       <dialog
         ref={dialog}
         aria-labelledby="sos-title"
-        className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-lg border border-no-go/40 bg-shelf-1 p-5 text-ink backdrop:bg-abyss/80"
+        className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-no-go/50 bg-shelf-1 p-5 text-ink shadow-2xl backdrop:bg-abyss/85"
       >
-        <h2 id="sos-title" className="text-xl font-semibold tracking-tight text-no-go">
-          Distress alert
-        </h2>
-        <p className="mt-1 text-sm text-ink-muted">
-          Call the Coast Guard now. Give your position and the number of people aboard.
-        </p>
-
-        <a
-          href={`tel:${primary.phone.replace(/[^+\d]/g, "")}`}
-          className="mt-4 flex items-center justify-between rounded-md border border-no-go/40 bg-no-go/10 px-4 py-3"
-        >
-          <span className="text-sm text-ink-muted">{primary.name}</span>
-          <span data-readout className="text-lg font-semibold text-ink">
-            {primary.phone}
-          </span>
-        </a>
-
-        <dl className="mt-3 flex flex-col gap-1.5 text-sm">
-          <div className="flex justify-between gap-3">
-            <dt className="text-ink-muted">Nationwide</dt>
-            <dd data-readout className="text-ink">
-              <a href={`tel:${NATIONWIDE_MRCC.phone}`}>{NATIONWIDE_MRCC.phone}</a>
-            </dd>
+        <div className="flex items-center gap-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-no-go/15 text-no-go border border-no-go/30">
+            <ShieldAlert className="size-5" />
           </div>
-          <div className="flex justify-between gap-3">
-            <dt className="text-ink-muted">VHF channel</dt>
-            <dd data-readout className="text-ink">{primary.vhf_channel}</dd>
-          </div>
-          <div className="flex justify-between gap-3">
-            <dt className="text-ink-muted">Position sent</dt>
-            <dd data-readout className="text-ink">
-              {sentPosition
-                ? `${sentPosition.lat.toFixed(4)}, ${sentPosition.lon.toFixed(4)}`
-                : "none — tell the operator your position"}
-            </dd>
-          </div>
-        </dl>
+          <h2 id="sos-title" className="text-lg font-bold tracking-tight text-no-go">
+            Maritime Distress Alert
+          </h2>
+        </div>
 
-        {/* Never claim a delivery that did not happen. */}
-        <p className="mt-3 border-t border-hairline pt-3 text-xs text-ink-dim">
-          {reachedBackend === false
-            ? "Sagar Sarathi could not reach its server, so nothing was logged. The numbers above are the nationwide Coast Guard contacts — call them directly."
-            : "The handoff to DAT-SG is SIMULATED in this build: no alert has been transmitted. Calling is what reaches help."}
-        </p>
+        {/* Primary Contact Card */}
+        <div className="mt-4 rounded-lg border border-no-go/40 bg-no-go/10 p-4">
+          <div className="text-sm font-bold text-ink">{primary.name}</div>
+          <div className="text-xs text-ink-muted">{primary.stationName}</div>
 
-        <form method="dialog" className="mt-4 flex justify-end">
-          <button className="rounded-md border border-hairline px-3 py-1.5 text-sm text-ink-muted hover:border-hairline-strong hover:text-ink">
-            Close
-          </button>
-        </form>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-no-go/20">
+            <div data-readout className="font-mono text-2xl font-black tracking-wide text-ink">
+              {primary.phone}
+            </div>
+            <div className="flex items-center gap-2">
+              <a
+                href={`tel:${cleanPhone}`}
+                className="flex items-center gap-1.5 rounded-md bg-no-go px-3.5 py-2 text-xs font-bold text-white hover:brightness-110 active:scale-95 transition-all"
+              >
+                <Phone className="size-3.5" />
+                Call
+              </a>
+              <button
+                type="button"
+                onClick={() => copyText(primary.phone, "phone")}
+                className="flex items-center gap-1.5 rounded-md border border-hairline bg-shelf-2 px-3 py-2 text-xs font-medium text-ink hover:border-hairline-strong active:scale-95 transition-all"
+              >
+                {copiedPhone ? (
+                  <><Check className="size-3.5 text-go" /><span className="text-go">Copied</span></>
+                ) : (
+                  <><Copy className="size-3.5 text-ink-dim" />Copy</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* GPS + VHF row */}
+        <div className="mt-3 space-y-2 text-xs">
+          {formattedCoords && (
+            <div className="flex items-center justify-between rounded-md border border-hairline bg-shelf-2/60 px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <MapPin className="size-3.5 text-ocean-cyan shrink-0" />
+                <span className="font-mono font-semibold text-ink">{formattedCoords}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => copyText(formattedCoords, "coords")}
+                className="flex items-center gap-1 rounded border border-hairline bg-shelf-1 px-2 py-1 text-[11px] font-medium text-ink hover:border-hairline-strong"
+              >
+                {copiedCoords ? (
+                  <><Check className="size-3 text-go" /><span className="text-go">Copied</span></>
+                ) : (
+                  <><Copy className="size-3 text-ink-dim" />Copy GPS</>
+                )}
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-2 rounded-md border border-hairline bg-shelf-2/60 px-3 py-2.5">
+            <Radio className="size-3.5 text-amber-500 shrink-0" />
+            <span className="font-mono font-semibold text-ink">VHF Channel 16</span>
+            <span className="text-ink-dim">— 156.8 MHz</span>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between">
+          <p className="text-[11px] text-ink-dim">
+            Beyond 80 km from home port, national helpline <a href="tel:1554" className="font-mono font-semibold text-ink-muted hover:text-ocean-cyan">1554</a> is used.
+          </p>
+          <form method="dialog">
+            <button className="rounded-lg border border-hairline bg-shelf-2 px-4 py-1.5 text-xs font-semibold text-ink hover:border-hairline-strong active:scale-95 transition-all">
+              Close
+            </button>
+          </form>
+        </div>
       </dialog>
     </>
   );
 }
+
+
