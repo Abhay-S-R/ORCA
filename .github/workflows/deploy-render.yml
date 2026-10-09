@@ -32,24 +32,59 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Pull existing Render image (with baked /data)
+      - name: Pull or prepare base image (with baked /data)
         run: |
-          echo "Pulling existing image ${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:render..."
-          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:render
+          IMAGE_BASE="${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:data-base"
+          IMAGE_RENDER="${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:render"
+
+          echo "Checking for clean base image: $IMAGE_BASE..."
+          if docker pull "$IMAGE_BASE"; then
+            echo "Successfully pulled base image: $IMAGE_BASE"
+          else
+            echo "Base image $IMAGE_BASE not found or unpullable."
+            echo "Recovering and squashing existing $IMAGE_RENDER using crane (bypasses overlay2 depth limits)..."
+
+            # Download crane (standalone container registry tool)
+            curl -sL https://github.com/google/go-containerregistry/releases/latest/download/go-containerregistry_Linux_x86_64.tar.gz | tar -xz crane
+            chmod +x crane
+            ./crane auth login index.docker.io -u "${{ secrets.DOCKERHUB_USERNAME }}" -p "${{ secrets.DOCKERHUB_TOKEN }}"
+
+            echo "Exporting flattened filesystem and importing as 1-layer base image..."
+            ./crane export "$IMAGE_RENDER" - | docker import \
+              --change "WORKDIR /app" \
+              --change "ENV MALLOC_ARENA_MAX=2" \
+              --change "ENV ORCA_LOCAL_MODELS=0" \
+              --change "EXPOSE 8000" \
+              --change 'CMD ["sh", "-c", "exec uvicorn orca.api.main:app --host 0.0.0.0 --port ${PORT:-8000} --timeout-graceful-shutdown 3"]' \
+              - "$IMAGE_BASE"
+
+            echo "Pushing freshly squashed base image to Docker Hub..."
+            docker push "$IMAGE_BASE"
+          fi
 
       - name: Patch updated code onto image
         run: |
-          # Build a lightweight patch layer on top of the existing image that already has /data.
+          IMAGE_BASE="${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:data-base"
+          IMAGE_RENDER="${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:render"
+
+          # Build a lightweight patch layer on top of data-base.
+          # Building FROM data-base guarantees layers never accumulate over time,
+          # because CI only ever writes to $IMAGE_RENDER and leaves $IMAGE_BASE unchanged.
           cat << 'EOF' > Dockerfile.patch
-          FROM ${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:render
+          ARG BASE_IMAGE
+          FROM ${BASE_IMAGE}
           WORKDIR /app
           COPY backend/requirements.txt .
           RUN pip install --no-cache-dir -r requirements.txt
           COPY backend/orca ./orca
           COPY scripts/refresh_fishing_ban_order.py /scripts/
+          ENV MALLOC_ARENA_MAX=2
+          ENV ORCA_LOCAL_MODELS=0
+          EXPOSE 8000
+          CMD ["sh", "-c", "exec uvicorn orca.api.main:app --host 0.0.0.0 --port ${PORT:-8000} --timeout-graceful-shutdown 3"]
           EOF
 
-          docker build -f Dockerfile.patch -t ${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:render .
+          docker build --build-arg BASE_IMAGE="$IMAGE_BASE" -f Dockerfile.patch -t "$IMAGE_RENDER" .
 
       - name: Push updated image to Docker Hub
         run: |

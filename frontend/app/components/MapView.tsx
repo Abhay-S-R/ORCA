@@ -212,11 +212,6 @@ const resolveTileUrl = (template: string, frame?: string) =>
 // distance across exactly this span.
 const SCALE_BAR_PX = 100;
 
-// The fence sits exactly on the data's own edge — no slack. Any padding here
-// shows up as a strip of bare basemap along the viewport edges at full
-// zoom-out, which is the thing the fence exists to prevent.
-const FENCE_PAD_DEG = 0;
-
 const HEAVY_KEYS = ["srvBathymetry", "waveForecast", "currents", "wind"] as const;
 type HeavyKey = (typeof HEAVY_KEYS)[number];
 const HEAVY_LABEL: Record<HeavyKey, string> = {
@@ -618,6 +613,9 @@ export function MapView({
       // surfaces (§4.7) but is not the default — a tilted chart is harder to
       // take a bearing off, and bearings are the fisherman's job.
       maxPitch: 60,
+      minZoom: 4.5,
+      maxZoom: 22,
+      maxBounds: [[64.0, 3.0], [96.0, 27.0]],
     });
     map.current = m;
 
@@ -1035,7 +1033,16 @@ export function MapView({
       });
     }
 
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined" && container.current) {
+      ro = new ResizeObserver(() => {
+        map.current?.resize();
+      });
+      ro.observe(container.current);
+    }
+
     return () => {
+      ro?.disconnect();
       m.remove();
       map.current = null;
     };
@@ -1405,7 +1412,7 @@ export function MapView({
         const lats = [anchor[1], ...coords.map((c) => c[1])];
         m.fitBounds(
           [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
-          { padding: 72, maxZoom: 9.5, duration: 900 },
+          { padding: 72, maxZoom: 18, duration: 900 },
         );
       } else {
         fallback(8.2);
@@ -1419,7 +1426,7 @@ export function MapView({
         const lats = [anchor[1], ...near.map((f) => f.geometry.coordinates[1])];
         m.fitBounds(
           [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
-          { padding: 80, maxZoom: 9, duration: 900 },
+          { padding: 80, maxZoom: 18, duration: 900 },
         );
       } else {
         fallback(8.6);
@@ -1437,7 +1444,7 @@ export function MapView({
         const [w, s, e, n] = bounds;
         m.fitBounds([[w, s], [e, n]], {
           padding: 60,
-          maxZoom: queryFocus.intent === "wave" ? 8 : 6.5,
+          maxZoom: 16,
           duration: 900,
         });
       } else {
@@ -1530,47 +1537,21 @@ export function MapView({
     }
   }, [ready, layers, rasterLayers, basemap]);
 
-  /* ---- camera fence: the chart can only be panned and zoomed inside the
-     water we actually hold values for. The box is measured from the plotted
-     data itself — every current vector, wind vector and fishing zone — not
-     from a layer's declared envelope: the bathymetry raster advertises
-     [65,0 .. 98,26] but its own depth lookup answers "Outside coverage" over
-     much of that, which is exactly the empty ocean this fence is meant to
-     keep the chart out of. Unioned with the opening view, because MapLibre
-     clamps a camera that would show outside maxBounds and would otherwise
-     shove the home view in. Recomputed as feeds land. */
+  /* ---- Zoom & camera bounds: locked to the surface current domain
+     [65.0°E, 4.0°N to 95.0°E, 26.0°N]. The chart cannot zoom out beyond the
+     surface currents extent, and cannot be panned outside it. Within the
+     surface currents water, full deep zoom up to 22 is unlocked. ---- */
   useEffect(() => {
     const m = map.current;
     if (!ready || !m) return;
-    const lons: number[] = [];
-    const lats: number[] = [];
-    for (const v of currentVectors ?? []) {
-      lons.push(v.lon);
-      lats.push(v.lat);
-    }
-    for (const v of windVectors ?? []) {
-      lons.push(v.lon);
-      lats.push(v.lat);
-    }
-    for (const f of pfzFeatures) {
-      lons.push(f.geometry.coordinates[0]);
-      lats.push(f.geometry.coordinates[1]);
-    }
-    if (!lons.length) return;
-    // The opening view, measured once — not recomputed later, or panning to
-    // the fence edge would drag the fence along with it.
-    if (!homeBounds.current) {
-      const b = m.getBounds();
-      homeBounds.current = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
-    }
-    const [hw, hs, he, hn] = homeBounds.current;
-    lons.push(hw, he);
-    lats.push(hs, hn);
+
+    const bounds: [number, number, number, number] = currentBounds ?? [65.0, 4.0, 95.0, 26.0];
+    const [w, s, e, n] = bounds;
     m.setMaxBounds([
-      [Math.min(...lons) - FENCE_PAD_DEG, Math.min(...lats) - FENCE_PAD_DEG],
-      [Math.max(...lons) + FENCE_PAD_DEG, Math.max(...lats) + FENCE_PAD_DEG],
+      [w - 1.0, s - 1.0],
+      [e + 1.0, n + 1.0],
     ]);
-  }, [ready, currentVectors, windVectors, pfzFeatures]);
+  }, [ready, currentBounds]);
 
   /* ---- PFZ glyph re-tint: the fish follows what is under it — deep-water
      imagery wants a bright body on a near-black halo, pale chart paper wants

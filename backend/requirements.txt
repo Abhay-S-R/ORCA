@@ -1,23 +1,15 @@
-# Backend runtime deps. Most data-processing libs (geopandas, etc.) still
-# live only in the repo-root requirements.txt for the procurement scripts —
-# but Agent 6 (Geospatial, plan §4 S5) queries boundary and bathymetry data
-# at request time, inside this service, so its libs have to be here too.
-
 fastapi>=0.115
-python-multipart>=0.0.9  # FastAPI File()/Form() (orca/api/voice_routes.py's /voice/transcribe upload)
+python-multipart>=0.0.9  
 uvicorn[standard]>=0.32
 pydantic>=2.9
 python-dotenv>=1.0
-pandas>=2.0           # normalize.py's common frame (plan §5.6)
-httpx>=0.27            # live upstream calls (Open-Meteo) — declared directly, not
-                        # relied on as anthropic's/google-generativeai's transitive dep
-langgraph>=0.2          # orca/graph/ — the ONLY place this may be imported (plan §3.4)
+pandas>=2.0           
+httpx>=0.27            
+langgraph>=0.2          
 opentelemetry-api>=1.27
-opentelemetry-sdk>=1.27  # trace.py — spans feed audit_trace_log (plan §5.3/§9.18)
+opentelemetry-sdk>=1.27  
 shapely>=2.0
 pyproj>=3.6
-# pyshp reads the Census 2011 district shapefile (pure python, no GDAL/fiona/geopandas) for district_at_point — the lat/lon -> district step the
-# per-district landings archive is keyed on.
 pyshp>=2.3
 xarray>=2024.1.0
 scipy>=1.11
@@ -27,48 +19,23 @@ rasterio>=1.3
 rio-tiler[xarray]>=6.0
 cmocean>=4.0
 pillow>=10.0
-copernicusmarine>=2.0  # scripts/refresh_cmems.py (Data Refresh Guide §2)
-
-# LLM providers registered in orca/llm/registry.py (plan §3.1)
+copernicusmarine>=2.0  
 anthropic>=0.40
 google-genai>=2.0
 huggingface_hub>=0.26
 faster-whisper>=1.0
-# PINNED, and the pin is load-bearing: Agent 1's IndicTrans2 config is remote
-# code (trust_remote_code=True) that imports `transformers.onnx`, which
-# transformers v5 removed. Installing anything that drags transformers to >=5
-# breaks every Indic translation with `ModuleNotFoundError: transformers.onnx`
-# at model-load time — it does NOT fail at import, so the unit tests stay green
-# while the running product loses its whole language path. Checked 2026-09-20,
-# by breaking it exactly this way while installing sentence-transformers.
 transformers==4.46.3
-# P2.8 — Tier-2 intent routing (intfloat/multilingual-e5-small, CPU). 3.x is
-# the last line that accepts transformers 4.x; 6.x requires transformers>=5 and
-# is therefore incompatible with the pin above, not merely newer.
 sentence-transformers==3.3.1
-torch>=2.0            # CPU build is enough; install with
-                       #   pip install torch --index-url https://download.pytorch.org/whl/cpu
-                       # to skip the much larger CUDA wheel on a machine with no GPU
+torch>=2.0           
 sentencepiece>=0.2
-# IndicTransToolkit builds a Cython extension (no wheel): needs a C compiler, which the Docker
-# image has and Windows usually lacks, so it is skipped there and the IndicTrans2 rung is off.
 IndicTransToolkit>=1.1; sys_platform != "win32"
-
-# orca/db/ + orca/auth/ (Phase 2, plan §5.3/§5.4, D1) — psycopg[binary] not
-# psycopg2: prebuilt wheel, no C++ Build Tools needed on Windows (same
-# constraint that blocked IndicTransToolkit, see orca/agents/language.py).
 sqlalchemy>=2.0
 psycopg[binary]>=3.1
 geoalchemy2>=0.15
-argon2-cffi>=23.1        # password hashing — argon2id, never plaintext (infra/db/001_init.sql)
-pyjwt>=2.9                # access/refresh tokens — pure python, no compiler needed
-redis>=5.0                 # orca/resilience.py cache TTLs (plan §9.1/§9.11)
-
-# dev / CI only
+argon2-cffi>=23.1               
+pyjwt>=2.9                
+redis>=5.0                
 pytest>=8.3
 ruff>=0.7
 mypy>=1.13
-# A THIRD checker, and not redundant: pyrefly is what the editor extension
-# runs, so without it CI cannot reproduce a squiggle a dev sees in their IDE.
-# It caught a real graph.py error that ruff and mypy both passed.
 pyrefly>=1.3

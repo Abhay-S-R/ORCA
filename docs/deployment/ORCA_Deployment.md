@@ -221,7 +221,8 @@ is what an x86 Windows machine builds.
    ```bash
    docker login -u <dockerhub-user>
    docker build -t orca-backend backend
-   docker build -f infra/render/Dockerfile -t <dockerhub-user>/orca-backend:render .
+   docker build -f infra/render/Dockerfile -t <dockerhub-user>/orca-backend:render -t <dockerhub-user>/orca-backend:data-base .
+   docker push <dockerhub-user>/orca-backend:data-base
    docker push <dockerhub-user>/orca-backend:render
    ```
    The first push uploads several GB: the code image plus about 2.8 GB of `data/`. Later pushes
@@ -229,9 +230,9 @@ is what an x86 Windows machine builds.
 
    **Automated deployments:**
    - **Code-only updates:** Handled automatically on `git push main` by GitHub Actions
-     (`.github/workflows/deploy-render.yml`), patching code onto the existing DockerHub image and
-     hitting Render's deploy hook.
-   - **Data updates:** `scripts/deploy_data.cmd` automates the build, push, and Render hook
+     (`.github/workflows/deploy-render.yml`), pulling the immutable `<dockerhub-user>/orca-backend:data-base`
+     tag, patching code onto it, pushing to `render`, and hitting Render's deploy hook (preventing Docker layer accumulation).
+   - **Data updates:** `scripts/deploy_data.cmd` (or `scripts/deploy_data.sh`) automates the build, push, and Render hook
      trigger. Both `scripts/cron/refresh_daily.cmd` and `scripts/cron/refresh_weekly.cmd`
      automatically call `scripts/deploy_data.cmd` after their freshness gate passes.
 
