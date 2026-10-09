@@ -10,7 +10,7 @@ Done-when (plan §5 PC2.3):
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -30,7 +30,7 @@ def _model_off(monkeypatch):
 
 # The real clock: planning validates dates against it, so a pinned date here becomes a past date
 # (and OUT_OF_RANGE) as days go by. Found 2026-10-08, two days after the pin.
-_NOW = datetime.now(timezone.utc).replace(hour=6, minute=0, second=0, microsecond=0)
+_NOW = datetime.now(UTC).replace(hour=6, minute=0, second=0, microsecond=0)
 _TODAY = _NOW.date()
 
 

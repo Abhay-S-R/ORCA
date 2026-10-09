@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -220,7 +220,7 @@ def export_evidence(
 
     bundle: dict[str, Any] = {
         "query_id": str(query_id),
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": datetime.now(UTC).isoformat(),
         "exported_by": {"user_id": str(user.id), "role": user.role},
         "audit_trail": audit_entries,
         "trace": trace.model_dump(),

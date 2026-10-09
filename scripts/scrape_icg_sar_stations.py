@@ -31,7 +31,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -172,7 +172,7 @@ def main() -> int:
     payload = {
         "network_name": "Indian Coast Guard Maritime Rescue Coordination Centres and Sub Centres",
         "source_url": SAR_PAGE,
-        "acquisition_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "acquisition_timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "authority_tier": "T1",
         "national_distress_number": "1554",
         "vhf_distress_channel": "16",

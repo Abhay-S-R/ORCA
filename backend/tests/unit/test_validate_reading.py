@@ -11,7 +11,7 @@ Existing guard tests in ``test_place_resolution.py`` are not touched.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from orca.place_resolution import (
     FORECAST_HORIZON_DAYS,
@@ -22,7 +22,7 @@ from orca.place_resolution import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-_NOW = datetime(2026, 10, 4, 6, 0, 0, tzinfo=timezone.utc)  # fixed clock for all tests
+_NOW = datetime(2026, 10, 4, 6, 0, 0, tzinfo=UTC)  # fixed clock for all tests
 
 # A known good place from the gazetteer (used across several tests).
 _VERAVAL = [{"raw": "Veraval", "normalized": "veraval"}]

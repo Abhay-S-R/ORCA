@@ -5,7 +5,7 @@ the app. orca/api/auth_routes.py is the thin HTTP wrapper around this.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
@@ -95,7 +95,7 @@ def _issue_recorded(db: Session, user: User) -> TokenPair:
     claims = decode_token(tokens.refresh_token, expected_type="refresh")
     db.add(RefreshToken(
         jti=uuid.UUID(claims["jti"]), user_id=user.id,
-        expires_at=datetime.fromtimestamp(claims["exp"], tz=timezone.utc),
+        expires_at=datetime.fromtimestamp(claims["exp"], tz=UTC),
     ))
     db.commit()
     return tokens
@@ -119,7 +119,7 @@ def refresh(db: Session, *, refresh_token: str) -> tuple[User, TokenPair]:
         raise invalid
 
     if row.revoked_at is not None:
-        if datetime.now(timezone.utc) - row.revoked_at > _REUSE_GRACE:
+        if datetime.now(UTC) - row.revoked_at > _REUSE_GRACE:
             db.execute(
                 update(RefreshToken)
                 .where(RefreshToken.user_id == row.user_id, RefreshToken.revoked_at.is_(None))
@@ -135,7 +135,7 @@ def refresh(db: Session, *, refresh_token: str) -> tuple[User, TokenPair]:
         raise invalid
 
     user = get_user_by_id(db, row.user_id)
-    row.revoked_at = datetime.now(timezone.utc)
+    row.revoked_at = datetime.now(UTC)
     if user is None or user.status != "active":
         db.commit()
         raise AuthError("inactive", "this account is not active")

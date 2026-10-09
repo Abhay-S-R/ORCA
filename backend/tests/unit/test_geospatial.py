@@ -1,3 +1,5 @@
+from datetime import UTC
+
 from orca.agents.geospatial import (
     PILOT_BBOX_WSEN,
     _simplify_tolerance_for_zoom,
@@ -277,7 +279,7 @@ def test_currents_are_the_step_nearest_now_and_say_which_one() -> None:
     """P4.15: the currents layer carries the valid time of the HYCOM step it
     shows, and that step is the one nearest the requested time — not the
     last step in the file, which can be days ahead."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from orca.agents.geospatial import _hycom, _hycom_times, hycom_nearest_step
 
@@ -287,4 +289,4 @@ def test_currents_are_the_step_nearest_now_and_say_which_one() -> None:
     i, iso = hycom_nearest_step(target)
     assert i == 5 and iso == times[5].isoformat().replace("+00:00", "Z")
     assert hycom_nearest_step(times[-1] + timedelta(days=30))[0] == len(times) - 1
-    assert hycom_nearest_step(datetime(2000, 1, 1, tzinfo=timezone.utc))[0] == 0
+    assert hycom_nearest_step(datetime(2000, 1, 1, tzinfo=UTC))[0] == 0

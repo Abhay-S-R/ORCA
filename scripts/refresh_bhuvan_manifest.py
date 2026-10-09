@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import requests
@@ -78,7 +78,7 @@ WMS_SERVICES: tuple[dict, ...] = (
 
 
 def scrape(name: str, url: str) -> dict:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     try:
         resp = requests.get(url, timeout=30, headers={"User-Agent": "ORCA/1.0 (SIH26176)"})
         resp.raise_for_status()
@@ -103,7 +103,7 @@ def main() -> int:
     manifest = {
         "summary": summary,
         "core_wms_services": [dict(svc) for svc in WMS_SERVICES],
-        "scraped_at": datetime.now(timezone.utc).isoformat(),
+        "scraped_at": datetime.now(UTC).isoformat(),
     }
     out = OUT_DIR / "bhuvan_manifest.json"
     out.write_text(json.dumps(manifest, indent=2), encoding="utf-8")

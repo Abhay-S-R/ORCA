@@ -44,7 +44,7 @@ import logging
 import re
 import unicodedata
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from orca import engines, local_models
@@ -531,7 +531,7 @@ def run_ingress(state: ORCAState) -> AgentResult:
     pre = state.get("pretranslated") or {}
     reuse = pre.get("raw") == raw
     detected = _coerce_language(pre["language"]) if reuse else query_language(raw, state.get("user_language_default"))
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
     engine = None
     try:
@@ -588,7 +588,7 @@ def run_egress(state: ORCAState) -> AgentResult:
     # question's script (English for Latin text).
     target = _coerce_language(state.get("reply_language") or state.get("detected_language", "en") or "en")
     english_text = state.get("final_english_response", "") or ""
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
     engine = None
     try:

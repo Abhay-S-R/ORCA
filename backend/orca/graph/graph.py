@@ -58,7 +58,7 @@ trouble sends, and Agent 12 sees every one of them first.
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph
@@ -114,7 +114,7 @@ def _not_run(
     mislabels every span after it. `outputs` is empty on purpose: a span that
     did not run has no measurement, and LOW_DATA is the honest confidence for
     one (never HIGH, which would read as "confidently nothing")."""
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     entry: dict[str, Any] = {
         "agent_name": agent_name,
         "query_id": state.get("query_id", ""),
@@ -624,6 +624,17 @@ def planning_node(state: ORCAState) -> dict:
         if adopted is not None:
             # No "Read X as Y" banner (the user, 2026-10-09: a misread is fine, the user can correct it).
             update["user_location"], update["place_resolution"], _note = adopted
+        else:
+            # PC5.6-NOTE-1: two places and a route intent are a passage (the English-only regex missed "se ... tak" etc.)
+            from orca.place_resolution import adopt_model_passage
+
+            passage = adopt_model_passage(
+                update["understood_places"], state.get("user_location"),
+                [state.get("raw_user_query") or "", state.get("normalized_english_query") or ""],
+                "ROUTE" in (update.get("matched_intent_rows") or []) or "ROUTE" in (update.get("understood_intents") or []),
+            )
+            if passage is not None:
+                update["user_location"], update["place_resolution"] = passage
 
     # CONTEXT-2: the model read the message as ONLY a request for the earlier answer in another language
     # (a follow-up, no place, no time, no new intent): the same facts, re-rendered from the stored trace,
@@ -644,6 +655,23 @@ def planning_node(state: ORCAState) -> dict:
         if frame is not None:
             update["language_rerender"] = frame
             update["query_outcome"] = "LANGUAGE_CHANGED"
+
+    # D-15 (2026-10-10): the last turn ended in a place question ("which port?") and this message names no place: it is about
+    # THAT question, not a new sea question to answer at the pilot default (or at an old, unrelated carried place). The question
+    # is asked again (the model words it, the options are the stored ones). The model proposes (a sea question that names
+    # no place); the history decides; a position the caller chose (explicit / coordinates / a chip) is never overridden.
+    history_now = state.get("session_history") or []
+    pending = (history_now[-1] if history_now else {}).get("place_question")
+    loc_now: dict[str, Any] = dict(update.get("user_location") or state.get("user_location") or {})  # type: ignore[arg-type]
+    if (
+        pending and not update["query_outcome"] and update["understood_kind"] == "sea_question"
+        and not update["understood_places"] and loc_now.get("place_source") in ("regional_default", "session_carried")
+    ):
+        update.update(_refusal("NEEDS_PLACE", str(pending), state))
+        update["execution_plan"] = []      # a refusal runs no agent, as every other place question does
+        update["matched_intent_rows"] = []
+        update["place_resolution"] = {"status": "ambiguous", "place_name": None, "place_source": None, "lat": None, "lon": None,
+                                      "candidates": [], "disclosure": str(pending)}
 
     reading = outputs.get("english_reading")
     if reading and (state.get("detected_language") or "en") != "en":
@@ -915,7 +943,7 @@ def risk_assessment_node(state: ORCAState) -> dict:
             import datetime as _dt
 
             computed_at = _dt.datetime.fromisoformat(cached["computed_at"])
-            age_minutes = round((_dt.datetime.now(_dt.timezone.utc) - computed_at).total_seconds() / 60)
+            age_minutes = round((_dt.datetime.now(_dt.UTC) - computed_at).total_seconds() / 60)
             age_text = f"{age_minutes} min" if age_minutes < 120 else f"{round(age_minutes / 60, 1)} h"
             cached_verdict = cached["risk_assessment"]
             update["risk_assessment"] = {**cached_verdict, "status": f"{cached_verdict.get('status', 'SAFE')}_CACHED"}

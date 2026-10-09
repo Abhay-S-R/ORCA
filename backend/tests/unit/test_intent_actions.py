@@ -54,7 +54,7 @@ def test_route_with_an_unknown_end_says_which_one_instead_of_guessing():
 def test_regional_default_is_never_used_as_the_users_place():
     acts = intent_actions.build(["REGULATORY", "SUBSCRIPTION", "EXPORT"], "q", DEFAULT, "q1")
     assert [a["kind"] for a in acts] == ["info", "info", "download"]
-    assert "lat=" not in acts[2]["href"] and "pilot region" in acts[2]["text"]
+    assert "lat=" not in acts[2]["href"] and "fallback region" in acts[2]["text"]  # wording changed in the 2026-10-09 merge
 
 
 # --- P5.9 scenario shapes -----------------------------------------------

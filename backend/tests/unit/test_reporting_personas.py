@@ -109,7 +109,7 @@ def test_describe_location_admits_the_regional_default():
     from orca.agents.reporting import describe_location
 
     text = describe_location({"lat": 8.8, "lon": 78.3, "place_name": None, "place_source": "regional_default"})
-    assert "default" in text.lower()
+    assert "fallback" in text.lower()  # wording changed in the 2026-10-09 merge ("default" -> "fallback")
     assert "no location that could be resolved" in text
 
 
@@ -139,7 +139,7 @@ def test_the_prompt_carries_the_location_and_forbids_naming_another():
 
     prompt = captured["prompt"]
     assert "LOCATION THIS ADVICE IS FOR" in prompt
-    assert "default position" in prompt
+    assert "fallback position" in prompt
     assert "Never name a place the location line does not name" in prompt
     # No agent-identity leak into user-facing text.
     assert "Agent 9" not in prompt and "ORCA Reporting Agent" not in prompt

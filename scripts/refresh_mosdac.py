@@ -31,7 +31,7 @@ import argparse
 import os
 import sys
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -159,7 +159,7 @@ def main() -> int:
         return 1
 
     access, refresh = _login(user, pw)
-    end = datetime.now(timezone.utc).date()
+    end = datetime.now(UTC).date()
     start = end - timedelta(days=args.days)
     print(f"window {start} -> {end}")
 

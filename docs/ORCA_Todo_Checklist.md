@@ -42,7 +42,7 @@ Written 2026-10-09 from the implementation log (`docs/logs/DLC_implementation_lo
 - [x] **PC4.3: update the revamp doc's status** (`ORCA_Prompt_Routing_Revamp.md` section 6 points at the consolidation plan).
 - [ ] **PC5.6: RUN on 2026-10-09, result in the log; two notes became their own points below** (distress phrases: all 6 raised live, 3 only by the planner's model; places: 11 of 16 right, 5 no-place prompts answered at the disclosed default, 1 route wrong).
 - [ ] **PC5.6-NOTE-2 (SAFETY): romanized "help + boat failing" is distress with no model (written 2026-10-09).** *To verify:* send "naav ka engine kharab ho gaya, madad chahiye" and "nanna boat engine halaaytu malpe hatra sahaya beku": both give the MRCC response at once (not after 4-5 s); "route ke liye madad chahiye" must NOT raise an SOS. Hindi and Kannada only; native review still owed.
-- [ ] **PC5.6-NOTE-1: a romanized route ("tuticorin se pamban tak sabse surakshit raasta") is answered at the pilot default position** while the English form resolves as a passage. *Your call:* build it.
+- [ ] **PC5.6-NOTE-1: a romanized route between two places is a passage answered for the origin (written 2026-10-10, checked live).** *To verify:* ask "mujhe tuticorin se pamban tak sabse surakshit raasta batao" and "karwar inda udupi varege surakshitha maarga heli": each answered for the first place (Tuticorin / Karwar), not the Gulf of Mannar default. (A route that names a whole coastline such as Goa still asks which port.)
 - [ ] **PC5.7: honest provenance labels** on the native-script path (a translation that returns its input unchanged is `degraded`; the docstring says Bhashini is primary). Two of the friend's tests (`test_pc5_language_ingress.py`) specify this and PC5.5; they fail until these are built.
 - [ ] **Part B: audit the remaining agents, one at a time** (plan section 9: marine_data_discovery, language_egress, weather, geospatial, ocean_analytics, risk, visualization, reporting, critic). Decide for each: does it need to exist, does it duplicate another, model or code. Record the decision before writing points.
 - [ ] **The core agentic architecture change** (the user's: "we are making changes to the core architecture now")
@@ -50,7 +50,7 @@ Written 2026-10-09 from the implementation log (`docs/logs/DLC_implementation_lo
 
 ### A4. Defects and quality
 
-- [ ] **D-15:** a follow-up after "which place?" is answered at the default position instead of the place the user then names.
+- [ ] **D-15: a follow-up that names no place, after a "which place?" question, asks the question again (written 2026-10-10, checked live).** *To verify:* ask "pfzs near gujarat" (it lists ports), then "can you explain that in more detail": it asks which port again, not an answer at the Gulf of Mannar; then "near porbandar": answered for Porbandar.
 - [ ] **Critic false positives:** the critic deletes boundary information (IMBL distance) from correct answers.
 - [ ] **Marathi is detected as Hindi**, so Marathi chat replies come back in Hindi script.
 - [ ] **Foreign-script letters in a model's reply:** a Kannada reply twice contained a Korean word and a nonsense phrase. Proposed: reject a reply containing a script other than its own and Latin, and fall back to a translated English sentence.
@@ -67,6 +67,8 @@ Written 2026-10-09 from the implementation log (`docs/logs/DLC_implementation_lo
 
 - [ ] **PLAN-FORCE-1: ocean analytics is forced to run for tide, fishing-zone, SST and chlorophyll questions (written 2026-10-10, checked live).** *To verify:* open /reasoning (or the agent strip on /ask) for "any hazard alerts and the tide at kochi tomorrow": Ocean Analytics ran (not skipped) and the answer mentions the tide; same for "which fishing zones should I avoid near malpe, and where is the nearest pfz"; "sst and chlorophyll at udupi" then "and for karwar" give each place its own SST and chlorophyll.
 - [ ] **VOICE-10: Kannada rates read in your chosen order (B), written 2026-10-10.** *To verify:* a Kannada answer with wind (e.g. "is it safe near udupi, answer in kannada") and press Play: the wind is read "ಪ್ರತಿ ಸೆಕೆಂಡಿಗೆ 2 ಮೀಟರ್" (and km/h "ಪ್ರತಿ ಗಂಟೆಗೆ 12 ಕಿಲೋಮೀಟರ್"). Other languages unchanged (VOICE-9).
+
+- [ ] **CI-FIX-1: the CI Lint job failed after the merge with 110 ruff errors; fixed locally (2026-10-10), not pushed.** *To verify:* commit and push, then the GitHub "CI — Lint" run is green. **Your call:** pin ruff (e.g. `ruff==0.17.0` in `backend/requirements.txt`) so a new ruff release cannot break CI again, and unpinned tools stay a deliberate choice; I did not change CI config.
 
 ### A5. Config and operations
 

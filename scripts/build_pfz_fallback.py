@@ -35,7 +35,7 @@ import glob
 import json
 import os
 import warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 import xarray as xr
@@ -258,7 +258,7 @@ def main():
           "outside no-take MPAs)"
           % (len(zones), min_cells, MIN_ZONE_AREA_KM2, DEPTH_MIN_M, DEPTH_MAX_M))
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     payload = {
         "generated_at": now,
         "layer_type": "DERIVED_PROXY",

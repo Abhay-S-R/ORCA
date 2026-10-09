@@ -37,7 +37,7 @@ import re
 import sys
 import time
 import warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import requests
 
@@ -260,7 +260,7 @@ def main():
                   if v.get("status") != "FETCH_ERROR")
         print("  %-7s %-18s %d/%d languages captured" % (sid, name[:18], got, len(LANGUAGES)))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     stamp = now.strftime("%Y%m%d")
 
     write_outputs(all_rows, sector_status, vernacular, sector_names, now, stamp)

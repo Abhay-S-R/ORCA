@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 
 from shapely.geometry import LineString, Point
@@ -270,7 +270,7 @@ def _compute_route(
     dist_km = dist_nm * _KM_PER_NM
     hours = dist_nm / max(speed_knots, 0.1)
 
-    dep = datetime.fromisoformat(departure_iso.replace("Z", "+00:00")) if departure_iso else datetime.now(timezone.utc)
+    dep = datetime.fromisoformat(departure_iso) if departure_iso else datetime.now(UTC)
     eta_dt = dep + timedelta(hours=hours)
     eta_str = eta_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 

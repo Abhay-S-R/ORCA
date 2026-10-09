@@ -11,7 +11,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
@@ -377,7 +377,7 @@ def run(state: ORCAState) -> AgentResult:
     message = state.get("raw_user_query", "") or ""
     session_history = state.get("session_history")
     user_location = state.get("user_location")
-    current_time_iso = datetime.now(timezone.utc).astimezone().isoformat()
+    current_time_iso = datetime.now(UTC).astimezone().isoformat()
 
     try:
         client = llm("cheap")
@@ -410,7 +410,7 @@ def run(state: ORCAState) -> AgentResult:
         },
         source_provenance=SourceProvenance(
             dataset="LLM prompt understanding (cheap tier) or deterministic fallback",
-            acquisition_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            acquisition_timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             freshness_minutes=0,
         ),
         confidence=Confidence(

@@ -28,7 +28,7 @@ import os
 import re
 import sys
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -145,7 +145,7 @@ def main() -> int:
         "source_url": EPRINT_URL,
         "pdf_url": PDF_URL,
         "extraction_method": "pdfplumber text extraction of the state-profile pages",
-        "acquisition_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "acquisition_timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "state_count": len(out),
         "coverage_note": "One reporting year. Lakshadweep is not covered by this booklet. "
                          "A state figure is an annual estimate, not a trend.",

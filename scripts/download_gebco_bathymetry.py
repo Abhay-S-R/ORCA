@@ -32,7 +32,7 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -68,7 +68,7 @@ def basket_payload(bbox: dict[str, float]) -> dict[str, object]:
     return {
         "id": "0",
         "email": None,  # no address is sent; the basket id is enough to collect
-        "submission_date": datetime.now(timezone.utc).isoformat(),
+        "submission_date": datetime.now(UTC).isoformat(),
         "processing_status": "new",
         "items": [{
             "id": 0,
@@ -133,7 +133,7 @@ def write_provenance(dest: Path, bbox: dict[str, float], basket: str) -> Path:
         "basket_id": basket,
         "source_url": "https://download.gebco.net/",
         "api_endpoint": API + "/queue",
-        "acquisition_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "acquisition_timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "file": dest.name,
         "size_bytes": dest.stat().st_size,
         "note": "Global compilation, not an Indian hydrographic survey. Not for navigation; "

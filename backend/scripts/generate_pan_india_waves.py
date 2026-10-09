@@ -86,7 +86,7 @@ def main():
     # calendar "standard", two days before proleptic-Gregorian datetime(1,1,1).
     # Without it every frame is stamped two days into the future. Same
     # correction as `voyage._ww3_hours_since_epoch` and `generate_tiles`.
-    ref = datetime.datetime(1, 1, 1, tzinfo=datetime.timezone.utc)
+    ref = datetime.datetime(1, 1, 1, tzinfo=datetime.UTC)
     timestamps = [
         (ref + datetime.timedelta(hours=float(h) - 48.0)).strftime("%Y-%m-%dT%H:%M:%SZ")
         for h in ds["TIME"].values

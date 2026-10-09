@@ -7,7 +7,7 @@ their chats and tokens with them).
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -227,7 +227,7 @@ def test_oversized_or_non_answer_payloads_are_rejected(make_user):
 # --- import -----------------------------------------------------------------------
 
 def _import_chat(chat_id, *, title=None, pinned=False, questions=("q1", "q2"), start=None):
-    start = start or datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)
+    start = start or datetime(2026, 9, 1, 8, 0, tzinfo=UTC)
     return {
         "id": str(chat_id), "title": title, "pinned": pinned, "persona": "researcher",
         "turns": [
@@ -315,7 +315,7 @@ def test_reusing_a_long_revoked_refresh_token_revokes_every_session(make_user):
         db.execute(
             update(RefreshToken)
             .where(RefreshToken.user_id == uuid.UUID(user["id"]), RefreshToken.revoked_at.is_not(None))
-            .values(revoked_at=datetime.now(timezone.utc) - timedelta(minutes=5))
+            .values(revoked_at=datetime.now(UTC) - timedelta(minutes=5))
         )
         db.commit()
     finally:

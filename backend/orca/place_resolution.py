@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 
 from orca.data.loaders import (
@@ -351,6 +351,44 @@ def adopt_model_place(
     return new_loc, resolution.as_dict(), note
 
 
+def adopt_model_passage(
+    places: list[dict], user_location: dict | None, texts: list[str], is_route: bool,
+) -> tuple[dict, dict] | None:
+    """(user_location, place_resolution) when the model read a ROUTE between two places that the gazetteer confirms, else None.
+
+    PC5.6-NOTE-1 (2026-10-10): the passage test above is an English regex ("from ... to"), so "tuticorin se pamban tak" (Hindi),
+    "mangalore la irundhu goa varaikkum" (Tamil), "karwar inda goa varege" (Kannada) and even "tuticorin to pamban" were two
+    places with no passage, `ambiguous`, no position, the pilot default, while the answer text spoke of "your route from
+    Tuticorin to Pamban". Same contract as `adopt_model_place`: the model proposes, the gazetteer checks, both names must be in
+    the message, and a position the caller chose or the text resolved exactly is never replaced. The conditions are for the
+    ORIGIN (the place named first in the message), and the card says so, as it does for the English passage."""
+    loc = user_location or {}
+    if not is_route or loc.get("place_source") in _KEEP_SOURCES or len(places) != 2:
+        return None
+    found = []
+    for entry in places:
+        raw = (entry.get("raw") or "").strip()
+        normalized = (entry.get("normalized") or raw).strip()
+        if not normalized or not (_mentions(raw, texts) or _mentions(normalized, texts)):
+            return None
+        resolution = resolve_confident(normalized)
+        if resolution.status != "resolved" or resolution.place is None:
+            return None
+        spot = min((t.lower().find(w.lower()) for t in texts for w in (raw, normalized) if w and w.lower() in t.lower()), default=10**6)
+        found.append((spot, resolution.place))
+    if found[0][1].name == found[1][1].name:
+        return None
+    ordered = [p for _, p in sorted(found, key=lambda x: x[0])]  # a stable sort keeps the model's order on a tie
+    origin = ordered[0]
+    named = ", ".join(p.name for p in ordered)
+    resolved = PlaceResolution(
+        "resolved", origin, ordered,
+        f"This is a passage ({named}). The conditions below are for {origin.name}, the origin — plan the whole corridor for a leg-by-leg verdict.",
+    )
+    new_loc = {**loc, "lat": origin.lat, "lon": origin.lon, "place_name": origin.name, "place_source": origin.source}
+    return new_loc, resolved.as_dict()
+
+
 def _explicit_date(text: str) -> date | None:
     m = _DATE_IN_TEXT.search(text)
     if m is None:
@@ -368,7 +406,7 @@ def time_guard(text: str, now: datetime | None = None) -> str | None:
     Both directions are real failures: a past date answered off today's
     forecast is a fabricated hindcast, and day 10 answered off day 7's frame
     is a fabricated forecast."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     today = now.date()
     lowered = text.lower()
     horizon = today + timedelta(days=FORECAST_HORIZON_DAYS)
@@ -495,7 +533,7 @@ def validate_reading(
         The current UTC time (injectable for tests).  Defaults to
         ``datetime.now(timezone.utc)``.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     today = now.date()
     horizon = today + timedelta(days=FORECAST_HORIZON_DAYS)
 
@@ -540,7 +578,7 @@ def validate_reading(
     if when:
         start_raw = (when.get("start") or "").strip()
         try:
-            start_dt = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+            start_dt = datetime.fromisoformat(start_raw)
             start_date = start_dt.date()
             if start_date < today:
                 return ValidationOutcome(

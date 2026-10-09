@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -80,7 +80,7 @@ def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     # A short trailing window rather than "today": NRT products publish with a
     # one-to-three day latency, so asking for today alone reliably returns empty.
-    end = datetime.now(timezone.utc).date()
+    end = datetime.now(UTC).date()
     start = end - timedelta(days=7)
 
     failures = 0

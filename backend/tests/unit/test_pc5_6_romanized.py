@@ -77,15 +77,5 @@ def test_ordinary_romanized_prompts_are_not_distress(phrase):
     assert detect_distress_signal(phrase)["is_distress"] is False
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="PC5.6 NOTE-1: romanized Hindi 'tuticorin se pamban tak' reads as two places, status 'ambiguous', yet the "
-           "question is answered at the pilot default position (disclosed, but the answer text still says 'your route "
-           "from Tuticorin to Pamban'). The English form resolves as a passage. To be fixed as its own point.",
-)
-def test_a_romanized_route_between_two_places_is_not_answered_at_the_pilot_default():
-    from orca.place_resolution import resolve_or_ask
-
-    result = resolve_or_ask("mujhe tuticorin se pamban tak sabse surakshit raasta batao")
-    assert result.status in ("resolved", "ambiguous")
-    assert result.status == "resolved"  # as "safest route from tuticorin to pamban" does
+# PC5.6-NOTE-1 (fixed 2026-10-10): the romanized route is a passage once the model's two places and the ROUTE intent are
+# read; it lives in test_d15_note1_place_followups.py (the word list alone still says `ambiguous`, by design).

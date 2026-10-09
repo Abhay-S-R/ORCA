@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 # Past this, two readings describe different times, not the same time
@@ -82,10 +82,10 @@ def _parse(ts: str | None) -> datetime | None:
     if not ts:
         return None
     try:
-        parsed = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(ts))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def _gap_minutes(a: str | None, b: str | None) -> float | None:

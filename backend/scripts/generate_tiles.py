@@ -73,7 +73,7 @@ def generate_wave_height_forecast_tiles():
         # the 2026-09-17 run rendered as a 09-20 -> 09-26 forecast. Same
         # correction as `voyage._ww3_hours_since_epoch` and
         # `extract_osf_pilot`, which have always had it right.
-        ref = datetime.datetime(1, 1, 1, tzinfo=datetime.timezone.utc)
+        ref = datetime.datetime(1, 1, 1, tzinfo=datetime.UTC)
         JULIAN_OFFSET_H = 48.0
         times = [
             ref + datetime.timedelta(hours=float(h) - JULIAN_OFFSET_H)
@@ -85,7 +85,7 @@ def generate_wave_height_forecast_tiles():
         # being issued. This is the check that fails if the epoch drifts again.
         run_date = datetime.datetime.strptime(
             ww3_files[-1].stem.split("_")[-1], "%Y%m%d"
-        ).replace(tzinfo=datetime.timezone.utc)
+        ).replace(tzinfo=datetime.UTC)
         if not run_date <= times[0] <= run_date + datetime.timedelta(days=2):
             print(
                 f"[ERROR] First frame {timestamps[0]} is implausible for a run dated "
@@ -97,9 +97,9 @@ def generate_wave_height_forecast_tiles():
         # forecast. Warn loudly rather than failing — the tiles are still the
         # best available — but nobody should discover this from the map legend.
         last_frame = datetime.datetime.strptime(timestamps[-1], "%Y-%m-%dT%H:%M:%SZ").replace(
-            tzinfo=datetime.timezone.utc
+            tzinfo=datetime.UTC
         )
-        if last_frame < datetime.datetime.now(datetime.timezone.utc):
+        if last_frame < datetime.datetime.now(datetime.UTC):
             print(
                 f"[WARN] Newest frame {timestamps[-1]} is already in the past — "
                 f"run scripts/refresh_osf_forecasts.py before relying on this layer."

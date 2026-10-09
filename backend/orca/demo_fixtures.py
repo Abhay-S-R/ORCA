@@ -26,7 +26,7 @@ reserved for this since before this module existed.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -83,7 +83,7 @@ def fixture_result(state: ORCAState, agent_name: str) -> AgentResult | None:
         inputs_consumed=captured.get("inputs_consumed") or {},
         outputs=captured.get("outputs") or {},
         source_provenance=SourceProvenance(**captured["source_provenance"]) if captured.get("source_provenance") else SourceProvenance(
-            dataset="pinned demo fixture", acquisition_timestamp=datetime.now(timezone.utc).isoformat(), freshness_minutes=0
+            dataset="pinned demo fixture", acquisition_timestamp=datetime.now(UTC).isoformat(), freshness_minutes=0
         ),
         confidence=Confidence(
             score=detail.get("label", "MEDIUM"),

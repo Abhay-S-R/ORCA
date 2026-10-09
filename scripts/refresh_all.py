@@ -29,7 +29,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -87,7 +87,7 @@ def _best_effort_summary(output: str) -> tuple[int | None, str | None]:
 
 
 def _run_step(script: Path) -> dict:
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     if not script.exists():
         return {"ok": False, "last_refresh_utc": now, "content_valid_for": None,
                 "row_count": None, "error": f"script not found: {script}", "log_tail": ""}

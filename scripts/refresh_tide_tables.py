@@ -46,7 +46,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -222,11 +222,11 @@ def cache_horizon_days(code: str, now: datetime) -> float:
         last = max(datetime.fromisoformat(e["time"]) for e in data)
     except (ValueError, KeyError, json.JSONDecodeError):
         return -1.0
-    return (last.astimezone(timezone.utc) - now).total_seconds() / 86400
+    return (last.astimezone(UTC) - now).total_seconds() / 86400
 
 
 def fetch_extremes(lat: float, lon: float, days: int, key: str) -> dict:
-    start = datetime.now(timezone.utc).date()
+    start = datetime.now(UTC).date()
     q = urllib.parse.urlencode(
         {"lat": lat, "lng": lon, "start": str(start), "end": str(start + timedelta(days=days))}
     )
@@ -240,7 +240,7 @@ def fetch_extremes(lat: float, lon: float, days: int, key: str) -> dict:
 def to_rows(code: str, name: str, offset_m: float, payload: dict) -> list[dict]:
     rows = []
     for e in payload["data"]:
-        when = datetime.fromisoformat(e["time"]).astimezone(timezone.utc)
+        when = datetime.fromisoformat(e["time"]).astimezone(UTC)
         rows.append(
             {
                 "station_code": code,
@@ -281,7 +281,7 @@ def main() -> int:
     args = ap.parse_args()
 
     key = api_key()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     write_metadata()
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 

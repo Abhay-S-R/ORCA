@@ -22,7 +22,7 @@ import os
 import sys
 import urllib.parse
 import urllib.request
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -107,7 +107,7 @@ def build_payload(supersede_warning: list[dict[str, str]] | None = None) -> dict
                               "Verify against the PDF before relying on it operationally.",
         "state_waters_note": "Inside 12 NM the applicable ban is the state's own notification under "
                              "its Marine Fishing Regulation Act, which this file does not carry.",
-        "checked_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "checked_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "superseded_by": supersede_warning or [],
     }
 

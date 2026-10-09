@@ -104,7 +104,7 @@ def store_last_known_verdict(lat: float, lon: float, vessel_class: str | None, r
 
     try:
         client = redis_client()
-        payload = {"risk_assessment": risk_assessment, "computed_at": _dt.datetime.now(_dt.timezone.utc).isoformat()}
+        payload = {"risk_assessment": risk_assessment, "computed_at": _dt.datetime.now(_dt.UTC).isoformat()}
         client.setex(last_known_key(lat, lon, vessel_class), LAST_KNOWN_TTL_SECONDS, json.dumps(payload, default=str))
     except Exception as exc:
         logger.warning("query_cache: failed to store last-known verdict (%s)", exc)

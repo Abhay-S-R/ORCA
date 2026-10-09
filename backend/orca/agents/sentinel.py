@@ -23,7 +23,7 @@ import math
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from orca.agents import risk_assessment, weather_intelligence
@@ -478,7 +478,7 @@ def build_alert(watch_type: str, location_name: str, crossing: Crossing, languag
 
 
 def now_utc_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 # --------------------------------------------------------------------------

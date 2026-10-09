@@ -31,7 +31,7 @@ import json
 import math
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
@@ -135,7 +135,7 @@ def _fetch_open_meteo(url: str, lat: float, lon: float, variables: list[str], ho
 def get_marine_weather(lat: float, lon: float, hours_ahead: int = 48) -> dict[str, Any]:
     """Tool per Architecture §3.1 Agent 4. Live Open-Meteo Marine + Forecast
     APIs, cached tier1/ fallback on any failure (plan §5.7 fallback cascade)."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     try:
         marine_raw = _fetch_open_meteo(
             OPEN_METEO_MARINE_URL, lat, lon,
@@ -193,7 +193,7 @@ def get_marine_weather(lat: float, lon: float, hours_ahead: int = 48) -> dict[st
             score="MEDIUM",
             rationale=f"Live fetch failed; fell back to cached tier1 snapshot for nearest port ({port})",
         )
-        cached_dt = datetime.fromisoformat(cached_acquisition_utc.replace("Z", "+00:00"))
+        cached_dt = datetime.fromisoformat(cached_acquisition_utc)
         freshness_minutes = max(0, int((now - cached_dt).total_seconds() // 60))
         fallback_depth = 1
 
@@ -230,7 +230,7 @@ def resolve_temporal_expression(text: str, *, now: datetime | None = None) -> di
     asked at 11pm) resolves to the same day's window rather than guessing
     whether the user means the next occurrence — narrow, documented, not a
     silent guess."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     text = text.lower()
 
     for pattern, action in _TEMPORAL_PATTERNS:
@@ -255,7 +255,7 @@ def resolve_temporal_expression(text: str, *, now: datetime | None = None) -> di
 
 
 def _fmt_utc(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _iso_range(start: datetime, end: datetime) -> dict[str, str]:
@@ -282,7 +282,7 @@ def get_lightning_nowcast(lat: float, lon: float, radius_km: float = 25.0) -> di
     Swap the source when a real Damini endpoint is confirmed; the output
     shape (lightning_active: bool, source_provenance, confidence) does not
     need to change for that swap."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     try:
         raw = _fetch_open_meteo(OPEN_METEO_FORECAST_URL, lat, lon, ["lightning_potential", "cape"], 1)
         potential = _first_non_null(raw["hourly"]["lightning_potential"])
@@ -349,7 +349,7 @@ def get_imd_nowcast_alerts(
     the past, never a claim about now.
     """
     entries = load_imd_nowcast_alerts()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     nearby: list[dict[str, Any]] = []
     window_end: datetime | None = None
     for e in entries:
@@ -471,7 +471,7 @@ def get_cyclone_status(basin: Literal["BoB", "AS"]) -> dict[str, Any]:
         "basin": basin,
         "active_cyclones": cyclone_alerts,
         "source_provenance": SourceProvenance(
-            dataset=dataset, acquisition_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            dataset=dataset, acquisition_timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             freshness_minutes=0,
         ),
         "confidence": confidence,
@@ -511,7 +511,7 @@ def _position_time(label: str, year: int) -> str | None:
     if not m:
         return None
     day, month, hour, minute = (int(g) for g in m.groups())
-    return datetime(year, month, day, hour, minute, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime(year, month, day, hour, minute, tzinfo=UTC).isoformat().replace("+00:00", "Z")
 
 
 def _tc_features(geometry: dict, event: dict) -> list[dict]:
@@ -577,7 +577,7 @@ def get_cyclone_tracks() -> dict[str, Any]:
     (observed vs forecast) and the uncertainty cone. Live from GDACS; on failure
     the last successful fetch is served with its own timestamp and `cached`
     set; with no fetch ever made, `available` is False — never an invented track."""
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     try:
         result = {**_fetch_gdacs_tracks(), "fetched_at": now, "cached": False}
         try:
@@ -692,7 +692,7 @@ def get_incois_hazard_alerts(region: str) -> dict[str, Any]:
         "active_warnings": matching,
         "source_provenance": SourceProvenance(
             dataset=dataset,
-            acquisition_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            acquisition_timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             freshness_minutes=0,
         ),
         "confidence": confidence,
