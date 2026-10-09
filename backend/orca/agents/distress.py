@@ -26,7 +26,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
@@ -503,7 +503,7 @@ def run(
         position=None if lat is None or lon is None else {"lat": lat, "lon": lon},
         vessel_id=None,
         distress_type=detection["distress_type"],
-        timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     )
 
     return AgentResult(
@@ -520,7 +520,7 @@ def run(
         },
         source_provenance=SourceProvenance(
             dataset="Deterministic multilingual pattern match + LLM escalate-only check (starter set — see module docstring)",
-            acquisition_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            acquisition_timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             freshness_minutes=0,
         ),
         # HIGH only for an explicit SOS tap — unambiguous regardless of

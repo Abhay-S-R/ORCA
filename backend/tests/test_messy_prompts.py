@@ -23,7 +23,7 @@ the marker is removed, so the list cannot go stale. The wider 67-prompt record o
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -80,7 +80,7 @@ def test_the_fallback_never_raises_and_always_returns_a_well_formed_plan(text):
 # --- time: never answered for the wrong date -------------------------------------------------------
 
 def _on(days: int) -> str:
-    d = datetime.now(timezone.utc).date() + timedelta(days=days)
+    d = datetime.now(UTC).date() + timedelta(days=days)
     return f"is it safe near kochi on {d.isoformat()}"
 
 

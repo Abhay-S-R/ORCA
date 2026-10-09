@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 from orca.state import ORCAState
@@ -635,7 +635,7 @@ def run(state: ORCAState) -> AgentResult:
     query = state.get("normalized_english_query") or raw_query
     history = state.get("session_history")
     user_location = state.get("user_location")
-    current_time_iso = datetime.now(timezone.utc).astimezone().isoformat()
+    current_time_iso = datetime.now(UTC).astimezone().isoformat()
     tier_out: list[str] = []
     carried = False
     understand_engine: str
@@ -884,7 +884,7 @@ def run(state: ORCAState) -> AgentResult:
         },
         source_provenance=SourceProvenance(
             dataset="Understand+Planning merged node (cheap-tier LLM) + deterministic routing table (Architecture §4)",
-            acquisition_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            acquisition_timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             freshness_minutes=0,
         ),
         confidence=confidence,

@@ -18,7 +18,7 @@ import logging
 import os
 import uuid
 from collections.abc import Callable
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from datetime import time as dt_time
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -179,7 +179,7 @@ def quiet_hours_window(quiet_hours: dict[str, Any] | None, *, now: datetime | No
     except (ValueError, ZoneInfoNotFoundError, KeyError):
         return False, None
 
-    local_now = (now or datetime.now(timezone.utc)).astimezone(tz)
+    local_now = (now or datetime.now(UTC)).astimezone(tz)
     today = local_now.date()
 
     def _at(d: date, t: dt_time) -> datetime:
@@ -191,14 +191,14 @@ def quiet_hours_window(quiet_hours: dict[str, Any] | None, *, now: datetime | No
     if start_t <= end_t:
         # Same-day window, e.g. 13:00-15:00.
         if start_dt <= local_now < end_dt:
-            return True, end_dt.astimezone(timezone.utc)
+            return True, end_dt.astimezone(UTC)
         return False, None
 
     # Wraps midnight, e.g. 22:00-06:00.
     if local_now >= start_dt:
-        return True, (end_dt + timedelta(days=1)).astimezone(timezone.utc)
+        return True, (end_dt + timedelta(days=1)).astimezone(UTC)
     if local_now < end_dt:
-        return True, end_dt.astimezone(timezone.utc)
+        return True, end_dt.astimezone(UTC)
     return False, None
 
 
@@ -474,7 +474,7 @@ def run_poll_cycle(db: Session, *, escalate: EscalateFn | None = None) -> list[s
 
     decisions: list[sentinel.WatchDecision] = []
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         _due_pre_dawn_briefings(db, now=now)
         for watch in list_enabled_watches(db, now=now):
             loc = watch_location(watch)

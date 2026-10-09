@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from orca.agents import geospatial
@@ -176,10 +176,10 @@ def _now(state: ORCAState | None = None) -> datetime:
         start = window.get("start")
         if start:
             try:
-                return datetime.fromisoformat(start.replace("Z", "+00:00"))
+                return datetime.fromisoformat(start)
             except ValueError:
                 pass
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # --- part 1: tide prediction ----------------------------------------------
@@ -226,7 +226,7 @@ def predict_tides(
     (LAT)**, `datum` says which one the heights are on — those numbers are not
     interchangeable, only the times and the high/low ordering are.
     """
-    when = when or datetime.now(timezone.utc)
+    when = when or datetime.now(UTC)
     station = nearest_station(lat, lon)
     code = station["station_code"]
     datum = "chart datum (LAT)"
@@ -328,7 +328,7 @@ def predict_tides(
     if fell_back:
         cached = al.load_stormglass_cache_date(code)
         if cached:
-            acquired = datetime.fromisoformat(cached).replace(tzinfo=timezone.utc)
+            acquired = datetime.fromisoformat(cached).replace(tzinfo=UTC)
     return TidePrediction(
         station_code=code,
         station_name=station["station_name"],
@@ -520,8 +520,8 @@ def _acquisition_gap(sst_prov: dict[str, Any] | None, chl_prov: dict[str, Any] |
     if sst_prov is None or chl_prov is None:
         return None
     try:
-        t_sst = datetime.fromisoformat(sst_prov["acquisition_timestamp"].replace("Z", "+00:00"))
-        t_chl = datetime.fromisoformat(chl_prov["acquisition_timestamp"].replace("Z", "+00:00"))
+        t_sst = datetime.fromisoformat(sst_prov["acquisition_timestamp"])
+        t_chl = datetime.fromisoformat(chl_prov["acquisition_timestamp"])
     except (KeyError, TypeError, ValueError, AttributeError):
         return None
     days = abs((t_sst - t_chl).days)
@@ -917,7 +917,7 @@ def _fetch_ioc_gauge(code: str) -> tuple[float, datetime] | None:
         if not isinstance(rows, list) or not rows:
             return None
         last = rows[-1]
-        when = datetime.strptime(last["stime"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        when = datetime.strptime(last["stime"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
         return float(last["slevel"]), when
     except (httpx.HTTPError, KeyError, ValueError, TypeError):
         return None
@@ -982,7 +982,7 @@ def _live_gauge_observation(lat: float, lon: float) -> dict[str, Any] | None:
     if reading is None:
         return None
     level_m, observed_at = reading
-    age_min = (datetime.now(timezone.utc) - observed_at).total_seconds() / 60.0
+    age_min = (datetime.now(UTC) - observed_at).total_seconds() / 60.0
 
     # P5.3 (`R-NEW-7`) — the observed-versus-predicted cross-check. Both
     # numbers were already on disk and never compared. `predicted_height_at`

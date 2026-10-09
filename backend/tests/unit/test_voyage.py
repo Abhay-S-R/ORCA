@@ -5,7 +5,7 @@ rather than relying on voyage.py's __main__ smoke check alone."""
 from __future__ import annotations
 
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from orca.agents import voyage
 from orca.agents.geospatial import check_boundary_proximity, point_in_polygon
@@ -42,7 +42,7 @@ def test_wave_height_at_samples_the_forecast_step_nearest_eta_not_a_fixed_step()
     # calendar, which datetime(1, 1, 1) — proleptic Gregorian — leads by two
     # days. `voyage._ww3_hours_since_epoch` applies the same shift; without it
     # here the test would ask for a time two days off its own expectation.
-    epoch = datetime(1, 1, 1, tzinfo=timezone.utc)  # datetime cannot go earlier
+    epoch = datetime(1, 1, 1, tzinfo=UTC)  # datetime cannot go earlier
     first_step = epoch + timedelta(hours=float(hours.min())) - timedelta(days=2)
     last_step = epoch + timedelta(hours=float(hours.max())) - timedelta(days=2)
 
@@ -62,8 +62,8 @@ def test_wave_height_at_samples_the_forecast_step_nearest_eta_not_a_fixed_step()
 
 
 def test_wave_height_at_returns_none_outside_forecast_window() -> None:
-    far_past = datetime(2020, 1, 1, tzinfo=timezone.utc)
-    far_future = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    far_past = datetime(2020, 1, 1, tzinfo=UTC)
+    far_future = datetime(2030, 1, 1, tzinfo=UTC)
     assert wave_height_at(OPEN_LAT, OPEN_LON, far_past) is None
     assert wave_height_at(OPEN_LAT, OPEN_LON, far_future) is None
 
@@ -95,7 +95,7 @@ def test_no_go_route_reroutes_to_a_clear_alternate_when_one_exists() -> None:
     """Checklist P0 #2 — route optimization, not just auditing. A direct
     route blocked by a spatial hazard (not a time-dependent one) should
     clear on at least one of the offset detours."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     _, _, direct_verdict, _ = voyage._classify_route(
         densify_route(MPA_ORIGIN, MPA_DEST), now, now, "small_fishing", 1.2, 8.0,
     )
@@ -150,17 +150,17 @@ def test_segment_classification_uses_the_same_full_precision_containment_agent6_
 def test_wave_height_falls_back_to_extracted_points_when_grid_missing(monkeypatch):
     """The 6.5 GB WW3 NetCDF is gitignored data, so a fresh checkout has none.
     That must degrade to the extracted point series, not crash a voyage plan."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from orca.agents import voyage
 
     monkeypatch.setattr(voyage, "_ww3", lambda: None)
-    hs = voyage.wave_height_at(8.75, 78.3, datetime(2026, 8, 30, tzinfo=timezone.utc))
+    hs = voyage.wave_height_at(8.75, 78.3, datetime(2026, 8, 30, tzinfo=UTC))
     assert hs is not None and 0.0 <= hs < 20.0
 
     # Outside the extraction footprint it must still return None rather than
     # reach for the nearest point at any distance.
-    assert voyage.wave_height_at(21.6, 88.0, datetime(2026, 8, 30, tzinfo=timezone.utc)) is None
+    assert voyage.wave_height_at(21.6, 88.0, datetime(2026, 8, 30, tzinfo=UTC)) is None
 
 
 # --- P1.2 (`R-NEW-8`) — no silent default draft ----------------------------
@@ -189,7 +189,7 @@ def test_a_supplied_draft_is_used_as_given_with_nothing_to_disclose():
 # --- P5.23: fishing ban + current drift per leg -----------------------------
 
 def test_regulatory_ban_blocks_a_leg(monkeypatch):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     eta = now + timedelta(hours=1)
 
     def fake_ban_status(lat, lon, when=None):
@@ -207,7 +207,7 @@ def test_regulatory_ban_blocks_a_leg(monkeypatch):
 
 
 def test_no_ban_never_blocks_the_leg(monkeypatch):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     eta = now + timedelta(hours=1)
 
     def fake_ban_status(lat, lon, when=None):
@@ -222,7 +222,7 @@ def test_no_ban_never_blocks_the_leg(monkeypatch):
 
 
 def test_set_drift_caution_when_current_crosses_the_threshold(monkeypatch):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     eta = now + timedelta(hours=1)
     monkeypatch.setattr("orca.agents.geospatial.fishing_ban_status", lambda lat, lon, when=None: {"available": False})
     monkeypatch.setattr(voyage, "wave_height_at", lambda lat, lon, when: 0.5)  # isolate SET_DRIFT from real sea state
@@ -238,7 +238,7 @@ def test_set_drift_caution_when_current_crosses_the_threshold(monkeypatch):
 
 
 def test_current_along_track_never_triggers_set_drift(monkeypatch):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     eta = now + timedelta(hours=1)
     monkeypatch.setattr("orca.agents.geospatial.fishing_ban_status", lambda lat, lon, when=None: {"available": False})
     monkeypatch.setattr(voyage, "wave_height_at", lambda lat, lon, when: 0.5)
@@ -292,7 +292,7 @@ def test_astar_route_goes_around_a_blocked_column(monkeypatch):
     grid = _synthetic_grid(6, wall_col=3)
     monkeypatch.setattr(voyage, "_build_astar_grid", lambda *a, **kw: grid)
     origin, destination = (8.0, 78.0), (8.0, 78.5)
-    path = voyage.astar_route(origin, destination, datetime.now(timezone.utc), 8.0, 1.8)
+    path = voyage.astar_route(origin, destination, datetime.now(UTC), 8.0, 1.8)
     assert path is not None
     assert path[0] == origin and path[-1] == destination
     # The path must cross column index 3 only at the one open row (index 5,
@@ -314,7 +314,7 @@ def test_astar_route_prefers_the_calmer_path_when_both_are_clear(monkeypatch):
     grid = _synthetic_grid(6, wall_col=None, wave_wall_col=2, wave_wall_rows=2)
     monkeypatch.setattr(voyage, "_build_astar_grid", lambda *a, **kw: grid)
     origin, destination = (8.0, 78.0), (8.0, 78.5)
-    path = voyage.astar_route(origin, destination, datetime.now(timezone.utc), 8.0, 1.8)
+    path = voyage.astar_route(origin, destination, datetime.now(UTC), 8.0, 1.8)
     assert path is not None
 
     def is_rough(lat: float, lon: float) -> bool:
@@ -334,7 +334,7 @@ def test_astar_route_returns_none_when_the_goal_is_unreachable(monkeypatch):
     for i in range(size):  # a solid wall with no gap at all
         grid.blocked[i][3] = True
     monkeypatch.setattr(voyage, "_build_astar_grid", lambda *a, **kw: grid)
-    path = voyage.astar_route((8.0, 78.0), (8.0, 78.5), datetime.now(timezone.utc), 8.0, 1.8)
+    path = voyage.astar_route((8.0, 78.0), (8.0, 78.5), datetime.now(UTC), 8.0, 1.8)
     assert path is None
 
 
@@ -342,7 +342,7 @@ def test_astar_route_returns_none_when_origin_itself_is_blocked(monkeypatch):
     grid = _synthetic_grid(6)
     grid.blocked[0][0] = True  # snaps to the origin's own nearest cell
     monkeypatch.setattr(voyage, "_build_astar_grid", lambda *a, **kw: grid)
-    path = voyage.astar_route((8.0, 78.0), (8.0, 78.5), datetime.now(timezone.utc), 8.0, 1.8)
+    path = voyage.astar_route((8.0, 78.0), (8.0, 78.5), datetime.now(UTC), 8.0, 1.8)
     assert path is None
 
 

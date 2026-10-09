@@ -58,7 +58,7 @@ trouble sends, and Agent 12 sees every one of them first.
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph
@@ -114,7 +114,7 @@ def _not_run(
     mislabels every span after it. `outputs` is empty on purpose: a span that
     did not run has no measurement, and LOW_DATA is the honest confidence for
     one (never HIGH, which would read as "confidently nothing")."""
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     entry: dict[str, Any] = {
         "agent_name": agent_name,
         "query_id": state.get("query_id", ""),
@@ -882,7 +882,7 @@ def risk_assessment_node(state: ORCAState) -> dict:
             import datetime as _dt
 
             computed_at = _dt.datetime.fromisoformat(cached["computed_at"])
-            age_minutes = round((_dt.datetime.now(_dt.timezone.utc) - computed_at).total_seconds() / 60)
+            age_minutes = round((_dt.datetime.now(_dt.UTC) - computed_at).total_seconds() / 60)
             age_text = f"{age_minutes} min" if age_minutes < 120 else f"{round(age_minutes / 60, 1)} h"
             cached_verdict = cached["risk_assessment"]
             update["risk_assessment"] = {**cached_verdict, "status": f"{cached_verdict.get('status', 'SAFE')}_CACHED"}

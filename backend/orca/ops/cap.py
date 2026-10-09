@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from xml.etree import ElementTree as ET
 
@@ -32,7 +32,7 @@ _SEVERITY_TO_CAP = {
 
 def _iso(dt: datetime) -> str:
     # CAP wants an offset, not a 'Z'.
-    return dt.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "+00:00")
+    return dt.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "+00:00")
 
 
 def _add_info_block(
@@ -94,7 +94,7 @@ def build_cap_xml(
     """Return a valid CAP 1.2 XML document as a string. `simulated=True` is
     not a parameter — nothing here transmits; whether it was sent is the
     caller's story (the notification status), not the payload's."""
-    sent = sent or datetime.now(timezone.utc)
+    sent = sent or datetime.now(UTC)
 
     alert = ET.Element("alert", {"xmlns": CAP_NS})
     ET.SubElement(alert, "identifier").text = identifier or f"ORCA-{uuid.uuid4()}"
@@ -136,7 +136,7 @@ def build_multilingual_cap_xml(
     circle: tuple[float, float, float] | None = None,
     translations: dict[str, tuple[str, str, str]],  # lang -> (headline, description, instruction)
 ) -> str:
-    sent = sent or datetime.now(timezone.utc)
+    sent = sent or datetime.now(UTC)
     ident = identifier or f"ORCA-{uuid.uuid4()}"
 
     alert = ET.Element("alert", {"xmlns": CAP_NS})
@@ -223,7 +223,7 @@ def four_channel_preview(*, verdict: str, hazard: str, location: str, issued_at:
     """web / sms / ivr / ussd renderings of one alert, side by side. Each is
     a pure function of the same inputs — no channel fetches anything (the
     property D1's renderer tests also assert)."""
-    ts = issued_at or datetime.now(timezone.utc).isoformat(timespec="minutes").replace("+00:00", "Z")
+    ts = issued_at or datetime.now(UTC).isoformat(timespec="minutes").replace("+00:00", "Z")
 
     try:  # TODO(D1): use the real channel renderers once orca.agents.reporting exports them
         from orca.agents import reporting as _r

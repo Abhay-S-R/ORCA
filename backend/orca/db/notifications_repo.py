@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from geoalchemy2.shape import from_shape, to_shape
@@ -120,7 +120,7 @@ def list_enabled_watches(db: Session, *, now: datetime | None = None) -> list[Se
     `sentinel_runtime.FAST_POLL_INTERVAL_SECONDS`) only means anything if the
     watches that are NOT due get skipped rather than re-checked anyway.
     """
-    cutoff = now or datetime.now(timezone.utc)
+    cutoff = now or datetime.now(UTC)
     return list(
         db.execute(
             select(SentinelSubscription).where(
@@ -208,7 +208,7 @@ def list_due_held_notifications(db: Session, *, now: datetime | None = None) -> 
     """P5.22 — every held notification whose quiet-hours window has ended,
     across all users; the Sentinel loop flushes these each tick the same way
     it evaluates watches."""
-    cutoff = now or datetime.now(timezone.utc)
+    cutoff = now or datetime.now(UTC)
     return list(
         db.execute(
             select(Notification).where(Notification.status == "held", Notification.deliver_after <= cutoff)

@@ -5,7 +5,7 @@ asserts the parts of the contract that shape alone does not reach: what the
 wire form carries, that a fallback is always accompanied by the sentence
 disclosing it, and the boundaries of the coordinate parser.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from orca import place_resolution as pr
 from orca.data.loaders import DEFAULT_LAT, DEFAULT_LON
@@ -128,7 +128,7 @@ def test_the_time_guard_names_the_horizon_in_both_directions():
 
 
 def test_a_date_inside_the_horizon_passes_and_one_outside_it_does_not():
-    now = datetime(2026, 9, 20, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 20, tzinfo=UTC)
     inside = (now + timedelta(days=3)).date().isoformat()
     outside = (now + timedelta(days=30)).date().isoformat()
     assert pr.time_guard(f"is it safe on {inside}", now=now) is None

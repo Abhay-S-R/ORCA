@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -492,14 +492,14 @@ def _hycom() -> xr.Dataset:
 def _hycom_times(ds: xr.Dataset) -> list[datetime]:
     """HYCOM's TIME axis as UTC datetimes. The file is opened with
     decode_times=False, so the "hours since <epoch>" units are applied here."""
-    epoch = datetime.fromisoformat(ds["TIME"].attrs["units"].split("since", 1)[1].strip()).replace(tzinfo=timezone.utc)
+    epoch = datetime.fromisoformat(ds["TIME"].attrs["units"].split("since", 1)[1].strip()).replace(tzinfo=UTC)
     return [epoch + timedelta(hours=float(h)) for h in ds["TIME"].values]
 
 
 def hycom_nearest_step(when: datetime | None = None) -> tuple[int, str]:
     """(index, ISO valid time) of the HYCOM step nearest `when` (default now)."""
     times = _hycom_times(_hycom())
-    when = when or datetime.now(timezone.utc)
+    when = when or datetime.now(UTC)
     i = min(range(len(times)), key=lambda k: abs(times[k] - when))
     return i, times[i].isoformat().replace("+00:00", "Z")
 
@@ -782,7 +782,7 @@ def fishing_ban_status(lat: float, lon: float, when: date | None = None) -> dict
     except ValueError:
         shore_nm = None
 
-    status = ban["ban_status"](coast, when or datetime.now(tz=timezone.utc).date(), shore_nm, ban["windows"])
+    status = ban["ban_status"](coast, when or datetime.now(tz=UTC).date(), shore_nm, ban["windows"])
     return {"available": True, "distance_to_nearest_eez_edge_nm": shore_nm,
             "order": ban["order"], **status}
 

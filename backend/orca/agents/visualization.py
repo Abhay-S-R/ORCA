@@ -306,7 +306,7 @@ def _timestamps_ok(timestamps: tuple[str, ...] | None) -> bool:
     parsed = []
     for t in timestamps:
         try:
-            dt = datetime.fromisoformat(t.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(t)
         except ValueError:
             return False
         if dt.tzinfo is None:

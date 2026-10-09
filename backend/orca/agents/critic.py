@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from orca import engines
@@ -389,7 +389,7 @@ def run(state: ORCAState) -> AgentResult:
     narrative = state.get("final_english_response", "") or ""
     query = state.get("normalized_english_query") or state.get("raw_user_query") or ""
     is_safety = _is_safety_check(state)
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
     facts_block = build_facts_block(state)
 

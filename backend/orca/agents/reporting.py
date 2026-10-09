@@ -15,7 +15,7 @@ import io
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Literal
 
 _IST = timezone(timedelta(hours=5, minutes=30))
@@ -188,7 +188,7 @@ def _ist_clock(iso: Any) -> str | None:
         clean = iso.rstrip("Z")
         dt = datetime.fromisoformat(clean)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         ist_dt = dt.astimezone(_IST)
         return f"{ist_dt.strftime('%H:%M')} IST"
     except Exception:

@@ -5,7 +5,7 @@ user ids ever leave this module. tests/unit/test_ops_cap.py asserts it.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from sqlalchemy import text
@@ -28,7 +28,7 @@ _SECTOR_LON_BANDS = [
 def sector_vessel_counts(db: Session) -> dict[str, int]:
     """{sector_id: count of vessels with a position fix in the last 24h}.
     A COUNT, nothing else — the authority sees '14 in SEC004', never 14 dots."""
-    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    since = datetime.now(UTC) - timedelta(hours=24)
     rows = db.execute(
         text(
             "SELECT ST_X(last_position::geometry) AS lon "
@@ -49,7 +49,7 @@ def sector_vessel_counts(db: Session) -> dict[str, int]:
 
 
 def notification_severity_counts(db: Session, hours: int = 24) -> dict[str, int]:
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    since = datetime.now(UTC) - timedelta(hours=hours)
     rows = db.execute(
         text(
             "SELECT severity, count(*) FROM notifications WHERE created_at >= :since GROUP BY severity"

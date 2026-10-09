@@ -11,7 +11,7 @@ broadcast with status 'degraded' for a SIMULATED channel.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import text
@@ -202,7 +202,7 @@ def test_pre_dawn_briefing_fires_once_at_local_lead_time_then_stays_silent(db: S
     monkeypatch.setattr(sentinel, "cheap_check", lambda *a, **k: _calm(go_no_go="CAUTION", wave_height_m=2.2, reason="building swell"))
 
     # 2026-09-23T00:00:00Z == 05:30 IST -- past the 04:00 IST lead time.
-    now = datetime(2026, 9, 23, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 23, 0, 0, tzinfo=UTC)
     sent = _due_pre_dawn_briefings(db, now=now)
     db.commit()
     # `sent` counts every user the shared database holds who is due, and this test (like the
@@ -224,7 +224,7 @@ def test_pre_dawn_briefing_fires_once_at_local_lead_time_then_stays_silent(db: S
 
 def test_pre_dawn_briefing_skips_users_without_home_port_or_hour(db: Session):
     u = _user(db)
-    now = datetime(2026, 9, 23, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 23, 0, 0, tzinfo=UTC)
     assert _due_pre_dawn_briefings(db, now=now) == 0
     assert list_notifications_for_user(db, u) == []
 

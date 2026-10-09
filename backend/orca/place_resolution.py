@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 
 from orca.data.loaders import (
@@ -308,7 +308,7 @@ def time_guard(text: str, now: datetime | None = None) -> str | None:
     Both directions are real failures: a past date answered off today's
     forecast is a fabricated hindcast, and day 10 answered off day 7's frame
     is a fabricated forecast."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     today = now.date()
     lowered = text.lower()
     horizon = today + timedelta(days=FORECAST_HORIZON_DAYS)
@@ -435,7 +435,7 @@ def validate_reading(
         The current UTC time (injectable for tests).  Defaults to
         ``datetime.now(timezone.utc)``.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     today = now.date()
     horizon = today + timedelta(days=FORECAST_HORIZON_DAYS)
 
@@ -480,7 +480,7 @@ def validate_reading(
     if when:
         start_raw = (when.get("start") or "").strip()
         try:
-            start_dt = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+            start_dt = datetime.fromisoformat(start_raw)
             start_date = start_dt.date()
             if start_date < today:
                 return ValidationOutcome(

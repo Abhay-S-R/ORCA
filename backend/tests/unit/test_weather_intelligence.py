@@ -3,7 +3,7 @@
 plan §5.8's fixture-replay philosophy: CI stays green with no live key and
 no network. Fallback-path tests read the REAL cached files on disk, so a
 loader bug shows up here, not only in a demo."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -32,7 +32,7 @@ THOOTHUKUDI = (8.822495, 78.119064)  # real coordinate from the cached fixture
 
 # --- resolve_temporal_expression --------------------------------------------
 
-NOW = datetime(2026, 9, 2, 10, 0, tzinfo=timezone.utc)  # a Wednesday, 10:00 UTC
+NOW = datetime(2026, 9, 2, 10, 0, tzinfo=UTC)  # a Wednesday, 10:00 UTC
 
 
 def test_tomorrow_morning():

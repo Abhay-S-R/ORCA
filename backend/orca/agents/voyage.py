@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any, Literal
 
@@ -96,7 +96,7 @@ def _ww3_hours_since_epoch(when: datetime) -> float:
     proleptic-Gregorian datetime(1, 1, 1) is two days later than it. Without the
     shift every lookup lands two days from the requested time — inside the file's
     range, so it returns a real wave height for the wrong day."""
-    epoch = datetime(1, 1, 1, tzinfo=timezone.utc)
+    epoch = datetime(1, 1, 1, tzinfo=UTC)
     return (when - epoch).total_seconds() / 3600.0 + 48.0
 
 
@@ -765,10 +765,10 @@ def plan_voyage(
     NO_GO — a candidate that doesn't clear is recorded in
     `alternatives_tried` and discarded, same as the checklist asks
     ("say so honestly rather than picking the least-bad NO_GO")."""
-    now = datetime.now(timezone.utc)
-    departure = datetime.fromisoformat(departure_time.replace("Z", "+00:00")) if departure_time else now
+    now = datetime.now(UTC)
+    departure = datetime.fromisoformat(departure_time) if departure_time else now
     if departure.tzinfo is None:
-        departure = departure.replace(tzinfo=timezone.utc)
+        departure = departure.replace(tzinfo=UTC)
     draft_source: Literal["supplied", "assumed_deepest_of_class"]
     if draft_m is not None:
         draft, draft_source = draft_m, "supplied"
@@ -964,7 +964,7 @@ if __name__ == "__main__":
     assert open_water_plan.verdict != "NO_GO", (open_water_plan.verdict, [(s.hazard_class, s.status) for s in open_water_plan.segments])
     assert all(s.hazard_class in ("CLEAR", "ROUGH_SEA") for s in open_water_plan.segments)
 
-    etas = [datetime.fromisoformat(s.eta.replace("Z", "+00:00")) for s in open_water_plan.segments]
+    etas = [datetime.fromisoformat(s.eta) for s in open_water_plan.segments]
     assert etas == sorted(etas), "ETAs must be monotonically increasing along the route"
 
     assert open_water_plan.corridor_geojson["type"] in ("Polygon", "MultiPolygon")

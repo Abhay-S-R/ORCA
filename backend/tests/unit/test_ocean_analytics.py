@@ -1,14 +1,14 @@
 """Agent 5 (Ocean Analytics) tests. All read the REAL files on disk under
 data/ — a loader or parsing bug shows up here, not only in a demo. No network,
 no LLM. Phase 2 plan §4 D2."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from orca.agents import ocean_analytics as oa
 
 THOOTHUKUDI = (8.80, 78.14)
-WHEN = datetime(2026, 9, 3, 8, 0, tzinfo=timezone.utc)
+WHEN = datetime(2026, 9, 3, 8, 0, tzinfo=UTC)
 
 
 # --- tide prediction (part 1) --------------------------------------------
@@ -24,7 +24,7 @@ def test_predict_tides_returns_next_high_and_low():
 
 
 def test_predict_tides_low_data_past_table_end():
-    t = oa.predict_tides(*THOOTHUKUDI, when=datetime(2027, 1, 1, tzinfo=timezone.utc))
+    t = oa.predict_tides(*THOOTHUKUDI, when=datetime(2027, 1, 1, tzinfo=UTC))
     assert t.confidence.score == "LOW_DATA"
     assert t.next_high is None and t.next_low is None
 
