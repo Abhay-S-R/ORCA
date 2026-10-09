@@ -65,6 +65,9 @@ Written 2026-10-09 from the implementation log (`docs/logs/DLC_implementation_lo
 
 - [ ] **NOTE-LANG-3: a reply asked "in kannada" can come back with the Kannada text inside the English field** (found live 2026-10-10: "ok and for kundapura now, in kannada" produced an English CAUTION banner followed by Kannada, which was then translated again). Likely related to the foreign-script item above. *Your call:* fix it as one point (the English field must be English; if the narrative model returns another script, keep the data-built English answer).
 
+- [ ] **PLAN-FORCE-1: ocean analytics is forced to run for tide, fishing-zone, SST and chlorophyll questions (written 2026-10-10, checked live).** *To verify:* open /reasoning (or the agent strip on /ask) for "any hazard alerts and the tide at kochi tomorrow": Ocean Analytics ran (not skipped) and the answer mentions the tide; same for "which fishing zones should I avoid near malpe, and where is the nearest pfz"; "sst and chlorophyll at udupi" then "and for karwar" give each place its own SST and chlorophyll.
+- [ ] **VOICE-10: Kannada rates read in your chosen order (B), written 2026-10-10.** *To verify:* a Kannada answer with wind (e.g. "is it safe near udupi, answer in kannada") and press Play: the wind is read "ಪ್ರತಿ ಸೆಕೆಂಡಿಗೆ 2 ಮೀಟರ್" (and km/h "ಪ್ರತಿ ಗಂಟೆಗೆ 12 ಕಿಲೋಮೀಟರ್"). Other languages unchanged (VOICE-9).
+
 ### A5. Config and operations
 
 - [ ] **Cheap-tier time cap:** when Gemini fails slowly (18 s), Groq is never tried (the budget is spent). Proposed: cap each planning-model attempt at about 5 s.
@@ -131,7 +134,7 @@ and for the fisherman answer:
 
 ### Language and numbers
 
-- [ ] **FIX-PLACE-1: a spelling variant of a place is that place, and the answer says so (written 2026-10-09).** *To verify:* ask "pfzs near ktaka" (it asks which port), then "near udupi", then "oh sorry i meant kundapura": the answer is for Kundapur (no "Read X as Y" banner, removed on request) and is not the Thoothukudi default; then "okay fine give me the SST and chlorophyll details of kundapura in kannada". Also try "wave height near cochin", "is it safe near tuticorine", "wave near karwr" (all answered), "safe near gujurat" and "wind near atlantis" (both still ask).
+- [x] **FIX-PLACE-1: a spelling variant of a place is that place, and the answer says so (written 2026-10-09).** *To verify:* ask "pfzs near ktaka" (it asks which port), then "near udupi", then "oh sorry i meant kundapura": the answer is for Kundapur (no "Read X as Y" banner, removed on request) and is not the Thoothukudi default; then "okay fine give me the SST and chlorophyll details of kundapura in kannada". Also try "wave height near cochin", "is it safe near tuticorine", "wave near karwr" (all answered), "safe near gujurat" and "wind near atlantis" (both still ask).
 
 - [x] **FIX-CONTEXT-1: the chat keeps 20 turns, all questions in view (written 2026-10-09).** *To verify:* in one chat ask 7 different things (e.g. wave near Kochi, wind, tide, SST, PFZ, wave near Goa), then "what was my first question in this chat?": it names the wave height near Kochi. Also try a correction ("no I meant Kozhikode") and "why is that?" after an answer.
 
@@ -146,7 +149,7 @@ and for the fisherman answer:
 
 ## Part C: decisions waiting for the user
 
-- [ ] **PC3.1 sign-off:** "approved as is" or what to change.
+- [x] **PC3.1 sign-off (approved 2026-10-10, as is; the force-ocean-analytics rule is a separate point, PLAN-FORCE-1):** "approved as is" or what to change.
 - [ ] **The "Vessel not set" chip:** it only changes go/no-go limits for larger vessels (a small boat is the safe default). Suggestion: show it only once a vessel is set and move the setting into the profile. Also what the composer's "+" should do (or omit it).
 - [ ] **Marine data discovery: does it bind the specialists or only provide a citation layer?** (part of the architecture change)
 - [ ] **The other persona-only blocks** (unresolved, researcher, coastal authority) on the answer card: keep, change or remove.

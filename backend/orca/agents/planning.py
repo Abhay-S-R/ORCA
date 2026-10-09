@@ -197,8 +197,32 @@ _EXECUTION_ORDER: tuple[str, ...] = (
 )
 
 
+# PLAN-FORCE-1 (2026-10-10, proposed with the PC3.1 sign-off): ocean_analytics is the only agent that reads tide, fishing zones
+# and the SST / chlorophyll at a place, so a question that asks for them must not be able to lose it to the planner's choice or
+# to a routing row that does not list it (HAZARD_ALERTS, ZONES_TO_AVOID, ROUTE ... do not). This only ever ADDS an agent: a
+# false positive costs one extra agent run (fail-safe), a miss changes nothing, because the planner proposes the agent too.
+# A follow-up ("and for kundapura now?") inherits the subject of the last two turns, as `ocean_analytics._asks_sea_colour` does.
+_OCEAN_DATA_WORDS = re.compile(
+    r"\b(sst|chlorophyll|chlorophyl|plankton|tides?|tidal|pfz|pfzs|temperature|ocean colou?r|water quality|fishing zones?|"
+    r"potential fishing zones?)\b",
+    re.IGNORECASE,
+)
+_OCEAN_DATA_TURNS = 2
+
+
+def asks_for_ocean_data(query: str, session_history: list[dict] | None = None, is_followup: bool = False) -> bool:
+    """True when the question (or, for a follow-up, one of the last two turns) asks for tide, fishing zones, SST or chlorophyll."""
+    if _OCEAN_DATA_WORDS.search(query or ""):
+        return True
+    if is_followup:
+        for turn in (session_history or [])[-_OCEAN_DATA_TURNS:]:
+            if _OCEAN_DATA_WORDS.search(str(turn.get("english_query") or turn.get("query") or "")):
+                return True
+    return False
+
+
 def enforce_planning_invariants(
-    planned_agents: list[str], is_sea_question: bool, intent_rows: list[str] | None = None,
+    planned_agents: list[str], is_sea_question: bool, intent_rows: list[str] | None = None, force_ocean: bool = False,
 ) -> list[str]:
     """Enforce D3 invariants on the model's proposed agent set.
 
@@ -214,7 +238,8 @@ def enforce_planning_invariants(
       sea question, because the GO/CAUTION/NO_GO verdict is computed for every
       sea query from wave, wind, boundary, lightning and cyclone.
     - reporting, critic, language_egress always run.
-    - ocean_analytics and visualization are the candidates the model may skip.
+    - ocean_analytics and visualization are the candidates the model may skip, EXCEPT that ocean_analytics runs whenever
+      the question asks for tide, fishing zones, SST or chlorophyll (`force_ocean`, PLAN-FORCE-1).
     - The verdict is never produced or altered by the model.
     """
     # Drop unknown agents
@@ -236,6 +261,8 @@ def enforce_planning_invariants(
     intent_needs = {a for name in intent_rows or () if name in rows for a in rows[name].agents}
     # Required agents = core + intent's own + (model's choices from skippable) + always-run downstream
     required = core_agents | (intent_needs & _KNOWN_SPECIALISTS) | model_choices | {"reporting", "critic"}
+    if force_ocean:
+        required.add("ocean_analytics")
     # Always include marine_data_discovery first
     required.add("marine_data_discovery")
 
@@ -820,7 +847,10 @@ def run(state: ORCAState) -> AgentResult:
     else:
         matched_rows = [name for name, _ in matches]
         # PC3.3: Use model's planned_agents with D3 invariants enforced
-        execution_plan = enforce_planning_invariants(understood_agents, is_sea_question, matched_rows)
+        execution_plan = enforce_planning_invariants(
+            understood_agents, is_sea_question, matched_rows,
+            force_ocean=is_sea_question and asks_for_ocean_data(query, history, understood_is_followup),
+        )
 
     if query_outcome in ("NEEDS_PLACE", "OUT_OF_RANGE"):
         confidence = Confidence(
