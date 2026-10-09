@@ -41,7 +41,7 @@ Written 2026-10-09 from the implementation log (`docs/logs/DLC_implementation_lo
 - [x] **PC4.2: update the docs that name removed nodes** (`orca_pipeline_walkthrough.md`, `orca_final.md`, README, `state.py` mention of `query_guard`). Docs only; the log is never edited. *(The IndicTrans2 fallback sentence stays, by the user's decision.)*
 - [x] **PC4.3: update the revamp doc's status** (`ORCA_Prompt_Routing_Revamp.md` section 6 points at the consolidation plan).
 - [ ] **PC5.6: RUN on 2026-10-09, result in the log; two notes became their own points below** (distress phrases: all 6 raised live, 3 only by the planner's model; places: 11 of 16 right, 5 no-place prompts answered at the disclosed default, 1 route wrong).
-- [ ] **PC5.6-NOTE-2 (SAFETY): the phrase check misses three romanized distress phrases** ("naav ka engine kharab ho gaya, madad chahiye", "meri naav ka engine kharab ho gaya hai pamban ke paas madad chahiye", "nanna boat engine halaaytu malpe hatra sahaya beku"). They are raised today only by the planner's model, after ingress; with no model they would be missed. Fix: extend the romanized phrase list (today only "bachao"), with a native reader's review. *Your call:* build it now (recommended: safety first).
+- [ ] **PC5.6-NOTE-2 (SAFETY): romanized "help + boat failing" is distress with no model (written 2026-10-09).** *To verify:* send "naav ka engine kharab ho gaya, madad chahiye" and "nanna boat engine halaaytu malpe hatra sahaya beku": both give the MRCC response at once (not after 4-5 s); "route ke liye madad chahiye" must NOT raise an SOS. Hindi and Kannada only; native review still owed.
 - [ ] **PC5.6-NOTE-1: a romanized route ("tuticorin se pamban tak sabse surakshit raasta") is answered at the pilot default position** while the English form resolves as a passage. *Your call:* build it.
 - [ ] **PC5.7: honest provenance labels** on the native-script path (a translation that returns its input unchanged is `degraded`; the docstring says Bhashini is primary). Two of the friend's tests (`test_pc5_language_ingress.py`) specify this and PC5.5; they fail until these are built.
 - [ ] **Part B: audit the remaining agents, one at a time** (plan section 9: marine_data_discovery, language_egress, weather, geospatial, ocean_analytics, risk, visualization, reporting, critic). Decide for each: does it need to exist, does it duplicate another, model or code. Record the decision before writing points.
@@ -60,6 +60,10 @@ Written 2026-10-09 from the implementation log (`docs/logs/DLC_implementation_lo
 - [ ] **Name spellings for ta, te, ml, bn, gu, or** are derived from Bhashini, not confirmed by a native reader (Kannada and Devanagari are confirmed).
 
 - [x] **CONTEXT-2: "answer the same in <language>" translates the same earlier answer (written 2026-10-09).** *To verify:* ask "answer this in gujarati: pfzs near mangrol", then "okay fine answer the same in kannada": about 7 s, the SAME fishing-zone answer in Kannada (the verdict card unchanged); then "now in english please"; then "and the wave height there?" (answers for Mangrol); then "in hindi please, and what about tomorrow?" (a full new answer). "speak to me in Telugu" still works.
+
+- [x] **NOTE-CHL-1 / NOTE-CHL-2: SST and chlorophyll at a place: one reading per quantity, no "sources disagree" unless truly unusual (written 2026-10-10; checked live with working keys).** *To verify:* ask a NEW phrasing, e.g. "udupi sst plus chlorophyll values wanted": you get ONE sea surface temperature (INSAT-3DR, with date and age) and ONE chlorophyll value with its level (low/moderate/high) and "close to the coast only indicative"; it does NOT say the sources disagree, and does not use the words "headline" or "cross-check". Kannada version has the same numbers.
+
+- [ ] **NOTE-LANG-3: a reply asked "in kannada" can come back with the Kannada text inside the English field** (found live 2026-10-10: "ok and for kundapura now, in kannada" produced an English CAUTION banner followed by Kannada, which was then translated again). Likely related to the foreign-script item above. *Your call:* fix it as one point (the English field must be English; if the narrative model returns another script, keep the data-built English answer).
 
 ### A5. Config and operations
 
@@ -126,6 +130,8 @@ and for the fisherman answer:
 - [x] **VOICE-6: the voice check script.** `.venv\Scripts\python.exe scripts\voice_check.py --limit 3` from `backend`: three real answers voiced and read back, a summary of words heard differently, and now any long silence. `--text "..." --timeline` prints each word with its second.
 
 ### Language and numbers
+
+- [ ] **FIX-PLACE-1: a spelling variant of a place is that place, and the answer says so (written 2026-10-09).** *To verify:* ask "pfzs near ktaka" (it asks which port), then "near udupi", then "oh sorry i meant kundapura": the answer is for Kundapur (no "Read X as Y" banner, removed on request) and is not the Thoothukudi default; then "okay fine give me the SST and chlorophyll details of kundapura in kannada". Also try "wave height near cochin", "is it safe near tuticorine", "wave near karwr" (all answered), "safe near gujurat" and "wind near atlantis" (both still ask).
 
 - [x] **FIX-CONTEXT-1: the chat keeps 20 turns, all questions in view (written 2026-10-09).** *To verify:* in one chat ask 7 different things (e.g. wave near Kochi, wind, tide, SST, PFZ, wave near Goa), then "what was my first question in this chat?": it names the wave height near Kochi. Also try a correction ("no I meant Kozhikode") and "why is that?" after an answer.
 

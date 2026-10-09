@@ -235,6 +235,8 @@ def turn_from_final(query: str, final: dict[str, Any]) -> dict[str, Any]:
         # Tamil follow-up is still resolved against the English history.
         "english_query": final.get("normalized_english_query") or query,
         "user_location": final.get("user_location"),
+        # what the place step really did, so a later "why didn't you ..." is answered from fact (FIX-PLACE-1)
+        "place_status": (final.get("place_resolution") or {}).get("status"),
         "verdict": (final.get("risk_assessment") or {}).get("go_no_go") or final.get("verdict"),  # a re-rendered answer carries the earlier verdict
         "intent_rows": final.get("matched_intent_rows") or [],
         # P2.9 — so "what about the day after?" after "and in a trawler?" is

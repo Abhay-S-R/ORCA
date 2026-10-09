@@ -291,6 +291,66 @@ _DATE_IN_TEXT = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 _DAYS_AHEAD = re.compile(r"\b(?:in|after)\s+(\d{1,3})\s+(day|days|week|weeks|month|months)\b")
 
 
+# FIX-PLACE-1 (2026-10-09). The position used to come ONLY from the word list reading the raw text (api/main.py,
+# `resolve_or_ask`), while the planner's model read the same message separately and its place was only checked, never
+# used: "kundapura" is not an exact gazetteer name, so the word list said "did you mean Kundapur?" (no position, so
+# the pilot default), the model said Kundapur and passed validation, planning did not stop, and the agents ran at
+# Thoothukudi while the card talked about Kundapura. The word list is the fast path and the offline fallback, not the
+# final say (the founding principle): when the model's place is validated against the gazetteer, THAT sets the position.
+# Positions the caller chose (a picked chip, typed coordinates) and positions the text itself resolved exactly are kept.
+_KEEP_SOURCES = frozenset({"explicit", "coordinates", "gazetteer", "port_fixture", "tide_station"})
+
+
+# A spelling that is one close, unambiguous near-miss of a single position we hold ("kundapura" for Kundapur) is that
+# place, as long as it is SAID: the answer carries "Read X as Y". Two readers must agree before it counts: this is only
+# reached with a name the planner's model read out of the message, and the word list's own near-miss must point at the
+# same single place. A whole coastline, or several candidates, still asks which one.
+_CLOSE_ENOUGH = 0.8
+
+
+def resolve_confident(name: str) -> PlaceResolution:
+    """`resolve_or_ask`, except that one close near-miss of a single non-region place resolves to that place."""
+    import difflib
+
+    resolution = resolve_or_ask(name)
+    if resolution.status == "ambiguous" and len(resolution.candidates) == 1 and resolution.place is None:
+        only = resolution.candidates[0]
+        if not is_region_name(only.name) and difflib.SequenceMatcher(None, name.lower().strip(), only.name.lower()).ratio() >= _CLOSE_ENOUGH:
+            return PlaceResolution("resolved", only, [], None)
+    return resolution
+
+
+def _mentions(name: str, texts: list[str]) -> bool:
+    low = name.lower().strip()
+    return bool(low) and any(low in t.lower() for t in texts if t)
+
+
+def adopt_model_place(
+    places: list[dict], user_location: dict | None, texts: list[str],
+) -> tuple[dict, dict, str | None] | None:
+    """(user_location, place_resolution, note) when the model's single named place should set the position, else None.
+
+    The model proposes, code checks: the place must be exactly one, must resolve in the gazetteer to a position (a whole
+    coastline or an unknown name does not), and the words the model says it read (`raw`) must be in the message, so a
+    model can never invent a place the user did not write. A position the caller chose, or one the text itself already
+    resolved exactly, is never replaced."""
+    loc = user_location or {}
+    if loc.get("place_source") in _KEEP_SOURCES or len(places) != 1:
+        return None
+    entry = places[0]
+    raw = (entry.get("raw") or "").strip()
+    normalized = (entry.get("normalized") or raw).strip()
+    if not normalized or not (_mentions(raw, texts) or _mentions(normalized, texts)):
+        return None
+    resolution = resolve_confident(normalized)
+    if resolution.status != "resolved" or resolution.place is None:
+        return None
+    place = resolution.place
+    note = f"Read “{raw}” as {place.name.title()}." if raw and raw.lower() != place.name.lower() else None
+    new_loc = {**loc, "lat": place.lat, "lon": place.lon, "place_name": place.name, "place_source": place.source}
+    return new_loc, resolution.as_dict(), note
+
+
 def _explicit_date(text: str) -> date | None:
     m = _DATE_IN_TEXT.search(text)
     if m is None:
@@ -458,7 +518,7 @@ def validate_reading(
         normalized = (entry.get("normalized") or entry.get("raw") or "").strip()
         if not normalized:
             continue
-        resolution = resolve_or_ask(normalized)
+        resolution = resolve_confident(normalized)
         if resolution.status == "resolved":
             continue
         # ambiguous, unresolvable, or fallback (not found in gazetteer) —

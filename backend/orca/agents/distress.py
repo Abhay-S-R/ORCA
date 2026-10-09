@@ -233,6 +233,26 @@ _ROMANIZED_DISTRESS_PATTERNS: dict[str, list[str]] = {
     "ta": ["udhavi"],
 }
 
+# PC5.6-NOTE-2 (2026-10-09). The single words above miss the most ordinary way to ask for help with a boat: "naav ka
+# engine kharab ho gaya, madad chahiye" (Hindi) and "nanna boat engine halaaytu malpe hatra sahaya beku" (Kannada) were
+# raised only later, by the planner's model, and only while a model was reachable. "madad" and "sahaya" alone are too
+# common a word to alarm on ("route ke liye madad chahiye" is not an emergency), so these need BOTH halves in the same
+# message: a word for help AND a word for the boat or engine failing or sinking. Whole-word, Latin script only, and the
+# same caveat as the list above: no native reader has reviewed them (P3.7's reviewers), and a list can only raise the
+# alarm, never rule distress out.
+_ROMANIZED_DISTRESS_COMBOS: dict[str, tuple[list[str], list[str]]] = {
+    "hi": (
+        ["madad", "sahayata", "bachao", "help"],
+        ["engine kharab", "engine band", "engine fail", "engine ruk", "engine kharaab", "dub raha", "dub rahi", "doob raha",
+         "doob rahi", "naav dub", "nav dub", "paani bhar", "pani bhar", "paani aa raha", "pani aa raha"],
+    ),
+    "kn": (
+        ["sahaya", "sahaaya", "sahayakke", "help"],
+        ["engine halaaytu", "engine halayitu", "engine halaytu", "engine nintu", "engine bandh", "munguttide", "munguttiddhe",
+         "neeru tumbide", "neeru tumbuttide", "boat munguttide"],
+    ),
+}
+
 
 # Verified 2026-09-02: 1554 is the Indian Coast Guard's official nationwide
 # toll-free MRCC distress helpline (confirmed via a live news/coast-guard
@@ -340,6 +360,15 @@ def detect_distress_signal(text: str, ui_control_triggered: bool = False) -> dic
         for phrase in phrases:
             if _matches(text, phrase):
                 return {"is_distress": True, "distress_type": "romanized_pattern", "matched_language": lang, "matched_phrase": phrase}
+
+    for lang, (helps, troubles) in _ROMANIZED_DISTRESS_COMBOS.items():
+        help_hit = next((h for h in helps if _matches(text, h)), None)
+        trouble_hit = next((t for t in troubles if _matches(text, t)), None)
+        if help_hit and trouble_hit:
+            return {
+                "is_distress": True, "distress_type": "romanized_pattern", "matched_language": lang,
+                "matched_phrase": f"{help_hit} + {trouble_hit}",
+            }
 
     return {"is_distress": False, "distress_type": None, "matched_language": None, "matched_phrase": None}
 

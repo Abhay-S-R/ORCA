@@ -22,24 +22,41 @@ ROMANIZED_DISTRESS = [
 ]
 
 
-# PC5.6 NOTE-2 (a SAFETY gap, to be fixed as its own point, not inside PC5.6): the phrase check misses these three
-# romanized phrases. Live, through /query, all three WERE raised, but one step later, by the planner's model reading
-# (`planned_distress`), i.e. after language ingress and only while a model is reachable. With no model they would be
-# answered as ordinary prompts.
-_MISSED_BY_THE_PHRASE_CHECK = {
-    "naav ka engine kharab ho gaya, madad chahiye",
-    "meri naav ka engine kharab ho gaya hai pamban ke paas madad chahiye",
-    "nanna boat engine halaaytu malpe hatra sahaya beku",
-}
-
-
-@pytest.mark.parametrize("phrase", [
-    pytest.param(p, marks=pytest.mark.xfail(strict=True, reason="PC5.6 NOTE-2: the phrase check misses it")) if p in _MISSED_BY_THE_PHRASE_CHECK else p
-    for p in ROMANIZED_DISTRESS
-])
+@pytest.mark.parametrize("phrase", ROMANIZED_DISTRESS)
 def test_romanized_distress_is_raised_by_the_phrase_check_with_no_model(phrase, monkeypatch):
     monkeypatch.setenv("ORCA_LLM_ENABLED", "0")
     assert detect_distress_signal(phrase)["is_distress"] is True
+
+
+# PC5.6-NOTE-2 (fixed 2026-10-09): a word for help AND a word for the boat failing, both needed.
+@pytest.mark.parametrize("phrase", [
+    "engine kharab ho gaya madad chahiye",
+    "boat ka engine band ho gaya bachao",
+    "mera naav dub raha hai madad karo",
+    "nav mein paani bhar gaya hai madad chahiye",
+    "nanna boat engine halaaytu sahaya beku",
+    "boat munguttide sahaya maadi",
+    "NAAV KA ENGINE KHARAB HO GAYA, MADAD CHAHIYE!!",
+])
+def test_help_plus_boat_trouble_is_distress(phrase, monkeypatch):
+    monkeypatch.setenv("ORCA_LLM_ENABLED", "0")
+    result = detect_distress_signal(phrase)
+    assert result["is_distress"] is True and result["distress_type"] == "romanized_pattern"
+
+
+@pytest.mark.parametrize("phrase", [
+    "route ke liye madad chahiye",                       # help word alone: not an emergency
+    "mujhe machhli ke baare mein madad chahiye",
+    "mera engine kharab ho gaya tha kal, ab theek hai",  # trouble word alone, no request for help
+    "nanna boat engine halaaytu",
+    "tuticorin se pamban tak ka raasta batao madad",
+    "sahaya beku fishing zone ge",
+    "madadgar engine",                                   # whole words only
+    "madadi engine kharabi",
+])
+def test_one_half_alone_is_not_distress(phrase, monkeypatch):
+    monkeypatch.setenv("ORCA_LLM_ENABLED", "0")
+    assert detect_distress_signal(phrase)["is_distress"] is False
 
 
 def test_the_distress_check_runs_before_language_ingress():
@@ -54,6 +71,7 @@ def test_the_distress_check_runs_before_language_ingress():
     "kochi ke paas machhli kahan milegi aaj",
     "naalai kadalukku pogalama",
     "tum kaiso ho",
+    "chennai ke paas cyclone ka khatra hai kya",
 ])
 def test_ordinary_romanized_prompts_are_not_distress(phrase):
     assert detect_distress_signal(phrase)["is_distress"] is False
