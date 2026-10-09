@@ -171,31 +171,19 @@ function HomePortPanel({ profile }: { profile: Profile | null }) {
   const [lat, setLat] = useState(profile?.home_port ? String(profile.home_port.lat) : "");
   const [lon, setLon] = useState(profile?.home_port ? String(profile.home_port.lon) : "");
   const [name, setName] = useState(profile?.home_port_name ?? "");
-  const [selectedPreset, setSelectedPreset] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    if (!editing) return;
-    const latNum = Number(lat);
-    const lonNum = Number(lon);
-    if (!Number.isFinite(latNum) || !Number.isFinite(lonNum)) {
-      setSelectedPreset("custom");
-      return;
-    }
-    const matched = PRESET_HOME_PORTS.find(
-      (p) =>
-        Math.abs(p.lat - latNum) < 0.05 && Math.abs(p.lon - lonNum) < 0.05
-    );
-    if (matched) {
-      setSelectedPreset(matched.name);
-    } else {
-      setSelectedPreset("custom");
-    }
-  }, [editing, lat, lon]);
+  const latNum = Number(lat);
+  const lonNum = Number(lon);
+  const matchedPort = Number.isFinite(latNum) && Number.isFinite(lonNum)
+    ? PRESET_HOME_PORTS.find(
+        (p) => Math.abs(p.lat - latNum) < 0.05 && Math.abs(p.lon - lonNum) < 0.05
+      )
+    : null;
+  const selectedPreset = matchedPort ? matchedPort.name : (lat || lon ? "custom" : "");
 
   function handleSelectPreset(presetName: string) {
-    setSelectedPreset(presetName);
     if (presetName === "custom" || !presetName) return;
     const port = PRESET_HOME_PORTS.find((p) => p.name === presetName);
     if (port) {

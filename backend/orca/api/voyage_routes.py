@@ -33,7 +33,11 @@ class VoyagePlanRequest(BaseModel):
 @router.post("/voyage-plan")
 def voyage_plan_route(req: VoyagePlanRequest) -> dict:
     try:
-        wps = [tuple(w) for w in req.waypoints] if req.waypoints and len(req.waypoints) >= 2 else None
+        wps: list[tuple[float, float]] | None = (
+            [(w[0], w[1]) for w in req.waypoints if len(w) >= 2]
+            if req.waypoints and len(req.waypoints) >= 2
+            else None
+        )
         plan = plan_voyage(
             (req.origin_lat, req.origin_lon), (req.destination_lat, req.destination_lon),
             vessel_class=req.vessel_class, departure_time=req.departure_time,
