@@ -116,6 +116,9 @@ async def speak(req: SpeakRequest) -> Response:
     lang = _coerce_language_hint(req.language) or "en"
     loop = asyncio.get_running_loop()
     audio, rung = await loop.run_in_executor(None, text_to_speech, req.text, lang)
+    if rung == "bhashini_unavailable":
+        # Marathi, Gujarati and Odia: no local backup voice, so say why (the UI shows it, in words).
+        raise HTTPException(status_code=503, detail={"code": "bhashini_speech_unavailable", "language": lang})
     if audio is None:
         raise HTTPException(status_code=503, detail="No TTS backend available (Bhashini uncredentialed, MMS-TTS failed)")
     return Response(content=audio, media_type="audio/wav", headers={"X-TTS-Rung": rung})

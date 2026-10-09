@@ -13,7 +13,24 @@ import { useEffect, useRef, useState } from "react";
 import { Volume2, Square } from "lucide-react";
 import { type Persona } from "../persona/config";
 import { API_BASE } from "../lib/apiBase";
+import { LANGUAGES } from "../i18n/languages";
 import { ghostBtn } from "../ask/RerunControl";
+
+// Marathi, Gujarati and Odia have no backup voice (FIX-VOICE-10): when Bhashini's speech service is down for the
+// language the backend answers 503 with a reason, and the person is told exactly that instead of a long wait and
+// a robotic voice. Any other failure keeps the older, general sentence.
+async function unavailableMessage(res: Response, language: string): Promise<string> {
+  try {
+    const body = await res.json();
+    if (body?.detail?.code === "bhashini_speech_unavailable") {
+      const name = LANGUAGES.find((l) => l.code === language)?.english ?? language;
+      return `Bhashini speech is unavailable right now for ${name}.`;
+    }
+  } catch {
+    /* not JSON: fall through to the general message */
+  }
+  return "Voice playback is unavailable right now — the text answer above is unchanged.";
+}
 
 export function AnswerSpeaker({
   text,
@@ -92,7 +109,7 @@ export function AnswerSpeaker({
         if (id !== requestRef.current) return;
         if (!res.ok) {
           setPlaying(false);
-          setError("Voice playback is unavailable right now — the text answer above is unchanged.");
+          setError(await unavailableMessage(res, language));
           return;
         }
         ttsRung = res.headers.get("x-tts-rung") || "";

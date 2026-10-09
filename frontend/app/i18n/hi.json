@@ -118,8 +118,6 @@
   "watches.simulated": "एस. एम. एस. वितरण निर्मित नहीं है-चैनलों को भेजे जाने वाले सटीक संदेश के साथ समान रूप से दिखाया गया है।",
   "ask.title": "ओआरसीए से पूछें",
   "ask.chatHistoryDialog": "बातचीत का इतिहास",
-  "ask.expandMap": "नक्शा फैलाएँ",
-  "ask.collapseMap": "पतन मानचित्र",
   "chatTurn.you": "आप",
   "chatTurn.agentTrace": "एजेंट ट्रेस",
   "chatTurn.backendErrorTitle": "सागर सारथी बैकएंड तक नहीं पहुँच सका",

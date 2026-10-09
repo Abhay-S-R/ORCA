@@ -120,8 +120,6 @@
   "watches.simulated": "SMS / IVR delivery is not built — those channels are shown as SIMULATED with the exact message that would be sent.",
   "ask.title": "Ask Sagar Sarathi",
   "ask.chatHistoryDialog": "Chat history",
-  "ask.expandMap": "Expand map",
-  "ask.collapseMap": "Collapse map",
   "chatTurn.you": "You",
   "chatTurn.agentTrace": "Agent trace",
   "chatTurn.backendErrorTitle": "Sagar Sarathi could not reach the backend",

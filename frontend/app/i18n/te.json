@@ -118,8 +118,6 @@
   "watches.simulated": "ఎస్ఎంఎస్ డెలివరీ నిర్మించబడలేదు-పంపబడే ఖచ్చితమైన సందేశంతో సమానంగా చూపబడిన ఛానెల్లు.",
   "ask.title": "ఓఆర్సీఏని అడగండి",
   "ask.chatHistoryDialog": "చాట్ చరిత్ర",
-  "ask.expandMap": "మ్యాప్ను విస్తరించండి",
-  "ask.collapseMap": "కుప్పకూలిన మ్యాప్",
   "chatTurn.you": "మీరు",
   "chatTurn.agentTrace": "ఏజెంట్ జాడ",
   "chatTurn.backendErrorTitle": "ఓఆర్సీఏ బ్యాకెండ్ను చేరుకోలేకపోయింది",

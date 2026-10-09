@@ -71,7 +71,7 @@ _MMS_CODE: dict[Language, str] = {
 }
 
 AsrRung = Literal["bhashini", "faster_whisper", "unavailable"]
-TtsRung = Literal["bhashini", "mms_tts", "unavailable"]
+TtsRung = Literal["bhashini", "mms_tts", "bhashini_unavailable", "unavailable"]
 
 
 @dataclass(frozen=True)
@@ -717,11 +717,80 @@ def _tts_cache_key(text: str, language: Language) -> str:
     return hashlib.sha256(f"{language}:{text}".encode()).hexdigest()[:16]
 
 
+# FIX-VOICE-10 (2026-10-09). Bhashini's speech service answers 504 for Marathi, Gujarati and Odia on every
+# call (Hindi, on the same service id, answers in 0.8 s), so a press of Play waited about 25 s (76 s the first
+# time for Marathi) and then played the local robotic voice. The user's decision: for those three languages the
+# app says "Bhashini speech is unavailable right now" and does not play the local voice. A language whose
+# Bhashini speech failed is skipped for ten minutes (so the next press answers at once); when the ten minutes
+# are over ONE short probe decides whether it is back, not a 25 s real request. The other seven languages keep
+# the local voice as their backup.
+_NO_LOCAL_VOICE = frozenset({"mr", "gu", "or"})
+_SPEECH_DOWN_S = 600.0
+_PROBE_TIMEOUT_S = 8.0
+_speech_down_until: dict[str, float] = {}
+
+
+def _mark_bhashini_down(language: str) -> None:
+    _speech_down_until[language] = time.monotonic() + _SPEECH_DOWN_S
+
+
+def _mark_bhashini_up(language: str) -> None:
+    _speech_down_until.pop(language, None)
+
+
+def bhashini_speech_is_down(language: str) -> bool:
+    """True while Bhashini's speech for `language` is known to be down (its ten minutes have not passed)."""
+    return _speech_down_until.get(language, 0.0) > time.monotonic()
+
+
+def _probe_language(language: str) -> bool:
+    """One short synthesis of the product's name in `language` (about 8 s at most, no retry): is Bhashini speech
+    back? Records the answer and returns it."""
+    from orca.agents import bhashini
+    from orca.agents.language import PRODUCT_NAME_NATIVE
+
+    word = PRODUCT_NAME_NATIVE.get(language, "ok").split()[0]
+    try:
+        bhashini.tts(word, language, timeout_s=_PROBE_TIMEOUT_S, retry=False)
+    except Exception:
+        _mark_bhashini_down(language)
+        return False
+    _mark_bhashini_up(language)
+    return True
+
+
+def probe_speech_health(languages: frozenset[str] | set[str] | None = None) -> dict[str, bool]:
+    """At startup: try the languages that have NO local backup voice, all at once, so the first press of Play after a
+    restart already knows (instead of waiting 25 s to find out). Only these three: a false alarm on a language that
+    has a local voice would degrade it for ten minutes, and its own first failure marks it down anyway."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from orca.agents import bhashini
+
+    if not bhashini.bhashini_configured():
+        return {}
+    langs = sorted(languages or _NO_LOCAL_VOICE)
+    with ThreadPoolExecutor(max_workers=len(langs)) as pool:
+        results = dict(zip(langs, pool.map(_probe_language, langs), strict=True))
+    logger.info("Bhashini speech health: %s", ", ".join(f"{k}={'up' if v else 'DOWN'}" for k, v in results.items()))
+    return results
+
+
+def _bhashini_may_be_tried(language: str) -> bool:
+    until = _speech_down_until.get(language)
+    if until is None:
+        return True
+    if until > time.monotonic():
+        return False
+    return _probe_language(language)  # the ten minutes are over: one short probe decides
+
+
 def text_to_speech(text: str, language: Language) -> tuple[bytes | None, TtsRung]:
     """Two configured rungs (Bhashini, MMS-TTS) plus the same explicit
     "unavailable" third rung as speech_to_text — returns (None,
     "unavailable") rather than raising, so the voice UI degrades to
-    text-only playback instead of a broken request.
+    text-only playback instead of a broken request. For Marathi, Gujarati and Odia there is no local rung:
+    when Bhashini's speech is down the answer is (None, "bhashini_unavailable") and the UI says so.
 
     Results are cached in-memory (repeated clicks, same process)."""
     key = _tts_cache_key(text, language)
@@ -732,9 +801,18 @@ def text_to_speech(text: str, language: Language) -> tuple[bytes | None, TtsRung
     t0 = time.monotonic()
     spoken = speakable(text, language)
     for backend in _tts_backends:
+        is_bhashini = isinstance(backend, BhashiniTtsBackend)
+        if is_bhashini and not _bhashini_may_be_tried(language):
+            if language in _NO_LOCAL_VOICE:
+                return None, "bhashini_unavailable"
+            continue
+        if not is_bhashini and language in _NO_LOCAL_VOICE:
+            return None, "bhashini_unavailable"
         try:
             audio = backend.speak(spoken, language)
-            rung: TtsRung = "bhashini" if isinstance(backend, BhashiniTtsBackend) else "mms_tts"
+            if is_bhashini:
+                _mark_bhashini_up(language)
+            rung: TtsRung = "bhashini" if is_bhashini else "mms_tts"
             # Cache the result in-memory
             if len(_tts_cache) >= _TTS_CACHE_MAX:
                 # Evict oldest entry (FIFO)
@@ -745,6 +823,10 @@ def text_to_speech(text: str, language: Language) -> tuple[bytes | None, TtsRung
             return audio, rung
         except (RuntimeError, OSError):
             # See the matching comment in speech_to_text — same contract, same gap.
+            if is_bhashini:
+                _mark_bhashini_down(language)
+                if language in _NO_LOCAL_VOICE:
+                    return None, "bhashini_unavailable"
             continue
     return None, "unavailable"
 
