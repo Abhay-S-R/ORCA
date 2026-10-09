@@ -34,7 +34,7 @@ class VoyagePlanRequest(BaseModel):
 def voyage_plan_route(req: VoyagePlanRequest) -> dict:
     try:
         wps: list[tuple[float, float]] | None = (
-            [(w[0], w[1]) for w in req.waypoints if len(w) >= 2]
+            [(float(w[0]), float(w[1])) for w in req.waypoints if len(w) >= 2]
             if req.waypoints and len(req.waypoints) >= 2
             else None
         )

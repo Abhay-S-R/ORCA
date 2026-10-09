@@ -76,12 +76,11 @@ export default function AskPage() {
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
-  // Auto-scroll: threadRef is the scrollable container, threadBottomRef is a
-  // zero-height sentinel at the end of the list. Scrolling the sentinel into
-  // view on every turns/streaming change keeps the latest message visible
-  // without manual scrolling — same mechanic as most chat UIs.
+  // Thread scrolling: threadRef is the scrollable container, latestTurnRef points
+  // to the newest turn in the thread.
   const threadRef = useRef<HTMLDivElement>(null);
-  const threadBottomRef = useRef<HTMLDivElement>(null);
+  const latestTurnRef = useRef<HTMLDivElement>(null);
+  const prevTurnsLengthRef = useRef(0);
   const {
     turns,
     chatId,
@@ -133,14 +132,23 @@ export default function AskPage() {
     return () => document.removeEventListener("keydown", onKey);
   }, [drawerOpen]);
 
-  // Scroll to the bottom sentinel whenever a new turn is added or the
-  // streaming state changes (each chunk that arrives extends the answer).
-  // `block: "end"` keeps the sentinel flush at the bottom of the container
-  // rather than centering it, and `behavior: "smooth"` gives the same feel
-  // as the Framer Motion entrance animation on each new ChatTurn.
+  // When a query is asked, align the view to the top of that question/response
+  // rather than auto-scrolling down during or after the answer.
   useEffect(() => {
-    threadBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [turns.length, streaming]);
+    if (turns.length === 0) {
+      prevTurnsLengthRef.current = 0;
+      return;
+    }
+    if (turns.length > prevTurnsLengthRef.current) {
+      prevTurnsLengthRef.current = turns.length;
+      if (turns.length === 1) {
+        threadRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      } else if (latestTurnRef.current && threadRef.current) {
+        const targetTop = latestTurnRef.current.offsetTop;
+        threadRef.current.scrollTo({ top: targetTop, behavior: "smooth" });
+      }
+    }
+  }, [turns.length]);
 
   // P4.9 — the five-step tour. Step 2 ("watch the agent strip stream") and
   // step 4 ("ask a follow-up") each end the moment their real query
@@ -393,22 +401,23 @@ export default function AskPage() {
           <div ref={threadRef} className="relative min-h-0 min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 pr-2">
               {turns.map((turn, i) => (
-                <ChatTurn
+                <div
                   key={turn.id}
-                  turn={turn}
-                  persona={persona}
-                  hadEarlierAnswers={hadEarlierAnswers(turns, i)}
-                  onRetry={() => ask(turn.askedQuery)}
-                  onRerun={() => rerun(turn.id)}
-                  onShowVersion={(index) => showVersion(turn.id, index)}
-                  onFollowUp={submit}
-                  onDropInherited={(value) => dropInherited(turn, value)}
-                />
+                  ref={i === turns.length - 1 ? latestTurnRef : undefined}
+                  className="w-full"
+                >
+                  <ChatTurn
+                    turn={turn}
+                    persona={persona}
+                    hadEarlierAnswers={hadEarlierAnswers(turns, i)}
+                    onRetry={() => ask(turn.askedQuery)}
+                    onRerun={() => rerun(turn.id)}
+                    onShowVersion={(index) => showVersion(turn.id, index)}
+                    onFollowUp={submit}
+                    onDropInherited={(value) => dropInherited(turn, value)}
+                  />
+                </div>
               ))}
-              {/* Sentinel: scrolled into view whenever a new turn arrives or
-                  a streaming answer updates, keeping the latest exchange
-                  visible without the user having to scroll manually. */}
-              <div ref={threadBottomRef} />
             </div>
           </div>
 
