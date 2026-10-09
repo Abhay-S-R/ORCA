@@ -45,6 +45,8 @@
   "savedLocations.namePrompt": "Name this place",
   "ask.heading": "Ask about conditions at sea",
   "ask.subheading": "Ask in plain English, Tamil, Hindi, or any Indian regional language. Sagar Sarathi evaluates live ocean weather, maritime boundary standoff, depth contours, and fishing advisories with full citation provenance.",
+  "ask.expandMap": "Expand map",
+  "ask.collapseMap": "Collapse map",
   "ask.notSaved": "Not saved yet — retrying",
   "ask.saveRejected": "Couldn't save this chat",
   "zones.title": "Fishing zones",
