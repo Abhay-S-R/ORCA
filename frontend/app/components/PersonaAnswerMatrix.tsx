@@ -508,28 +508,29 @@ export function PersonaAnswerMatrix({
 
       {persona === "researcher" && (
         <>
-          <div className="flex flex-col gap-4 rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md shadow-sm">
-            <Group icon={<Cloud className="size-3.5" />} label="Weather & sea state">
-              <ReadoutGrid cols={3}>
-                <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" hint={waveHint(weather.wave_height_m, thresholds)} />
-                <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" hint={windHint(weather.wind_speed_ms, thresholds)} />
-                <Readout label="Lightning" value={weather.lightning_active ? "Active" : "None"} />
-              </ReadoutGrid>
-            </Group>
-            <Group icon={<Compass className="size-3.5" />} label="Boundary & hazard">
-              <ReadoutGrid cols={2}>
-                {showBoundary && <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />}
-                <Readout label="MPA violation" value={hazard.mpa_violation ? "Yes" : "No"} hint={hazard.mpa_alert_level ?? undefined} />
-              </ReadoutGrid>
-            </Group>
-            <Group icon={<Crosshair className="size-3.5" />} label="Ocean & fishing activity">
-              <ReadoutGrid cols={2}>
-                <Readout label="Tide" value={tide.value} unit={tide.unit} hint={tide.hint} />
-                <Readout label="Nearest PFZ" value={pfz.value} unit={pfz.unit} hint={pfz.hint} />
-                <Readout label="Sector status" value={sector.value} unit={sector.unit} hint={sector.hint} />
-                <Readout label="Productivity" value={productivity.value} unit={productivity.unit} hint={productivity.hint} />
-              </ReadoutGrid>
-            </Group>
+          <div className="rounded-xl border border-hairline/70 bg-shelf-1/40 p-3.5 backdrop-blur-md shadow-sm">
+            <ReadoutGrid cols={5}>
+              <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" hint={waveHint(weather.wave_height_m, thresholds)} wrap />
+              <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" hint={windHint(weather.wind_speed_ms, thresholds)} wrap />
+              <Readout label="Lightning" value={weather.lightning_active ? "Active" : "None"} />
+              <Readout label="MPA violation" value={hazard.mpa_violation ? "Yes" : "No"} hint={hazard.mpa_alert_level ?? undefined} />
+              <Readout label="Productivity" value={productivity.value} unit={productivity.unit} hint={productivity.hint} wrap />
+
+              {showBoundary && (
+                <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} wrap />
+              )}
+
+              <Readout label="Tide" value={tide.value} unit={tide.unit} hint={tide.hint} wrap />
+              <Readout className="col-span-2 sm:col-span-2" label="Nearest PFZ" value={pfz.value} unit={pfz.unit} hint={pfz.hint} wrap />
+              <Readout
+                className={showBoundary ? "col-span-2 sm:col-span-1" : "col-span-2 sm:col-span-2"}
+                label="Sector status"
+                value={sector.value}
+                unit={sector.unit}
+                hint={sector.hint}
+                row
+              />
+            </ReadoutGrid>
           </div>
           <div className="flex gap-2">
             <Button variant="ghost" className="text-xs" icon={<Download className="size-3.5" />} onClick={() => downloadExport(queryId, exportRows(queryId, weather, hazard, ocean, citations), "csv")}>

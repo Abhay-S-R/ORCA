@@ -7,15 +7,11 @@
 import { motion } from "framer-motion";
 import { ChevronDown, History, PowerOff, Radio } from "lucide-react";
 import { AgentPill, AgentStrip, AGENT_ORDER, nextRunningAgent, type AgentStatus } from "../components/AgentPill";
-import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
-import { Chart } from "../components/charts";
-import type { ChartThresholds } from "../lib/chartSpec";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
 import { Panel } from "../components/Panel";
 import { PersonaAnswerMatrix } from "../components/PersonaAnswerMatrix";
 import { ProfilePrompt } from "../components/ProfilePrompt";
-import { Readout, ReadoutGrid } from "../components/Readout";
 import { AnswerSpeaker } from "../components/AnswerSpeaker";
 import { FormattedResponse } from "../components/FormattedResponse";
 import { SourceChip } from "../components/SourceChip";
@@ -31,9 +27,6 @@ import { DisclosureBanner, RefusalCard, ResetNotice } from "./Disclosures";
 import { InheritedChips, SkippedNotice } from "./ReasoningEvidence";
 import { useT } from "../i18n/useT";
 
-// Routing rows (backend orca/agents/planning.py) that mean the question was
-// about the weather itself; only these get the weather panel.
-const WEATHER_ROWS = new Set(["CONDITIONS", "HAZARD_ALERTS"]);
 
 const FOLLOW_UPS: Record<QueryIntent, string[]> = {
   safety: ["What are the wind and wave timings for the next 24 hours?", "Where is the nearest fishing zone right now?"],
@@ -126,26 +119,7 @@ export function ChatTurn({
       )}
     </span>
   );
-  const weatherCitation = answer?.citations?.find((c) => c.agent_name === "weather_intelligence");
-  // The backend routing rows, not a keyword match on the text, so a weather
-  // question asked in Kannada counts the same as one asked in English.
-  const askedForWeather = (answer?.routing?.matched_intent_rows ?? []).some((r) => WEATHER_ROWS.has(r));
-  // P4.8 (`R-PS-6`) — the wave/wind series Agent 8 already builds per query,
-  // never rendered anywhere until now, plus the vessel-class limits it was
-  // actually checked against (P4.1's `thresholds`, not a second copy of them).
-  const waveWindChart = answer?.visualization_payload?.chart_specs?.find((c) => c.chart_id === "wave_wind_timeseries");
-  const chartThresholds: ChartThresholds | undefined = answer?.risk_assessment?.thresholds
-    ? {
-        wave_height_m: {
-          caution: answer.risk_assessment.thresholds.caution_wave_m,
-          danger: answer.risk_assessment.thresholds.danger_wave_m,
-        },
-        wind_speed_ms: {
-          caution: answer.risk_assessment.thresholds.caution_wind_kmh / 3.6,
-          danger: answer.risk_assessment.thresholds.danger_wind_kmh / 3.6,
-        },
-      }
-    : undefined;
+
   const runningAgent = streaming ? nextRunningAgent(spans) : null;
   const displaySpans: typeof spans =
     spans.length > 0
@@ -418,54 +392,6 @@ export function ChatTurn({
             </div>
           </Panel>
 
-          {/* Weather banner — same Panel/ReadoutGrid pattern /safety already
-              uses, kept below the prediction response rather than above it.
-              Only when the question asked about the weather: on any other
-              question it is a second, unasked-for answer under the real one. */}
-          {answer.weather_summary && askedForWeather && (
-            <Panel
-              title={t("chatTurn.weather")}
-              action={
-                weatherCitation && (
-                  <SourceChip dataset={weatherCitation.dataset} acquisitionTimestamp={weatherCitation.acquisition_timestamp} agentName={weatherCitation.agent_name} />
-                )
-              }
-            >
-              <ReadoutGrid cols={4}>
-                <Readout label={t("chatTurn.waveHeight")} value={answer.weather_summary.wave_height_m ?? "—"} unit="m" />
-                <Readout
-                  label={t("chatTurn.windSpeed")}
-                  value={
-                    answer.weather_summary.wind_speed_ms != null
-                      ? (answer.weather_summary.wind_speed_ms * 3.6).toFixed(1)
-                      : "—"
-                  }
-                  unit="km/h"
-                />
-                <Readout
-                  label={t("chatTurn.lightning")}
-                  value={
-                    <Badge tone={answer.weather_summary.lightning_active ? "no-go" : "go"}>
-                      {answer.weather_summary.lightning_active ? t("chatTurn.active") : t("chatTurn.clear")}
-                    </Badge>
-                  }
-                />
-                <Readout
-                  label={t("chatTurn.cycloneAlert")}
-                  value={
-                    <Badge tone={answer.weather_summary.cyclone_alert ? "no-go" : "go"}>
-                      {answer.weather_summary.cyclone_alert ?? t("chatTurn.none")}
-                    </Badge>
-                  }
-                />
-              </ReadoutGrid>
-              {waveWindChart && (
-                <div className="mt-3">
-                  <Chart spec={waveWindChart} title={t("chatTurn.weather")} thresholds={chartThresholds} />
-                </div>
-              )}
-            </Panel>
-          )}
         </>
       )}
     </motion.div>
