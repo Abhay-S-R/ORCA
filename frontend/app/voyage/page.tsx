@@ -323,12 +323,35 @@ function VoyageContent() {
     const setCheck = mode === "origin" ? setOriginCheck : setDestinationCheck;
     setPoint({ lat, lon });
     setCheck(null);
-    if (mode === "origin") setMode("destination");
+    // Auto-advance to destination only on the very first origin pick
+    // (when destination hasn't been placed yet). Once both pins exist,
+    // S/D hotkeys control which one the next click will move.
+    if (mode === "origin" && !destination) setMode("destination");
     fetch(`${API_BASE}/api/depth?lat=${lat}&lon=${lon}`)
       .then((r) => r.json())
       .then(setCheck)
       .catch(() => {});
   }
+
+  // Hotkeys: S → pick source/origin, D → pick destination.
+  // Active whenever map_pick mode is on; ignored when a text field has focus.
+  useEffect(() => {
+    if (routeMode !== "map_pick") return;
+    function onKeyDown(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      const editable = (e.target as HTMLElement)?.isContentEditable;
+      if (tag === "input" || tag === "textarea" || tag === "select" || editable) return;
+      if (e.key === "s" || e.key === "S") {
+        e.preventDefault();
+        setMode("origin");
+      } else if (e.key === "d" || e.key === "D") {
+        e.preventDefault();
+        setMode("destination");
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [routeMode]);
 
   async function runPlan(o: LatLon, d: LatLon) {
     setLoading(true);
@@ -997,6 +1020,7 @@ function VoyageContent() {
             <SeaRouteMap
               result={coastalResult}
               mapPickMode={routeMode === "map_pick"}
+              pickTarget={mode}
               startPin={origin ? [origin.lat, origin.lon] : null}
               endPin={destination ? [destination.lat, destination.lon] : null}
               onMapClick={handlePointClick}

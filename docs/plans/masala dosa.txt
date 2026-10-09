@@ -1,0 +1,20 @@
+THINGS LEFT TO DO (WEB)
+>the input bar and voice icon and other icon changes 
+>then the system prompt changes for the response ( in proper given format , first the ans then the supporting things below) 
+>UI changes(revamp) in ask page
+>removal of unwanted things in response and formatting it properly (removal of data limited and starting heading line )
+>a link up btn the ask page and map and voyage , query based visualization on map , and on coming back it should show from where left in chat 
+>watches and alerts page formatting and display (needs UI planning and content generation to be displayed)
+>the response scrolling down after the query , should change it to show from beginning . 
+>complete formatting for the researcher response , removal of those tables, moving conditions to bottom and removing tooo much containers for this sake 
+
+
+
+
+
+
+
+THINGS LEFT TO DO (PWA)
+>font size correction and landing page formatting 
+>menu correction for different personas (bz different personas have many menu pages so we should select 5 pages for each persona only on app)
+>
