@@ -96,7 +96,9 @@ const VISIBILITY_MATRIX: Record<Route, Record<Persona, Visibility>> = {
   "/ask": { fisherman: "primary", commercial_navigator: "primary", researcher: "primary", coastal_authority: "primary", unresolved: "primary" },
   // P4.11 — takes `/safety`'s old slot in the nav (P4.1's collapse), same
   // per-persona visibility it had.
-  "/alerts": { fisherman: "primary", commercial_navigator: "primary", researcher: "secondary", coastal_authority: "primary", unresolved: "primary" },
+  // Alerts are accessible via the persistent bell icon (bottom-left) — the
+  // nav rail entry is intentionally removed so the bell is the single entry point.
+  "/alerts": { fisherman: "hidden", commercial_navigator: "hidden", researcher: "hidden", coastal_authority: "hidden", unresolved: "hidden" },
   "/map": { fisherman: "primary", commercial_navigator: "primary", researcher: "primary", coastal_authority: "primary", unresolved: "primary" },
   "/zones": { fisherman: "primary", commercial_navigator: "primary", researcher: "secondary", coastal_authority: "hidden", unresolved: "primary" },
   "/voyage": { fisherman: "primary", commercial_navigator: "primary", researcher: "secondary", coastal_authority: "primary", unresolved: "primary" },

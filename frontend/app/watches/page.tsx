@@ -64,6 +64,7 @@ export default function WatchesPage() {
       radius_km: 10,
       thresholds: { wave_height_m: DEFAULT_WAVE_THRESHOLD },
       channels: ["in_app"],
+      enabled: true,
     });
     load();
   }
@@ -156,8 +157,8 @@ function AdvancedWatchForm({ onCreated }: { onCreated: () => void }) {
       }
       await createWatch(
         geometryMode === "area" && area
-          ? { watch_type: type, area_geojson: area, thresholds, channels: ["in_app"] }
-          : { watch_type: type, lat: Number(lat), lon: Number(lon), radius_km: radius ? Number(radius) : null, thresholds, channels: ["in_app"] },
+          ? { watch_type: type, area_geojson: area, thresholds, channels: ["in_app"], enabled: true }
+          : { watch_type: type, lat: Number(lat), lon: Number(lon), radius_km: radius ? Number(radius) : null, thresholds, channels: ["in_app"], enabled: true },
       );
       onCreated();
     } finally {

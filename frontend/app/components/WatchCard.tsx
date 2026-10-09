@@ -3,7 +3,7 @@
 // One subscription row on /watches. Design-system only: Card + Badge +
 // Readout + the shared button skin. Severity/state never colour-only — the
 // enabled state is a text token AND the toggle position.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Bell, BellOff, Trash2 } from "lucide-react";
 import { Badge, type BadgeTone } from "./Badge";
 import { Readout, ReadoutGrid } from "./Readout";
@@ -39,6 +39,21 @@ function bandTone(band: string | undefined): BadgeTone {
 export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<OrcaNotification[] | null>(null);
+  const [showHistory, setShowHistory] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    watchHistory(watch.id)
+      .then((data) => {
+        if (active) setHistory(data);
+      })
+      .catch(() => {
+        if (active) setHistory([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [watch.id, watch.last_fired_at]);
 
   async function toggle() {
     setBusy(true);
@@ -68,8 +83,16 @@ export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => v
     }
   }
 
-  async function loadHistory() {
-    setHistory(await watchHistory(watch.id));
+  async function toggleHistory() {
+    if (!showHistory && history === null) {
+      try {
+        const data = await watchHistory(watch.id);
+        setHistory(data);
+      } catch {
+        setHistory([]);
+      }
+    }
+    setShowHistory((v) => !v);
   }
 
   const thresholdEntries = Object.entries(watch.thresholds ?? {});
@@ -147,32 +170,37 @@ export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => v
 
       <button
         type="button"
-        onClick={loadHistory}
-        className="mt-3 text-[11px] text-accent underline"
-        aria-expanded={history !== null}
+        onClick={toggleHistory}
+        className="mt-3 text-[11px] text-accent underline cursor-pointer"
+        aria-expanded={showHistory}
       >
-        {history === null ? "Show alert history" : `${history.length} alert(s)`}
+        {showHistory ? "Hide alert history" : "Show alert history"}
       </button>
 
-      {history !== null && (
+      {showHistory && (
         <ul className="mt-2 flex flex-col gap-1.5">
-          {history.length === 0 && <li className="text-[11px] text-ink-dim">No alerts have fired for this watch.</li>}
-          {history.map((n) => {
-            const snapshot = (n.rendered_payload as { snapshot?: { band?: string } } | undefined)?.snapshot;
-            return (
-              <li key={n.id} className="rounded-sm border border-hairline bg-shelf-1/60 p-2 text-[11px]">
-                <p className="flex items-center gap-1.5 font-medium text-ink">
-                  {n.title}
-                  {snapshot?.band && <Badge tone={bandTone(snapshot.band)}>{snapshot.band}</Badge>}
-                </p>
-                <p className="text-ink-muted">{n.body}</p>
-                <p className="mt-0.5 text-ink-dim" data-readout>
-                  {new Date(n.created_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST
-                  {n.status !== "sent" && <span className="ml-2 text-caution">SIMULATED</span>}
-                </p>
-              </li>
-            );
-          })}
+          {history === null ? (
+            <li className="text-[11px] text-ink-dim">Loading alerts...</li>
+          ) : history.length === 0 ? (
+            <li className="text-[11px] text-ink-dim">No alerts have fired for this watch.</li>
+          ) : (
+            history.map((n) => {
+              const snapshot = (n.rendered_payload as { snapshot?: { band?: string } } | undefined)?.snapshot;
+              return (
+                <li key={n.id} className="rounded-sm border border-hairline bg-shelf-1/60 p-2 text-[11px]">
+                  <p className="flex items-center gap-1.5 font-medium text-ink">
+                    {n.title}
+                    {snapshot?.band && <Badge tone={bandTone(snapshot.band)}>{snapshot.band}</Badge>}
+                  </p>
+                  <p className="text-ink-muted">{n.body}</p>
+                  <p className="mt-0.5 text-ink-dim" data-readout>
+                    {new Date(n.created_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST
+                    {n.status !== "sent" && <span className="ml-2 text-caution">SIMULATED</span>}
+                  </p>
+                </li>
+              );
+            })
+          )}
         </ul>
       )}
     </section>
