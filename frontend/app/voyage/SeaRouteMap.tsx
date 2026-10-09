@@ -175,7 +175,6 @@ export function SeaRouteMap({
       mapRef.current?.remove();
       mapRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Update route source when ready or result changes.

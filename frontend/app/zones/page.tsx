@@ -154,7 +154,6 @@ export default function ZonesPage() {
       .then(setBan)
       .catch(() => setBan(null));
   // Re-fetch when home port changes (user sets or updates it)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posParam]);
 
   return (

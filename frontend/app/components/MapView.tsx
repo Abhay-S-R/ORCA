@@ -378,9 +378,6 @@ export function MapView({
     ...initialLayers,
   });
   const [rasterLayers, setRasterLayers] = useState<RasterLayerMeta[]>([]);
-  // The opening view's own bounds, captured the first time the fence below is
-  // built, so the fence always contains the camera the chart starts at.
-  const homeBounds = useRef<[number, number, number, number] | null>(null);
   const [currentVectors, setCurrentVectors] = useState<CurrentVector[] | null>(null);
   const [currentBounds, setCurrentBounds] = useState<[number, number, number, number] | null>(null);
   // Archived ScatSat wind — a second, honestly-distinct vector field from

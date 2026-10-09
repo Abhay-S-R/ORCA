@@ -41,7 +41,9 @@ def _latlon(geom: Any) -> dict[str, float] | None:
     if geom is None:
         return None
     shp = to_shape(geom)
-    return {"lat": shp.y, "lon": shp.x}
+    if isinstance(shp, Point):
+        return {"lat": shp.y, "lon": shp.x}
+    return None
 
 
 # --------------------------------------------------------------------------
