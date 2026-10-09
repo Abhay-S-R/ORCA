@@ -284,7 +284,7 @@ def build(matched_rows: list[str], query: str, user_location: dict | None, query
             actions.append({"intent": "EXPORT", "kind": "download", "label": "Download CSV",
                             "href": f"/api/data/export?{urlencode(params)}",
                             "text": "Every row carries its dataset, acquisition time and freshness."
-                                    + ("" if pos else " No place named, so this is for the pilot region.")})
+                                    + ("" if pos else " No place named, so this is for the default fallback region.")})
         elif row == "SUBSCRIPTION":
             if pos is None:
                 actions.append({"intent": "SUBSCRIPTION", "kind": "info",

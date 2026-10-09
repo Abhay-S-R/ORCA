@@ -190,6 +190,9 @@
   "profile.latitude": "అక్షాంశం",
   "profile.longitude": "రేఖాంశం",
   "profile.noHomePort": "ఇంకా హోమ్ పోర్ట్ సెట్ చేయలేదు. మీరు ఒకదాన్ని సెట్ చేసే వరకు సమాధానాలు డిఫాల్ట్‌గా పైలట్ ప్రాంతానికే వర్తిస్తాయి.",
+  "profile.selectPort": "హోమ్ పోర్ట్ ఎంచుకోండి",
+  "profile.selectPortHint": "నావిగేషన్ నిరూపకాలను స్వయంచాలకంగా నమోదు చేయడానికి ఒక తీర పోర్ట్ ఎంచుకోండి",
+  "profile.customPort": "కస్టమ్ స్థానం / మానవీయ నిరూపకాలు",
   "profile.save": "సేవ్ చేయి",
   "profile.saving": "సేవ్ అవుతోంది…",
   "profile.savedHomePort": "హోమ్ పోర్ట్ సేవ్ చేయబడింది.",
@@ -225,5 +228,13 @@
   "profile.languageAndRole": "భాష & పాత్ర",
   "profile.language": "భాష",
   "profile.defaultRole": "డిఫాల్ట్ పాత్ర",
-  "profile.defaultRoleHint": "సాగర్ సారథి డిఫాల్ట్‌గా ఏ వీక్షణను తెరుస్తుంది. మీరు ఖాతా మెను నుండి ఎప్పుడైనా వీక్షణలను మార్చుకోవచ్చు."
+  "profile.defaultRoleHint": "సాగర్ సారథి డిఫాల్ట్‌గా ఏ వీక్షణను తెరుస్తుంది. మీరు ఖాతా మెను నుండి ఎప్పుడైనా వీక్షణలను మార్చుకోవచ్చు.",
+  "login.homePortNameHint": "optional — what you call it",
+  "login.homePortNamePlaceholder": "e.g. Thoothukudi",
+  "login.homePortName": "Port name",
+  "login.homePort": "Home port",
+  "login.homePortPlaceholder": "e.g. 8.80, 78.14",
+  "login.homePortHint": "lat, lon — e.g. 8.8, 78.14  (optional, you can add it from Profile later)",
+  "watches.noHomePortSet": "No home port set.",
+  "watches.setHomePort": "Set it in your profile"
 }

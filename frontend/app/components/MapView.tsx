@@ -185,7 +185,7 @@ const REGION_STATS_RADIUS_KM = 150;
 
 const COASTAL_REGIONS: MarinePortPreset[] = [
   { id: "all", name: "All India Coastline", sub: "National Overview", center: [78.5, 15.5], zoom: 4.8, coast: "island" },
-  { id: "gulf_mannar", name: "Gulf of Mannar / Thoothukudi", sub: "Pilot Sector", center: [78.8, 8.8], zoom: 7.8, coast: "east" },
+  { id: "gulf_mannar", name: "Gulf of Mannar / Thoothukudi", sub: "Tamil Nadu Coast", center: [78.8, 8.8], zoom: 7.8, coast: "east" },
   { id: "gujarat", name: "Gujarat (Kutch & Saurashtra)", sub: "West Coast", center: [69.6, 21.8], zoom: 7.2, coast: "west" },
   { id: "mumbai", name: "Mumbai & Konkan Coast", sub: "Maharashtra", center: [72.8, 18.9], zoom: 8.2, coast: "west" },
   { id: "goa", name: "Goa & Karwar", sub: "Goa / Karnataka", center: [73.8, 15.4], zoom: 8.4, coast: "west" },
@@ -378,9 +378,6 @@ export function MapView({
     ...initialLayers,
   });
   const [rasterLayers, setRasterLayers] = useState<RasterLayerMeta[]>([]);
-  // The opening view's own bounds, captured the first time the fence below is
-  // built, so the fence always contains the camera the chart starts at.
-  const homeBounds = useRef<[number, number, number, number] | null>(null);
   const [currentVectors, setCurrentVectors] = useState<CurrentVector[] | null>(null);
   const [currentBounds, setCurrentBounds] = useState<[number, number, number, number] | null>(null);
   // Archived ScatSat wind — a second, honestly-distinct vector field from

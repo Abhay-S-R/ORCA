@@ -190,6 +190,9 @@
   "profile.latitude": "அகலாங்கு",
   "profile.longitude": "நெடுலாங்கு",
   "profile.noHomePort": "முகப்புத் துறைமுகம் இன்னும் அமைக்கப்படவில்லை. நீங்கள் ஒன்றை அமைக்கும் வரை பதில்கள் இயல்புநிலை பைலட் பிராந்தியத்திற்குச் செல்லும்.",
+  "profile.selectPort": "தாயகத் துறைமுகத்தைத் தேர்ந்தெடுக்கவும்",
+  "profile.selectPortHint": "ஆயத்தொலைவுகளைத் தானாக அமைக்க ஒரு கடற்கரைத் துறைமுகத்தைத் தேர்ந்தெடுக்கவும்",
+  "profile.customPort": "தனிப்பயன் இடம் / கையால் ஆயத்தொலைவுகள்",
   "profile.save": "சேமி",
   "profile.saving": "சேமிக்கிறது…",
   "profile.savedHomePort": "முகப்புத் துறைமுகம் சேமிக்கப்பட்டது.",
@@ -225,5 +228,13 @@
   "profile.languageAndRole": "மொழி மற்றும் பங்கு",
   "profile.language": "மொழி",
   "profile.defaultRole": "இயல்புநிலை பங்கு",
-  "profile.defaultRoleHint": "சாகர் சாரதி இயல்புநிலையாக எந்தக் காட்சியுடன் திறக்க வேண்டும். கணக்கு மெனுவிலிருந்து எப்போது வேண்டுமானாலும் காட்சிகளை மாற்றிக்கொள்ளலாம்."
+  "profile.defaultRoleHint": "சாகர் சாரதி இயல்புநிலையாக எந்தக் காட்சியுடன் திறக்க வேண்டும். கணக்கு மெனுவிலிருந்து எப்போது வேண்டுமானாலும் காட்சிகளை மாற்றிக்கொள்ளலாம்.",
+  "login.homePortNameHint": "optional — what you call it",
+  "login.homePortNamePlaceholder": "e.g. Thoothukudi",
+  "login.homePortName": "Port name",
+  "login.homePort": "Home port",
+  "login.homePortPlaceholder": "e.g. 8.80, 78.14",
+  "login.homePortHint": "lat, lon — e.g. 8.8, 78.14  (optional, you can add it from Profile later)",
+  "watches.noHomePortSet": "No home port set.",
+  "watches.setHomePort": "Set it in your profile"
 }

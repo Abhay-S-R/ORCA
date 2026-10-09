@@ -190,6 +190,9 @@
   "profile.latitude": "അക്ഷാംശം (Latitude)",
   "profile.longitude": "രേഖാംശം (Longitude)",
   "profile.noHomePort": "സ്വന്തം തുറമുഖം ഇതുവരെ സജ്ജീകരിച്ചിട്ടില്ല. നിങ്ങൾ ഒന്ന് സജ്ജീകരിക്കുന്നതുവരെ ഉത്തരങ്ങൾ ഡിഫോൾട്ടായി പൈലറ്റ് മേഖലയെ ആശ്രയിച്ചിരിക്കും.",
+  "profile.selectPort": "ഹോം പോർട്ട് തിരഞ്ഞെടുക്കുക",
+  "profile.selectPortHint": "ഓട്ടോമാറ്റിക്കായി കോഓർഡിനേറ്റുകൾ സജ്ജീകരിക്കാൻ ഒരു തീരദേശ പോർട്ട് തിരഞ്ഞെടുക്കുക",
+  "profile.customPort": "കസ്റ്റം ലൊക്കേഷൻ / മാന്യുവൽ കോഓർഡിനേറ്റുകൾ",
   "profile.save": "സേവ് ചെയ്യുക",
   "profile.saving": "സേവ് ചെയ്യുന്നുണ്ട്…",
   "profile.savedHomePort": "സ്വന്തം തുറമുഖം സേവ് ചെയ്തു.",
@@ -225,5 +228,13 @@
   "profile.languageAndRole": "ഭാഷയും റോളും",
   "profile.language": "ഭാഷ",
   "profile.defaultRole": "ഡിഫോൾട്ട് റോൾ",
-  "profile.defaultRoleHint": "സാഗർ സാരഥി ആപ്പ് തുറക്കുമ്പോൾ ആദ്യം കാണിക്കുന്ന വ്യൂ ഏതായിരിക്കണം. അക്കൗണ്ട് മെനുവിൽ നിന്ന് നിങ്ങൾക്ക് എപ്പോൾ വേണമെങ്കിലും വ്യൂ മാറ്റാവുന്നതാണ്."
+  "profile.defaultRoleHint": "സാഗർ സാരഥി ആപ്പ് തുറക്കുമ്പോൾ ആദ്യം കാണിക്കുന്ന വ്യൂ ഏതായിരിക്കണം. അക്കൗണ്ട് മെനുവിൽ നിന്ന് നിങ്ങൾക്ക് എപ്പോൾ വേണമെങ്കിലും വ്യൂ മാറ്റാവുന്നതാണ്.",
+  "login.homePortNameHint": "optional — what you call it",
+  "login.homePortNamePlaceholder": "e.g. Thoothukudi",
+  "login.homePortName": "Port name",
+  "login.homePort": "Home port",
+  "login.homePortPlaceholder": "e.g. 8.80, 78.14",
+  "login.homePortHint": "lat, lon — e.g. 8.8, 78.14  (optional, you can add it from Profile later)",
+  "watches.noHomePortSet": "No home port set.",
+  "watches.setHomePort": "Set it in your profile"
 }

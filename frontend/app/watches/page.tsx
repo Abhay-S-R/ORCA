@@ -5,6 +5,9 @@
 // simplified, not crippled ("watch my home port" is one tap with sane
 // default thresholds; the full editor is behind "Advanced").
 // P3.12 — all visible strings now sourced from the i18n dictionaries via useT().
+// P-HP-1 — "Watch my home port" now reads the user's *registered* home port
+// from their profile (auth.useAuth().profile.home_port) instead of the old
+// hardcoded Thoothukudi pilot-region coordinates.
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Eye } from "lucide-react";
@@ -17,20 +20,25 @@ import { Button } from "../components/Button";
 import { WatchCard } from "../components/WatchCard";
 import { WatchGeometryPicker } from "../components/WatchGeometryPicker";
 import { usePersona } from "../persona/context";
-import { getToken, signIn, signOut } from "../lib/auth";
+import { getToken, signIn, signOut, useAuth } from "../lib/auth";
 import { createWatch, listWatches, type Watch, type WatchType } from "../lib/watches";
 import { useT } from "../i18n/useT";
 
-const HOME_PORT = { lat: 8.8, lon: 78.14 }; // Thoothukudi pilot reference — TODO(D1): user's registered home port
 const DEFAULT_WAVE_THRESHOLD = 2.5;
 
 export default function WatchesPage() {
   const { persona } = usePersona();
   const t = useT();
+  const auth = useAuth();
   const [signedIn, setSignedIn] = useState(false);
   const [watches, setWatches] = useState<Watch[] | null>(null);
   const [error, setError] = useState(false);
   const [advanced, setAdvanced] = useState(false);
+
+  // Read the user's registered home port from their profile (null until profile
+  // loads, or when no home port has been set yet).
+  const homePort = auth.status === "signed_in" ? auth.profile?.home_port ?? null : null;
+  const homePortName = auth.status === "signed_in" ? auth.profile?.home_port_name ?? null : null;
 
   const load = useCallback(async () => {
     if (!getToken()) return;
@@ -57,18 +65,25 @@ export default function WatchesPage() {
   }, [signedIn, load]);
 
   async function quickAddHomePort() {
+    // Use the user's registered home port — never a hardcoded default.
+    if (!homePort) return;
     await createWatch({
       watch_type: "wave_height",
-      lat: HOME_PORT.lat,
-      lon: HOME_PORT.lon,
+      lat: homePort.lat,
+      lon: homePort.lon,
       radius_km: 10,
       thresholds: { wave_height_m: DEFAULT_WAVE_THRESHOLD },
       channels: ["in_app"],
+      enabled: true,
     });
     load();
   }
 
   if (!signedIn) return <SignInGate />;
+
+  // The "Watch my home port" button is disabled when no home port is set.
+  // We show a nudge linking to /profile so the user knows why.
+  const hasHomePort = homePort !== null;
 
   return (
     <PageBody className="mx-auto max-w-3xl">
@@ -84,12 +99,21 @@ export default function WatchesPage() {
 
       <Panel title={t("watches.addWatch")} className="mb-4">
         <div className="flex flex-wrap items-center gap-3">
-          <Button variant="primary" onClick={quickAddHomePort}>
+          <Button variant="primary" onClick={quickAddHomePort} disabled={!hasHomePort}>
             {t("watches.watchHomePort")}
           </Button>
-          <span className="text-[11px] text-ink-dim">
-            {t("watches.waveDefault")}
-          </span>
+          {hasHomePort ? (
+            <span className="text-[11px] text-ink-dim">
+              {homePortName ? `${homePortName} — ` : ""}{t("watches.waveDefault")}
+            </span>
+          ) : (
+            <span className="text-[11px] text-ink-dim">
+              {t("watches.noHomePortSet")}{" "}
+              <Link href="/profile" className="text-accent underline">
+                {t("watches.setHomePort")}
+              </Link>
+            </span>
+          )}
           <button
             type="button"
             className="ml-auto text-[11px] text-accent underline"
@@ -99,7 +123,7 @@ export default function WatchesPage() {
             {advanced ? t("watches.hideAdvanced") : t("watches.advanced")}
           </button>
         </div>
-        {advanced && <AdvancedWatchForm onCreated={load} />}
+        {advanced && <AdvancedWatchForm onCreated={load} defaultLat={homePort?.lat} defaultLon={homePort?.lon} />}
       </Panel>
 
       {error && <ErrorState title={t("watches.serverError")} body={t("watches.serverErrorBody")} />}
@@ -126,11 +150,12 @@ export default function WatchesPage() {
   );
 }
 
-function AdvancedWatchForm({ onCreated }: { onCreated: () => void }) {
+function AdvancedWatchForm({ onCreated, defaultLat, defaultLon }: { onCreated: () => void; defaultLat?: number; defaultLon?: number }) {
   const t = useT();
   const [type, setType] = useState<WatchType>("wave_height");
-  const [lat, setLat] = useState(String(HOME_PORT.lat));
-  const [lon, setLon] = useState(String(HOME_PORT.lon));
+  // Pre-fill with the user's home port coordinates when available, otherwise blank.
+  const [lat, setLat] = useState(defaultLat !== undefined ? String(defaultLat) : "");
+  const [lon, setLon] = useState(defaultLon !== undefined ? String(defaultLon) : "");
   const [radius, setRadius] = useState("10");
   const [wave, setWave] = useState(String(DEFAULT_WAVE_THRESHOLD));
   const [wind, setWind] = useState("");
@@ -156,8 +181,8 @@ function AdvancedWatchForm({ onCreated }: { onCreated: () => void }) {
       }
       await createWatch(
         geometryMode === "area" && area
-          ? { watch_type: type, area_geojson: area, thresholds, channels: ["in_app"] }
-          : { watch_type: type, lat: Number(lat), lon: Number(lon), radius_km: radius ? Number(radius) : null, thresholds, channels: ["in_app"] },
+          ? { watch_type: type, area_geojson: area, thresholds, channels: ["in_app"], enabled: true }
+          : { watch_type: type, lat: Number(lat), lon: Number(lon), radius_km: radius ? Number(radius) : null, thresholds, channels: ["in_app"], enabled: true },
       );
       onCreated();
     } finally {

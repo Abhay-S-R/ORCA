@@ -190,6 +190,9 @@
   "profile.latitude": "अक्षांश",
   "profile.longitude": "देशांतर",
   "profile.noHomePort": "अभी तक कोई होम पोर्ट सेट नहीं किया गया है। जब तक आप सेट नहीं करते, उत्तर डिफ़ॉल्ट रूप से पायलट क्षेत्र के अनुसार होंगे।",
+  "profile.selectPort": "होम पोर्ट चुनें",
+  "profile.selectPortHint": "स्वचालित रूप से निर्देशांक सेट करने के लिए एक तटीय बंदरगाह चुनें",
+  "profile.customPort": "कस्टम स्थान / मैनुअल निर्देशांक",
   "profile.save": "सहेजें",
   "profile.saving": "सहेजा जा रहा है…",
   "profile.savedHomePort": "होम पोर्ट सहेजा गया।",
@@ -225,5 +228,13 @@
   "profile.languageAndRole": "भाषा और भूमिका",
   "profile.language": "भाषा",
   "profile.defaultRole": "डिफ़ॉल्ट भूमिका",
-  "profile.defaultRoleHint": "सागर सारथी डिफ़ॉल्ट रूप से किस दृश्य (व्यू) को खोलता है। आप खाता मेनू से कभी भी दृश्य बदल सकते हैं।"
+  "profile.defaultRoleHint": "सागर सारथी डिफ़ॉल्ट रूप से किस दृश्य (व्यू) को खोलता है। आप खाता मेनू से कभी भी दृश्य बदल सकते हैं।",
+  "login.homePortNameHint": "optional — what you call it",
+  "login.homePortNamePlaceholder": "e.g. Thoothukudi",
+  "login.homePortName": "Port name",
+  "login.homePort": "Home port",
+  "login.homePortPlaceholder": "e.g. 8.80, 78.14",
+  "login.homePortHint": "lat, lon — e.g. 8.8, 78.14  (optional, you can add it from Profile later)",
+  "watches.noHomePortSet": "No home port set.",
+  "watches.setHomePort": "Set it in your profile"
 }

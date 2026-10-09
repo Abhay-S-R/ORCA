@@ -131,7 +131,7 @@ export default function TrendsPage() {
     <PageBody className="mx-auto max-w-3xl">
       <PageHeader
         title="Trends"
-        lede="Tide over the coming days, the wind rose for the pilot port, and the catch-decline analysis for the pilot district."
+        lede="Tide over the coming days, the wind rose, and coastal catch-decline analysis."
       />
 
       {error && (

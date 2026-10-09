@@ -271,7 +271,7 @@ def resolve_or_ask(text: str, session: dict | None = None) -> PlaceResolution:
 
     return PlaceResolution(
         "fallback", ResolvedPlace("Gulf of Mannar (default)", DEFAULT_LAT, DEFAULT_LON, "regional_default"), [],
-        "This question names no place. It is answered at the pilot default position in the "
+        "This question names no place. It is answered at the regional fallback position in the "
         "Gulf of Mannar (8.80N 78.30E) — not your position. Name a place or send your "
         "position for an answer about where you actually are.",
     )

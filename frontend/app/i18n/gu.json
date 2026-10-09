@@ -190,6 +190,9 @@
   "profile.latitude": "અક્ષાંશ",
   "profile.longitude": "રેખાંશ",
   "profile.noHomePort": "હજુ સુધી કોઈ હોમ પોર્ટ સેટ નથી. જ્યાં સુધી તમે સેટ નહીં કરો ત્યાં સુધી જવાબો ડિફોલ્ટ રૂપે પાયલોટ પ્રદેશ પર રહેશે.",
+  "profile.selectPort": "હોમ પોર્ટ પસંદ કરો",
+  "profile.selectPortHint": "આપમેળે અક્ષાંશ અને રેખાંશ સેટ કરવા માટે તટીય બંદર પસંદ કરો",
+  "profile.customPort": "કસ્ટમ સ્થાન / મેન્યુઅલ સેટિંગ્સ",
   "profile.save": "સેવ કરો",
   "profile.saving": "સેવ થઈ રહ્યું છે…",
   "profile.savedHomePort": "હોમ પોર્ટ સેવ થઈ ગયું છે.",
@@ -225,5 +228,13 @@
   "profile.languageAndRole": "ભાષા અને ભૂમિકા",
   "profile.language": "ભાષા",
   "profile.defaultRole": "ડિફોલ્ટ ભૂમિકા",
-  "profile.defaultRoleHint": "સાગર સારથી ડિફોલ્ટ રૂપે કયા વ્યૂ સાથે ખુલે છે. તમે હજી પણ એકાઉન્ટ મેનૂમાંથી ગમે ત્યારે વ્યૂ બદલી શકો છો."
+  "profile.defaultRoleHint": "સાગર સારથી ડિફોલ્ટ રૂપે કયા વ્યૂ સાથે ખુલે છે. તમે હજી પણ એકાઉન્ટ મેનૂમાંથી ગમે ત્યારે વ્યૂ બદલી શકો છો.",
+  "login.homePortNameHint": "optional — what you call it",
+  "login.homePortNamePlaceholder": "e.g. Thoothukudi",
+  "login.homePortName": "Port name",
+  "login.homePort": "Home port",
+  "login.homePortPlaceholder": "e.g. 8.80, 78.14",
+  "login.homePortHint": "lat, lon — e.g. 8.8, 78.14  (optional, you can add it from Profile later)",
+  "watches.noHomePortSet": "No home port set.",
+  "watches.setHomePort": "Set it in your profile"
 }

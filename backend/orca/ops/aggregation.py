@@ -6,7 +6,7 @@ user ids ever leave this module. tests/unit/test_ops_cap.py asserts it.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -38,8 +38,11 @@ def sector_vessel_counts(db: Session) -> dict[str, int]:
     ).all()
     counts = {sid: 0 for sid, _, _ in _SECTOR_LON_BANDS}
     for (lon,) in rows:
+        if lon is None:
+            continue
+        lon_f = float(cast(Any, lon))
         for sid, lo, hi in _SECTOR_LON_BANDS:
-            if lo <= lon < hi:
+            if lo <= lon_f < hi:
                 counts[sid] += 1
                 break
     return counts
@@ -55,7 +58,7 @@ def notification_severity_counts(db: Session, hours: int = 24) -> dict[str, int]
     ).all()
     out = {"info": 0, "advisory": 0, "warning": 0, "danger": 0}
     for sev, n in rows:
-        out[sev] = int(n)
+        out[str(sev)] = int(cast(Any, n))
     return out
 
 

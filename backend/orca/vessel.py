@@ -148,7 +148,7 @@ if __name__ == "__main__":
     # an inherited vessel would show "mechanized_trawler" to a fisherman.
     from orca.agents.risk_assessment import _VESSEL_DELTAS
 
-    assert set(_VESSEL_DELTAS) <= set(VESSEL_LABELS), set(_VESSEL_DELTAS) - set(VESSEL_LABELS)
+    assert {str(k) for k in _VESSEL_DELTAS} <= set(VESSEL_LABELS), {str(k) for k in _VESSEL_DELTAS} - set(VESSEL_LABELS)
 
     # ... and every value must be one risk_assessment actually knows, or the
     # translation point P0.13 settled would silently fall back to small_fishing.

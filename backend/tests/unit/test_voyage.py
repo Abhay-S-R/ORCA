@@ -261,7 +261,7 @@ def test_every_vessel_class_has_an_assumed_draft_and_the_deepest_is_the_fallback
     assert _ASSUMED_DRAFT_M[_MOST_CONSERVATIVE_CLASS] == max(_ASSUMED_DRAFT_M.values())
 
 
-# --- P5.7: A* over a coarse grid --------------------------------------------
+# --- P5.7: Floyd–Warshall over a coarse grid --------------------------------
 #
 # A synthetic grid, not real bathymetry — deterministic and fast, and it is
 # the search LOGIC under test here (obstacle avoidance, ETA-driven cost),
@@ -322,7 +322,7 @@ def test_astar_route_prefers_the_calmer_path_when_both_are_clear(monkeypatch):
         j = round((lon - grid.lons[0]) / 0.1)
         return grid.wave_height_m[i][j] == 5.0
 
-    assert not any(is_rough(lat, lon) for lat, lon in path), "A* passed through a rough cell when a calmer route existed"
+    assert not any(is_rough(lat, lon) for lat, lon in path), "Warshall passed through a rough cell when a calmer route existed"
     # And it must have actually gone somewhere other than the flat row-0 line
     # to prove the detour is real, not a coincidence of the heuristic.
     assert any(lat != origin[0] for lat, lon in path), "path never left row 0 — it must have crossed the rough cell there"
@@ -346,28 +346,28 @@ def test_astar_route_returns_none_when_origin_itself_is_blocked(monkeypatch):
     assert path is None
 
 
-def test_plan_voyage_falls_through_to_astar_when_offset_and_wait_both_fail(monkeypatch):
+def test_plan_voyage_falls_through_to_warshall_when_offset_and_wait_both_fail(monkeypatch):
     """Integration point, not the search logic: when every offset/wait
-    candidate is still NO_GO, plan_voyage must actually call astar_route and
-    use its result if astar clears — not silently give up one rung early."""
+    candidate is still NO_GO, plan_voyage must actually call warshall_route and
+    use its result if Warshall clears — not silently give up one rung early."""
 
-    astar_points = [(8.0, 78.0), (8.05, 78.2), (8.0, 78.5)]
+    fw_points = [(8.0, 78.0), (8.05, 78.2), (8.0, 78.5)]
 
     def fake_classify_route(points, departure, now, vessel_class, draft, speed_kn):
         # densify_route already turns even the direct line into >2 points, so
-        # that can't distinguish "direct" from "astar" here — only the exact
-        # astar_route output (mocked below) is treated as clear.
-        if list(points) == astar_points:
+        # that can't distinguish "direct" from "warshall" here — only the exact
+        # warshall_route output (mocked below) is treated as clear.
+        if list(points) == fw_points:
             seg = voyage._segment("seg-0", points[0], points[-1], 1.0, departure, "CLEAR", "CLEAR", "clear", ())
-            return [seg], [voyage.Confidence("HIGH", "test")], "GO", "clear via astar"
+            return [seg], [voyage.Confidence("HIGH", "test")], "GO", "clear via warshall"
         seg = voyage._segment("seg-0", points[0], points[-1], 1.0, departure, "SHALLOW", "BLOCKED", "blocked", ())
         return [seg], [voyage.Confidence("HIGH", "test")], "NO_GO", "blocked"
 
     monkeypatch.setattr(voyage, "_classify_route", fake_classify_route)
     monkeypatch.setattr(voyage, "_detour_candidates", lambda *a, **kw: [])  # offset/wait never even tried
-    monkeypatch.setattr(voyage, "astar_route", lambda *a, **kw: astar_points)
+    monkeypatch.setattr(voyage, "warshall_route", lambda *a, **kw: fw_points)
 
     plan = voyage.plan_voyage((8.0, 78.0), (8.0, 78.5), vessel_class="small_fishing", speed_kn=8.0, draft_m=1.8)
     assert plan.verdict == "GO"
     assert plan.rerouted is True
-    assert any(a["strategy"] == "astar" for a in plan.alternatives_tried)
+    assert any(a["strategy"] == "warshall" for a in plan.alternatives_tried)
