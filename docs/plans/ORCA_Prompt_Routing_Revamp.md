@@ -129,7 +129,7 @@ not rule distress out.
 
 ## 6. Target routing
 
-> **Status & Consolidation note (2026-10-04):** Superseded and implemented by [`ORCA_Pipeline_Consolidation_Plan.md`](file:///c:/Users/hemab/OneDrive/Desktop/ORCA/docs/plans/ORCA_Pipeline_Consolidation_Plan.md). The UNDERSTAND step (LLM reading) and VALIDATE step (`validate_reading`) have been merged directly into the unified `planning` node (`orca/agents/planning.py`), deleting the standalone `understand` and `query_guard` graph nodes while preserving all deterministic validation checks, fallback logic, and safety routing.
+> **Status & Consolidation note (2026-10-04):** Superseded and implemented by [`ORCA_Pipeline_Consolidation_Plan.md`](ORCA_Pipeline_Consolidation_Plan.md). The UNDERSTAND step (LLM reading) and VALIDATE step (`validate_reading`) have been merged directly into the unified `planning` node (`orca/agents/planning.py`), deleting the standalone `understand` and `query_guard` graph nodes while preserving all deterministic validation checks, fallback logic, and safety routing.
 
 ```
 message

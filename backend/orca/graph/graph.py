@@ -3,13 +3,9 @@
     distress_check --[distress_flag]--> END (response built in this node)
                    --[else]-----------> language_ingress
                                             |
-                                        understand
-                                            |
-                                        query_guard
-                                            |
+                                         planning   (reads the prompt, validates it, routes it:
+                                            |        one node since PC2.2/PC2.3)
                         --[can't place it / can't reach that time]--> END
-                                            |
-                                         planning
                                             |
                         --[OUT_OF_SCOPE]--> out_of_scope --> END
                                             |
@@ -50,7 +46,7 @@ diagnosis. Agent 3's source-selection narratives now come from
 marine_data_discovery (P2.6), which runs once before the fan-out; Ocean
 Analytics reads that decision rather than making its own.
 
-query_guard and out_of_scope (Phase 1, P1.2-P1.4) are guards, not agents: they
+The refusals inside planning (formerly the query_guard node, folded in at PC2.3) and out_of_scope (Phase 1, P1.2-P1.4) are guards, not agents: they
 read no dataset and emit no trace entry. Since chatbot plan C0.2d a model
 *words* their reply (reporting.write_guard_reply) — the guard still decides
 whether to stop and what the reply must say, and a reply carrying a figure the
@@ -587,7 +583,7 @@ def language_ingress_node(state: ORCAState) -> dict:
 
 def planning_node(state: ORCAState) -> dict:
     """PC2.2 & PC2.3 — planning now owns prompt understanding, validation (folded
-    from query_guard), and routing in one node.
+    from the old query_guard node), and routing in one node.
     Stores understood_* classification fields, validation outcome, and routing fields.
     """
     result, entry = run_traced_node("planning", planning.run, state)
@@ -1371,7 +1367,7 @@ def build_graph():
     g.add_node("out_of_scope", out_of_scope_node)
     g.add_node("planned_distress", planned_distress_node)
     g.add_node("language_ingress", language_ingress_node)
-    # PC2.2 & PC2.3: understand & query_guard removed; planning owns LLM understanding & validation.
+    # PC2.2 & PC2.3: the understand and query_guard nodes were removed (their code lives on inside planning); planning owns LLM understanding & validation.
     g.add_node("planning", planning_node)
     g.add_node("marine_data_discovery", marine_data_discovery_node)
     g.add_node("weather_intelligence", weather_node)

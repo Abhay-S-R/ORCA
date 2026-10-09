@@ -75,8 +75,8 @@ class PlaceResolution:
 
 
 # PC1.1 (`R-NEW-1`, `R-EDGE-3`) ─────────────────────────────────────────────
-# A single, pure, graph-independent validation step.  `query_guard_node` will
-# call this in PC1.2 with the planning model's structured output instead of the
+# A single, pure, graph-independent validation step.  `planning` calls
+# this (it was the query_guard node's job until PC2.3 folded it in) with the planning model's structured output instead of the
 # current mix of raw-text word-lists and pre-graph API-handler work.
 
 @dataclass(frozen=True)
@@ -406,8 +406,8 @@ def validate_reading(
     sentence to show the user when something is not.
 
     This is deliberately a **pure function** of its arguments: no LangGraph
-    state, no LLM calls, no side-effects.  PC1.2 will wire it into
-    ``query_guard_node`` so the guard reads the model's structured output
+    state, no LLM calls, no side-effects.  planning (the former
+    ``query_guard_node``) wires it in so the guard reads the model's structured output
     instead of the current pre-graph word-list and API-handler mix.
 
     Parameters

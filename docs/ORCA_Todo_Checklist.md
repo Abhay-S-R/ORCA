@@ -32,11 +32,9 @@ Written 2026-10-09 from the implementation log (`docs/logs/DLC_implementation_lo
   One rounded pill: ship button (vessel) at the left in place of "+", the field, a quiet mic, a round up-arrow send button. No outer card, no "Ask" word, no note line (it would need nine translations; say if you want it). Sample questions sit below the pill. The "Vessel not set" chip is replaced by the ship button (a small dot shows when no vessel is set; its menu says so). *To verify:* /ask signed in: type, press Enter and the arrow; the mic records; click the ship and pick a vessel; signed out: no ship button.
 - [x] **PLAN-ASK-3: the composer keeps one width with the sidebar open or closed (WRITTEN 2026-10-09, waiting for your check)**
   The thread and the composer share one centred column, max width 56rem. *To verify:* open and close the chat-history sidebar with a long chat: the input box stays the same width (it only slides sideways); same on the welcome screen.
-- [ ] **PLAN-ASK-4: no "New chat" button and no first-question text in the /ask header (written 2026-10-09).** *To verify:* open a chat on /ask: the header shows only "ASK SAGAR SARATHI"; New chat still works from the history sidebar.
+- [x] **PLAN-ASK-4: no "New chat" button and no first-question text in the /ask header (written 2026-10-09).** *To verify:* open a chat on /ask: the header shows only "ASK SAGAR SARATHI"; New chat still works from the history sidebar.
 - [ ] **PLAN-CHART-1: the weather chart on the answer card**
   It "dances" (line animation replays on every redraw, worst with the map open), uses dark-theme colours on the cream theme, puts wave (m) and wind (m/s) on one axis, shows raw ISO timestamps and overlapping labels. Fix each; removing the map (ASK-1) removes the trigger.
-- [ ] **UI-ICONS: share and "more" icons** on the action row (copy, play, try again are done)
-  Only if they have a real job; nothing exists for them yet.
 
 ### A3. Plan phases (`docs/plans/ORCA_Pipeline_Consolidation_Plan.md`)
 
@@ -127,7 +125,7 @@ and for the fisherman answer:
 
 ### Language and numbers
 
-- [ ] **FIX-FOLLOWLANG-1: "answer the same in <language>" after an answer re-answers in that language (written 2026-10-09).** *To verify:* ask "answer this in gujarati: pfzs near mangrol", then "okay fine answer the same in kannada": the same PFZ answer appears in Kannada (not "Sure thing..."). Try "in hindi please", then "change language" (still a reset), and "clear the conversation".
+- [x] **FIX-FOLLOWLANG-1: "answer the same in <language>" after an answer re-answers in that language (written 2026-10-09).** *To verify:* ask "answer this in gujarati: pfzs near mangrol", then "okay fine answer the same in kannada": the same PFZ answer appears in Kannada (not "Sure thing..."). Try "in hindi please", then "change language" (still a reset), and "clear the conversation".
 - [ ] **The name is spelled correctly in every language** (ಸಾಗರ ಸಾರಥಿ, सागर सारथी, ...), in translated answers and chat replies.
 - [ ] **No number is lost in a translated answer** (the Marathi/Bengali "झेडकेईईपीझेड5झेड" leak; the Hindi `ZKEEPZ` leak). *How:* a Marathi or Bengali PFZ/weather answer shows 16 km, 30-35 m, 1.5 m.
 
