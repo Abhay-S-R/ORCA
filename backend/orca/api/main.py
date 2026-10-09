@@ -1320,7 +1320,7 @@ async def query(
             # Ambiguous is excluded for the same reason it is above — "Gujarat"
             # must keep asking, not be silently answered at the caller's own port.
             lat, lon, place_source = home_port["lat"], home_port["lon"], "home_port"
-            place_name = None
+            place_name = getattr(user, "home_port_name", None) or None
             resolution = {**(resolution or {}), "status": "resolved", "place_source": "home_port"}
         else:
             # Unresolvable or ambiguous: the graph will stop before any agent

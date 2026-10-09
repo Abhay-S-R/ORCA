@@ -185,7 +185,7 @@ const REGION_STATS_RADIUS_KM = 150;
 
 const COASTAL_REGIONS: MarinePortPreset[] = [
   { id: "all", name: "All India Coastline", sub: "National Overview", center: [78.5, 15.5], zoom: 4.8, coast: "island" },
-  { id: "gulf_mannar", name: "Gulf of Mannar / Thoothukudi", sub: "Pilot Sector", center: [78.8, 8.8], zoom: 7.8, coast: "east" },
+  { id: "gulf_mannar", name: "Gulf of Mannar / Thoothukudi", sub: "Tamil Nadu Coast", center: [78.8, 8.8], zoom: 7.8, coast: "east" },
   { id: "gujarat", name: "Gujarat (Kutch & Saurashtra)", sub: "West Coast", center: [69.6, 21.8], zoom: 7.2, coast: "west" },
   { id: "mumbai", name: "Mumbai & Konkan Coast", sub: "Maharashtra", center: [72.8, 18.9], zoom: 8.2, coast: "west" },
   { id: "goa", name: "Goa & Karwar", sub: "Goa / Karnataka", center: [73.8, 15.4], zoom: 8.4, coast: "west" },

@@ -316,3 +316,22 @@ export function useAuth(): AuthState {
 export function displayNameOf(profile: Profile | null): string {
   return profile?.display_name || profile?.identifier || "Signed in";
 }
+
+// Save the user's home port after registration (or profile update).
+// Calls PUT /api/profile/home-port, then invalidates the cached profile so
+// every useAuth() consumer sees the new port immediately.
+export async function setHomePort(lat: number, lon: number, name?: string): Promise<boolean> {
+  try {
+    const res = await authFetch("/api/profile/home-port", {
+      method: "PUT",
+      body: JSON.stringify({ lat, lon, ...(name ? { name } : {}) }),
+    });
+    if (res.ok) {
+      invalidateProfile();
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}

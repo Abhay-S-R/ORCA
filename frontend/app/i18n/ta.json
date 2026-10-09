@@ -225,5 +225,13 @@
   "profile.languageAndRole": "மொழி மற்றும் பங்கு",
   "profile.language": "மொழி",
   "profile.defaultRole": "இயல்புநிலை பங்கு",
-  "profile.defaultRoleHint": "சாகர் சாரதி இயல்புநிலையாக எந்தக் காட்சியுடன் திறக்க வேண்டும். கணக்கு மெனுவிலிருந்து எப்போது வேண்டுமானாலும் காட்சிகளை மாற்றிக்கொள்ளலாம்."
+  "profile.defaultRoleHint": "சாகர் சாரதி இயல்புநிலையாக எந்தக் காட்சியுடன் திறக்க வேண்டும். கணக்கு மெனுவிலிருந்து எப்போது வேண்டுமானாலும் காட்சிகளை மாற்றிக்கொள்ளலாம்.",
+  "login.homePortNameHint": "optional — what you call it",
+  "login.homePortNamePlaceholder": "e.g. Thoothukudi",
+  "login.homePortName": "Port name",
+  "login.homePort": "Home port",
+  "login.homePortPlaceholder": "e.g. 8.80, 78.14",
+  "login.homePortHint": "lat, lon — e.g. 8.8, 78.14  (optional, you can add it from Profile later)",
+  "watches.noHomePortSet": "No home port set.",
+  "watches.setHomePort": "Set it in your profile"
 }

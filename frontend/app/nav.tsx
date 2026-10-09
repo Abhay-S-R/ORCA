@@ -29,11 +29,14 @@ import {
 import { NAV_ROUTES, visibilityFor } from "./persona/config";
 import { usePersona } from "./persona/context";
 import { API_BASE } from "./lib/apiBase";
+import { useAuth } from "./lib/auth";
 import { useT } from "./i18n/useT";
 
-// Thoothukudi, the pilot region's own reference position — the same default
-// the API uses when no live fix is supplied. Live GPS is Phase 2.
-const DEFAULT_POSITION = { lat: 8.8, lon: 78.14 };
+// P-HP-1 — SOS no longer sends a hardcoded Thoothukudi default position.
+// It tries the browser's Geolocation API first; if denied or unavailable it
+// reads the user's registered home port from the profile; if neither exists
+// it omits lat/lon entirely and lets the backend fall back on its own default.
+// This is imported lazily inside SosButton to avoid a top-level module import.
 
 type MrccContact = {
   primary: { name: string; phone: string; vhf_channel: string };
@@ -197,6 +200,9 @@ export function SosButton() {
   const dialog = useRef<HTMLDialogElement>(null);
   const [contact, setContact] = useState<MrccContact | null>(null);
   const [reachedBackend, setReachedBackend] = useState<boolean | null>(null);
+  // The position we sent — shown in the dialog so the user knows what was used.
+  const [sentPosition, setSentPosition] = useState<{ lat: number; lon: number } | null>(null);
+  const auth = useAuth();
   const pathname = usePathname();
   const isMapPage = pathname === "/map";
 
@@ -204,21 +210,48 @@ export function SosButton() {
     dialog.current?.showModal();
     setContact(null);
     setReachedBackend(null);
+    setSentPosition(null);
 
-    const es = new EventSource(
-      `${API_BASE}/query?distress=true&lat=${DEFAULT_POSITION.lat}&lon=${DEFAULT_POSITION.lon}`,
-    );
-    es.onmessage = (ev) => {
-      const data = JSON.parse(ev.data);
-      if (data.type !== "final_response") return;
-      if (data.mrcc_contact) setContact(data.mrcc_contact);
-      setReachedBackend(true);
-      es.close();
-    };
-    es.onerror = () => {
-      setReachedBackend(false);
-      es.close();
-    };
+    // Try to get a live GPS fix; fall back to registered home port; fall back
+    // to omitting the position (backend applies its own geographic default).
+    function fireRequest(pos: { lat: number; lon: number } | null) {
+      setSentPosition(pos);
+      const posParam = pos ? `&lat=${pos.lat}&lon=${pos.lon}` : "";
+      const es = new EventSource(
+        `${API_BASE}/query?distress=true${posParam}`,
+      );
+      es.onmessage = (ev) => {
+        const data = JSON.parse(ev.data);
+        if (data.type !== "final_response") return;
+        if (data.mrcc_contact) setContact(data.mrcc_contact);
+        setReachedBackend(true);
+        es.close();
+      };
+      es.onerror = () => {
+        setReachedBackend(false);
+        es.close();
+      };
+    }
+
+    const homePort =
+      auth.status === "signed_in" && auth.profile?.home_port
+        ? { lat: auth.profile.home_port.lat, lon: auth.profile.home_port.lon }
+        : null;
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (geoPos) => {
+          fireRequest({ lat: geoPos.coords.latitude, lon: geoPos.coords.longitude });
+        },
+        () => {
+          // Permission denied or unavailable — use home port if set, else none.
+          fireRequest(homePort);
+        },
+        { timeout: 4000, maximumAge: 60_000 },
+      );
+    } else {
+      fireRequest(homePort);
+    }
   }
 
   const primary = contact?.primary ?? NATIONWIDE_MRCC;
@@ -276,7 +309,9 @@ export function SosButton() {
           <div className="flex justify-between gap-3">
             <dt className="text-ink-muted">Position sent</dt>
             <dd data-readout className="text-ink">
-              {DEFAULT_POSITION.lat.toFixed(3)}, {DEFAULT_POSITION.lon.toFixed(3)}
+              {sentPosition
+                ? `${sentPosition.lat.toFixed(4)}, ${sentPosition.lon.toFixed(4)}`
+                : "none — tell the operator your position"}
             </dd>
           </div>
         </dl>

@@ -133,7 +133,7 @@ def sector_for_point_disclosed(
     if not (lat0 <= lat <= lat1 and lon0 <= lon <= lon1):
         return _PILOT_SECTOR, (
             f"{lat:.2f}N {lon:.2f}E is outside every INCOIS PFZ sector "
-            f"({lat0:g}-{lat1:g}N, {lon0:g}-{lon1:g}E). The sector status shown is the pilot "
+            f"({lat0:g}-{lat1:g}N, {lon0:g}-{lon1:g}E). The sector status shown is the regional fallback "
             "sector's, as a placeholder — it is not a statement about this position."
         )
     for sector_id, la0, la1, lo0, lo1 in _ISLAND_SECTORS:
@@ -144,19 +144,19 @@ def sector_for_point_disclosed(
         if lat >= min_lat:
             return sector_id, _default_position_note(sector_id, place_source)
     return _PILOT_SECTOR, (
-        f"No INCOIS sector band covers {lat:.2f}N {lon:.2f}E; the pilot sector "
-        f"{_PILOT_SECTOR} is shown as a fallback."
+        f"No INCOIS sector band covers {lat:.2f}N {lon:.2f}E; the regional fallback sector "
+        f"{_PILOT_SECTOR} is shown."
     )
 
 
 def _default_position_note(sector_id: str, place_source: str | None) -> str | None:
-    """A sector derived from the pilot default position is the pilot's sector
-    however it was arrived at. Saying "your sector is SEC006" to someone whose
+    """A sector derived from the regional default position is the fallback sector
+    however it was arrived at. Saying 'your sector is SEC006' to someone whose
     position we never learned is the exact claim P1.6 exists to stop."""
     if place_source != "regional_default":
         return None
     return (
-        f"Sector {sector_id} was derived from the pilot default position, not from yours — "
+        f"Sector {sector_id} was derived from the regional fallback position, not from yours — "
         "this question named no place. Name one, or send your position, for your own sector."
     )
 

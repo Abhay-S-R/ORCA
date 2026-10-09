@@ -7,7 +7,7 @@
 // Sentinel has fired, which is why the redirect points here (P4.1/P4.11).
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Bell, ChevronDown, Radio } from "lucide-react";
+import { AlertTriangle, Anchor, Bell, ChevronDown, Radio } from "lucide-react";
 import { PageBody, PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { Badge, confidenceClass, confidenceLabel, type ConfidenceTier } from "../components/Badge";
@@ -183,6 +183,9 @@ export default function AlertsPage() {
     .filter((n) => n.read)
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 
+  const homePort = auth.status === "signed_in" ? auth.profile?.home_port ?? null : null;
+  const homePortName = auth.status === "signed_in" ? auth.profile?.home_port_name ?? null : null;
+
   return (
     <PageBody className="mx-auto max-w-3xl">
       <PageHeader
@@ -197,6 +200,30 @@ export default function AlertsPage() {
         }
       />
 
+      {homePort ? (
+        <div className="mb-4 flex items-center justify-between rounded-md border border-hairline bg-shelf-1 px-3 py-2 text-xs">
+          <div className="flex items-center gap-2 text-ink-muted">
+            <Anchor className="size-3.5 text-accent" aria-hidden="true" />
+            <span>
+              Home port: <strong className="text-ink">{homePortName ?? `${homePort.lat.toFixed(2)}°N, ${homePort.lon.toFixed(2)}°E`}</strong>
+            </span>
+            <span className="text-[11px] text-ink-dim">
+              ({homePort.lat.toFixed(2)}°N, {homePort.lon.toFixed(2)}°E)
+            </span>
+          </div>
+          <Link href="/profile" className="text-accent hover:underline">
+            Manage
+          </Link>
+        </div>
+      ) : (
+        <div className="mb-4 flex items-center justify-between rounded-md border border-caution/30 bg-caution/10 px-3 py-2 text-xs text-caution">
+          <span>No home port set. Alerts may not reflect your local coastal waters.</span>
+          <Link href="/profile" className="font-medium underline ml-2">
+            Set home port →
+          </Link>
+        </div>
+      )}
+
       {error && <ErrorState title="Could not reach the Sagar Sarathi API" body="Start the backend, then reload this page." />}
       {!error && items === null && (
         <div className="flex flex-col gap-2">
@@ -207,7 +234,15 @@ export default function AlertsPage() {
       )}
 
       {!error && items !== null && items.length === 0 && (
-        <EmptyState icon={<Bell className="size-6" />} title="No alerts yet" body="Sentinel watches your subscriptions and speaks up here the moment something crosses a threshold." />
+        <EmptyState
+          icon={<Bell className="size-6" />}
+          title="No alerts yet"
+          body={
+            homePortName
+              ? `Sentinel is monitoring your home port (${homePortName}) and subscriptions. It speaks up here the moment something crosses a threshold.`
+              : "Sentinel watches your subscriptions and speaks up here the moment something crosses a threshold."
+          }
+        />
       )}
 
       {!error && items !== null && items.length > 0 && (

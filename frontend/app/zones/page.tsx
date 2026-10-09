@@ -59,7 +59,10 @@ function useVesselReachKm(): { reachKm: number | null; cruiseSpeedKn: number | n
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
-const POS = { lat: 8.8, lon: 78.14 }; // Thoothukudi — pilot reference position
+// P-HP-1 — no longer a hardcoded Thoothukudi constant. The home port comes
+// from the user's profile (zones API defaults to the registered home port
+// server-side when omitted; if there is none the backend applies its own
+// geographic default).
 
 type Confidence = { score: "HIGH" | "MEDIUM" | "LOW_DATA"; rationale: string };
 
@@ -132,17 +135,27 @@ export default function ZonesPage() {
   const t = useT();
   const { persona } = usePersona();
   const reach = useVesselReachKm();
+  const auth = useAuth();
+
+  // Use the user's registered home port for the zones query when available.
+  // If no home port is set the backend will use its own geographic default.
+  const homePort = auth.status === "signed_in" ? auth.profile?.home_port ?? null : null;
+  const posParam = homePort ? `lat=${homePort.lat}&lon=${homePort.lon}` : "";
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/zones?lat=${POS.lat}&lon=${POS.lon}`)
+    const base = `${API_BASE}/api/zones${posParam ? `?${posParam}` : ""}`;
+    const banBase = `${API_BASE}/api/fishing-ban${posParam ? `?${posParam}` : ""}`;
+    fetch(base)
       .then((r) => r.json())
       .then(setData)
       .catch(() => setError(true));
-    fetch(`${API_BASE}/api/fishing-ban?lat=${POS.lat}&lon=${POS.lon}`)
+    fetch(banBase)
       .then((r) => r.json())
       .then(setBan)
       .catch(() => setBan(null));
-  }, []);
+  // Re-fetch when home port changes (user sets or updates it)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [posParam]);
 
   return (
     <PageBody className="mx-auto max-w-3xl">

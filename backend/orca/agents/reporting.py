@@ -140,14 +140,14 @@ def describe_location(user_location: dict[str, Any] | None) -> str:
             # thousand kilometres from the coast.
             device_coords = f" ({loc['fix_lat']:.4f}, {loc['fix_lon']:.4f})" if loc.get("fix_lat") is not None and loc.get("fix_lon") is not None else ""
             return (
-                f"The telemetry below was measured at the pilot region's default position ({position}). "
+                f"The telemetry below was measured at a fallback position in the Gulf of Mannar ({position}). "
                 f"The caller's device did report a position{device_coords}, but it is inland, so there are no marine "
                 "readings there and it was not used. These numbers are NOT near the caller: do not call "
                 "this 'your position' or 'your nearest' anything. Name the default's own place instead, "
                 "and tell them to name a port or a position at sea for local numbers."
             )
         return (
-            f"The telemetry below was measured at the pilot region's default position ({position}) "
+            f"The telemetry below was measured at a fallback position in the Gulf of Mannar ({position}) "
             "because the query named no location that could be resolved and no GPS fix was supplied."
         )
     if loc.get("place_source") == "gps_fix":
@@ -157,6 +157,14 @@ def describe_location(user_location: dict[str, Any] | None) -> str:
             "not a place they asked about — say so if the query named somewhere else."
         )
     name = loc.get("place_name")
+    if loc.get("place_source") == "home_port":
+        port_desc = f"{name} ({position})" if name else f"({position})"
+        return (
+            f"The telemetry below was measured at the caller's registered home port: {port_desc}. "
+            "Because this query is open-ended or did not specify an explicit location, "
+            "their registered home port is the default operating region and primary reference point for this advice. "
+            "Answer directly for this home port and surrounding coastal waters."
+        )
     if loc.get("place_source") == "session_carried" and name:
         return (
             f"The telemetry below was measured at {name} ({position}) — the place named EARLIER in "
@@ -210,7 +218,7 @@ def facts_paragraph(
     name = loc.get("place_name")
     # The gazetteer stores names lowercase ("kochi"); a sentence should not.
     place = (name.title() if isinstance(name, str) and name.islower() else name) or (
-        "the pilot region's default position" if loc.get("place_source") == "regional_default" else "this position"
+        "a fallback position in the Gulf of Mannar" if loc.get("place_source") == "regional_default" else "this position"
     )
     lines: list[str] = []
     if lead_with_verdict and verdict.get("go_no_go"):

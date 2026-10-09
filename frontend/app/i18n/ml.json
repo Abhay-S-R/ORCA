@@ -225,5 +225,13 @@
   "profile.languageAndRole": "ഭാഷയും റോളും",
   "profile.language": "ഭാഷ",
   "profile.defaultRole": "ഡിഫോൾട്ട് റോൾ",
-  "profile.defaultRoleHint": "സാഗർ സാരഥി ആപ്പ് തുറക്കുമ്പോൾ ആദ്യം കാണിക്കുന്ന വ്യൂ ഏതായിരിക്കണം. അക്കൗണ്ട് മെനുവിൽ നിന്ന് നിങ്ങൾക്ക് എപ്പോൾ വേണമെങ്കിലും വ്യൂ മാറ്റാവുന്നതാണ്."
+  "profile.defaultRoleHint": "സാഗർ സാരഥി ആപ്പ് തുറക്കുമ്പോൾ ആദ്യം കാണിക്കുന്ന വ്യൂ ഏതായിരിക്കണം. അക്കൗണ്ട് മെനുവിൽ നിന്ന് നിങ്ങൾക്ക് എപ്പോൾ വേണമെങ്കിലും വ്യൂ മാറ്റാവുന്നതാണ്.",
+  "login.homePortNameHint": "optional — what you call it",
+  "login.homePortNamePlaceholder": "e.g. Thoothukudi",
+  "login.homePortName": "Port name",
+  "login.homePort": "Home port",
+  "login.homePortPlaceholder": "e.g. 8.80, 78.14",
+  "login.homePortHint": "lat, lon — e.g. 8.8, 78.14  (optional, you can add it from Profile later)",
+  "watches.noHomePortSet": "No home port set.",
+  "watches.setHomePort": "Set it in your profile"
 }

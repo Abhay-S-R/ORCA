@@ -266,7 +266,7 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
   // so the map and the answer are never about two different positions.
   // Backend rule (api/main.py): an explicit lat/lon always beats a place name
   // parsed out of the text, so sending this is what stops a query naming a
-  // harbour outside the gazetteer being answered at the pilot-region default.
+  // harbour outside the gazetteer from falling back to the backend's geographic default.
   const { position: geoPosition, status: geoStatus } = useGeolocation();
   // useGeolocation stores [lon, lat] (GeoJSON order), so unpack, don't index blind.
   // Only sent on a "granted" fix: a denied or still-loading permission must

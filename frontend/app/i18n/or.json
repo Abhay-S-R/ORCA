@@ -225,5 +225,13 @@
   "profile.languageAndRole": "ভাষা ও ভূমিকা",
   "profile.language": "ভাষা",
   "profile.defaultRole": "ডিফল্ট ভূমিকা",
-  "profile.defaultRoleHint": "ਸagar Sarathi ডিফল্টভাবে কোন ভিউ খোলে। আপনি অ্যাকাউন্ট মেনু থেকে যেকোনো সময় ভিউ পরিবর্তন করতে পারেন।"
+  "profile.defaultRoleHint": "ਸagar Sarathi ডিফল্টভাবে কোন ভিউ খোলে। আপনি অ্যাকাউন্ট মেনু থেকে যেকোনো সময় ভিউ পরিবর্তন করতে পারেন।",
+  "login.homePortNameHint": "optional — what you call it",
+  "login.homePortNamePlaceholder": "e.g. Thoothukudi",
+  "login.homePortName": "Port name",
+  "login.homePort": "Home port",
+  "login.homePortPlaceholder": "e.g. 8.80, 78.14",
+  "login.homePortHint": "lat, lon — e.g. 8.8, 78.14  (optional, you can add it from Profile later)",
+  "watches.noHomePortSet": "No home port set.",
+  "watches.setHomePort": "Set it in your profile"
 }

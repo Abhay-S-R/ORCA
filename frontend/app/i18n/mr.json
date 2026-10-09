@@ -225,5 +225,13 @@
   "profile.languageAndRole": "भाषा आणि भूमिका",
   "profile.language": "भाषा",
   "profile.defaultRole": "डीफॉल्ट भूमिका",
-  "profile.defaultRoleHint": "सागर सारथी डीफॉल्टनुसार कोणते दृश्य (view) उघडतो. तुम्ही खाते मेनूमधून कधीही दृश्य बदलू शकता."
+  "profile.defaultRoleHint": "सागर सारथी डीफॉल्टनुसार कोणते दृश्य (view) उघडतो. तुम्ही खाते मेनूमधून कधीही दृश्य बदलू शकता.",
+  "login.homePortNameHint": "optional — what you call it",
+  "login.homePortNamePlaceholder": "e.g. Thoothukudi",
+  "login.homePortName": "Port name",
+  "login.homePort": "Home port",
+  "login.homePortPlaceholder": "e.g. 8.80, 78.14",
+  "login.homePortHint": "lat, lon — e.g. 8.8, 78.14  (optional, you can add it from Profile later)",
+  "watches.noHomePortSet": "No home port set.",
+  "watches.setHomePort": "Set it in your profile"
 }
