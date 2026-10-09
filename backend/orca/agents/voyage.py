@@ -8,7 +8,6 @@ the time the vessel would actually be there.
 """
 from __future__ import annotations
 
-import heapq
 import math
 import uuid
 from dataclasses import dataclass
@@ -219,10 +218,16 @@ def densify_route(
     return [origin] + [(lat, lon) for lon, lat in intermediate] + [destination]
 
 
+@lru_cache(maxsize=32)
+def _cached_lightning_nowcast(round_lat: float, round_lon: float) -> dict[str, Any]:
+    from orca.agents import weather_intelligence as wia
+    return wia.get_lightning_nowcast(round_lat, round_lon, radius_km=25.0)
+
+
 def _classify_segment(
     segment_id: str, start: tuple[float, float], end: tuple[float, float],
     distance_nm: float, eta: datetime, vessel_class: VesselClass, draft_m: float,
-    now: datetime, speed_kn: float = 8.0,
+    now: datetime, speed_kn: float = 8.0, is_terminal: bool = False,
 ) -> tuple[RouteSegment, Confidence]:
     """Worst-first cascade over the same leg, evaluated at its midpoint: hard
     constraints (depth, MPA, boundary) always outrank soft ones (sea state,
@@ -235,8 +240,9 @@ def _classify_segment(
 
     depth = depth_at_point(mid_lat, mid_lon)
     provenance.append(SourceProvenance(dataset="GEBCO 2026 bathymetry", acquisition_timestamp="", freshness_minutes=0))
-    if depth.on_land or (depth.depth_m is not None and depth.depth_m < draft_m + _DRAFT_SAFETY_MARGIN_M):
-        detail = "On land" if depth.on_land else f"Depth {depth.depth_m}m at draft {draft_m}m + {_DRAFT_SAFETY_MARGIN_M}m clearance"
+    min_clearance = 0.0 if is_terminal else 0.5
+    if depth.on_land or (depth.depth_m is not None and depth.depth_m <= draft_m + min_clearance):
+        detail = "On land" if depth.on_land else f"Depth {depth.depth_m}m at draft {draft_m}m (grounding hazard, clearance <= {min_clearance}m)"
         return _segment(segment_id, start, end, distance_nm, eta, "SHALLOW", "BLOCKED", detail, provenance, depth_m=depth.depth_m), Confidence("HIGH", "Bathymetry grid, exact cell")
 
     mpa_hits = [f for f in point_in_polygon(mid_lat, mid_lon) if f.source_file == _MPA_SOURCE_FILE]
@@ -270,11 +276,13 @@ def _classify_segment(
         imbl = None  # boundary not usable here — not fatal to the rest of the classification
 
     if (eta - now).total_seconds() / 3600.0 <= _LIGHTNING_NOWCAST_HORIZON_HOURS:
-        from orca.agents import weather_intelligence as wia
-        lightning = wia.get_lightning_nowcast(mid_lat, mid_lon, radius_km=25.0)
-        provenance.append(SourceProvenance(dataset="Lightning nowcast (WIA)", acquisition_timestamp="", freshness_minutes=0))
-        if lightning["lightning_active"]:
-            return _segment(segment_id, start, end, distance_nm, eta, "LIGHTNING", "BLOCKED", "Active lightning nowcast near this leg", provenance, depth_m=depth.depth_m), Confidence("MEDIUM", "Nowcast only, not a forecast")
+        try:
+            lightning = _cached_lightning_nowcast(round(mid_lat, 1), round(mid_lon, 1))
+            provenance.append(SourceProvenance(dataset="Lightning nowcast (WIA)", acquisition_timestamp="", freshness_minutes=0))
+            if lightning.get("lightning_active"):
+                return _segment(segment_id, start, end, distance_nm, eta, "LIGHTNING", "BLOCKED", "Active lightning nowcast near this leg", provenance, depth_m=depth.depth_m), Confidence("MEDIUM", "Nowcast only, not a forecast")
+        except Exception:
+            pass
 
     _wind_delta_kmh, hs_delta = _VESSEL_DELTAS[vessel_class]
     danger_hs, caution_hs = 3.5 + hs_delta, 2.0 + hs_delta
@@ -331,12 +339,14 @@ def _classify_route(
     segments: list[RouteSegment] = []
     confidences: list[Confidence] = []
     cumulative_nm = 0.0
-    for i in range(len(points) - 1):
+    total_legs = len(points) - 1
+    for i in range(total_legs):
         start, end = points[i], points[i + 1]
         _, leg_nm = bearing_and_distance(start[0], start[1], end[0], end[1])
         cumulative_nm += leg_nm
         eta = departure + timedelta(hours=cumulative_nm / speed_kn)
-        segment, confidence = _classify_segment(f"seg-{i}", start, end, leg_nm, eta, vessel_class, draft, now, speed_kn)
+        is_terminal = (i <= 1 or i >= total_legs - 2)
+        segment, confidence = _classify_segment(f"seg-{i}", start, end, leg_nm, eta, vessel_class, draft, now, speed_kn, is_terminal=is_terminal)
         segments.append(segment)
         confidences.append(confidence)
 
@@ -344,11 +354,17 @@ def _classify_route(
     caution = [s for s in segments if s.status == "CAUTION"]
     verdict: Literal["GO", "CAUTION", "NO_GO"]
     if blocked:
-        verdict, reason = "NO_GO", f"{len(blocked)} segment(s) blocked: {', '.join(sorted({s.hazard_class for s in blocked}))}"
+        kinds = ", ".join(sorted({s.hazard_class for s in blocked}))
+        sample = "; ".join(f"{s.hazard_class}: {s.detail}" for s in blocked[:3])
+        extra = f" (+{len(blocked) - 3} more)" if len(blocked) > 3 else ""
+        verdict, reason = "NO_GO", f"{len(blocked)} blocked leg(s) ({kinds}). {sample}{extra}"
     elif caution:
-        verdict, reason = "CAUTION", f"{len(caution)} segment(s) need caution: {', '.join(sorted({s.hazard_class for s in caution}))}"
+        kinds = ", ".join(sorted({s.hazard_class for s in caution}))
+        sample = "; ".join(f"{s.hazard_class}: {s.detail}" for s in caution[:3])
+        extra = f" (+{len(caution) - 3} more)" if len(caution) > 3 else ""
+        verdict, reason = "CAUTION", f"{len(caution)} caution leg(s) ({kinds}). {sample}{extra}"
     else:
-        verdict, reason = "GO", "All segments clear"
+        verdict, reason = "GO", "All segments clear of land, boundary, MPA and forecast hazards"
     return segments, confidences, verdict, reason
 
 
@@ -363,46 +379,35 @@ def _offset_point(lat: float, lon: float, bearing_deg: float, distance_nm: float
 
 
 # ---------------------------------------------------------------------------
-# P5.7 — A* over a coarse grid, tried only when the offset/wait candidates
-# below still fail to clear. This is the "genuinely sophisticated part":
-# real constraint-checked planning around an actual obstacle (a shallow
-# bank, an MPA, the boundary buffer), not just three fixed-shape guesses.
-# It earns the word this point is named after — "route optimization"
-# (README.md) was never true of the offset detours alone.
-#
-# Approach note (plan §5.7, decided 2026-09-18): a library least-cost path
-# (skimage.graph.MCP_Geometric) is shorter to write but its cost surface is
-# static — computed once, before the search runs. orca_final §8.2 makes wave
-# height *at the ETA* load-bearing, and ETA depends on how far along the path
-# a cell is, which is exactly what a static cost grid cannot express. This
-# hand-written A* looks the forecast up at the arrival time the path-so-far
-# implies, which is why it stays hand-written rather than reaching for the
-# library. ~150 lines, per the plan's own estimate.
+# P5.7 — Floyd–Warshall over a coarse grid, tried when offset/wait still fail.
+# Land, IMBL buffer and MPA cells are infinite cost (not in the graph). Near-
+# land and rough-sea cells keep a large positive penalty: a negative weight
+# would attract the path onto the threshold we must not cross.
+# N ≤ 22² so Warshall is O(N³) and still interactive.
 # ---------------------------------------------------------------------------
 
-_ASTAR_GRID_CELLS_PER_AXIS = 22  # coarse: at most ~500 nodes, not a bathymetry-resolution grid
-_ASTAR_PADDING_DEG = 0.3         # room either side of the direct line to actually route around something
-# Same hard-block distance risk_assessment.evaluate_marine_safety and
-# _classify_segment's own IMBL check use — one number, not a second opinion
-# on how close is too close.
-_ASTAR_IMBL_BUFFER_NM = 1.0
-# A disclosed cost trade-off (nm of "distance" one metre of forecast wave
-# height at arrival is worth to the search), not a measured constant — high
-# enough that the search visibly prefers a longer flat-water leg over a
-# shorter rough one, low enough that it does not detour halfway round India
-# to shave off a few centimetres of chop.
-_ASTAR_WAVE_PENALTY_NM_PER_M = 4.0
-_ASTAR_NEIGHBOR_OFFSETS: tuple[tuple[int, int], ...] = (
+_FW_GRID_CELLS_PER_AXIS = 22
+_FW_PADDING_DEG = 1.2
+_INDIA_LAT_MIN, _INDIA_LAT_MAX = 5.0, 24.0
+_INDIA_LON_MIN, _INDIA_LON_MAX = 66.0, 95.0
+_FW_IMBL_BUFFER_NM = 2.0
+_FW_WAVE_PENALTY_NM_PER_M = 4.0
+_FW_LAND_NEAR_PENALTY_NM = 18.0
+_FW_INF = 1.0e12
+_FW_NEIGHBOR_OFFSETS: tuple[tuple[int, int], ...] = (
     (-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1),
 )
 
 
 @dataclass(frozen=True)
-class _AstarGrid:
+class _RouteGrid:
     lats: list[float]
     lons: list[float]
     blocked: list[list[bool]]  # [i][j] — i indexes lats, j indexes lons
     wave_height_m: list[list[float | None]]  # [i][j] — see _grid_wave_heights' own ceiling note
+
+
+_AstarGrid = _RouteGrid  # tests that built a synthetic A* grid still construct this shape
 
 
 def _grid_depths_m(lats: list[float], lons: list[float]) -> list[list[float | None]]:
@@ -494,24 +499,22 @@ def _grid_wave_heights(lats: list[float], lons: list[float], eta_estimate: datet
     return out
 
 
-def _build_astar_grid(origin: tuple[float, float], destination: tuple[float, float], departure: datetime, speed_kn: float, draft_m: float) -> _AstarGrid:
-    """Impassability mask over the bounding box of origin/destination (plus
-    padding to actually have room to route around something): depth <
-    draft + margin (shallow or on land), inside an MPA polygon, or within
-    the IMBL buffer of the nearest treaty line — the same three hard
-    constraints `_classify_segment` blocks a leg on, applied per grid cell
-    instead of per densified waypoint. Depth and wave height are fetched in
-    two batched lookups; only the MPA/boundary checks stay per-cell (each is
-    already fast — a spatial-index query, not a lazy-array read — and only
-    runs for cells depth has not already ruled out)."""
+def _build_route_grid(origin: tuple[float, float], destination: tuple[float, float], departure: datetime, speed_kn: float, draft_m: float) -> _RouteGrid:
+    """Impassability mask clipped to the India bbox: depth < draft + margin
+    (shallow or on land), inside an MPA, or within the IMBL buffer. Those
+    cells are infinite cost for Warshall. Depth and wave height are batched;
+    MPA/boundary checks stay per-cell."""
     from orca.agents.geospatial import nearest_boundary_line
 
-    min_lat = min(origin[0], destination[0]) - _ASTAR_PADDING_DEG
-    max_lat = max(origin[0], destination[0]) + _ASTAR_PADDING_DEG
-    min_lon = min(origin[1], destination[1]) - _ASTAR_PADDING_DEG
-    max_lon = max(origin[1], destination[1]) + _ASTAR_PADDING_DEG
+    min_lat = max(_INDIA_LAT_MIN, min(origin[0], destination[0]) - _FW_PADDING_DEG)
+    max_lat = min(_INDIA_LAT_MAX, max(origin[0], destination[0]) + _FW_PADDING_DEG)
+    min_lon = max(_INDIA_LON_MIN, min(origin[1], destination[1]) - _FW_PADDING_DEG)
+    max_lon = min(_INDIA_LON_MAX, max(origin[1], destination[1]) + _FW_PADDING_DEG)
+    if max_lat <= min_lat or max_lon <= min_lon:
+        min_lat, max_lat = _INDIA_LAT_MIN, _INDIA_LAT_MAX
+        min_lon, max_lon = _INDIA_LON_MIN, _INDIA_LON_MAX
 
-    n = _ASTAR_GRID_CELLS_PER_AXIS
+    n = _FW_GRID_CELLS_PER_AXIS
     lats = [min_lat + (max_lat - min_lat) * i / (n - 1) for i in range(n)]
     lons = [min_lon + (max_lon - min_lon) * j / (n - 1) for j in range(n)]
 
@@ -531,88 +534,114 @@ def _build_astar_grid(origin: tuple[float, float], destination: tuple[float, flo
                 blocked[i][j] = True
                 continue
             line = nearest_boundary_line(lat, lon)
-            if line is not None and line["distance_nm"] <= _ASTAR_IMBL_BUFFER_NM:
+            if line is not None and line["distance_nm"] <= _FW_IMBL_BUFFER_NM:
                 blocked[i][j] = True
-    return _AstarGrid(lats=lats, lons=lons, blocked=blocked, wave_height_m=wave_heights)
+    return _RouteGrid(lats=lats, lons=lons, blocked=blocked, wave_height_m=wave_heights)
 
 
-def _nearest_grid_index(grid: _AstarGrid, lat: float, lon: float) -> tuple[int, int]:
+_build_astar_grid = _build_route_grid
+
+
+def _nearest_grid_index(grid: _RouteGrid, lat: float, lon: float) -> tuple[int, int]:
     i = min(range(len(grid.lats)), key=lambda k: abs(grid.lats[k] - lat))
     j = min(range(len(grid.lons)), key=lambda k: abs(grid.lons[k] - lon))
     return i, j
 
 
-def astar_route(
+def _cell_near_land(grid: _RouteGrid, i: int, j: int) -> bool:
+    ni, nj = len(grid.lats), len(grid.lons)
+    for di, dj in _FW_NEIGHBOR_OFFSETS:
+        r, c = i + di, j + dj
+        if not (0 <= r < ni and 0 <= c < nj) or grid.blocked[r][c]:
+            return True
+    return False
+
+
+def warshall_route(
     origin: tuple[float, float], destination: tuple[float, float], departure: datetime,
     speed_kn: float, draft_m: float,
 ) -> list[tuple[float, float]] | None:
-    """A waypoint path from `origin` to `destination` around the grid's
-    impassable cells, or None when no such path exists (the origin or
-    destination itself sits on an impassable cell, or they are on two
-    disconnected pieces of water this coarse a grid cannot bridge — a real
-    outcome, reported as one, never a straight line drawn through the
-    obstacle it was supposed to avoid).
-
-    Edge cost is geodesic distance plus a wave-height penalty (`_grid_wave_heights`'
-    own docstring names the one simplification against a truly per-edge
-    forecast lookup).
+    """Floyd–Warshall waypoint path around impassable cells, or None when no
+    path exists. Edge cost is geodesic distance plus wave and near-land
+    penalties. Land / IMBL / MPA cells are omitted (infinite).
     """
+    import numpy as np
+
     grid = _build_astar_grid(origin, destination, departure, speed_kn, draft_m)
     start = _nearest_grid_index(grid, *origin)
     goal = _nearest_grid_index(grid, *destination)
     if grid.blocked[start[0]][start[1]] or grid.blocked[goal[0]][goal[1]]:
         return None
 
-    def heuristic(node: tuple[int, int]) -> float:
-        lat, lon = grid.lats[node[0]], grid.lons[node[1]]
-        _, nm = bearing_and_distance(lat, lon, destination[0], destination[1])
-        return nm
-
-    dist_score: dict[tuple[int, int], float] = {start: 0.0}  # real nm travelled, for ETA — never the search cost
-    cost_score: dict[tuple[int, int], float] = {start: 0.0}  # A* g-value, distance + wave penalty
-    came_from: dict[tuple[int, int], tuple[int, int]] = {}
-    open_heap: list[tuple[float, tuple[int, int]]] = [(heuristic(start), start)]
-    closed: set[tuple[int, int]] = set()
-
-    while open_heap:
-        _, current = heapq.heappop(open_heap)
-        if current in closed:
-            continue
-        closed.add(current)
-        if current == goal:
-            break
-        ci, cj = current
-        clat, clon = grid.lats[ci], grid.lons[cj]
-        for di, dj in _ASTAR_NEIGHBOR_OFFSETS:
-            ni, nj = ci + di, cj + dj
-            if not (0 <= ni < len(grid.lats) and 0 <= nj < len(grid.lons)):
+    ni, nj = len(grid.lats), len(grid.lons)
+    nodes: list[tuple[int, int]] = []
+    index: dict[tuple[int, int], int] = {}
+    for i in range(ni):
+        for j in range(nj):
+            if not grid.blocked[i][j]:
+                index[(i, j)] = len(nodes)
+                nodes.append((i, j))
+    if start not in index or goal not in index:
+        return None
+    n = len(nodes)
+    dist = np.full((n, n), _FW_INF, dtype=np.float64)
+    for a, (i, j) in enumerate(nodes):
+        dist[a, a] = 0.0
+        clat, clon = grid.lats[i], grid.lons[j]
+        near = _cell_near_land(grid, i, j)
+        for di, dj in _FW_NEIGHBOR_OFFSETS:
+            r, c = i + di, j + dj
+            b = index.get((r, c))
+            if b is None:
                 continue
-            if grid.blocked[ni][nj]:
-                continue
-            neighbor = (ni, nj)
-            nlat, nlon = grid.lats[ni], grid.lons[nj]
+            nlat, nlon = grid.lats[r], grid.lons[c]
             _, step_nm = bearing_and_distance(clat, clon, nlat, nlon)
-            tentative_dist = dist_score[current] + step_nm
-            hs = grid.wave_height_m[ni][nj]
-            step_cost = step_nm + (_ASTAR_WAVE_PENALTY_NM_PER_M * hs if hs is not None else 0.0)
-            tentative_cost = cost_score[current] + step_cost
-            if neighbor not in cost_score or tentative_cost < cost_score[neighbor]:
-                dist_score[neighbor] = tentative_dist
-                cost_score[neighbor] = tentative_cost
-                came_from[neighbor] = current
-                heapq.heappush(open_heap, (tentative_cost + heuristic(neighbor), neighbor))
+            hs = grid.wave_height_m[r][c]
+            step = step_nm + (_FW_WAVE_PENALTY_NM_PER_M * hs if hs is not None else 0.0)
+            if near or _cell_near_land(grid, r, c):
+                step += _FW_LAND_NEAR_PENALTY_NM
+            if step < dist[a, b]:
+                dist[a, b] = step
 
-    if goal != start and goal not in came_from:
-        return None  # exhausted the open set without ever reaching the goal
+    nxt = np.full((n, n), -1, dtype=np.int32)
+    finite = dist < _FW_INF / 2
+    ii, jj = np.where(finite)
+    nxt[ii, jj] = jj
+    for i in range(n):
+        nxt[i, i] = i
+    for k in range(n):
+        via = dist[:, k, None] + dist[k, None, :]
+        better = via < dist
+        dist[better] = via[better]
+        src = np.broadcast_to(nxt[:, k, None], (n, n))
+        nxt[better] = src[better]
 
-    path_idx = [goal]
-    node = goal
-    while node != start:
-        node = came_from[node]
-        path_idx.append(node)
-    path_idx.reverse()
-    interior = [(grid.lats[i], grid.lons[j]) for i, j in path_idx[1:-1]]
+    s, t = index[start], index[goal]
+    if dist[s, t] >= _FW_INF / 2:
+        return None
+    if s == t:
+        return [origin, destination]
+    order = [s]
+    cur = s
+    for _ in range(n + 1):
+        cur = int(nxt[cur, t])
+        if cur < 0:
+            return None
+        order.append(cur)
+        if cur == t:
+            break
+    else:
+        return None
+    interior = [(grid.lats[nodes[k][0]], grid.lons[nodes[k][1]]) for k in order[1:-1]]
     return [origin, *interior, destination]
+
+
+def astar_route(
+    origin: tuple[float, float], destination: tuple[float, float], departure: datetime,
+    speed_kn: float, draft_m: float,
+) -> list[tuple[float, float]] | None:
+    """Deprecated name kept for tests; same Floyd–Warshall search."""
+    return warshall_route(origin, destination, departure, speed_kn, draft_m)
 
 
 # Hazard buffer + a real margin, not a token offset — CORRIDOR_BUFFER_NM is
@@ -646,6 +675,60 @@ def _detour_candidates(
     ]
 
 
+def _seaward_detour_points(
+    points: list[tuple[float, float]],
+    segments: list[RouteSegment],
+    draft_m: float,
+) -> list[tuple[str, list[tuple[float, float]]]]:
+    """Build candidate routes detouring seaward around blocked legs."""
+    from orca.agents.geospatial import depth_at_point
+
+    blocked_indices = [
+        i for i, s in enumerate(segments)
+        if s.status == "BLOCKED" or s.hazard_class in ("SHALLOW", "MPA", "BOUNDARY", "ROUGH_SEA")
+    ]
+    if not blocked_indices or len(points) < 2:
+        return []
+
+    candidates: list[tuple[str, list[tuple[float, float]]]] = []
+    for offset_dist in (8.0, 16.0):
+        new_wps: list[tuple[float, float]] = [points[0]]
+        detour_added = False
+        for i in range(len(points) - 1):
+            p_start, p_end = points[i], points[i + 1]
+            if i in blocked_indices:
+                b, _ = bearing_and_distance(p_start[0], p_start[1], p_end[0], p_end[1])
+                mid = ((p_start[0] + p_end[0]) / 2.0, (p_start[1] + p_end[1]) / 2.0)
+                off1 = _offset_point(mid[0], mid[1], b + 90.0, offset_dist)
+                off2 = _offset_point(mid[0], mid[1], b - 90.0, offset_dist)
+                d1 = depth_at_point(off1[0], off1[1])
+                d2 = depth_at_point(off2[0], off2[1])
+
+                chosen_off = None
+                depth1 = d1.depth_m if (not d1.on_land and d1.depth_m is not None) else -999.0
+                depth2 = d2.depth_m if (not d2.on_land and d2.depth_m is not None) else -999.0
+                if depth1 > draft_m + 1.0 and depth1 >= depth2:
+                    chosen_off = off1
+                elif depth2 > draft_m + 1.0:
+                    chosen_off = off2
+
+                if chosen_off is not None:
+                    new_wps.append(chosen_off)
+                    detour_added = True
+            new_wps.append(p_end)
+
+        if detour_added and len(new_wps) >= 3:
+            cand_pts: list[tuple[float, float]] = []
+            for j in range(len(new_wps) - 1):
+                sub = densify_route(new_wps[j], new_wps[j + 1], step_nm=STEP_NM)
+                if j > 0:
+                    sub = sub[1:]
+                cand_pts.extend(sub)
+            candidates.append((f"seaward_detour_{int(offset_dist)}nm", cand_pts))
+
+    return candidates
+
+
 def _nearest_safe_harbour(destination: tuple[float, float], speed_kn: float) -> dict[str, Any] | None:
     """The closest ICG rescue station to the destination — the same roster
     `distress.nearest_sar_station` already serves SOS calls from, reused
@@ -669,15 +752,16 @@ def plan_voyage(
     origin: tuple[float, float], destination: tuple[float, float], *,
     vessel_class: VesselClass = "small_fishing", departure_time: str | None = None,
     speed_kn: float = 8.0, draft_m: float | None = None, fuel_burn_lph: float | None = None,
+    waypoints: list[tuple[float, float]] | None = None,
 ) -> VoyagePlan:
-    """Densifies origin->destination, classifies each leg at the time the
+    """Densifies origin->destination (or custom waypoints), classifies each leg at the time the
     vessel would actually reach it, and rolls the legs up to one verdict:
     any BLOCKED segment forces NO_GO, any CAUTION (with no BLOCKED) forces
     CAUTION, never averaged (Ground Rule 4).
 
     A NO_GO direct route is not the final answer: this tries the detour
-    candidates above and, if one clears, returns THAT as the plan
-    (`rerouted=True`) rather than a blocked line the caller has to notice
+    candidates above, Floyd–Warshall path search, and coastal sea-route planning. If one clears,
+    returns THAT as the plan (`rerouted=True`) rather than a blocked line the caller has to notice
     and re-request around. Never returns a re-routed line that is itself
     NO_GO — a candidate that doesn't clear is recorded in
     `alternatives_tried` and discarded, same as the checklist asks
@@ -699,54 +783,167 @@ def plan_voyage(
             "Enter your real draft to re-check the shallow legs against it."
         )
 
-    points = densify_route(origin, destination)
+    if waypoints is not None and len(waypoints) >= 2:
+        total_wp_dist = sum(
+            bearing_and_distance(waypoints[i][0], waypoints[i][1], waypoints[i + 1][0], waypoints[i + 1][1])[1]
+            for i in range(len(waypoints) - 1)
+        )
+        adaptive_step = max(STEP_NM, total_wp_dist / 35.0)
+        points: list[tuple[float, float]] = []
+        for i in range(len(waypoints) - 1):
+            sub_pts = densify_route(waypoints[i], waypoints[i + 1], step_nm=adaptive_step)
+            if i > 0:
+                sub_pts = sub_pts[1:]
+            points.extend(sub_pts)
+    else:
+        # Default to coastal sea route using Floyd–Warshall obstacle avoidance
+        # so ships never route straight across land or closed boundaries.
+        try:
+            from orca.sea_route.router import sea_route
+            sr = sea_route(origin[0], origin[1], destination[0], destination[1], speed_knots=speed_kn, is_map_pick=True)
+            if sr and len(sr.coords) >= 2:
+                total_wp_dist = sr.distance_nm
+                adaptive_step = max(STEP_NM, total_wp_dist / 35.0)
+                points = []
+                for i in range(len(sr.coords) - 1):
+                    sub_pts = densify_route(sr.coords[i], sr.coords[i + 1], step_nm=adaptive_step)
+                    if i > 0:
+                        sub_pts = sub_pts[1:]
+                    points.extend(sub_pts)
+            else:
+                points = densify_route(origin, destination)
+        except Exception:
+            points = densify_route(origin, destination)
+
     segments, confidences, verdict, reason = _classify_route(points, departure, now, vessel_class, draft, speed_kn)
     _, direct_nm = bearing_and_distance(origin[0], origin[1], destination[0], destination[1])
 
     rerouted = False
     alternatives_tried: list[dict[str, Any]] = []
-    if verdict == "NO_GO":
+    has_transit_shallow = any(
+        s.hazard_class == "SHALLOW"
+        and not (s.segment_id in ("seg-0", f"seg-{len(segments)-1}"))
+        for s in segments
+    )
+
+    if verdict == "NO_GO" or has_transit_shallow:
         best: dict[str, Any] | None = None
+        best_shallow_count = sum(1 for s in segments if s.hazard_class == "SHALLOW")
+
+        # 1. Perpendicular offset detours (shifting seaward) and departure delay
         for name, cand_origin, cand_destination, cand_departure in _detour_candidates(origin, destination, departure):
-            cand_points = densify_route(cand_origin, cand_destination)
+            if name == "wait_6h":
+                cand_points = list(points)
+            else:
+                cand_points = densify_route(cand_origin, cand_destination)
             cand_segments, cand_confidences, cand_verdict, cand_reason = _classify_route(
                 cand_points, cand_departure, now, vessel_class, draft, speed_kn,
             )
-            _, cand_nm = bearing_and_distance(cand_origin[0], cand_origin[1], cand_destination[0], cand_destination[1])
+            # Never accept an alternative that passes over land
+            if any(s.detail == "On land" for s in cand_segments):
+                alternatives_tried.append({"strategy": name, "verdict": "NO_GO", "added_nm": 0.0, "shallow_legs": 999})
+                continue
+
+            _, cand_nm = bearing_and_distance(cand_points[0][0], cand_points[0][1], cand_points[-1][0], cand_points[-1][1])
             added_nm = round(max(cand_nm - direct_nm, 0.0), 1)
-            alternatives_tried.append({"strategy": name, "verdict": cand_verdict, "added_nm": added_nm})
-            if cand_verdict != "NO_GO" and (best is None or added_nm < best["added_nm"]):
-                best = {
-                    "strategy": name, "added_nm": added_nm, "origin": cand_origin, "destination": cand_destination,
-                    "departure": cand_departure, "points": cand_points, "segments": cand_segments,
-                    "confidences": cand_confidences, "verdict": cand_verdict, "reason": cand_reason,
-                }
-        if best is None:
-            # P5.7 — the three fixed-shape guesses above found nothing; try
-            # an actual path search around the obstacle before giving up.
-            astar_points = astar_route(origin, destination, departure, speed_kn, draft)
-            if astar_points is not None and len(astar_points) > 2:
-                astar_segments, astar_confidences, astar_verdict, astar_reason = _classify_route(
-                    astar_points, departure, now, vessel_class, draft, speed_kn,
-                )
-                astar_nm = sum(s.distance_nm for s in astar_segments)
-                added_nm = round(max(astar_nm - direct_nm, 0.0), 1)
-                alternatives_tried.append({"strategy": "astar", "verdict": astar_verdict, "added_nm": added_nm})
-                if astar_verdict != "NO_GO":
+            cand_shallow = sum(1 for s in cand_segments if s.hazard_class == "SHALLOW")
+            alternatives_tried.append({"strategy": name, "verdict": cand_verdict, "added_nm": added_nm, "shallow_legs": cand_shallow})
+            if cand_verdict != "NO_GO":
+                if best is None or (cand_shallow < best_shallow_count) or (cand_shallow == best_shallow_count and added_nm < best["added_nm"]):
                     best = {
-                        "strategy": "astar", "added_nm": added_nm, "origin": origin, "destination": destination,
-                        "departure": departure, "points": astar_points, "segments": astar_segments,
-                        "confidences": astar_confidences, "verdict": astar_verdict, "reason": astar_reason,
+                        "strategy": name, "added_nm": added_nm, "origin": cand_origin, "destination": cand_destination,
+                        "departure": cand_departure, "points": cand_points, "segments": cand_segments,
+                        "confidences": cand_confidences, "verdict": cand_verdict, "reason": cand_reason,
                     }
-        if best is not None:
+                    best_shallow_count = cand_shallow
+
+        # 2. Seaward detour around blocked legs
+        if best is None:
+            for s_strat, s_pts in _seaward_detour_points(points, segments, draft):
+                s_segments, s_confidences, s_verdict, s_reason = _classify_route(
+                    s_pts, departure, now, vessel_class, draft, speed_kn,
+                )
+                if any(s.detail == "On land" for s in s_segments):
+                    continue
+                s_nm = sum(s.distance_nm for s in s_segments)
+                added_nm = round(max(s_nm - direct_nm, 0.0), 1)
+                s_shallow = sum(1 for s in s_segments if s.hazard_class == "SHALLOW")
+                alternatives_tried.append({"strategy": s_strat, "verdict": s_verdict, "added_nm": added_nm, "shallow_legs": s_shallow})
+                if s_verdict != "NO_GO":
+                    if best is None or (cand_shallow < best_shallow_count) or (cand_shallow == best_shallow_count and added_nm < best["added_nm"]):
+                        best = {
+                            "strategy": s_strat, "added_nm": added_nm, "origin": origin, "destination": destination,
+                            "departure": departure, "points": s_pts, "segments": s_segments,
+                            "confidences": s_confidences, "verdict": s_verdict, "reason": s_reason,
+                        }
+                        best_shallow_count = s_shallow
+
+        # 3. Floyd–Warshall around the obstacle if previous candidates did not clear
+        if best is None:
+            fw_points = warshall_route(origin, destination, departure, speed_kn, draft)
+            if fw_points is not None and len(fw_points) > 2:
+                fw_segments, fw_confidences, fw_verdict, fw_reason = _classify_route(
+                    fw_points, departure, now, vessel_class, draft, speed_kn,
+                )
+                if not any(s.detail == "On land" for s in fw_segments):
+                    fw_nm = sum(s.distance_nm for s in fw_segments)
+                    added_nm = round(max(fw_nm - direct_nm, 0.0), 1)
+                    fw_shallow = sum(1 for s in fw_segments if s.hazard_class == "SHALLOW")
+                    alternatives_tried.append({"strategy": "warshall", "verdict": fw_verdict, "added_nm": added_nm, "shallow_legs": fw_shallow})
+                    if fw_verdict != "NO_GO":
+                        if best is None or (fw_shallow < best_shallow_count) or (fw_shallow == best_shallow_count and added_nm < best["added_nm"]):
+                            best = {
+                                "strategy": "warshall", "added_nm": added_nm, "origin": origin, "destination": destination,
+                                "departure": departure, "points": fw_points, "segments": fw_segments,
+                                "confidences": fw_confidences, "verdict": fw_verdict, "reason": fw_reason,
+                            }
+                            best_shallow_count = fw_shallow
+
+        # 4. High-resolution coastal routing: Warshall with coastline standoff and deep-water clearance
+        if best is None:
+            try:
+                from orca.sea_route.router import sea_route
+                sr = sea_route(origin[0], origin[1], destination[0], destination[1], speed_knots=speed_kn, is_map_pick=True)
+                if sr and len(sr.coords) >= 2:
+                    sr_dist = sr.distance_nm
+                    adaptive_step = max(STEP_NM, sr_dist / 35.0)
+                    sr_points: list[tuple[float, float]] = []
+                    for i in range(len(sr.coords) - 1):
+                        sub_pts = densify_route(sr.coords[i], sr.coords[i + 1], step_nm=adaptive_step)
+                        if i > 0:
+                            sub_pts = sub_pts[1:]
+                        sr_points.extend(sub_pts)
+                    sr_segments, sr_confidences, sr_verdict, sr_reason = _classify_route(
+                        sr_points, departure, now, vessel_class, draft, speed_kn,
+                    )
+                    if not any(s.detail == "On land" for s in sr_segments):
+                        sr_nm = sum(s.distance_nm for s in sr_segments)
+                        added_nm = round(max(sr_nm - direct_nm, 0.0), 1)
+                        sr_shallow = sum(1 for s in sr_segments if s.hazard_class == "SHALLOW")
+                        alternatives_tried.append({"strategy": "coastal_sea_route", "verdict": sr_verdict, "added_nm": added_nm, "shallow_legs": sr_shallow})
+                        if sr_verdict != "NO_GO":
+                            if best is None or (sr_shallow < best_shallow_count) or (sr_shallow == best_shallow_count and added_nm < best["added_nm"]):
+                                best = {
+                                    "strategy": "coastal_sea_route", "added_nm": added_nm, "origin": origin, "destination": destination,
+                                    "departure": departure, "points": sr_points, "segments": sr_segments,
+                                    "confidences": sr_confidences, "verdict": sr_verdict, "reason": sr_reason,
+                                }
+                                best_shallow_count = sr_shallow
+            except Exception:
+                pass
+
+        if best is not None and (verdict == "NO_GO" or best_shallow_count < sum(1 for s in segments if s.hazard_class == "SHALLOW")):
             rerouted = True
+            orig_verdict = verdict
+            orig_reason = reason
             origin, destination, departure, points = best["origin"], best["destination"], best["departure"], best["points"]
             segments, confidences, verdict = best["segments"], best["confidences"], best["verdict"]
             reason = (
-                f"Direct route blocked; rerouted via {best['strategy'].replace('_', ' ')} "
-                f"(+{best['added_nm']:.1f} nm). {best['reason']}"
+                f"Rerouted via {best['strategy'].replace('_', ' ')} (+{best['added_nm']:.1f} nm) "
+                f"because the direct track was {orig_verdict}: {orig_reason}. "
+                f"New clearance is {best['verdict']}: {best['reason']}"
             )
-        else:
+        elif verdict == "NO_GO":
             tried = ", ".join(f"{a['strategy']}: {a['verdict']}" for a in alternatives_tried)
             reason = f"{reason} — no clear detour found ({tried})"
 

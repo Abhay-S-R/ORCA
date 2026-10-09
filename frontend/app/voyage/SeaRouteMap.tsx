@@ -1,8 +1,8 @@
 "use client";
 
 // Sea Route MapLibre component — extracted from sea-route and embedded into Voyage.
-// Shows the actual obstacle-avoiding route from source to destination,
-// along with Fishing zones, IMBL boundaries, Restricted areas, and Satellite/Chart switcher.
+// Shows the obstacle-avoiding route and fishing zones. IMBL / restricted
+// polygons are routing thresholds only and are not drawn.
 import { useEffect, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Layers } from "lucide-react";
@@ -19,8 +19,6 @@ export function SeaRouteMap({
   endPin,
   onMapClick,
   zones,
-  restricted,
-  boundaryLines,
 }: {
   result: SeaRouteResult | null;
   mapPickMode: boolean;
@@ -29,8 +27,6 @@ export function SeaRouteMap({
   endPin: [number, number] | null;
   onMapClick: (lat: number, lng: number) => void;
   zones: FishingZonesGeoJson | null;
-  restricted: unknown;
-  boundaryLines: unknown;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
@@ -102,49 +98,6 @@ export function SeaRouteMap({
           },
         });
 
-        // ── Restricted areas layer ──────────────────────────────────────────
-        map.addSource("sea-restricted", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [] },
-        });
-        map.addLayer({
-          id: "sea-restricted-fill",
-          type: "fill",
-          source: "sea-restricted",
-          paint: {
-            "fill-color": "#b3402c",
-            "fill-opacity": 0.08,
-          },
-        });
-        map.addLayer({
-          id: "sea-restricted-outline",
-          type: "line",
-          source: "sea-restricted",
-          paint: {
-            "line-color": "#b3402c",
-            "line-width": 1.2,
-            "line-dasharray": [3, 2],
-          },
-        });
-
-        // ── IMBL Treaty Boundary Lines layer ─────────────────────────────────
-        map.addSource("sea-imbl-lines", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [] },
-        });
-        map.addLayer({
-          id: "sea-imbl-lines-layer",
-          type: "line",
-          source: "sea-imbl-lines",
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: {
-            "line-color": satelliteRef.current ? "#fbbf24" : "#d97706",
-            "line-width": 2.2,
-            "line-dasharray": [5, 3],
-            "line-opacity": 0.95,
-          },
-        });
-
         // ── Route polyline & endpoints ──────────────────────────────────────
         map.addSource("sea-route", {
           type: "geojson",
@@ -155,7 +108,7 @@ export function SeaRouteMap({
           id: "sea-route-casing",
           type: "line",
           source: "sea-route",
-          filter: ["==", "$type", "LineString"],
+          filter: ["==", ["geometry-type"], "LineString"],
           layout: { "line-join": "round", "line-cap": "round" },
           paint: {
             "line-color": "#ffffff",
@@ -167,7 +120,7 @@ export function SeaRouteMap({
           id: "sea-route-line",
           type: "line",
           source: "sea-route",
-          filter: ["==", "$type", "LineString"],
+          filter: ["==", ["geometry-type"], "LineString"],
           layout: { "line-join": "round", "line-cap": "round" },
           paint: {
             "line-color": satelliteRef.current ? "#ff3366" : "#8a3b52",
@@ -180,7 +133,7 @@ export function SeaRouteMap({
           id: "sea-route-endpoints",
           type: "circle",
           source: "sea-route",
-          filter: ["==", "$type", "Point"],
+          filter: ["==", ["geometry-type"], "Point"],
           paint: {
             "circle-radius": 6,
             "circle-color": [
@@ -290,26 +243,6 @@ export function SeaRouteMap({
       (src as import("maplibre-gl").GeoJSONSource).setData(zones as unknown as GeoJSONData);
     }
   }, [ready, zones]);
-
-  // Update restricted source when ready or restricted change.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !ready || !restricted) return;
-    const src = map.getSource("sea-restricted");
-    if (src?.type === "geojson") {
-      (src as import("maplibre-gl").GeoJSONSource).setData(restricted as GeoJSONData);
-    }
-  }, [ready, restricted]);
-
-  // Update IMBL boundary lines source when ready or boundaryLines change.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !ready || !boundaryLines) return;
-    const src = map.getSource("sea-imbl-lines");
-    if (src?.type === "geojson") {
-      (src as import("maplibre-gl").GeoJSONSource).setData(boundaryLines as GeoJSONData);
-    }
-  }, [ready, boundaryLines]);
 
   // Start pin marker for Map Pick mode or selected endpoints.
   useEffect(() => {
@@ -431,13 +364,6 @@ export function SeaRouteMap({
         satellite ? "#ff3366" : "#8a3b52",
       );
     }
-    if (map.getLayer("sea-imbl-lines-layer")) {
-      map.setPaintProperty(
-        "sea-imbl-lines-layer",
-        "line-color",
-        satellite ? "#fbbf24" : "#d97706",
-      );
-    }
     if (map.getLayer("sea-zones-fill")) {
       map.setPaintProperty(
         "sea-zones-fill",
@@ -534,20 +460,12 @@ export function SeaRouteMap({
           Route
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-4 border-b-2 border-dashed border-[#d97706] bg-transparent" />
-          IMBL Boundary
-        </span>
-        <span className="flex items-center gap-1.5">
           <span
             className={`inline-block h-2 w-4 rounded-sm transition-colors ${
               satellite ? "bg-[#06b6d4]/70" : "bg-[#2f6f74]/50"
             }`}
           />
           Fishing zones
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-4 rounded-sm bg-[#b3402c]/40" />
-          Restricted (2 nm)
         </span>
       </div>
     </div>

@@ -4,7 +4,7 @@ Coordinates the full pipeline:
   1. Load grid (cached).
   2. Validate start/end inside India bbox and in the sea.
   3. Snap start/end to nearest free sea cell.
-  4. Run A*.
+  4. Run Floyd–Warshall on a land-checked corridor.
   5. Convert cell path to lat/lng.
   6. Smooth path with line-of-sight pruning.
   7. Prepend exact start + append exact end.
@@ -24,7 +24,7 @@ from functools import lru_cache
 from shapely.geometry import LineString, Point
 from shapely.strtree import STRtree
 
-from orca.sea_route.astar import astar_route, path_distance_nm
+from orca.sea_route.warshall import path_distance_nm, warshall_route
 from orca.sea_route.config import DEFAULT_CONFIG, SeaRouteConfig
 from orca.sea_route.datasets import (
     load_land_polygons,
@@ -131,12 +131,14 @@ def _cached_route(
     cell_deg: float,
     land_buffer_nm: float,
     eez_blocking: bool,
+    standoff_buffer_nm: float = 1.8,
     is_map_pick: bool = False,
 ) -> SeaRouteResult:
     """Cached wrapper so repeated port-to-port queries reuse the result."""
     return _compute_route(
         start_lat, start_lng, end_lat, end_lng,
         speed_knots, departure_iso, cell_deg, land_buffer_nm, eez_blocking,
+        standoff_buffer_nm=standoff_buffer_nm,
         is_map_pick=is_map_pick,
     )
 
@@ -149,6 +151,7 @@ def _compute_route(
     cell_deg: float,
     land_buffer_nm: float,
     eez_blocking: bool,
+    standoff_buffer_nm: float = 1.8,
     is_map_pick: bool = False,
 ) -> SeaRouteResult:
     """Core routing pipeline (not cached directly — wrap via sea_route())."""
@@ -166,12 +169,6 @@ def _compute_route(
 
     start_on_land = _is_on_land(start_lat, start_lng, land_tree)
     end_on_land = _is_on_land(end_lat, end_lng, land_tree)
-
-    if is_map_pick:
-        if start_on_land:
-            raise ValueError("Selected point is on land, please choose a point in the sea (start)")
-        if end_on_land:
-            raise ValueError("Selected point is on land, please choose a point in the sea (end)")
 
     blocked_start = _is_in_blocking_restricted(start_lat, start_lng, restricted, protected)
     if blocked_start:
@@ -202,8 +199,21 @@ def _compute_route(
             raise ValueError("Selected point is on land, please choose a point in the sea (end)")
         raise ValueError("No sea route found — end is too far from navigable water")
 
-    # ── A* ────────────────────────────────────────────────────────────────────
-    cell_path = astar_route(start_cell[0], start_cell[1], end_cell[0], end_cell[1], grid)
+    if is_map_pick:
+        # If user picked on land, allow coastal snapping within 25 nm (ports/jetties),
+        # but reject points deep inland (e.g. inland cities).
+        from orca.sea_route.warshall import _haversine_nm
+        if start_on_land:
+            snapped_lat, snapped_lng = grid.cell_to_latlon(*start_cell)
+            if _haversine_nm(start_lat, start_lng, snapped_lat, snapped_lng) > 25.0:
+                raise ValueError("Selected point is on land, please choose a point in the sea (start)")
+        if end_on_land:
+            snapped_lat, snapped_lng = grid.cell_to_latlon(*end_cell)
+            if _haversine_nm(end_lat, end_lng, snapped_lat, snapped_lng) > 25.0:
+                raise ValueError("Selected point is on land, please choose a point in the sea (end)")
+
+    # ── Floyd–Warshall (corridor; land and bbox are infinite-cost) ────────────
+    cell_path = warshall_route(start_cell[0], start_cell[1], end_cell[0], end_cell[1], grid)
     if cell_path is None:
         raise ValueError("No sea route found between these points")
 
@@ -213,23 +223,36 @@ def _compute_route(
     ]
 
     # ── Smooth ────────────────────────────────────────────────────────────────
-    smoothed = smooth_path(latlon_path, land_polygons, restricted)
+    smoothed = smooth_path(latlon_path, land_polygons, restricted, standoff_buffer_nm=standoff_buffer_nm)
 
-    # ── Insert start/end coordinates safely without land crossing ────────────
+    # ── Insert start/end coordinates safely without land or boundary crossing ──
+    block_geoms = list(land_polygons)
+    for a in restricted:
+        if a.mode == "block":
+            block_geoms.append(a.geometry)
+    for a in protected:
+        if a.mode == "block":
+            block_geoms.append(a.geometry)
+    block_tree = STRtree(block_geoms) if block_geoms else None
+
+    from orca.agents.geospatial import depth_at_point
+    start_depth = depth_at_point(start_lat, start_lng)
+    end_depth = depth_at_point(end_lat, end_lng)
+
     start_pt = (start_lat, start_lng)
-    if start_on_land:
+    if start_on_land or start_depth.on_land or (start_depth.depth_m is not None and start_depth.depth_m < 2.0):
         start_pt = smoothed[0]
-    elif land_tree:
+    elif block_tree:
         seg = LineString([(start_lng, start_lat), (smoothed[0][1], smoothed[0][0])])
-        if len(land_tree.query(seg, predicate="intersects")) > 0:
+        if len(block_tree.query(seg, predicate="intersects")) > 0:
             start_pt = smoothed[0]
 
     end_pt = (end_lat, end_lng)
-    if end_on_land:
+    if end_on_land or end_depth.on_land or (end_depth.depth_m is not None and end_depth.depth_m < 2.0):
         end_pt = smoothed[-1]
-    elif land_tree:
+    elif block_tree:
         seg = LineString([(end_lng, end_lat), (smoothed[-1][1], smoothed[-1][0])])
-        if len(land_tree.query(seg, predicate="intersects")) > 0:
+        if len(block_tree.query(seg, predicate="intersects")) > 0:
             end_pt = smoothed[-1]
 
     coords: list[tuple[float, float]] = []
@@ -295,6 +318,7 @@ def sea_route(
         round(end_lat, 4), round(end_lng, 4),
         round(speed_knots, 2), dep_key,
         cfg.cell_deg, cfg.land_buffer_nm, cfg.eez_blocking,
+        standoff_buffer_nm=cfg.standoff_buffer_nm,
         is_map_pick=is_map_pick,
     )
 
@@ -312,6 +336,7 @@ def sea_route_no_cache(
         start_lat, start_lng, end_lat, end_lng,
         speed_knots, departure_iso,
         cfg.cell_deg, cfg.land_buffer_nm, cfg.eez_blocking,
+        standoff_buffer_nm=cfg.standoff_buffer_nm,
         is_map_pick=is_map_pick,
     )
 

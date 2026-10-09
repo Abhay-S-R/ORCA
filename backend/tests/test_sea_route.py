@@ -221,3 +221,42 @@ def test_api_post_sea_route_outside_bbox_error():
     assert "within Indian waters" in response.json()["detail"]
 
 
+def test_plan_voyage_with_coastal_waypoints():
+    """Verify that plan_voyage with coastal waypoints evaluates real sea legs and avoids false NO_GO."""
+    from orca.agents.voyage import plan_voyage
+    p_koc = get_port("IN_KOC")
+    p_tut = get_port("IN_TUT")
+    assert p_koc and p_tut
+    sr = sea_route(p_koc.lat, p_koc.lng, p_tut.lat, p_tut.lng, speed_knots=8.0)
+    assert len(sr.coords) >= 4
+
+    plan = plan_voyage((p_koc.lat, p_koc.lng), (p_tut.lat, p_tut.lng), waypoints=sr.coords, vessel_class="small_fishing")
+    assert plan.verdict in ("GO", "CAUTION")
+    assert all(s.hazard_class != "LAND_COLLISION" for s in plan.segments)
+    assert sum(1 for s in plan.segments if s.status == "BLOCKED") == 0
+
+
+def test_api_post_voyage_plan_with_waypoints():
+    """Verify POST /api/voyage-plan accepts waypoints and returns a valid plan."""
+    p_koc = get_port("IN_KOC")
+    p_tut = get_port("IN_TUT")
+    assert p_koc and p_tut
+    sr = sea_route(p_koc.lat, p_koc.lng, p_tut.lat, p_tut.lng, speed_knots=8.0)
+
+    payload = {
+        "origin_lat": p_koc.lat,
+        "origin_lon": p_koc.lng,
+        "destination_lat": p_tut.lat,
+        "destination_lon": p_tut.lng,
+        "vessel_class": "small_fishing",
+        "speed_kn": 8.0,
+        "waypoints": sr.coords,
+    }
+    response = client.post("/api/voyage-plan", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["verdict"] in ("GO", "CAUTION")
+    assert len(data["segments"]) > 10
+
+
+

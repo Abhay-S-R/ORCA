@@ -27,15 +27,18 @@ class VoyagePlanRequest(BaseModel):
     speed_kn: float = Field(default=8.0, gt=0)
     draft_m: float | None = Field(default=None, gt=0)
     fuel_burn_lph: float | None = Field(default=None, gt=0)
+    waypoints: list[list[float]] | None = None
 
 
 @router.post("/voyage-plan")
 def voyage_plan_route(req: VoyagePlanRequest) -> dict:
     try:
+        wps = [tuple(w) for w in req.waypoints] if req.waypoints and len(req.waypoints) >= 2 else None
         plan = plan_voyage(
             (req.origin_lat, req.origin_lon), (req.destination_lat, req.destination_lon),
             vessel_class=req.vessel_class, departure_time=req.departure_time,
             speed_kn=req.speed_kn, draft_m=req.draft_m, fuel_burn_lph=req.fuel_burn_lph,
+            waypoints=wps,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

@@ -24,7 +24,10 @@ class SeaRouteConfig:
 
     # Land-buffer: cells within this many nautical miles of the land polygon
     # edge are also blocked (keeps ships off rocks).
-    land_buffer_nm: float = float(os.getenv("SEA_ROUTE_LAND_BUFFER_NM", "1.0"))
+    land_buffer_nm: float = float(os.getenv("SEA_ROUTE_LAND_BUFFER_NM", "3.0"))
+
+    # Coastal standoff buffer: keep routes safely offshore when smoothing.
+    standoff_buffer_nm: float = float(os.getenv("SEA_ROUTE_STANDOFF_BUFFER_NM", "2.5"))
 
     # Restricted-area buffer (nm around IMBL/boundary lines).
     restricted_buffer_nm: float = float(os.getenv("SEA_ROUTE_RESTRICTED_BUFFER_NM", "2.0"))

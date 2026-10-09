@@ -1,7 +1,7 @@
 """Sea-route grid builder.
 
 Builds a 2-D boolean navigability array over the India bbox at startup.
-The grid is built once and cached; A* reads it on every request.
+The grid is built once and cached; Floyd–Warshall reads it on every request.
 
 Coordinate convention:
   row 0 = north edge (lat_max), row increases southward.
@@ -117,7 +117,7 @@ def build_grid(
     lng_min: float = 66.0,
     lng_max: float = 95.0,
     land_buffer_nm: float = 2.0,
-    eez_blocking: bool = True,
+    eez_blocking: bool = False,
 ) -> SeaGrid:
     """Build and cache the navigability grid.
 
@@ -159,9 +159,36 @@ def build_grid(
     block_prot = [a.geometry.buffer(barrier_buffer) for a in protected if a.mode == "block"]
     prot_tree = STRtree(block_prot) if block_prot else None
 
+    # Block shallow waters < 2.5m using vectorized GEBCO elevation so corridors stay in deep navigable sea
+    try:
+        from orca.agents.geospatial import _bathymetry
+        import xarray as xr
+        ds = _bathymetry()
+        lats_arr = [lat_max - (r + 0.5) * cell_deg for r in range(nrows)]
+        lons_arr = [lng_min + (c + 0.5) * cell_deg for c in range(ncols)]
+        lat_idx = xr.DataArray(lats_arr, dims="grid_lat")
+        lon_idx = xr.DataArray(lons_arr, dims="grid_lon")
+        elev = ds["elevation"].sel(lat=lat_idx, lon=lon_idx, method="nearest").values
+        # Cells with elevation > -4.5m have depth < 4.5m or are land; filter out to keep routes in deep water
+        navigable[elev > -4.5] = False
+    except Exception as exc:
+        log.warning("sea_route: bathymetry depth filter skipped: %s", exc)
+
+    # Block Adam's Bridge / Ram Setu: natural shallow limestone reef barrier (1-2m depths)
+    # and IMBL border between Dhanushkodi and Mannar Island that is unnavigable for coastal vessels.
+    for r in range(nrows):
+        lat = lat_max - (r + 0.5) * cell_deg
+        if 9.04 <= lat <= 9.25:
+            for c in range(ncols):
+                lng = lng_min + (c + 0.5) * cell_deg
+                if 79.35 <= lng <= 79.80:
+                    navigable[r, c] = False
+
     for row in range(nrows):
         lat = lat_max - (row + 0.5) * cell_deg
         for col in range(ncols):
+            if not navigable[row, col]:
+                continue
             lng = lng_min + (col + 0.5) * cell_deg
             pt = Point(lng, lat)
 

@@ -24,8 +24,6 @@ import { createVoyage, deleteVoyage, listVoyages, promoteVoyage, unpromoteVoyage
 import {
   computeSeaRoute,
   fetchFishingZones,
-  fetchMaritimeBoundaryLines,
-  fetchRestrictedAreas,
   fetchSeaPorts,
   type FishingZonesGeoJson,
   type SeaPort,
@@ -201,7 +199,7 @@ function VoyageContent() {
   const [fromPortId, setFromPortId] = useState("");
   const [toZoneId, setToZoneId] = useState("");
   const [toPortId, setToPortId] = useState("");
-  // Coastal A* result — computed alongside the hazard audit when points
+  // Coastal Warshall result — computed alongside the hazard audit when points
   // are known, shows obstacle-avoiding distance + ETA as extra context.
   const [coastalResult, setCoastalResult] = useState<SeaRouteResult | null>(null);
 
@@ -218,15 +216,11 @@ function VoyageContent() {
   const [savingVoyage, setSavingVoyage] = useState(false);
   const [voyageBusyId, setVoyageBusyId] = useState<string | null>(null);
 
-  const [restricted, setRestricted] = useState<unknown>(null);
-  const [boundaryLines, setBoundaryLines] = useState<unknown>(null);
-
-  // Fetch ports, fishing zones, restricted areas, and IMBL boundaries on mount
+  // Fetch ports and fishing zones on mount. IMBL / restricted polygons are
+  // routing thresholds, not map layers — they must not draw on the voyage chart.
   useEffect(() => {
     fetchSeaPorts().then(setPorts).catch(() => {});
     fetchFishingZones().then(setZones).catch(() => {});
-    fetchRestrictedAreas().then(setRestricted).catch(() => {});
-    fetchMaritimeBoundaryLines().then(setBoundaryLines).catch(() => {});
   }, []);
 
   const loadSavedVoyages = useCallback(() => {
@@ -358,31 +352,7 @@ function VoyageContent() {
     setError(null);
     setPlan(null);
     setTide(null);
-    setCoastalResult(null);
     try {
-      const res = await fetch(`${API_BASE}/api/voyage-plan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          origin_lat: o.lat, origin_lon: o.lon,
-          destination_lat: d.lat, destination_lon: d.lon,
-          vessel_class: vesselClass, speed_kn: speedKn,
-          draft_m: draftM ? Number(draftM) : null,
-          departure_time: departure ? new Date(departure).toISOString() : null,
-          fuel_burn_lph: fuelBurnLph ? Number(fuelBurnLph) : null,
-        }),
-      });
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
-      const data = (await res.json()) as VoyagePlanResponse;
-      setPlan(data);
-      // Berthing window at the destination — same tide predictor `/safety`'s
-      // sibling ocean-analytics surfaces already use, just pointed here.
-      fetch(`${API_BASE}/api/tides?lat=${d.lat}&lon=${d.lon}`)
-        .then((r) => r.json())
-        .then(setTide)
-        .catch(() => {});
-      // Coastal A* route — runs in parallel to give obstacle-avoiding
-      // distance and ETA as extra context alongside the hazard audit.
       const depIso = departure ? new Date(departure).toISOString() : null;
       let seaReq;
       if (routeMode === "port_to_zone" && fromPortId && toZoneId) {
@@ -412,7 +382,61 @@ function VoyageContent() {
           departure: depIso,
         };
       }
-      computeSeaRoute(seaReq).then(setCoastalResult).catch(() => {});
+
+      // Compute fresh coastal obstacle-avoiding sea route so voyage planning follows real sea waypoints
+      let seaRes: SeaRouteResult | null = null;
+      try {
+        seaRes = await computeSeaRoute(seaReq);
+        setCoastalResult(seaRes);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("on land")) {
+          setError(msg);
+          setLoading(false);
+          return;
+        }
+        seaRes = null;
+      }
+
+      const res = await fetch(`${API_BASE}/api/voyage-plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin_lat: o.lat, origin_lon: o.lon,
+          destination_lat: d.lat, destination_lon: d.lon,
+          vessel_class: vesselClass, speed_kn: speedKn,
+          draft_m: draftM ? Number(draftM) : null,
+          departure_time: depIso,
+          fuel_burn_lph: fuelBurnLph ? Number(fuelBurnLph) : null,
+          waypoints: seaRes && seaRes.coords.length >= 2 ? seaRes.coords : null,
+        }),
+      });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const data = (await res.json()) as VoyagePlanResponse;
+      setPlan(data);
+      if (data.segments.length > 0) {
+        const segCoords: [number, number][] = [
+          [data.segments[0].start[0], data.segments[0].start[1]],
+          ...data.segments.map((s) => [s.end[0], s.end[1]] as [number, number]),
+        ];
+        const coords = (data.rerouted || !seaRes || seaRes.coords.length < 2) ? segCoords : seaRes.coords;
+        const nm = data.segments.reduce((sum, s) => sum + s.distance_nm, 0);
+        setCoastalResult({
+          coords,
+          distance_nm: nm,
+          distance_km: nm * 1.852,
+          hours: nm / Math.max(speedKn, 0.1),
+          eta: data.segments[data.segments.length - 1]?.eta ?? "",
+          warnings: data.rerouted ? [data.verdict_reason] : (seaRes?.warnings ?? []),
+        });
+      }
+
+      // Berthing window at the destination — same tide predictor `/safety`'s
+      // sibling ocean-analytics surfaces already use, just pointed here.
+      fetch(`${API_BASE}/api/tides?lat=${d.lat}&lon=${d.lon}`)
+        .then((r) => r.json())
+        .then(setTide)
+        .catch(() => {});
     } catch {
       setError("Could not reach Sagar Sarathi. Check the backend is running and try again.");
     } finally {
@@ -466,9 +490,20 @@ function VoyageContent() {
     let cancelled = false;
     computeSeaRoute(seaReq)
       .then((res) => {
-        if (!cancelled) setCoastalResult(res);
+        if (!cancelled) {
+          setCoastalResult(res);
+          setError(null);
+        }
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (!cancelled) {
+          setCoastalResult(null);
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("on land")) {
+            setError(msg);
+          }
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -1025,8 +1060,6 @@ function VoyageContent() {
               endPin={destination ? [destination.lat, destination.lon] : null}
               onMapClick={handlePointClick}
               zones={zones}
-              restricted={restricted}
-              boundaryLines={boundaryLines}
             />
           </div>
 
@@ -1071,8 +1104,8 @@ function VoyageContent() {
                 <div className="flex items-start gap-2 rounded-lg border border-ocean-cyan/30 bg-ocean-cyan/10 px-3.5 py-2.5 text-xs text-ink-muted">
                   <Navigation className="mt-0.5 size-3.5 shrink-0 text-ocean-cyan" aria-hidden="true" />
                   <span>
-                    <span className="font-semibold text-ink">Rerouted.</span> The direct line was blocked, so this
-                    plan is the best clearing alternate Sagar Sarathi found — see the reason above for which one and why.
+                    <span className="font-semibold text-ink">Rerouted ({plan.verdict}).</span>{" "}
+                    {plan.verdict_reason}
                   </span>
                 </div>
               )}

@@ -1,7 +1,7 @@
 """Path smoother: removes collinear / redundant waypoints using line-of-sight
 visibility checks against land and restricted-area polygons.
 
-After A* the path is a staircase of grid-cell centres.  The smoother walks
+After Floyd–Warshall the path is a staircase of grid-cell centres.  The smoother walks
 the path with a greedy look-ahead: if the straight segment from waypoint[i]
 to waypoint[j] does not intersect any blocking polygon, waypoints i+1 … j-1
 are redundant and are removed.  The result hugs the coast naturally.
@@ -13,20 +13,30 @@ not just at discrete points.
 """
 from __future__ import annotations
 
+import math
+
 from shapely.geometry import LineString
 from shapely.geometry.base import BaseGeometry
 from shapely.strtree import STRtree
 
 
+from orca.agents.geospatial import depth_at_point
+
+
 def _build_blocker_tree(
     land_polygons: tuple[BaseGeometry, ...],
     restricted_areas,            # tuple[RestrictedArea, ...]
+    buffer_deg: float = 0.0,
 ) -> STRtree | None:
     """STRtree of all geometries a route segment must not cross."""
-    geoms: list[BaseGeometry] = list(land_polygons)
+    geoms: list[BaseGeometry] = []
+    if buffer_deg > 0:
+        geoms.extend(p.buffer(buffer_deg) for p in land_polygons)
+    else:
+        geoms.extend(land_polygons)
     for area in restricted_areas:
         if area.mode == "block":
-            geoms.append(area.geometry)
+            geoms.append(area.geometry.buffer(buffer_deg) if buffer_deg > 0 else area.geometry)
     return STRtree(geoms) if geoms else None
 
 
@@ -47,17 +57,26 @@ def smooth_path(
     path: list[tuple[float, float]],          # [(lat, lng), …]
     land_polygons: tuple[BaseGeometry, ...],
     restricted_areas,
+    standoff_buffer_nm: float = 1.8,
 ) -> list[tuple[float, float]]:
     """Greedy line-of-sight path smoother.
 
     Iterates from each waypoint and extends the look-ahead as far as
-    possible without crossing a blocker.  Guaranteed to return a path with
-    at least the same endpoints as the input.
+    possible without crossing a blocker or violating the coastal standoff buffer.
+    Guaranteed to return a path with at least the same endpoints as the input.
     """
     if len(path) <= 2:
         return path
 
-    tree = _build_blocker_tree(land_polygons, restricted_areas)
+    # Raw blockers (land + restricted): zero-tolerance crossing check.
+    raw_tree = _build_blocker_tree(land_polygons, restricted_areas, buffer_deg=0.0)
+
+    # Standoff blockers: ensures shortcut chords do not shave within standoff_buffer_nm of coast/headlands.
+    mid_lat = (path[0][0] + path[-1][0]) / 2.0
+    lat_rad = math.radians(mid_lat)
+    deg_per_nm = 1.0 / 60.0
+    standoff_deg = standoff_buffer_nm * deg_per_nm
+    standoff_tree = _build_blocker_tree(land_polygons, restricted_areas, buffer_deg=standoff_deg) if standoff_deg > 0 else None
 
     result: list[tuple[float, float]] = [path[0]]
     i = 0
@@ -67,11 +86,28 @@ def smooth_path(
         for j in range(len(path) - 1, i, -1):
             lat_a, lng_a = path[i]
             lat_b, lng_b = path[j]
-            if _segment_clear(lat_a, lng_a, lat_b, lng_b, tree):
-                result.append(path[j])
-                i = j
-                found = True
-                break
+            # Must never cross raw land or blocking areas
+            if not _segment_clear(lat_a, lng_a, lat_b, lng_b, raw_tree):
+                continue
+            # For shortcut chords skipping intermediate waypoints, also respect coastal standoff and safe depth
+            if j > i + 1:
+                if standoff_tree is not None and not _segment_clear(lat_a, lng_a, lat_b, lng_b, standoff_tree):
+                    continue
+                # Depth clearance check along shortcut chord (avoid shallow sandbars and headland reefs)
+                shallow_chord = False
+                for frac in (0.25, 0.5, 0.75):
+                    s_lat = lat_a + frac * (lat_b - lat_a)
+                    s_lng = lng_a + frac * (lng_b - lng_a)
+                    dp = depth_at_point(s_lat, s_lng)
+                    if dp.on_land or (dp.depth_m is not None and dp.depth_m < 5.0):
+                        shallow_chord = True
+                        break
+                if shallow_chord:
+                    continue
+            result.append(path[j])
+            i = j
+            found = True
+            break
         if not found:
             result.append(path[i + 1])
             i += 1
