@@ -150,7 +150,7 @@ RULES:
 1. kind = "distress" ONLY when the message clearly signals an active emergency at sea (sinking, capsized, boat taking on water, man overboard, mayday, medical emergency at sea, engine failure adrift, no fuel adrift). A question about what to do in a hypothetical or general case ("what should I do if my engine fails at sea", "how do I use a flare", "what is the MRCC number") is NOT an emergency: use "sea_question" (or "what_can_orca_do" when it is about ORCA). The person must be describing something that is happening to them now. If unsure, use "sea_question".
 2. kind = "clock_or_position" for "what time is it", "where am I", "current location/time", "what is my position" — questions about ORCA's own context, not the sea.
 3. kind = "greeting_or_small_talk" for "hi", "hello", "namaste", "vanakkam", "thanks", "who are you", "good morning" — conversational openers.
-4. kind = "what_can_orca_do" for capability questions ("what do you do", "help me", "how can you assist", "features").
+4. kind = "what_can_orca_do" for capability and identity questions, in any language ("what do you do", "help me", "how can you assist", "features", "who are you", "what is your name", "what are you"). A question about the assistant itself is never a sea question.
 5. kind = "reset_or_language_switch" for "reset", "clear conversation", "change language", "switch to Tamil", "talk in Hindi".
 6. kind = "off_topic" for clearly non-marine content (recipes, sports, stocks, movies, coding, general trivia). A message that only makes sense as a reply to RECENT TURNS is never off_topic just because it has no marine words in it; see rule 14.
 7. kind = "sea_question" for questions about conditions, safety, fishing, weather, or navigation at sea off India.

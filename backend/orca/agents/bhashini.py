@@ -72,6 +72,9 @@ _ALD_SERVICE_ID = "bhashini/iitmandi/audio-lang-detection/gpu"
 # government portal must never hold a query open indefinitely, safety path
 # or not.
 TIMEOUT_S = 3.0
+# Speech synthesis of a whole answer takes longer than a lookup or a translation, and a 3 s limit
+# was dropping it to the local robotic voice, which is then cached for that text (FIX-VOICE-1).
+TTS_TIMEOUT_S = 12.0
 
 TaskType = Literal["asr", "translation", "tts", "transliteration"]
 
@@ -142,14 +145,16 @@ def _pipeline_config(task_type: TaskType, source_lang: str, target_lang: str | N
     return resolved
 
 
-def _inference(config: dict[str, Any], pipeline_task: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+def _inference(
+    config: dict[str, Any], pipeline_task: dict[str, Any], input_data: dict[str, Any], timeout_s: float | None = None,
+) -> dict[str, Any]:
     headers = {
         config["inference_api_key"]["name"]: config["inference_api_key"]["value"],
         "Content-Type": "application/json",
     }
     body: dict[str, Any] = {"pipelineTasks": [pipeline_task], "inputData": input_data}
     try:
-        resp = requests.post(config["callback_url"], headers=headers, json=body, timeout=TIMEOUT_S)
+        resp = requests.post(config["callback_url"], headers=headers, json=body, timeout=timeout_s or TIMEOUT_S)
         resp.raise_for_status()
         return resp.json()
     except requests.RequestException as exc:
@@ -251,7 +256,12 @@ def tts(text: str, target_lang: str, gender: str = "female") -> bytes:
         },
     }
     payload = {"input": [{"source": text}]}
-    data = _inference(config, task, payload)
+    try:
+        data = _inference(config, task, payload, timeout_s=TTS_TIMEOUT_S)
+    except BhashiniError:
+        # One more try before the caller falls to the local voice: a timeout or a 5xx from the
+        # service is usually gone a second later, and the local voice would be cached for this text.
+        data = _inference(config, task, payload, timeout_s=TTS_TIMEOUT_S)
     try:
         b64 = data["pipelineResponse"][0]["audio"][0]["audioContent"]
         return base64.b64decode(b64)

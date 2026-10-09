@@ -44,11 +44,22 @@ import logging
 import re
 import time
 import wave
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Protocol, get_args
 
 from orca import local_models
-from orca.agents.language import Language
+from orca.agents.language import Language, normalise_compass
+from orca.agents.speech_lexicon import (
+    COMPASS_ENGLISH,
+    COMPASS_MULTI,
+    COMPASS_NATIVE,
+    ENGLISH_ACRONYMS,
+    ENGLISH_RESPELLING,
+    LEXICON,
+    MONTH_ALIASES,
+    Lexicon,
+)
 
 # ISO 639-3-ish codes facebook/mms-tts-<code> expects — a different code
 # table than IndicTrans2's FLORES-200 codes (orca/agents/language.py), so
@@ -152,13 +163,145 @@ class BhashiniAsrBackend:
         )
 
 
+# FIX-VOICE-1 — the voice, chosen by the user by ear on 2026-10-08 (files 03, 13, 14 of the listening
+# test). English is spoken by Bhashini's male voice. The product name is spoken by the Hindi voice,
+# because that is how anyone in India says "Sagar Sarathi" (the long aa in both words), which the
+# English voice cannot do. Other languages keep the default voice.
+_ENGLISH_GENDER = "male"
+_NAME_RE = re.compile(r"\bSa+gar\s+Sa+rathi\b", re.IGNORECASE)
+_NAME_DEVANAGARI = "\u0938\u093e\u0917\u0930 \u0938\u093e\u0930\u0925\u0940"
+_NAME_GAP_S = 0.05
+
+
+def _wav_to_array(wav: bytes):
+    """(mono float samples, sample rate) of a Bhashini WAV (it returns 32-bit float, which the
+    standard `wave` module cannot read)."""
+    import struct
+
+    import numpy as np
+
+    if wav[:4] != b"RIFF" or wav[8:12] != b"WAVE":
+        raise RuntimeError("Bhashini TTS: reply is not a WAV file")
+    pos, fmt, data = 12, None, None
+    while pos + 8 <= len(wav):
+        chunk_id, size = wav[pos:pos + 4], struct.unpack("<I", wav[pos + 4:pos + 8])[0]
+        body = wav[pos + 8:pos + 8 + size]
+        if chunk_id == b"fmt ":
+            fmt = struct.unpack("<HHIIHH", body[:16])
+        elif chunk_id == b"data":
+            data = body
+        pos += 8 + size + (size & 1)
+    if fmt is None or data is None:
+        raise RuntimeError("Bhashini TTS: WAV has no fmt/data chunk")
+    tag, channels, rate, _, _, bits = fmt
+    kinds = {(1, 16): (np.int16, 32768.0), (3, 32): (np.float32, 1.0), (1, 32): (np.int32, 2.0**31)}
+    if (tag, bits) not in kinds:
+        raise RuntimeError(f"Bhashini TTS: unsupported WAV format {tag}/{bits}")
+    dtype, scale = kinds[(tag, bits)]
+    samples = np.frombuffer(data, dtype=dtype).astype(np.float32) / scale
+    if channels > 1:
+        samples = samples.reshape(-1, channels).mean(axis=1)
+    return samples, rate
+
+
+def _join_wavs(parts: list[bytes], gap_s: float = _NAME_GAP_S) -> bytes:
+    """One 16-bit mono WAV from several Bhashini WAVs (resampled to the first one's rate)."""
+    import numpy as np
+
+    decoded = [_wav_to_array(p) for p in parts]
+    rate = decoded[0][1]
+    pieces = []
+    for samples, r in decoded:
+        if r != rate:
+            samples = np.interp(np.linspace(0, len(samples) - 1, int(len(samples) * rate / r)), np.arange(len(samples)), samples)
+        pieces += [samples.astype(np.float32), np.zeros(int(gap_s * rate), dtype=np.float32)]
+    joined = np.concatenate(pieces[:-1])
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(rate)
+        wav.writeframes((np.clip(joined, -1.0, 1.0) * 32767).astype(np.int16).tobytes())
+    return buf.getvalue()
+
+
+# FIX-VOICE-7 (2026-10-09). The service cuts its output at about 25 s and restarts after a 0.5-0.8 s gap,
+# wherever that falls in the text, even between "You can" and "head out now" (measured: a gap at 24.9 s in a
+# 394-character answer whatever the last sentence said; none in a 372-character one; more at about 52 s).
+# So a text longer than this is split by us at sentence ends, where a pause belongs, and the pieces are
+# joined. 260 characters is about 18 s at the English voice's pace (14.8 characters a second), which leaves
+# room for a slow reading. Most answers are shorter and stay ONE call, untouched.
+_TTS_CHUNK_CHARS = 260
+_TTS_JOIN_GAP_S = 0.2  # the voice's own gap between sentences is 0.17-0.32 s
+_CLAUSE_SPLIT_RE = re.compile(r"(?<=[,;:])\s+|\s+(?=and\s)")
+
+
+def split_for_bhashini(text: str, limit: int = _TTS_CHUNK_CHARS) -> list[str]:
+    """`text` as pieces of at most `limit` characters, cut at sentence ends (and, for a sentence longer than
+    the limit, at a comma or "and"). A text within the limit is returned whole."""
+    text = text.strip()
+    if len(text) <= limit:
+        return [text]
+    pieces: list[str] = []
+    for sentence in re.split(r"(?<=[.?])\s+", text):
+        if len(sentence) <= limit:
+            pieces.append(sentence)
+            continue
+        current = ""
+        for clause in _CLAUSE_SPLIT_RE.split(sentence):
+            if current and len(current) + 1 + len(clause) > limit:
+                pieces.append(current)
+                current = clause
+            else:
+                current = f"{current} {clause}".strip()
+        if current:
+            pieces.append(current)
+    chunks: list[str] = []
+    for piece in pieces:  # pack whole sentences into chunks up to the limit
+        if chunks and len(chunks[-1]) + 1 + len(piece) <= limit:
+            chunks[-1] = f"{chunks[-1]} {piece}"
+        else:
+            chunks.append(piece)
+    return chunks
+
+
+def _synthesize(text: str, language: str, gender: str | None = None) -> bytes:
+    """Bhashini TTS for `text`, in pieces when it is long (see `_TTS_CHUNK_CHARS`)."""
+    from orca.agents import bhashini
+
+    def one(piece: str) -> bytes:
+        return bhashini.tts(piece, language) if gender is None else bhashini.tts(piece, language, gender)
+
+    chunks = split_for_bhashini(text)
+    if len(chunks) == 1:
+        return one(chunks[0])
+    return _join_wavs([one(c) for c in chunks], gap_s=_TTS_JOIN_GAP_S)
+
+
 class BhashiniTtsBackend:
     def speak(self, text: str, language: Language) -> bytes:
         from orca.agents import bhashini
 
         if not bhashini.bhashini_configured():
             raise RuntimeError("Bhashini TTS not configured (BHASHINI_* env vars empty).")
-        return bhashini.tts(text, language)
+        if language != "en":
+            return _synthesize(text, language)
+        # The name goes to the Hindi voice and the rest of the sentence stays in the English one.
+        # Without the name this is one call, as before.
+        parts: list[bytes] = []
+        last = 0
+        for match in _NAME_RE.finditer(text):
+            before = text[last:match.start()].strip(" ,;:")
+            if before:
+                parts.append(_synthesize(before, "en", _ENGLISH_GENDER))
+            parts.append(bhashini.tts(_NAME_DEVANAGARI, "hi", _ENGLISH_GENDER))
+            last = match.end()
+        if not parts:
+            return _synthesize(text, "en", _ENGLISH_GENDER)
+        after = text[last:].lstrip(" ,.;:").rstrip()  # a trailing "." or "?" stays: it is the intonation
+        if after:
+            parts.append(_synthesize(after, "en", _ENGLISH_GENDER))
+        return _join_wavs(parts)
 
 
 class FasterWhisperBackend:
@@ -367,6 +510,209 @@ _tts_cache: dict[str, tuple[bytes, TtsRung]] = {}
 _TTS_CACHE_MAX = 32
 
 
+# --- the speakable text ----------------------------------------------------------------------------
+#
+# What the screen shows is what the model wrote: "Hello! I'm ...", "30\u201135 m", "12 km/h",
+# "2026\u201110\u201102", "+91-44-2539-5018". Spoken as written, the engine said "Hello factorial", read
+# the date as "2000 and 2062", the range as "3035", "km/h" without "per hour", a phone number as
+# ninety-one forty-four, and "don't" as "don, pause, tee" when the apostrophe was the curly one
+# (each reproduced with Bhashini and Whisper on 2026-10-08, and by the user's ear). This step
+# rewrites the text for the SPEAKER only; the shown text never changes. Every rule below was
+# checked by synthesizing it.
+
+_EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F\u200d]")
+_PLACEHOLDER_RE = re.compile(r"ZKEEPZ\w*?Z")
+_MONTHS = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+_DIGIT_WORDS = {
+    "0": "zero", "1": "one", "2": "two", "3": "three", "4": "four",
+    "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "nine",
+}
+
+
+def _spell_digits(number: str) -> str:
+    return " ".join(_DIGIT_WORDS[c] for c in number if c in _DIGIT_WORDS)
+
+
+def _spoken_date(m: re.Match[str]) -> str:
+    year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if not (1 <= month <= 12 and 1 <= day <= 31):
+        return m.group(0)
+    return f"{day} {_MONTHS[month - 1]} {year}"
+
+
+def _looks_like_a_phone_number(text: str) -> bool:
+    """A "+" country code, or at least ten digits. "1-2-3", "2026-13-45" and "12-34-56" are not numbers to dial."""
+    return text.startswith("+") or sum(c.isdigit() for c in text) >= 10
+
+
+_MONTH_ABBREVIATIONS = ("Jan", "Feb", "Mar", "Apr", "Jun", "Jul", "Aug", "Sept", "Sep", "Oct", "Nov", "Dec")
+_MONTH_ABBR_RE = "|".join(_MONTH_ABBREVIATIONS)
+_FULL_MONTH_BY_PREFIX = {m[:3].lower(): m for m in _MONTHS}
+
+
+def _expand_months(s: str) -> str:
+    """"2 Oct 2026" and "Oct 2, 2026" in full: the voice mispronounces "Oct" and "Sept". Only an abbreviation
+    next to a day number, so a word such as "Mark" or "decide" is never touched."""
+    def full(token: str) -> str:
+        return _FULL_MONTH_BY_PREFIX[token[:3].lower()]
+
+    # no trailing dot is taken here: "...on 3 Sep." ends the sentence ("Oct. 2" below has its dot before a number)
+    s = re.sub(rf"\b(\d{{1,2}})\s+({_MONTH_ABBR_RE})\b", lambda m: f"{m.group(1)} {full(m.group(2))}", s, flags=re.IGNORECASE)
+    return re.sub(rf"\b({_MONTH_ABBR_RE})\b\.?(?=\s+\d)", lambda m: full(m.group(1)), s, flags=re.IGNORECASE)
+
+
+def _spoken_phone(m: re.Match[str]) -> str:
+    if not _looks_like_a_phone_number(m.group(0)):
+        return m.group(0)
+    groups = [_spell_digits(g) for g in m.group(0).lstrip("+").split("-")]
+    return ("plus " if m.group(0).startswith("+") else "") + ", ".join(groups)
+
+
+_NUM = r"\d+(?:\.\d+)?"
+_MONTH_NAMES = "|".join(sorted(MONTH_ALIASES, key=len, reverse=True))
+_NO_LATIN_AFTER = r"(?![A-Za-z/])"  # a unit, not the start of a word; an Indic letter may follow it directly
+
+
+def _month_word(token: str, lex: Lexicon) -> str:
+    return lex["months"][MONTH_ALIASES[token.lower()] - 1]
+
+
+def _speak_numbers_in_native_text(s: str, lex: Lexicon, compass: dict[str, str] | None = None) -> str:
+    """The English rules above, for a native-language answer: Latin units, ranges, dates and phone
+    numbers sit inside native sentences and are read badly as written (see `speech_lexicon`)."""
+    # A number to dial, digit by digit (an ISO date is handled next, and has fewer than 7 digits per group).
+    def _phone(m: re.Match[str]) -> str:
+        if not _looks_like_a_phone_number(m.group(0)):
+            return m.group(0)
+        groups = [" ".join(g) for g in m.group(0).lstrip("+").split("-")]
+        return (lex["plus"] + " " if m.group(0).startswith("+") else "") + ", ".join(groups)
+
+    def _iso(m: re.Match[str]) -> str:
+        year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if not (1 <= month <= 12 and 1 <= day <= 31):
+            return m.group(0)
+        return f"{day} {lex['months'][month - 1]} {year}"
+
+    s = re.sub(r"\b(\d{4})-(\d{2})-(\d{2})\b", _iso, s)
+    s = re.sub(r"\+?\d+(?:-\d+){2,}", _phone, s)
+    # "2 Oct 2026", "2 October", "Oct 2, 2026": the translator writes the month in Latin letters, and the
+    # voice then drops it ("2 Oct 2026" was heard "2 2000 twenty-six").
+    s = re.sub(
+        rf"\b(\d{{1,2}})\s+({_MONTH_NAMES})\b(?:\s+(\d{{4}}))?",
+        lambda m: f"{m.group(1)} {_month_word(m.group(2), lex)}" + (f" {m.group(3)}" if m.group(3) else ""),
+        s,
+        flags=re.IGNORECASE,
+    )
+    s = re.sub(
+        rf"\b({_MONTH_NAMES})\b\.?\s+(\d{{1,2}})(?:,?\s+(\d{{4}}))?",
+        lambda m: f"{m.group(2)} {_month_word(m.group(1), lex)}" + (f" {m.group(3)}" if m.group(3) else ""),
+        s,
+        flags=re.IGNORECASE,
+    )
+    # "30-35" is read "30 35": the word between the two numbers is missing.
+    s = re.sub(rf"({_NUM})\s*-\s*({_NUM})", rf"\1 {lex['to']} \2", s)
+    span = rf"({_NUM}(?:\s+{re.escape(lex['to'])}\s+{_NUM})?)"
+    # "12 km/h", and the translator's own "12 km/ಗಂ" / "km/மணி" / "km/ঘন্টা" (a native word for "hour" after the slash).
+    s = re.sub(rf"{span}\s*(?i:km/h|kmh|km/hr|kph){_NO_LATIN_AFTER}", lambda m: lex["kmh"].format(n=m.group(1)), s)
+    s = re.sub(rf"{span}\s*(?i:km)/[^\W\d_a-zA-Z]+", lambda m: lex["kmh"].format(n=m.group(1)), s)
+    s = re.sub(rf"{span}\s*(?i:m/s){_NO_LATIN_AFTER}", lambda m: lex["ms"].format(n=m.group(1)), s)
+    if compass:  # "9.915° N": the degree sign sits between the number and the letter
+        s = re.sub(
+            r"(\d)\s*\u00b0\s*([NESW])(?![A-Za-z])", lambda m: f"{m.group(1)} {lex['deg']} {compass[m.group(2)]}", s
+        )
+    s = re.sub(rf"(\d)\s*(?i:km){_NO_LATIN_AFTER}", rf"\1 {lex['km']}", s)
+    s = re.sub(rf"(\d)\s*(?i:nm){_NO_LATIN_AFTER}", rf"\1 {lex['nm']}", s)
+    s = re.sub(rf"(\d)\s*m{_NO_LATIN_AFTER}", rf"\1 {lex['m']}", s)  # a lone "m" was spelled as two letters
+    s = re.sub(r"(\d)\s*°", rf"\1 {lex['deg']}", s)
+    s = re.sub(r"(\d)\s*%", rf"\1 {lex['pct']}", s)
+    if compass:
+        s = _speak_compass_points(normalise_compass(s), lambda letters: " ".join(compass[c] for c in letters))
+    return s
+
+
+def _respell_keeping_case(respelled: str) -> Callable[[re.Match[str]], str]:
+    """A replacement that starts with a capital where the word it replaces did ("Height" -> "Hite")."""
+
+    def _sub(m: re.Match[str]) -> str:
+        return respelled[0].upper() + respelled[1:] if m.group(0)[:1].isupper() else respelled
+
+    return _sub
+
+
+_COMPASS_MULTI_RE = re.compile(r"\b(" + "|".join(COMPASS_MULTI) + r")\b")
+_COMPASS_LETTER_AFTER_NUMBER_RE = re.compile(r"(?<=\d)(\s*)([NESW])(?![A-Za-z])")
+
+
+def _speak_compass_points(s: str, say: Callable[[str], str]) -> str:
+    """"NNW" and "12.9894 N" in words. `say` maps compass letters ("NNW", "N") to the spoken words. The
+    single letters N, E, S and W are a direction only straight after a number (a coordinate or a bearing)."""
+    s = _COMPASS_MULTI_RE.sub(lambda m: say(m.group(1)), s)
+    return _COMPASS_LETTER_AFTER_NUMBER_RE.sub(lambda m: " " + say(m.group(2)), s)
+
+
+def speakable(text: str, language: Language) -> str:
+    """The text the voice is given. Neutral clean-up for every language; the English rules only for
+    English (the other voices were not found to need them, and a rule written for English must not
+    reach Tamil)."""
+    s = text
+    s = _PLACEHOLDER_RE.sub("", s)  # a translation-protection token is never read out
+    s = _EMOJI_RE.sub("", s)
+    s = re.sub("[\u202f\u00a0\u2009\u2007]", " ", s)  # the model's narrow no-break spaces
+    s = s.replace("\u2014", ", ")  # em dash: a pause, not a letter
+    s = re.sub("[\u2010\u2011\u2012\u2013\u2015\u2212]", "-", s)  # every other dash is a plain hyphen
+    s = re.sub(r"\*+|^#+\s*|^\s*[-*]\s+", "", s, flags=re.MULTILINE)  # Markdown
+    s = re.sub("[\u2018\u2019\u02bc\u00b4`]", "'", s)  # the curly apostrophe is what made "don't" pause
+    if language == "en":
+        s = re.sub(r"\b(\d{4})-(\d{2})-(\d{2})\b", _spoken_date, s)
+        s = _expand_months(s)
+        s = re.sub(r"\b0(\d):(\d{2})\b", r"\1:\2", s)
+        s = re.sub(r"\bIST\b", "Indian Standard Time", s)
+        s = re.sub(r"\+?\d+(?:-\d+){2,}", _spoken_phone, s)  # a number to dial is read digit by digit
+        s = re.sub(r"(?i)(nationwide[^0-9]{0,4})(\d{3,4})\b", lambda m: m.group(1) + _spell_digits(m.group(2)), s)
+        s = re.sub(r"(?i)\bk(?:m/h|mh|m/hr|ph)\b", "kilometres per hour", s)
+        s = re.sub(r"(?i)\bm/s\b", "metres per second", s)
+        s = re.sub(r"(\d)\s*-\s*(\d)", r"\1 to \2", s)  # "30-35" is "30 to 35", not "3035"
+        s = re.sub(r"(\d)\s*km\b", r"\1 kilometres", s)
+        s = re.sub(r"(\d)\s*nm\b", r"\1 nautical miles", s)
+        s = re.sub(r"(\d)\s*m\b", r"\1 metres", s)
+        s = re.sub(
+            r"(\d)\s*\u00b0\s*([NESW])(?![A-Za-z])", lambda m: f"{m.group(1)} degrees {COMPASS_ENGLISH[m.group(2)]}", s
+        )  # "9.915° N": the degree sign sits between the number and the letter
+        s = re.sub(r"\s*\u00b0\s*", " degrees ", s)
+        s = re.sub(r"\s*%", " percent", s)
+        s = re.sub(r"\s*[\u2248~]\s*(?=\d)", " about ", s)  # "≈" was read "approximately equal"
+        s = s.replace("\u00b1", " plus or minus ")
+        for acronym, spoken in ENGLISH_ACRONYMS.items():
+            s = re.sub(rf"\b{re.escape(acronym)}\b", spoken, s)
+        # A long all-caps word is spelled out or garbled by the voice ("SIMULATED" was heard
+        # "AMUL-ERETED"); lower case it reads as the word it is. Acronyms were rewritten above and the
+        # short ones (GO, PFZ) are not touched.
+        s = re.sub(r"\b[A-Z]{5,}\b", lambda m: m.group(0).lower(), s)
+        s = _speak_compass_points(normalise_compass(s), lambda letters: COMPASS_ENGLISH[letters])
+        for word, respelled in ENGLISH_RESPELLING.items():  # single words the voice mispronounces
+            s = re.sub(rf"\b{re.escape(word)}\b", _respell_keeping_case(respelled), s, flags=re.IGNORECASE)
+        s = s.replace("&", " and ")
+        s = re.sub(r"(?<=[A-Za-z])/(?=[A-Za-z])", " and ", s)
+        s = re.sub(r"\s+-\s+", ", ", s)
+        s = re.sub(r"\s*[()]\s*", ", ", s)
+        s = s.replace(";", ",")
+    elif language in LEXICON:
+        s = _speak_numbers_in_native_text(s, LEXICON[language], COMPASS_NATIVE.get(language))
+    # "!" is read as the word "factorial" by the voice in EVERY language tested (English, Kannada, Hindi,
+    # Tamil, Telugu, Malayalam, Bengali, Gujarati: reproduced with Bhashini TTS and ASR on 2026-10-08).
+    s = re.sub("[!！‼]", ".", s)
+    s = re.sub(r"\n+", ". ", s)
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"(\s*,)+", ",", s)
+    s = re.sub(r"\.\s*,", ".", s)
+    s = re.sub(r",\s*([.?])", r"\1", s)
+    s = re.sub(r"([.?])\s*\.", r"\1", s)
+    return s.strip(" ,")
+
+
 def _tts_cache_key(text: str, language: Language) -> str:
     return hashlib.sha256(f"{language}:{text}".encode()).hexdigest()[:16]
 
@@ -384,9 +730,10 @@ def text_to_speech(text: str, language: Language) -> tuple[bytes | None, TtsRung
         return _tts_cache[key]
 
     t0 = time.monotonic()
+    spoken = speakable(text, language)
     for backend in _tts_backends:
         try:
-            audio = backend.speak(text, language)
+            audio = backend.speak(spoken, language)
             rung: TtsRung = "bhashini" if isinstance(backend, BhashiniTtsBackend) else "mms_tts"
             # Cache the result in-memory
             if len(_tts_cache) >= _TTS_CACHE_MAX:

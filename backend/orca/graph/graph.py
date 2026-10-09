@@ -239,6 +239,15 @@ def _conversation_context(state: ORCAState) -> str:
     return reporting.conversation_context(state.get("session_history"), state.get("user_location"))
 
 
+def _in_name_spelling(state: ORCAState, reply: str) -> str:
+    """A chat reply is written by a model in the user's own language, so it spells the product's name
+    by ear ("ಸಾಗರ ಸಾಗತಿ", "স্যারথি"). Code owns the name (language.PRODUCT_NAME_NATIVE)."""
+    # The reply's own script decides the spelling, not a field in the state: the model may answer in
+    # Kannada because the question said so, with no language recorded. A Latin (English) reply is left
+    # alone, so the English fallback sentence never gets a native name pasted into it.
+    return language.localize_product_name(reply, language.detect_language(reply))
+
+
 def _guard_reply(state: ORCAState, required: str, *, allow_small_talk: bool = False) -> dict:
     """Chatbot plan C0.2d — the reply to a stopped message, worded by a model.
     The guard has already decided everything; `required` is what the reply
@@ -249,6 +258,7 @@ def _guard_reply(state: ORCAState, required: str, *, allow_small_talk: bool = Fa
         state.get("raw_user_query", "") or "", required, allow_small_talk=allow_small_talk,
         context=_conversation_context(state),
     )
+    reply = _in_name_spelling(state, reply)
     return {
         "final_english_response": reply,
         "final_vernacular_response": reply,
@@ -287,6 +297,7 @@ def out_of_scope_node(state: ORCAState) -> dict:
 
     if understood_kind == "clock_or_position" or planning.is_self_context_question(query) or planning.is_self_context_question(state.get("normalized_english_query") or ""):
         reply, engine = reporting.write_self_context_reply(query, _self_context_facts(state), _conversation_context(state))
+        reply = _in_name_spelling(state, reply)
         return {
             "query_outcome": "OUT_OF_SCOPE",
             "final_english_response": reply,
@@ -318,6 +329,7 @@ def out_of_scope_node(state: ORCAState) -> dict:
             "Sagar Sarathi has no weather or sea data for it, and does not give land-based forecasts."
         )
         reply, engine = reporting.write_chat_reply(query, facts, body, _conversation_context(state))
+        reply = _in_name_spelling(state, reply)
         return {
             "query_outcome": "OUT_OF_SCOPE",
             "final_english_response": reply,
@@ -333,6 +345,7 @@ def out_of_scope_node(state: ORCAState) -> dict:
         # as the next turn of the chat. The fixed sentence is only the no-model fallback.
         body ="I answer questions about conditions at sea off India — whether it's safe to go out, wave height, wind speed, tides, nearest fishing zones, and maritime boundaries. Name a coastal place or send your position, and I'll answer for it."
         reply, engine = reporting.write_chat_reply(query, reporting.CAPABILITY_FACTS, body, _conversation_context(state))
+        reply = _in_name_spelling(state, reply)
         return {
             "query_outcome": "OUT_OF_SCOPE",
             "final_english_response": reply,

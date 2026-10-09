@@ -49,13 +49,29 @@ export function AnswerSpeaker({
     return () => controller.abort();
   }, [text, language]);
 
+  // One request, one audio, at a time (FIX-VOICE-1). Pressing play again while the first request was
+  // still being fetched used to call stop(), which paused nothing (no audio existed yet) and
+  // flipped the icon, while the pending request carried on and started playing; the next press then
+  // started a second Audio on top of it, and the first was never paused. Every press now gets a
+  // number; anything that finishes under an older number is dropped, and stop() cancels the fetch.
+  const requestRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+
   function stop() {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
     audioRef.current?.pause();
     setPlaying(false);
   }
 
   async function speak() {
     if (!text.trim()) return;
+    audioRef.current?.pause();
+    abortRef.current?.abort();
+    const id = ++requestRef.current;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setPlaying(true);
     setError(null);
     try {
@@ -71,7 +87,9 @@ export function AnswerSpeaker({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text, language }),
+          signal: controller.signal,
         });
+        if (id !== requestRef.current) return;
         if (!res.ok) {
           setPlaying(false);
           setError("Voice playback is unavailable right now — the text answer above is unchanged.");
@@ -79,6 +97,7 @@ export function AnswerSpeaker({
         }
         ttsRung = res.headers.get("x-tts-rung") || "";
         blob = await res.blob();
+        if (id !== requestRef.current) return;
         // Cache for subsequent clicks
         cachedBlobRef.current = { text, blob, rung: ttsRung };
       }
@@ -88,10 +107,16 @@ export function AnswerSpeaker({
       urlRef.current = url;
       const audio = new Audio(url);
       audioRef.current = audio;
-      audio.onended = () => setPlaying(false);
-      audio.onerror = () => setPlaying(false);
+      audio.onended = () => {
+        if (id === requestRef.current) setPlaying(false);
+      };
+      audio.onerror = () => {
+        if (id === requestRef.current) setPlaying(false);
+      };
       await audio.play();
     } catch {
+      // A press that was stopped or replaced is not an error.
+      if (id !== requestRef.current) return;
       setPlaying(false);
       setError("Voice playback is unavailable right now — the text answer above is unchanged.");
     }
@@ -102,6 +127,8 @@ export function AnswerSpeaker({
   // playing over a new one.
   useEffect(() => {
     return () => {
+      requestRef.current += 1;
+      abortRef.current?.abort();
       audioRef.current?.pause();
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
     };

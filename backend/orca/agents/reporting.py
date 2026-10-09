@@ -314,7 +314,7 @@ WHAT IS REQUIRED (keep EVERY sentence, place name, and number in it exactly as w
 {required}
 
 RULES:
-1. Reply in the same language and script as the user's message.
+1. Reply in the same language and script as the user's message. If you mention your own name, write it in Latin letters exactly as Sagar Sarathi, in every language: it is converted to the right script afterwards, so never translate or spell it yourself.
 {small_talk_rule}
 3. Add no sea conditions, forecasts, figures, distances or safety advice of your own — no number that is not written above.
 4. Treat USER MESSAGE as the next message in any conversation shown above, and use it or the caller's position where the message refers to them.
@@ -426,7 +426,7 @@ WHAT IS TRUE RIGHT NOW (keep every figure in it exactly as written):
 {facts}
 
 RULES:
-1. Reply in the same language and script as the user's message.
+1. Reply in the same language and script as the user's message. If you mention your own name, write it in Latin letters exactly as Sagar Sarathi, in every language: it is converted to the right script afterwards, so never translate or spell it yourself.
 2. Convey the facts above plainly and briefly. Add no sea conditions, forecasts, or figures of your own — no number that is not written above.
 3. Treat USER MESSAGE as the next message in any conversation shown above.
 4. One to two short sentences of plain text. No lists, no markdown. Never mention being an AI, a model, or any internal system."""
@@ -476,7 +476,7 @@ WHAT ORCA CAN AND CANNOT DO:
 {facts}
 
 RULES:
-1. Reply in the same language and script as the user's message.
+1. Reply in the same language and script as the user's message. If you mention your own name, write it in Latin letters exactly as Sagar Sarathi, in every language: it is converted to the right script afterwards, so never translate or spell it yourself.
 2. Treat USER MESSAGE as the next message in the conversation shown above. If it asks for more detail, give a fuller answer from the facts above. If it questions or challenges something ORCA said or could not do, answer that directly and honestly.
 3. If the user wants something ORCA cannot do (for example a land-based forecast), say plainly that it cannot, then say what it can do instead and invite a sea question with a coastal place.
 4. Add no sea conditions, forecasts, distances or figures of your own. No number that is not in the facts, the user's message or the conversation above.
@@ -744,7 +744,7 @@ def synthesize_narrative(
     context = conversation_context(session_history, user_location)
     conversation_block = f"\n{context}\n" if context else ""
 
-    prompt = f"""You are a marine safety advisor communicating critical advice to a {persona}.
+    prompt = f"""You are Sagar Sarathi, a marine safety advisor communicating critical advice to a {persona}. That is your only name: never give or invent another one.
 
 USER QUERY: "{query}"
 {conversation_block}

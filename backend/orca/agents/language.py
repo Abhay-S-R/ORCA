@@ -42,10 +42,13 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from orca import engines, local_models
+from orca.agents.speech_lexicon import COMPASS_MULTI
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 
 if TYPE_CHECKING:
@@ -218,42 +221,199 @@ def register_translation_backend(backend: TranslationBackend) -> None:
 # every number are exactly what a marine safety answer cannot afford a
 # translation model to paraphrase, mistranslate, or drop a decimal from.
 #
-# The placeholder format below (`ZKEEPZ0Z`, `ZKEEPZ1Z`, …) replaced an
-# earlier bracket scheme (`⟦0⟧`) that looked safer and was not: verified
-# live against Bhashini NMT on 2026-09-23, `⟦0⟧` came back as a bare `0` —
-# the brackets were stripped but the digit kept, so "GO: All Parameters..."
-# translated to "0: பாதுகாப்பான..." with no way to tell the corrupted
-# placeholder from a real answer. `ZKEEPZ0Z` (and a letter variant,
-# `ZKEEPZAZ`) were tested against the same live model and came back
-# byte-for-byte unchanged, including with three of them in one sentence and
-# Tamil's own word-reordering around them — an all-caps run with no
-# punctuation reads to the model as an unknown proper noun to copy, not a
-# structure to normalize away. Still a best-effort choice, not a guarantee
-# for every model this seam might ever run against (IndicTrans2 included,
-# untested here — see module docstring on `IndicTransToolkit`), which is why
-# unmasking stays a plain, order-independent string substitution rather than
-# something that assumes the live-verified shape is the only one it will
-# ever see.
-_PROTECTED_TERM = re.compile(
-    r"\bIMBL\b|\bPFZ\b|\bNO[-_ ]?GO\b|\bGO\b|\bSEC\d{3}\b"
-    r"|[+-]?\d+(?:\.\d+)?\s?(?:m|km|kmh|km/h|kt|kn|nm|°C|%)?\b"
+# The placeholder is a short NUMBER (801, 802, ...) (FIX-PLACEHOLDER-1, 2026-10-09). Its history:
+#   * "⟦0⟧" came back as a bare "0" (2026-09-23).
+#   * "ZKEEPZ0Z" was copied by Tamil and Hindi, but a translator spells a Latin pseudo-word by ear: in
+#     Marathi, Bengali and sometimes Hindi it came back as "झेडकेईईपीझेड5झेड" and the answer LOST the
+#     number it stood for (a wave height). Measured 2026-10-09 over six answers in all nine languages:
+#     312 of 333 placeholders survived.
+#   * A 7-digit number was reformatted with Indian digit grouping ("70,00,043"): 314 of 333.
+#   * "[n]" 89 of 90, "#n#" 0 of 90, "Qn Q" 23 of 90, no masking 19 of 90 (units and numbers reworded).
+#   * A 3-digit number (801 + n): 333 of 333, in every language, and a 4-digit one 332 of 333.
+# Translators leave digits alone, and a 3-digit number is not grouped. All real numbers are masked, so
+# no other digit string is in the sentence. Unmasking checks that each placeholder came back exactly
+# once; if not, the sentence is translated again without masking rather than losing a number.
+# FIX-COMPASS-1 (2026-10-09): ONE token per phrase. Protecting "NNW" separately made "16 km NNW" two adjacent
+# placeholders ("801 802"); a translator reads an adjacent pair of numbers as one number and drops or moves
+# them (Hindi lost the distance and the direction, Tamil put them in the date, Kannada lost the direction).
+# Measured 2026-10-09, nine languages x nine sentences: the previous masking left 71% of sentences intact, one
+# token per phrase 96%. A phrase is: a written date ("2 Oct 2026", "October 2, 2026", "2026-10-02"), a time, a
+# coordinate pair ("9.915 N, 76.074 E"), a number or range with its unit and a following compass point
+# ("16 km NNW", "28-33 m"), a lone compass point, or one of the fixed terms.
+_MONTHS_RE = (
+    r"(?:January|February|March|April|May|June|July|August|September|October|November|December"
+    r"|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec)"
 )
+_COMPASS_RE = r"(?:" + "|".join(COMPASS_MULTI) + r")"
+_NUM_RE = r"\d+(?:\.\d+)?"
+_COORD_RE = rf"{_NUM_RE}\s?\u00b0?\s?[NESW](?![A-Za-z])"
+_UNIT_RE = r"(?:km/h|kmh|km/hr|km|nm|m/s|m|kt|kn)"
+_PROTECTED_TERM = re.compile(
+    rf"\b{_NUM_RE}\s+{_MONTHS_RE}\.?(?:\s+\d{{4}})?\b|\b{_MONTHS_RE}\.?\s+{_NUM_RE},?(?:\s+\d{{4}})?\b"
+    r"|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}:\d{2}\b"
+    r"|\bIMBL\b|\bPFZ\b|\bNO[-_ ]?GO\b|\bGO\b|\bSEC\d{3}\b"
+    rf"|{_COORD_RE}(?:,?\s{_COORD_RE})?"
+    rf"|[+-]?{_NUM_RE}(?:\s?[-\u2010-\u2015\u2212]\s?{_NUM_RE})?"
+    rf"(?:\s?{_UNIT_RE}(?![A-Za-z])(?:\s{_COMPASS_RE}\b)?|\u00b0C|%)?(?![A-Za-z])"
+    rf"|\b{_COMPASS_RE}\b"
+)
+_PLACEHOLDER_BASE = 801
+_MAX_PLACEHOLDERS = 150  # 801..950; an answer with more numbers than this is translated unmasked
+
+
+# The product's name, written the way a speaker of each language writes it (FIX-NAME-1). Bhashini
+# translates a name by its sound, and a model writing a reply in Kannada or Bengali does the same, so
+# the spelling changed by language and by sentence ("ಸಾಗರ್ ಸಾರಥಿ", "ಸಾಗರ ಸರಥಿ", "ಸಾಗರ ಸಾಗತಿ", "স্যারথি").
+# It is a brand, so code owns it: hidden from the translator like IMBL and the numbers, put back in this
+# spelling, and corrected when a model writes it by ear. Every language has an entry.
+#   * Confirmed by the user: Devanagari (hi, mr) and Kannada.
+#   * Derived, not yet confirmed by a native reader: ta, te, ml, bn, gu, or. They are Bhashini's
+#     transliteration of the Latin "Saagara Saarathi", the spelling that reproduces the user's
+#     Kannada and Devanagari exactly (the other Latin spellings tried did not). To change one, edit it
+#     here: nothing else holds a copy.
+PRODUCT_NAME_NATIVE: dict[str, str] = {
+    "hi": "सागर सारथी",
+    "mr": "सागर सारथी",
+    "kn": "ಸಾಗರ ಸಾರಥಿ",
+    "ta": "சாகர சாரதி",
+    "te": "సాగర సారథి",
+    "ml": "സാഗര സാരഥി",
+    "bn": "সাগর সারথি",
+    "gu": "સાગર સારથી",
+    "or": "ସାଗର ସାରଥି",
+}
+_PRODUCT_NAME = re.compile(r"\bSa+gar\w*\s+Sa+r+a?(?:th|t)i\b", re.IGNORECASE)
+_NAME_EDGE = "\"'.,;:!?()[]{}\u2018\u2019\u201c\u201d\u0964\u0965"
+
+
+def _skeleton(word: str) -> tuple[str, ...]:
+    """A word's consonant skeleton, script-free: ("SA", "GA", "RA") for "सागर", "ಸಾಗರ್" and "ସାଗର".
+    Vowel signs, the virama and a final vowel drop out, which is exactly where spellings by ear
+    differ; a "ya" after a virama (Bengali "স্যা") drops too; tha and ta are one letter, since
+    "Sarathi" is heard "Sarati". A letter of another script keeps its Latin-named sound, so a
+    Devanagari "थ" inside a Kannada word still counts as "tha"."""
+    out: list[str] = []
+    after_virama = False
+    for ch in word.strip(_NAME_EDGE):
+        if unicodedata.category(ch) == "Lo":
+            sound = unicodedata.name(ch, "").split()[-1]
+            if not (after_virama and sound == "YA"):
+                # tha is ta, and Tamil's one letter for sa and ca and for ka and ga is one letter here.
+                out.append({"THA": "TA", "CA": "SA", "KA": "GA"}.get(sound, sound))
+        after_virama = "VIRAMA" in unicodedata.name(ch, "")
+    return tuple(out)
+
+
+_NAME_SKELETONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {}
+
+
+def localize_product_name(text: str, language: str) -> str:
+    """The product's name in `language`'s own spelling, wherever it appears in `text`: written in
+    Latin letters, or spelt by ear in that script (a skeleton match: see `_skeleton`). English and
+    a language with no entry are returned unchanged. A word pair that merely resembles the name
+    (another consonant) is left alone."""
+    native = PRODUCT_NAME_NATIVE.get(language)
+    if not native:
+        return text
+    text = _PRODUCT_NAME.sub(native, text)
+    if language not in _NAME_SKELETONS:
+        first, second = native.split()
+        _NAME_SKELETONS[language] = (_skeleton(first), _skeleton(second))
+    want_first, want_second = _NAME_SKELETONS[language]
+    words = list(re.finditer(r"\S+", text))
+    out: list[str] = []
+    last = 0
+    i = 0
+    while i < len(words):
+        if i + 1 < len(words) and _skeleton(words[i].group()) == want_first and _skeleton(words[i + 1].group()) == want_second:
+            trail = words[i + 1].group()
+            tail = trail[len(trail.rstrip(_NAME_EDGE)):]
+            lead = words[i].group()[: len(words[i].group()) - len(words[i].group().lstrip(_NAME_EDGE))]
+            out.append(text[last:words[i].start()] + lead + native + tail)
+            last = words[i + 1].end()
+            i += 2
+            continue
+        i += 1
+    return "".join(out) + text[last:]
+
+
+_WORD_POINT = {
+    "north": "N", "south": "S", "east": "E", "west": "W",
+    "northeast": "NE", "northwest": "NW", "southeast": "SE", "southwest": "SW",
+}
+_POINT_WORD = "(?:" + "|".join(sorted(_WORD_POINT, key=len, reverse=True)) + ")"
+# not part of a longer letter run: "A-N-W" and "N-W-X" are not compass points
+_LETTER_POINT_RE = re.compile(
+    r"(?<![A-Za-z])(?<![A-Za-z][\-\u2010-\u2015.])[NESW](?:[\-\u2010-\u2015.][NESW]){1,2}\.?(?![A-Za-z])(?![\-\u2010-\u2015.][A-Za-z])"
+)
+_SPELLED_POINT_RE = re.compile(rf"\b{_POINT_WORD}(?:[\-\u2010-\u2015\s]+{_POINT_WORD}){{1,2}}\b", re.IGNORECASE)
+_SPELLED_UNITS = (
+    (re.compile(rf"({_NUM_RE})\s*(?:kilometres|kilometers|kilometre|kilometer)\b", re.IGNORECASE), r"\1 km"),
+    (re.compile(rf"({_NUM_RE})\s*(?:nautical miles?)\b", re.IGNORECASE), r"\1 nm"),
+    (re.compile(rf"({_NUM_RE})\s*(?:metres|meters|metre|meter)\b", re.IGNORECASE), r"\1 m"),
+)
+_RANGE_TO_RE = re.compile(rf"({_NUM_RE})\s+to\s+({_NUM_RE})(?=\s?{_UNIT_RE}(?![A-Za-z]))")
+
+
+def normalise_compass(text: str) -> str:
+    """"N-N-W", "N.N.W.", "west south-west", "north-north-west" -> "NNW", "WSW" (every one of the sixteen points
+    that has three letters, and the two-letter letter forms). A word that is only north-west or south-east is
+    left alone: translators handle those. A letter sequence that is not a compass point is left alone."""
+    points = set(COMPASS_MULTI)
+
+    def letters(m: re.Match[str]) -> str:
+        joined = re.sub(r"[^NESW]", "", m.group(0))
+        return joined if joined in points else m.group(0)
+
+    def spelled(m: re.Match[str]) -> str:
+        joined = "".join(_WORD_POINT[w.lower()] for w in re.findall(r"[A-Za-z]+", m.group(0)))
+        return joined if len(joined) == 3 and joined in points else m.group(0)
+
+    return _SPELLED_POINT_RE.sub(spelled, _LETTER_POINT_RE.sub(letters, text))
+
+
+def normalise_for_translation(text: str) -> str:
+    """The English answer in the form that survives translation as a few big tokens: compass spellings as
+    abbreviations, and a spelled unit after a number as its symbol ("14.9 kilometres" -> "14.9 km", "28 to 33
+    meters" -> "28-33 m"), so that a number, its unit and its compass point are ONE protected phrase and the
+    translator is not left to drop a placeholder that stands alone between native words."""
+    text = normalise_compass(text)
+    for pattern, replacement in _SPELLED_UNITS:
+        text = pattern.sub(replacement, text)
+    return _RANGE_TO_RE.sub(r"\1-\2", text)
 
 
 def _mask_protected_terms(text: str) -> tuple[str, list[str]]:
+    """The text with each protected term replaced by a 3-digit placeholder, and the originals in order.
+    The product's name is deliberately NOT hidden (FIX-NAME-2): it was, and in Marathi and Bengali the
+    translator turned the placeholder into gibberish and the answer lost the name. The translator
+    writes the name by ear and `localize_product_name` corrects it afterwards."""
     tokens: list[str] = []
 
-    def _sub(m: re.Match[str]) -> str:
+    def _keep(m: re.Match[str]) -> str:
         tokens.append(m.group(0))
-        return f"ZKEEPZ{len(tokens) - 1}Z"
+        return str(_PLACEHOLDER_BASE + len(tokens) - 1)
 
-    return _PROTECTED_TERM.sub(_sub, text), tokens
+    masked = _PROTECTED_TERM.sub(_keep, text)
+    if len(tokens) > _MAX_PLACEHOLDERS:
+        return text, []
+    return masked, tokens
 
 
-def _unmask_protected_terms(text: str, tokens: list[str]) -> str:
-    for i, original in enumerate(tokens):
-        text = text.replace(f"ZKEEPZ{i}Z", original)
-    return text
+def _unmask_protected_terms(text: str, tokens: list[str]) -> tuple[str, bool]:
+    """(the text with each placeholder replaced by its original, whether every placeholder came back
+    exactly once). A missing or repeated one means the translator dropped or duplicated a number."""
+    seen: dict[int, int] = {}
+
+    def _back(m: re.Match[str]) -> str:
+        i = int(m.group(0)) - _PLACEHOLDER_BASE
+        if 0 <= i < len(tokens):
+            seen[i] = seen.get(i, 0) + 1
+            return tokens[i]
+        return m.group(0)
+
+    restored = re.sub(r"(?<!\d)\d{3}(?!\d)", _back, text)
+    return restored, all(seen.get(i) == 1 for i in range(len(tokens)))
 
 
 # (source_provenance.dataset, human rationale prefix) per rung — one table
@@ -269,18 +429,45 @@ def _translate_with_rung(text: str, source: Language, target: Language) -> tuple
     credentialed), IndicTrans2 local inference second. Returns (translation,
     rung) so callers can tag their span with which one actually served,
     rather than always claiming the local model regardless of which ran."""
+    if source == "en":
+        text = normalise_for_translation(text)
     masked, tokens = _mask_protected_terms(text)
+
+    def _finish(translated: str, translate: Callable[[str], str]) -> str:
+        restored, complete = _unmask_protected_terms(translated, tokens)
+        if not complete:
+            # A protected phrase was dropped, moved or repeated. Translating the WHOLE answer again unmasked
+            # spells a compass point in letters and swaps numbers (seen in Tamil), so redo it a sentence at a
+            # time: a sentence that comes back whole is kept, and only one that does not is left unmasked.
+            logging.getLogger("orca.language").warning("translation lost a protected term; retranslating by sentence")
+            restored = _translate_by_sentence(text, translate)
+        return localize_product_name(restored, target)
+
     try:
         from orca.agents import bhashini
 
         result = bhashini.nmt(masked, source, target)
-        return _unmask_protected_terms(result, tokens), "bhashini"
+        return _finish(result, lambda t: bhashini.nmt(t, source, target)), "bhashini"
     except Exception:
         pass  # not configured, unreachable, or timed out — fall to the local rung
     if _backend is None:
         raise RuntimeError("Bhashini could not translate this and no other translation backend is registered.")
-    result = _backend.translate(masked, source=source, target=target)
-    return _unmask_protected_terms(result, tokens), "indictrans2"
+    backend = _backend
+    result = backend.translate(masked, source=source, target=target)
+    return _finish(result, lambda t: backend.translate(t, source=source, target=target)), "indictrans2"
+
+
+def _translate_by_sentence(text: str, translate: Callable[[str], str]) -> str:
+    """`text` translated one sentence at a time, each protected; a sentence whose protected phrases do not all
+    come back exactly once is translated again unmasked, so one bad sentence does not cost the others."""
+    pieces: list[str] = []
+    for sentence in re.split(r"(?<=[.?!])\s+", text.strip()):
+        if not sentence:
+            continue
+        masked, tokens = _mask_protected_terms(sentence)
+        restored, complete = _unmask_protected_terms(translate(masked), tokens)
+        pieces.append(restored if complete else translate(sentence))
+    return " ".join(pieces)
 
 
 def translate_to_english(text: str, source: Language) -> str:
