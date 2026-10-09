@@ -15,7 +15,7 @@
 // browser for guests and in the account once signed in (./chatStore).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Compass, Fish, History, MapPin, PanelLeftOpen, Plus, ShieldCheck, Waves, Wind } from "lucide-react";
+import { Compass, Fish, History, MapPin, PanelLeftOpen, ShieldCheck, Waves, Wind } from "lucide-react";
 import { Button } from "../components/Button";
 import { Greeting } from "../components/Greeting";
 import { SavedLocationChips } from "../components/SavedLocationChips";
@@ -28,7 +28,7 @@ import { classifyQueryIntent, type QueryIntent } from "../lib/queryIntent";
 import { Composer } from "./Composer";
 import { ChatTurn } from "./ChatTurn";
 import { ChatHistoryRail, CollapsedChatRail, iconButtonClass } from "./ChatHistoryRail";
-import { accountStore, browserStore, chatTitle } from "./chatStore";
+import { accountStore, browserStore } from "./chatStore";
 import { useAskThread, type InheritedValue, type Turn } from "./useAskThread";
 import { useT } from "../i18n/useT";
 import { useTour } from "../tour/useTour";
@@ -192,7 +192,6 @@ export default function AskPage() {
 
   const voice = useVoiceInput({ onTranscriptConfirmed: submit, languageHint: language });
   const hasStarted = turns.length > 0;
-  const firstQuestion = turns[0]?.askedQuery ?? null;
 
   const history = (variant: "rail" | "drawer") => (
     <ChatHistoryRail
@@ -335,13 +334,6 @@ export default function AskPage() {
                 </button>
               )}
               <h1 className="shrink-0 text-xs font-bold uppercase tracking-wider text-ink-dim">{t("ask.title")}</h1>
-              {firstQuestion && (
-                <span className="truncate text-xs text-ink-muted" title={firstQuestion}>
-                  {/* The live title comes from the rail's list; the first
-                      question is the same fallback it shows for an unnamed chat. */}
-                  {chatTitle({ title: null, first_question: firstQuestion })}
-                </span>
-              )}
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {saveFailed && (
@@ -350,9 +342,6 @@ export default function AskPage() {
                 </span>
               )}
               {historyButton}
-              <Button variant="ghost" icon={<Plus className="size-3.5" />} onClick={newChat}>
-                {t("common.newChat")}
-              </Button>
             </div>
           </div>
 

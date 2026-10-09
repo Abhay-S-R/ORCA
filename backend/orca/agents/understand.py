@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -151,7 +152,7 @@ RULES:
 2. kind = "clock_or_position" for "what time is it", "where am I", "current location/time", "what is my position" — questions about ORCA's own context, not the sea.
 3. kind = "greeting_or_small_talk" for "hi", "hello", "namaste", "vanakkam", "thanks", "who are you", "good morning" — conversational openers.
 4. kind = "what_can_orca_do" for capability and identity questions, in any language ("what do you do", "help me", "how can you assist", "features", "who are you", "what is your name", "what are you"). A question about the assistant itself is never a sea question.
-5. kind = "reset_or_language_switch" for "reset", "clear conversation", "change language", "switch to Tamil", "talk in Hindi".
+5. kind = "reset_or_language_switch" ONLY for a request to wipe or restart the conversation ("reset", "clear conversation", "start over", "forget that") or to change the app's own display language with no answer being asked for ("change language", "change the app language"). A request to have an ANSWER in a language ("switch to Tamil", "talk in Hindi", "answer the same in Kannada", "in Hindi please", "say that in Tamil") is NOT a reset: it is rule 18.
 6. kind = "off_topic" for clearly non-marine content (recipes, sports, stocks, movies, coding, general trivia). A message that only makes sense as a reply to RECENT TURNS is never off_topic just because it has no marine words in it; see rule 14.
 7. kind = "sea_question" for questions about conditions, safety, fishing, weather, or navigation at sea off India.
 8. MIXED LANGUAGE & TRANSLITERATION: The message may be in Romanized Indian languages (Hinglish, Tanglish, Manglish, etc., e.g., "machli kahan milegi", "nale kadal povan pattuva", "pondi la nalaiku safe ah"). Classify according to its marine meaning.
@@ -184,6 +185,7 @@ RULES:
 15. INLAND PLACES. kind = "inland_place" when the user asks for weather, conditions or a forecast at a place that is clearly inland, far from the sea (Bengaluru, Delhi, Hyderabad, Pune, Jaipur, Lucknow). Put the place in `places` as typed. It is NOT off_topic (the user is asking about weather) and NOT a sea_question (Sagar Sarathi has no sea data for it). A coastal city or port is always a sea_question: Mumbai, Chennai, Kochi, Visakhapatnam, Kolkata, Mangalore, Goa. If unsure whether a place is on the coast, use sea_question.
 16. ENGLISH READING. `english_reading` is one short sentence: what the user wrote, in plain English, WITHOUT any instruction about the reply language ("answer in Kannada: pfzs near Mangalore" reads "PFZs near Mangalore"). Translate or transliterate Indian-language and romanized text ("kal subah rameswaram ke paas samudra mein jaana safe hai kya" becomes "Is it safe to go to sea near Rameswaram tomorrow morning?"). If the message is already English, copy it with its typos fixed. Keep place names. Do not answer the question, do not add facts, and do not guess a place the user did not write. It is shown to the user so they can see how they were understood.
 17. REPLY LANGUAGE. `reply_language` is set ONLY when the user explicitly asks for the answer in a language: "answer in Kannada", "reply in Tamil", "Hindi mein batao", "ಕನ್ನಡದಲ್ಲಿ ಹೇಳಿ", also when the language is misspelt ("kannda", "tamizh"). Give its code: ta Tamil, hi Hindi, te Telugu, ml Malayalam, kn Kannada, bn Bengali, mr Marathi, gu Gujarati, or Odia, en English. In every other case it is null, including when the message itself is written in an Indian language or in romanized Hindi, Tamil or Kannada: the language a message is written in is NOT a request for a reply in it. The request words are an instruction about the reply, not part of the sea question: still read the places, time and intent from the rest of the message.
+18. ASKING FOR THE EARLIER ANSWER IN ANOTHER LANGUAGE. When RECENT TURNS show a sea answer and the message only asks for it in a language ("answer the same in Kannada", "okay fine, now in Hindi", "in Tamil please", "say that again in Telugu", "can you give me that in Gujarati?", in any language or spelling) -> kind = "sea_question", is_followup = true, places and intents empty (the earlier question carries over), reply_language = that language's code, english_reading = the earlier question in plain English. It is never "reset_or_language_switch" and never "off_topic". When there is no earlier sea answer, and the message names no sea question, kind = "chat_followup" and reply_language is still set.
 """
 
 
@@ -251,6 +253,36 @@ def _parse_understand_output(raw: str) -> UnderstoodPrompt | None:
     )
 
 
+# The offline reading of "answer in <language>": names and the common misspellings (the model, not this list, is the
+# normal reader; this is only what is left when no model can be reached).
+_LANGUAGE_NAMES = {
+    "ta": ("tamil", "tamizh", "thamizh"),
+    "hi": ("hindi",),
+    "te": ("telugu",),
+    "ml": ("malayalam",),
+    "kn": ("kannada", "kannda", "kanada"),
+    "bn": ("bengali", "bangla"),
+    "mr": ("marathi",),
+    "gu": ("gujarati",),
+    "or": ("odia", "oriya"),
+    "en": ("english",),
+}
+_LANGUAGE_NAME_RE = re.compile(
+    r"\b(?:in|into|to)\s+(" + "|".join(n for names in _LANGUAGE_NAMES.values() for n in names) + r")\b"
+    r"|^(?:please\s+)?(" + "|".join(n for names in _LANGUAGE_NAMES.values() for n in names) + r")(?:\s+please)?\W*$"
+)
+
+
+def requested_reply_language(message: str) -> str | None:
+    """A language code when the message asks for the answer in a language ("in kannada", "answer the same in Hindi").
+    Offline reading only: `understand` has the model do this; the code just validates what it proposes."""
+    m = _LANGUAGE_NAME_RE.search((message or "").lower())
+    if not m:
+        return None
+    word = m.group(1) or m.group(2)
+    return next((code for code, names in _LANGUAGE_NAMES.items() if word in names), None)
+
+
 def _fallback_understand(message: str, session_history: list[dict] | None) -> UnderstoodPrompt:
     """Offline fallback using the existing word lists (planning.py)."""
     from orca.agents.planning import (
@@ -289,8 +321,15 @@ def _fallback_understand(message: str, session_history: list[dict] | None) -> Un
     if any(g in lowered.split() for g in greetings) and len(lowered.split()) <= 5:
         return UnderstoodPrompt(kind="greeting_or_small_talk", intents=[], places=[], when=None, is_followup=False, agents=[])
 
+    # "answer the same in Kannada": the earlier sea answer again, in that language (never a reset)
+    asked_language = requested_reply_language(lowered)
+    if asked_language and carry_intent(session_history) and len(lowered.split()) <= 10:
+        return UnderstoodPrompt(
+            kind="sea_question", intents=[], places=[], when=None, is_followup=True, agents=[], reply_language=asked_language,
+        )
+
     # Reset / language switch
-    if any(w in lowered for w in ("reset", "change language", "switch language", "language")):
+    if not asked_language and any(w in lowered for w in ("reset", "change language", "switch language", "language")):
         return UnderstoodPrompt(kind="reset_or_language_switch", intents=[], places=[], when=None, is_followup=False, agents=[])
 
     # Out of scope (no marine vocab, no known place, not self-context). Not for a continuation of

@@ -671,6 +671,13 @@ def run(state: ORCAState) -> AgentResult:
             understand_engine = "deterministic (fallback)"
             tier_out.append("understand_fallback")
 
+    # A request for the earlier answer in a language is never a reset (FIX-FOLLOWLANG-1): when the model proposed a
+    # reply language on a "reset" and the previous turn was a sea answer, the earlier question is asked again, and
+    # the reply goes out in that language. The model proposes; this validates against the real history.
+    if understood.kind == "reset_or_language_switch" and understood.reply_language and carry_intent(history):
+        understood = replace(understood, kind="sea_question", is_followup=True, places=[], intents=[])
+        tier_out.append("language_request_not_a_reset")
+
     # The model says a place is inland; the gazetteer has the last word. A coastal place or a whole
     # coastline in the message means the model misjudged it, and the question is a sea question.
     # (An inland call only ever leads to a no-data reply, never to a number, so the check guards
