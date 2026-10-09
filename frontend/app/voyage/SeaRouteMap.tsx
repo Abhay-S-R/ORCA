@@ -14,6 +14,7 @@ type GeoJSONData = Parameters<typeof import("maplibre-gl").GeoJSONSource.prototy
 export function SeaRouteMap({
   result,
   mapPickMode,
+  pickTarget,
   startPin,
   endPin,
   onMapClick,
@@ -23,6 +24,7 @@ export function SeaRouteMap({
 }: {
   result: SeaRouteResult | null;
   mapPickMode: boolean;
+  pickTarget?: "origin" | "destination";
   startPin: [number, number] | null; // [lat, lng]
   endPin: [number, number] | null;
   onMapClick: (lat: number, lng: number) => void;
@@ -37,6 +39,10 @@ export function SeaRouteMap({
   const satelliteRef = useRef(satellite);
   const startMarkerRef = useRef<import("maplibre-gl").Marker | null>(null);
   const endMarkerRef = useRef<import("maplibre-gl").Marker | null>(null);
+  // Always hold the latest onMapClick so the map click handler (registered
+  // once on mount) never has a stale closure over the prop.
+  const onMapClickRef = useRef(onMapClick);
+  useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
 
   useEffect(() => {
     satelliteRef.current = satellite;
@@ -191,9 +197,10 @@ export function SeaRouteMap({
         setReady(true);
       });
 
-      // Map-pick click handler.
+      // Map-pick click handler — calls the ref so it always uses the
+      // current onMapClick prop, not a stale closure from mount time.
       map.on("click", (e) => {
-        onMapClick(e.lngLat.lat, e.lngLat.lng);
+        onMapClickRef.current(e.lngLat.lat, e.lngLat.lng);
       });
 
       mapRef.current = map;
@@ -494,12 +501,25 @@ export function SeaRouteMap({
 
       {/* Map-pick overlay label */}
       {mapPickMode && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-shelf-1/90 px-3.5 py-2 text-xs font-semibold text-ink shadow-lg backdrop-blur-sm ring-1 ring-hairline">
-          {!startPin
-            ? "Click the map to set start point"
-            : !endPin
-            ? "Click the map to set end point"
-            : "Points set — ready to calculate"}
+        <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1 text-[11px] font-medium text-white/90 shadow backdrop-blur-sm ring-1 ring-white/10">
+          <kbd
+            onClick={undefined}
+            className={`rounded px-1 py-px font-mono text-[10px] border ${
+              pickTarget !== "destination"
+                ? "bg-emerald-500/30 border-emerald-400/50 text-emerald-300"
+                : "bg-white/10 border-white/20 text-white/50"
+            }`}
+          >S</kbd>
+          <span className={pickTarget !== "destination" ? "text-emerald-300" : "text-white/40"}>Src</span>
+          <span className="text-white/20">|</span>
+          <kbd
+            className={`rounded px-1 py-px font-mono text-[10px] border ${
+              pickTarget === "destination"
+                ? "bg-rose-500/30 border-rose-400/50 text-rose-300"
+                : "bg-white/10 border-white/20 text-white/50"
+            }`}
+          >D</kbd>
+          <span className={pickTarget === "destination" ? "text-rose-300" : "text-white/40"}>Dst</span>
         </div>
       )}
 
