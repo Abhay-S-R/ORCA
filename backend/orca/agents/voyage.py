@@ -600,8 +600,7 @@ def warshall_route(
             step = step_nm + (_FW_WAVE_PENALTY_NM_PER_M * hs if hs is not None else 0.0)
             if near or _cell_near_land(grid, r, c):
                 step += _FW_LAND_NEAR_PENALTY_NM
-            if step < dist[a, b]:
-                dist[a, b] = step
+            dist[a, b] = min(dist[a, b], step)
 
     nxt = np.full((n, n), -1, dtype=np.int32)
     finite = dist < _FW_INF / 2
@@ -832,14 +831,15 @@ def plan_voyage(
             added_nm = round(max(cand_nm - direct_nm, 0.0), 1)
             cand_shallow = sum(1 for s in cand_segments if s.hazard_class == "SHALLOW")
             alternatives_tried.append({"strategy": name, "verdict": cand_verdict, "added_nm": added_nm, "shallow_legs": cand_shallow})
-            if cand_verdict != "NO_GO":
-                if best is None or (cand_shallow < best_shallow_count) or (cand_shallow == best_shallow_count and added_nm < best["added_nm"]):
-                    best = {
-                        "strategy": name, "added_nm": added_nm, "origin": cand_origin, "destination": cand_destination,
-                        "departure": cand_departure, "points": cand_points, "segments": cand_segments,
-                        "confidences": cand_confidences, "verdict": cand_verdict, "reason": cand_reason,
-                    }
-                    best_shallow_count = cand_shallow
+            if cand_verdict != "NO_GO" and (
+                best is None or (cand_shallow < best_shallow_count) or (cand_shallow == best_shallow_count and added_nm < best["added_nm"])
+            ):
+                best = {
+                    "strategy": name, "added_nm": added_nm, "origin": cand_origin, "destination": cand_destination,
+                    "departure": cand_departure, "points": cand_points, "segments": cand_segments,
+                    "confidences": cand_confidences, "verdict": cand_verdict, "reason": cand_reason,
+                }
+                best_shallow_count = cand_shallow
 
         # 2. Seaward detour around blocked legs
         if best is None:
@@ -853,14 +853,15 @@ def plan_voyage(
                 added_nm = round(max(s_nm - direct_nm, 0.0), 1)
                 s_shallow = sum(1 for s in s_segments if s.hazard_class == "SHALLOW")
                 alternatives_tried.append({"strategy": s_strat, "verdict": s_verdict, "added_nm": added_nm, "shallow_legs": s_shallow})
-                if s_verdict != "NO_GO":
-                    if best is None or (cand_shallow < best_shallow_count) or (cand_shallow == best_shallow_count and added_nm < best["added_nm"]):
-                        best = {
-                            "strategy": s_strat, "added_nm": added_nm, "origin": origin, "destination": destination,
-                            "departure": departure, "points": s_pts, "segments": s_segments,
-                            "confidences": s_confidences, "verdict": s_verdict, "reason": s_reason,
-                        }
-                        best_shallow_count = s_shallow
+                if s_verdict != "NO_GO" and (
+                    best is None or (s_shallow < best_shallow_count) or (s_shallow == best_shallow_count and added_nm < best["added_nm"])
+                ):
+                    best = {
+                        "strategy": s_strat, "added_nm": added_nm, "origin": origin, "destination": destination,
+                        "departure": departure, "points": s_pts, "segments": s_segments,
+                        "confidences": s_confidences, "verdict": s_verdict, "reason": s_reason,
+                    }
+                    best_shallow_count = s_shallow
 
         # 3. Floyd–Warshall around the obstacle if previous candidates did not clear
         if best is None:
@@ -874,14 +875,15 @@ def plan_voyage(
                     added_nm = round(max(fw_nm - direct_nm, 0.0), 1)
                     fw_shallow = sum(1 for s in fw_segments if s.hazard_class == "SHALLOW")
                     alternatives_tried.append({"strategy": "warshall", "verdict": fw_verdict, "added_nm": added_nm, "shallow_legs": fw_shallow})
-                    if fw_verdict != "NO_GO":
-                        if best is None or (fw_shallow < best_shallow_count) or (fw_shallow == best_shallow_count and added_nm < best["added_nm"]):
-                            best = {
-                                "strategy": "warshall", "added_nm": added_nm, "origin": origin, "destination": destination,
-                                "departure": departure, "points": fw_points, "segments": fw_segments,
-                                "confidences": fw_confidences, "verdict": fw_verdict, "reason": fw_reason,
-                            }
-                            best_shallow_count = fw_shallow
+                    if fw_verdict != "NO_GO" and (
+                        best is None or (fw_shallow < best_shallow_count) or (fw_shallow == best_shallow_count and added_nm < best["added_nm"])
+                    ):
+                        best = {
+                            "strategy": "warshall", "added_nm": added_nm, "origin": origin, "destination": destination,
+                            "departure": departure, "points": fw_points, "segments": fw_segments,
+                            "confidences": fw_confidences, "verdict": fw_verdict, "reason": fw_reason,
+                        }
+                        best_shallow_count = fw_shallow
 
         # 4. High-resolution coastal routing: Warshall with coastline standoff and deep-water clearance
         if best is None:
@@ -905,14 +907,15 @@ def plan_voyage(
                         added_nm = round(max(sr_nm - direct_nm, 0.0), 1)
                         sr_shallow = sum(1 for s in sr_segments if s.hazard_class == "SHALLOW")
                         alternatives_tried.append({"strategy": "coastal_sea_route", "verdict": sr_verdict, "added_nm": added_nm, "shallow_legs": sr_shallow})
-                        if sr_verdict != "NO_GO":
-                            if best is None or (sr_shallow < best_shallow_count) or (sr_shallow == best_shallow_count and added_nm < best["added_nm"]):
-                                best = {
-                                    "strategy": "coastal_sea_route", "added_nm": added_nm, "origin": origin, "destination": destination,
-                                    "departure": departure, "points": sr_points, "segments": sr_segments,
-                                    "confidences": sr_confidences, "verdict": sr_verdict, "reason": sr_reason,
-                                }
-                                best_shallow_count = sr_shallow
+                        if sr_verdict != "NO_GO" and (
+                            best is None or (sr_shallow < best_shallow_count) or (sr_shallow == best_shallow_count and added_nm < best["added_nm"])
+                        ):
+                            best = {
+                                "strategy": "coastal_sea_route", "added_nm": added_nm, "origin": origin, "destination": destination,
+                                "departure": departure, "points": sr_points, "segments": sr_segments,
+                                "confidences": sr_confidences, "verdict": sr_verdict, "reason": sr_reason,
+                            }
+                            best_shallow_count = sr_shallow
             except Exception:
                 pass
 
