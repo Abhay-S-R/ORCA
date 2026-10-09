@@ -32,7 +32,11 @@ from orca.cache import redis_client
 logger = logging.getLogger(__name__)
 
 TTL_SECONDS = 1800  # a fishing trip's planning window, not a durable log
-MAX_TURNS = 5
+# FIX-CONTEXT-1 (2026-10-09): was 5, so in a longer chat the first questions silently fell out and "what was my first
+# question?" was answered about the wrong turn. 20 turns are kept; the models see the last RECENT_TURNS with their
+# answers and the earlier ones as questions only (a question is short), and are told when older turns are gone.
+MAX_TURNS = 20
+RECENT_TURNS = 5
 # Enough of the previous answer for "why?" / "and that zone?" to resolve
 # against what ORCA actually said, without five full answers bloating every
 # narrative prompt.
@@ -111,6 +115,8 @@ def replace_turns(session_id: str | None, turns: list[dict[str, Any]]) -> None:
     if not session_id:
         return
     turns = turns[-MAX_TURNS:]
+    # CONTEXT-2: only the LAST turn keeps its finished answer frame (what a language-only follow-up re-renders)
+    turns = [{k: v for k, v in t.items() if k != "frame"} for t in turns[:-1]] + turns[-1:]
     _local_set(session_id, turns)
     try:
         client = redis_client()
@@ -229,13 +235,16 @@ def turn_from_final(query: str, final: dict[str, Any]) -> dict[str, Any]:
         # Tamil follow-up is still resolved against the English history.
         "english_query": final.get("normalized_english_query") or query,
         "user_location": final.get("user_location"),
-        "verdict": (final.get("risk_assessment") or {}).get("go_no_go"),
+        "verdict": (final.get("risk_assessment") or {}).get("go_no_go") or final.get("verdict"),  # a re-rendered answer carries the earlier verdict
         "intent_rows": final.get("matched_intent_rows") or [],
         # P2.9 — so "what about the day after?" after "and in a trawler?" is
         # still about the trawler. Stored as the DB-enum value the request
         # resolved to, which is the same vocabulary /query takes as a parameter.
         "vessel_class": final.get("vessel_class"),
         "answer": (final.get("final_english_response") or "")[:ANSWER_CHARS],
+        # CONTEXT-2: the whole finished answer, so "answer the same in Kannada" translates THIS answer (same facts,
+        # same verdict card) instead of running the pipeline again. Kept for the last turn only (replace_turns).
+        "frame": final,
     }
 
 

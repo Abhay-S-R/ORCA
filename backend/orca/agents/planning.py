@@ -872,6 +872,7 @@ def run(state: ORCAState) -> AgentResult:
             "english_reading": understood.english_reading,
             # PC5.8: validated in understand._clean_reply_language; None unless explicitly asked.
             "reply_language": understood.reply_language,
+            "language_only": understood.language_only,  # CONTEXT-2: planning_node checks it against the history
             # Validation / guard fields (PC2.3)
             "query_outcome": query_outcome,
             "query_outcome_body": query_outcome_body,

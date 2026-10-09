@@ -506,7 +506,10 @@ def _describe_recent_turns(session_history: list[dict[str, Any]] | None) -> str 
     happened."""
     if not session_history:
         return None
+    from orca.session import MAX_TURNS, RECENT_TURNS
+
     lines = []
+    first_recent = max(0, len(session_history) - RECENT_TURNS)
     for i, t in enumerate(session_history, 1):
         asked = t.get("english_query") or t.get("query")
         if not asked:
@@ -514,8 +517,11 @@ def _describe_recent_turns(session_history: list[dict[str, Any]] | None) -> str 
         place = (t.get("user_location") or {}).get("place_name")
         about = f" (about {place})" if place else ""
         lines.append(f'{i}. User asked: "{asked}"{about} -> verdict then: {t.get("verdict") or "none"}')
-        if t.get("answer"):
+        # Older turns keep the question only (FIX-CONTEXT-1): the whole chat stays in view, five answers stay in full.
+        if t.get("answer") and i > first_recent:
             lines.append(f'   Sagar Sarathi answered: "{t["answer"]}"')
+    if lines and len(session_history) >= MAX_TURNS:
+        lines.append(f"(Only the last {MAX_TURNS} turns of this chat are kept; anything earlier is not available.)")
     return "\n".join(lines) if lines else None
 
 

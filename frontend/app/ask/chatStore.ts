@@ -420,7 +420,7 @@ export async function restoreContext(chatId: string, turns: Turn[]): Promise<voi
   const answered = turns
     .slice(lastReset + 1)
     .filter((t) => t.answer && t.answer.outcome !== "RESET")
-    .slice(-5);
+    .slice(-20); // the backend keeps the last 20 turns (session.MAX_TURNS)
   if (!answered.length) return;
   await fetch(`${API_BASE}/api/session/${chatId}/context`, {
     method: "PUT",

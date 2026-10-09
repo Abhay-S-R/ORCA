@@ -143,11 +143,15 @@ def test_priority_lane_agrees_with_a_carried_safety_intent(monkeypatch):
 
 # --- Agent 9 prompt -----------------------------------------------------------
 
-def test_narrative_prompt_carries_every_turn_in_the_window_with_answers():
+def test_narrative_prompt_carries_every_question_in_the_window_and_the_recent_answers():
+    # FIX-CONTEXT-1: every question stays in view; the last RECENT_TURNS also carry their answers.
     history = [_turn(query=f"question {i}", answer=f"answer {i}") for i in range(session.MAX_TURNS)]
     block = reporting._describe_recent_turns(history)
     for i in range(session.MAX_TURNS):
-        assert f'"question {i}"' in block and f'"answer {i}"' in block
+        assert f'"question {i}"' in block
+    for i in range(session.MAX_TURNS - session.RECENT_TURNS, session.MAX_TURNS):
+        assert f'"answer {i}"' in block
+    assert '"answer 0"' not in block
     assert block.index("question 0") < block.index("question 4")
 
 
