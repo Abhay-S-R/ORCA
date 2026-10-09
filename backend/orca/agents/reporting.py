@@ -198,6 +198,62 @@ def _ist_clock(iso: Any) -> str | None:
 _utc_clock = _ist_clock  # Backward-compatible alias
 
 
+def _fmt_reading(r: dict[str, Any]) -> str:
+    unit = "°C" if r["unit"] == "degC" else "mg/m3"
+    when = r.get("observed") or "date unknown"
+    age = f", {r['age_days']} days old" if r.get("age_days") is not None else ""
+    return f"{r['value']} {unit} ({r['source']}, {when}{age})"
+
+
+def _colour_lines(colour: dict[str, Any], place: str) -> list[str]:
+    """The SST / chlorophyll as plain sentences (NOTE-CHL-1/2): ONE headline reading with its source and date, the cross-check
+    only when it is outside the normal offset, the chlorophyll as a level with the caveat near the shore."""
+    lines: list[str] = []
+    sst = colour.get("sea_surface_temperature") or {}
+    chl = colour.get("chlorophyll_a") or {}
+    if not colour:
+        return lines
+    head = sst.get("headline")
+    if head:
+        text = f"Sea surface temperature at {place}: {_fmt_reading(head)}"
+        if sst.get("unusual_gap"):
+            text += f". {sst['unusual_gap'][0].upper()}{sst['unusual_gap'][1:]}"
+        lines.append(_sentence(text))
+    else:
+        lines.append(f"No sea surface temperature reading is held for {place}.")
+    head = chl.get("headline")
+    if head:
+        text = f"Chlorophyll-a at {place} is {chl.get('level', 'unknown')} for these waters: {_fmt_reading(head)}"
+        if chl.get("near_shore_indicative"):
+            text += ". Close to the coast the satellite chlorophyll is only indicative"
+        if chl.get("unusual_gap"):
+            text += f". {chl['unusual_gap'][0].upper()}{chl['unusual_gap'][1:]}"
+        lines.append(_sentence(text))
+    else:
+        lines.append(f"No chlorophyll-a reading is held for {place}.")
+    return lines
+
+
+def with_colour_readings(narrative: str, results: list[AgentResult], user_location: dict[str, Any] | None) -> str:
+    """The narrative, with the headline SST / chlorophyll added when the model left it out. The figures come from the data,
+    not from a model's choice of which to mention (NOTE-CHL-1). Nothing is added when the question did not ask for them."""
+    ocean = next((r.outputs for r in results if r.agent_name == "ocean_analytics" and r.status in ("ok", "degraded")), {}) or {}
+    colour = ocean.get("sea_colour_readings_at_the_place") or {}
+    if not colour:
+        return narrative
+    heads = [h["value"] for k in ("sea_surface_temperature", "chlorophyll_a") if (h := (colour.get(k) or {}).get("headline"))]
+
+    def _said(v: float) -> bool:
+        return any(s in narrative for s in {f"{v}", f"{v:.1f}", f"{v:.2f}", f"{v:g}"})
+
+    if (heads and all(_said(v) for v in heads)) or (not heads and "no " in narrative.lower()):
+        return narrative
+    loc = user_location or {}
+    name = loc.get("place_name")
+    place = (name.title() if isinstance(name, str) and name.islower() else name) or "this position"
+    return (narrative.rstrip() + " " + " ".join(_colour_lines(colour, place))).strip()
+
+
 def facts_paragraph(
     verdict: dict[str, Any],
     results: list[AgentResult],
@@ -263,6 +319,8 @@ def facts_paragraph(
         if pfz.get("beyond_reach") and pfz.get("max_km"):
             text += f" — nothing is held within {pfz['max_km']:.0f} km, so this is beyond a day trip"
         lines.append(_sentence(text))
+
+    lines.extend(_colour_lines(ocean.get("sea_colour_readings_at_the_place") or {}, place))
 
     geo = out.get("geospatial", {})
     if isinstance(geo.get("imbl_distance_nm"), (int, float)):
@@ -485,7 +543,7 @@ WHAT ORCA CAN AND CANNOT DO:
 
 RULES:
 1. Reply in the same language and script as the user's message. If you mention your own name, write it in Latin letters exactly as Sagar Sarathi, in every language: it is converted to the right script afterwards, so never translate or spell it yourself.
-2. Treat USER MESSAGE as the next message in the conversation shown above. If it asks for more detail, give a fuller answer from the facts above. If it questions or challenges something ORCA said or could not do, answer that directly and honestly.
+2. About what you or the system did earlier: say only what the conversation above records. If it does not record the reason, say you cannot see it, do not guess a reason and do not apologise for a fault the record does not show. Treat USER MESSAGE as the next message in the conversation shown above. If it asks for more detail, give a fuller answer from the facts above. If it questions or challenges something ORCA said or could not do, answer that directly and honestly.
 3. If the user wants something ORCA cannot do (for example a land-based forecast), say plainly that it cannot, then say what it can do instead and invite a sea question with a coastal place.
 4. Add no sea conditions, forecasts, distances or figures of your own. No number that is not in the facts, the user's message or the conversation above.
 5. Two to four short sentences of plain text. No lists, no markdown. Never mention being an AI, a model, or any internal system."""
@@ -514,16 +572,26 @@ def _describe_recent_turns(session_history: list[dict[str, Any]] | None) -> str 
     happened."""
     if not session_history:
         return None
+    from orca.session import MAX_TURNS, RECENT_TURNS
+
     lines = []
+    first_recent = max(0, len(session_history) - RECENT_TURNS)
     for i, t in enumerate(session_history, 1):
         asked = t.get("english_query") or t.get("query")
         if not asked:
             continue
-        place = (t.get("user_location") or {}).get("place_name")
+        loc = t.get("user_location") or {}
+        place = loc.get("place_name")
         about = f" (about {place})" if place else ""
+        if loc.get("place_source") == "regional_default":
+            # recorded fact: no place was resolved for that turn, so it was answered at the pilot default position
+            about = " (no place was resolved for it, so it was answered at the pilot default position, not the user's place)"
         lines.append(f'{i}. User asked: "{asked}"{about} -> verdict then: {t.get("verdict") or "none"}')
-        if t.get("answer"):
+        # Older turns keep the question only (FIX-CONTEXT-1): the whole chat stays in view, five answers stay in full.
+        if t.get("answer") and i > first_recent:
             lines.append(f'   Sagar Sarathi answered: "{t["answer"]}"')
+    if lines and len(session_history) >= MAX_TURNS:
+        lines.append(f"(Only the last {MAX_TURNS} turns of this chat are kept; anything earlier is not available.)")
     return "\n".join(lines) if lines else None
 
 
@@ -800,6 +868,15 @@ CRITICAL RULES:
    is the nearest ORCA holds anywhere: give its distance and say nothing is held within
    max_km, so it is beyond a day trip. A potential fishing zone is an INCOIS fishing
    advisory, never a regulated, designated or restricted area.
+9a. Sea surface temperature and chlorophyll at the place: ocean_analytics carries sea_colour_readings_at_the_place when the
+   question asks about them. For each quantity give the HEADLINE reading: its value with unit, its source and its date (and age
+   in days). cross_checks are other products with a known, consistent offset (INSAT reads cooler than CMEMS, the 25 km EOS-06
+   chlorophyll far lower than the 4 km CMEMS near the coast): they are NOT contradictions, so do not say the sources disagree,
+   conflict or contradict, and do not list the cross-checks as competing answers. Do NOT quote a cross-check's value or source at all unless unusual_gap
+   is set (then use its words). Never use the words "headline" or "cross-check" in the answer: they are labels in the data, not
+   words for the reader. Give the reading as a plain sentence, e.g. "The sea surface temperature at Udupi is 26.5 °C (INSAT-3DR, 30 Sep, about 10 days old)". For chlorophyll give the level (low / moderate / high) with the value, and when near_shore_indicative
+   is true say that near the coast the satellite chlorophyll is only indicative. When there is no headline, say plainly that no
+   reading is held for that place; never say the data is "not tracked". Never use a reading from another place or date.
 10. Distances have an origin. A nearest fishing zone's distance_km and compass are measured
    from its measured_from — say so ("32 km WSW of Mangalore"). Its landing_center is only
    INCOIS's landmark for the zone; if you name it, use incois_reference for its distance

@@ -433,6 +433,26 @@ def _sst_grid(bbox: dict[str, float] | None) -> dict[str, Any] | None:
     return sl.load_coastwatch_sst(bbox) or al.load_ocean_grid_fixture("sst")
 
 
+_SEA_COLOUR_WORDS = ("sst", "chlorophyll", "temperature", "plankton", "ocean colour", "ocean color", "water quality")
+_SEA_COLOUR_TURNS = 2   # a follow-up ("and for kundapura now?") inherits the question of the last two turns
+
+
+def _asks_sea_colour(state: Any, query: str) -> bool:
+    """SST / chlorophyll readings are only fetched when the question is about them (the planner's DIAGNOSTIC row, or the
+    words as the fallback): reading four grids for every safety question would cost time for nothing. A FOLLOW-UP inherits the
+    subject of the turns before it: "ok and for kundapura now" after an SST-and-chlorophyll question is still that question
+    (found live 2026-10-10: it was answered from another source and said chlorophyll was not available)."""
+    rows = state.get("matched_intent_rows") or []
+    if "DIAGNOSTIC" in rows or any(w in query for w in _SEA_COLOUR_WORDS):
+        return True
+    if state.get("understood_is_followup"):
+        for turn in (state.get("session_history") or [])[-_SEA_COLOUR_TURNS:]:
+            asked = str(turn.get("english_query") or turn.get("query") or "").lower()
+            if any(w in asked for w in _SEA_COLOUR_WORDS):
+                return True
+    return False
+
+
 def _chl_grid(bbox: dict[str, float] | None) -> dict[str, Any] | None:
     """Chlorophyll cascade, same rule: EOS-06 OCM-3 first by authority, CMEMS
     gap-free NRT when it is the fresher of the two, NOAA CoastWatch (P5.2,
@@ -441,6 +461,144 @@ def _chl_grid(bbox: dict[str, float] | None) -> dict[str, Any] | None:
     if local is not None:
         return local
     return sl.load_coastwatch_chl(bbox) or al.load_ocean_grid_fixture("chl")
+
+
+# NOTE-CHL-1 (2026-10-09). "SST and chlorophyll at Kundapur" had no reading path: the grids exist and read fine, but this
+# agent only returned a regional correlation over a bbox nothing sets, never the value at the place, so the reply said
+# "not tracked". The readings below are the nearest cell of EACH source at the resolved position, with its distance, its
+# date and the source, and a plain statement when the sources disagree (at a coastal cell the 25 km and the 4 km
+# chlorophyll products differed 140-fold, and INSAT and CMEMS SST by 3 C: quoting one as "the" reading would be a
+# confident answer from a thin basis).
+_READING_MAX_KM = 60.0       # a cell further than this is not "at" the place
+_SST_SOURCES = (("INSAT-3DR SST", sl.load_insat_sst), ("CMEMS SST", sl.load_cmems_sst))
+_CHL_SOURCES = (("EOS-06 OCM-3 chlorophyll", sl.load_eos06_chl), ("CMEMS ocean-colour chlorophyll", sl.load_cmems_chl))
+
+
+def _nearest_cell(frame: list[dict[str, float]], lat: float, lon: float) -> tuple[dict[str, float], float] | None:
+    best: tuple[dict[str, float], float] | None = None
+    for cell in frame:
+        try:
+            km = _km_between(lat, lon, cell["lat"], cell["lon"])
+        except (KeyError, TypeError):
+            continue
+        if best is None or km < best[1]:
+            best = (cell, km)
+    return best
+
+
+def _source_readings(sources: tuple[Any, ...], lat: float, lon: float, unit: str) -> list[dict[str, Any]]:
+    bbox = {"min_lat": lat - 1.0, "max_lat": lat + 1.0, "min_lon": lon - 1.0, "max_lon": lon + 1.0}
+    out: list[dict[str, Any]] = []
+    for name, loader in sources:
+        try:
+            grid = loader(bbox)
+        except Exception:
+            continue
+        if not grid or not grid.get("frame"):
+            continue
+        near = _nearest_cell(grid["frame"], lat, lon)
+        if near is None or near[1] > _READING_MAX_KM:
+            continue
+        prov = grid.get("provenance") or {}
+        age = prov.get("freshness_minutes")
+        out.append({
+            "source": name, "value": round(float(near[0]["value"]), 2), "unit": unit,
+            "cell_distance_km": round(near[1], 1), "observed": (prov.get("acquisition_timestamp") or "")[:10] or None,
+            "age_days": round(age / 1440, 1) if isinstance(age, (int, float)) else None,
+        })
+    return out
+
+
+# NOTE-CHL-2 (2026-10-10). Two sources of the same quantity are different PRODUCTS with a consistent offset, not conflicting
+# evidence. Measured over ~45 ports and 45 offshore points: INSAT-3DR SST reads cooler than CMEMS by 0.8 C offshore and 1.6 C at
+# the coast (clear-sky satellite skin temperature against a model's near-surface water), and the 25 km EOS-06 chlorophyll is 8x
+# (offshore) to 28x (coast) lower than the 4 km CMEMS ocean-colour product. Saying "the sources disagree" for that is wrong.
+# So: ONE headline value per quantity, by a stated rule (the national mission product), the others kept as cross-checks, and a
+# gap is reported ONLY when it is outside what that offset normally is.
+_SST_UNUSUAL_C = 3.0          # normal INSAT-minus-CMEMS: -0.8 offshore, -1.6 coast, sd ~1; 3 C is beyond both
+_CHL_UNUSUAL_LOW = 1 / 3      # CMEMS normally reads HIGHER than EOS-06 (8-28x); CMEMS below a third of it is the unusual direction
+_CHL_UNUSUAL_HIGH = 200.0     # and above 200x is beyond the coastal p90 (117x)
+_CHL_LOW, _CHL_HIGH = 0.2, 1.0   # mg/m3: below 0.2 low, above 1.0 high (productive) for Indian waters; between, moderate
+_CHL_CLASS = {"low": "low", "moderate": "moderate", "high": "high"}
+_SST_HEADLINE = "INSAT-3DR SST"
+_CHL_HEADLINE = "EOS-06 OCM-3 chlorophyll"
+
+
+def _headline(readings: list[dict[str, Any]], preferred: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """(the headline reading, the cross-checks): the preferred source when it has a cell, else the first that does."""
+    if not readings:
+        return None, []
+    head = next((r for r in readings if r["source"] == preferred), readings[0])
+    return head, [r for r in readings if r is not head]
+
+
+_NEAR_SHORE_KM = 30.0   # the 25 km chlorophyll cell and coastal turbid water make near-shore values only indicative
+
+
+def _near_a_port(lat: float, lon: float) -> bool:
+    """Within `_NEAR_SHORE_KM` of a gazetteer port: the gazetteer's places are all on the coast, so it stands in for a coastline."""
+    from orca.data.loaders import is_region_name, port_coordinates
+
+    return any(
+        _km_between(lat, lon, plat, plon) <= _NEAR_SHORE_KM
+        for name, (plat, plon) in port_coordinates().items() if not is_region_name(name)
+    )
+
+
+def _chl_class(value: float) -> str:
+    return _CHL_CLASS["low" if value < _CHL_LOW else "high" if value > _CHL_HIGH else "moderate"]
+
+
+def point_readings(lat: float, lon: float) -> dict[str, Any]:
+    """The SST and chlorophyll at (lat, lon): one headline reading per quantity (with its source, date and cell), the other
+    sources as cross-checks, and an `unusual_gap` sentence ONLY when a cross-check is outside the normal offset."""
+    sst = _source_readings(_SST_SOURCES, lat, lon, "degC")
+    chl = _source_readings(_CHL_SOURCES, lat, lon, "mg/m3")
+    # INCOIS's own ocean-state model is one more cross-check for the sea surface temperature (a 0.5 deg model grid).
+    try:
+        cell = (nearest_osf_point_forecast(lat, lon) or {}).get("grid_cell") or {}
+        if cell.get("sea_surface_temp_c") is not None and float(cell.get("distance_km", 1e9)) <= _READING_MAX_KM:
+            sst.append({
+                "source": "INCOIS Ocean State Forecast (0.5 deg model grid)", "value": round(float(cell["sea_surface_temp_c"]), 2),
+                "unit": "degC", "cell_distance_km": round(float(cell["distance_km"]), 1), "observed": "model forecast", "age_days": None,
+            })
+    except Exception:
+        pass
+    sst_head, sst_checks = _headline(sst, _SST_HEADLINE)
+    chl_head, chl_checks = _headline(chl, _CHL_HEADLINE)
+
+    sst_gap = None
+    if sst_head:
+        far = [r for r in sst_checks if abs(r["value"] - sst_head["value"]) > _SST_UNUSUAL_C]
+        if far:
+            sst_gap = (
+                f"{far[0]['source']} reads {far[0]['value']} C against {sst_head['value']} C, a gap larger than these products "
+                "normally have: say so, and say which one you give as the temperature"
+            )
+    chl_gap = None
+    if chl_head and chl_head["source"] == _CHL_HEADLINE and chl_head["value"] > 0:
+        for r in chl_checks:
+            ratio = r["value"] / chl_head["value"]
+            if ratio < _CHL_UNUSUAL_LOW or ratio > _CHL_UNUSUAL_HIGH:
+                chl_gap = (
+                    f"{r['source']} reads {r['value']} mg/m3 against {chl_head['value']}, a gap outside what these products "
+                    "normally have: say so"
+                )
+                break
+    chl_block: dict[str, Any] = {"headline": chl_head, "cross_checks": chl_checks, "unusual_gap": chl_gap}
+    if chl_head:
+        chl_block["level"] = _chl_class(chl_head["value"])
+        # near the coast the 25 km cell averages land-influenced water and the 4 km product reads turbid water as chlorophyll:
+        # said as a limit of the data, not as a conflict between sources
+        chl_block["near_shore_indicative"] = _near_a_port(lat, lon)
+    return {
+        "available": bool(sst or chl),
+        "sea_surface_temperature": {"headline": sst_head, "cross_checks": sst_checks, "unusual_gap": sst_gap},
+        "chlorophyll_a": chl_block,
+        "note": "headline = the national mission product; cross_checks are other products with a known, consistent offset "
+                "(INSAT reads cooler than CMEMS, EOS-06 far lower than CMEMS near the coast): they are NOT contradictions. "
+                f"A source with no cell within {_READING_MAX_KM:.0f} km is left out; no headline means no reading is held for the place.",
+    }
 
 
 def correlate_sst_chlorophyll(bbox: dict[str, float] | None = None) -> dict[str, Any]:
@@ -1631,6 +1789,7 @@ def run(state: ORCAState) -> AgentResult:
         "pfz_persistence": {k: v for k, v in persistence.items() if k != "confidence"},
         "sector_status": sec_status,
         "sst_chlorophyll_correlation": {k: v for k, v in correlation.items() if k != "confidence"},
+        **({"sea_colour_readings_at_the_place": point_readings(lat, lon)} if _asks_sea_colour(state, query) else {}),
         "wind_rose": {k: v for k, v in rose.items() if k != "confidence"},
         "wind_anomaly": {k: v for k, v in anomaly_wind.items() if k != "confidence"},
         "osf_point_forecast": {k: v for k, v in osf_point.items() if k != "confidence"},

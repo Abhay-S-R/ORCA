@@ -39,6 +39,7 @@ from orca.api.conditions_routes import router as conditions_router
 from orca.api.discovery_routes import router as discovery_router
 from orca.api.feedback_routes import router as feedback_router
 from orca.api.geospatial_routes import router as geospatial_router
+from orca.api.language_rerender import rerender_last_answer
 from orca.api.notifications_routes import router as notifications_router
 from orca.api.ops_routes import router as ops_router
 from orca.api.params import OptLat, OptLon
@@ -49,7 +50,6 @@ from orca.api.trace_routes import (
     _reasoning_summary,
     record_recent_trace,
 )
-from orca.api.trace_routes import render_query as trace_routes_render_query
 from orca.api.trace_routes import (
     router as trace_router,
 )
@@ -644,6 +644,11 @@ async def _query_stream(
             yield _sse(event)
         emitted = len(completed)
 
+    if final_state is not None and final_state.get("language_rerender"):
+        # CONTEXT-2: planning read the message as "the earlier answer, in another language"; the frame is built
+        yield _sse({**final_state["language_rerender"], "context_turns": len(session_history or [])})
+        return
+
     if final_state is not None:
         weather = final_state.get("weather_data") or {}
         hourly = weather.get("hourly") or [{}]
@@ -953,28 +958,13 @@ async def _language_change_stream(
         except Exception:
             logging.getLogger("orca.auth").warning("account language not persisted", exc_info=True)
 
-    last_turn = next((t for t in reversed(history) if t.get("query_id")), None)
-    if last_turn is not None:
-        try:
-            rendered = trace_routes_render_query(last_turn["query_id"], "fisherman", language)
-            yield _sse({
-                "type": "final_response",
-                "query_id": rendered.query_id,
-                "outcome": "LANGUAGE_CHANGED",
-                "final_english_response": rendered.final_english_response,
-                "final_vernacular_response": rendered.final_vernacular_response or rendered.final_english_response,
-                "detected_language": language,
-                "confidence_tier": rendered.confidence_tier,
-                "citations": rendered.citations,
-                "context_turns": len(history),
-                "risk_assessment": None,
-                "disclosures": [f"Switched replies to {language} — this is your last answer, re-rendered."],
-                "distress_flag": False,
-                "inherited": [],
-            })
-            return
-        except Exception:
-            logging.getLogger("orca.language").warning("language-change re-render failed; confirming only", exc_info=True)
+    frame = rerender_last_answer(
+        history, language, note=f"Switched replies to {language} — this is your last answer, re-rendered.",
+        rewrite_from_trace=True,
+    )
+    if frame is not None:
+        yield _sse({**frame, "context_turns": len(history)})
+        return
 
     # Worded by a model (chatbot plan defect 4, fixed 2026-09-25) rather than
     # the same fixed English sentence every time; falls back to that sentence

@@ -165,3 +165,14 @@ def test_a_native_word_for_hour_after_km_slash_is_read_as_per_hour(lang, written
 
 def test_a_slash_between_two_native_words_or_after_other_units_is_left_alone():
     assert speakable("ಸಮುದ್ರ/ಗಾಳಿ 5 km ದೂರ", "kn") == "ಸಮುದ್ರ/ಗಾಳಿ 5 ಕಿಲೋಮೀಟರ್ ದೂರ"
+
+
+# --- VOICE-10 (2026-10-10): the Kannada rate order the user picked by ear -----------------------------------------------------
+
+def test_kannada_rates_use_the_order_the_user_chose():
+    from orca.agents.voice import speakable
+
+    assert speakable("ಗಾಳಿ 2 m/s", "kn") == "ಗಾಳಿ ಪ್ರತಿ ಸೆಕೆಂಡಿಗೆ 2 ಮೀಟರ್"
+    assert speakable("ಗಾಳಿ 12 km/h ಇದೆ", "kn") == "ಗಾಳಿ ಪ್ರತಿ ಗಂಟೆಗೆ 12 ಕಿಲೋಮೀಟರ್ ಇದೆ"
+    assert speakable("ಗಾಳಿ 0.9 km/h", "kn") == "ಗಾಳಿ ಪ್ರತಿ ಗಂಟೆಗೆ 0.9 ಕಿಲೋಮೀಟರ್"
+    assert speakable("ಅಲೆಗಳ ಎತ್ತರ 0.58 m ಮತ್ತು ಗಾಳಿ 2 m/s-ನೀವು", "kn") == "ಅಲೆಗಳ ಎತ್ತರ 0.58 ಮೀಟರ್ ಮತ್ತು ಗಾಳಿ ಪ್ರತಿ ಸೆಕೆಂಡಿಗೆ 2 ಮೀಟರ್-ನೀವು"

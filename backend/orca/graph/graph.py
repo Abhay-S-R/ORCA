@@ -406,7 +406,7 @@ def _route_after_planning(state: ORCAState) -> list[str] | str:
     (NEEDS_PLACE or OUT_OF_RANGE), route to END. Otherwise route to out_of_scope
     for non-marine queries, or marine_data_discovery to start the specialist run.
     """
-    if state.get("query_outcome") in ("NEEDS_PLACE", "OUT_OF_RANGE"):
+    if state.get("query_outcome") in ("NEEDS_PLACE", "OUT_OF_RANGE", "LANGUAGE_CHANGED"):
         return END
     if state.get("understood_kind") == "distress":
         return "planned_distress"
@@ -612,6 +612,39 @@ def planning_node(state: ORCAState) -> dict:
     # "தூத்துக்குடியில்" (Thoothukudi) into "new york"; the planner read the Tamil and found the
     # right place, which is then checked against the gazetteer. English and romanized text were
     # never translated, so they keep their own words.
+    # FIX-PLACE-1: the model's own place, once the gazetteer has confirmed it, sets the position (the word list's
+    # reading of the raw text is the fast path and the fallback, not the final say).
+    if update["query_outcome"] is None and update["understood_kind"] == "sea_question":
+        from orca.place_resolution import adopt_model_place
+
+        adopted = adopt_model_place(
+            update["understood_places"], state.get("user_location"),
+            [state.get("raw_user_query") or "", state.get("normalized_english_query") or ""],
+        )
+        if adopted is not None:
+            # No "Read X as Y" banner (the user, 2026-10-09: a misread is fine, the user can correct it).
+            update["user_location"], update["place_resolution"], _note = adopted
+
+    # CONTEXT-2: the model read the message as ONLY a request for the earlier answer in another language
+    # (a follow-up, no place, no time, no new intent): the same facts, re-rendered from the stored trace,
+    # instead of the whole pipeline again (13-18 s, and a fresh forecast that can change the verdict).
+    # Code checks it against the real history; if the earlier answer cannot be re-rendered the normal
+    # pipeline runs, so a request is never dropped.
+    if (
+        outputs.get("language_only") and update["reply_language"] and update["understood_kind"] == "sea_question"
+        and update["understood_is_followup"] and not update["understood_places"] and not update["understood_when"]
+        and not update["query_outcome"]
+    ):
+        from orca.api.language_rerender import rerender_last_answer
+
+        frame = rerender_last_answer(
+            state.get("session_history") or [], str(update["reply_language"]),
+            state.get("stakeholder_persona") or "fisherman",
+        )
+        if frame is not None:
+            update["language_rerender"] = frame
+            update["query_outcome"] = "LANGUAGE_CHANGED"
+
     reading = outputs.get("english_reading")
     if reading and (state.get("detected_language") or "en") != "en":
         update["normalized_english_query"] = reading
@@ -1098,6 +1131,8 @@ def reporting_run(state: ORCAState) -> AgentResult:
                     # narrative, so a question near one of the 8 pre-extracted
                     # pilot ports never mentioned it however old it was.
                     "osf_point_forecast",
+                    # NOTE-CHL-1: SST / chlorophyll at the place, only present when the question asked for them
+                    "sea_colour_readings_at_the_place",
                 )
                 if ocean.get(k) is not None
             },
@@ -1147,6 +1182,8 @@ def reporting_run(state: ORCAState) -> AgentResult:
         critique=state.get("critic_critique"),
         engine_out=engine_out,
     )
+    # NOTE-CHL-1: the SST / chlorophyll figures come from the data, not from which of them a model chose to mention
+    final_english = reporting.with_colour_readings(final_english, results, state.get("user_location"))
 
     return AgentResult(
         agent_name="reporting", query_id=query_id, reasoning_depth=depth,

@@ -111,6 +111,8 @@ class ORCAState(TypedDict):
     # supported codes, validated in understand.py; None when no language was requested. When set it
     # overrides the language egress would otherwise pick (the script of the question).
     reply_language: str | None
+    # CONTEXT-2: the finished frame of the last answer re-rendered in `reply_language` (set by planning_node)
+    language_rerender: dict[str, Any]
 
     distress_flag: bool  # set by Agent 12's detection, checked before any other node executes
     sentinel_subscription: dict[str, Any] | None  # set on ALERT_SUBSCRIPTION intent

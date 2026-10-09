@@ -315,6 +315,28 @@ def _note_engine(client: object, engine_out: list[str] | None) -> None:
         engine_out[-1] = engine
 
 
+def _colour_facts(block: dict[str, Any] | None) -> str | None:
+    """The headline reading, its cross-checks and the chlorophyll level for the critic, or None when nothing is held."""
+    block = block or {}
+    head = block.get("headline")
+    if not head:
+        return None
+
+    def one(r: dict[str, Any]) -> str:
+        return f"{r['value']} {r['unit']} ({r['source']}, {r.get('observed')}, cell {r.get('cell_distance_km')} km away)"
+
+    text = f"headline {one(head)}"
+    if block.get("level"):
+        text += f", level {block['level']}"
+    if block.get("cross_checks"):
+        text += "; cross-checks (a normal offset, not a contradiction): " + "; ".join(one(r) for r in block["cross_checks"])
+    if block.get("near_shore_indicative"):
+        text += "; near the coast the satellite chlorophyll is only indicative"
+    if block.get("unusual_gap"):
+        text += f"; UNUSUAL GAP: {block['unusual_gap']}"
+    return text
+
+
 def build_facts_block(state: ORCAState) -> str:
     """The ground truth the judge compares the narrative against.
 
@@ -375,6 +397,10 @@ def build_facts_block(state: ORCAState) -> str:
         "next_high_tide_height_m": next_high.get("height_m"),
         "next_high_tide_in_hours": next_high.get("in_hours"),
         "productivity_diagnosis": ocean.get("productivity_diagnosis"),
+        # NOTE-CHL-1: the SST / chlorophyll the narrative may quote. Without these the critic could not confirm a reading
+        # it was asked to judge, and deleted the answer to "what is the SST and chlorophyll at X".
+        "sea_surface_temperature_readings": _colour_facts((ocean.get("sea_colour_readings_at_the_place") or {}).get("sea_surface_temperature")),
+        "chlorophyll_a_readings": _colour_facts((ocean.get("sea_colour_readings_at_the_place") or {}).get("chlorophyll_a")),
     }
     return "\n".join(f"- {k}: {v}" for k, v in facts.items() if v is not None) or "No measured facts available."
 

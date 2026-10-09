@@ -58,6 +58,9 @@ class UnderstoodPrompt:
     # "ಕನ್ನಡದಲ್ಲಿ ಹೇಳಿ"), as one of the ten supported codes, or None. Never inferred from the
     # language the message is written in (that is the script's job): None means "no request".
     reply_language: str | None = None
+    # CONTEXT-2: True only when the message asks for NOTHING but the earlier answer in another language ("answer the
+    # same in Kannada", "now in English please"). The model reads it; planning checks it against the real history.
+    language_only: bool = False
 
 
 _ROUTING_ROW_NAMES = (
@@ -86,17 +89,25 @@ def _build_understand_prompt(
 ) -> str:
     history_block = ""
     if session_history:
+        from orca.session import MAX_TURNS, RECENT_TURNS
+
         turns = []
-        for i, t in enumerate(session_history[-5:], 1):
+        first_recent = max(0, len(session_history) - RECENT_TURNS)
+        for i, t in enumerate(session_history, 1):
             q = t.get("english_query") or t.get("query")
             if q:
                 turns.append(f'{i}. User: "{q}"')
                 # What ORCA replied is what a short follow-up refers to: "more
-                # detail" after a capability answer is not "more detail" after a PFZ.
-                if t.get("answer"):
+                # detail" after a capability answer is not "more detail" after a PFZ. Older turns
+                # keep their question only (FIX-CONTEXT-1), so the whole chat is still in view.
+                if t.get("answer") and i > first_recent:
                     turns.append(f'   Sagar Sarathi replied: "{str(t["answer"])[:240]}"')
         if turns:
-            history_block = "\nRECENT TURNS (oldest first, max 5):\n" + "\n".join(turns)
+            gone = (
+                f"\n(Only the last {MAX_TURNS} turns of this chat are kept; anything earlier is not available.)"
+                if len(session_history) >= MAX_TURNS else ""
+            )
+            history_block = "\nRECENT TURNS (oldest first; the last few include Sagar Sarathi's reply):\n" + "\n".join(turns) + gone
 
     location_block = ""
     if user_location:
@@ -141,7 +152,8 @@ OUTPUT FORMAT — JSON only, no markdown wrapping, no extra text:
   "is_followup": true/false,
   "agents": ["<zero or more specialist names>"],
   "english_reading": "<the message in plain English, or the message itself if it is already English>",
-  "reply_language": "<ta|hi|te|ml|kn|bn|mr|gu|or|en, only if the user explicitly asked for the answer in a language, else null>"
+  "reply_language": "<ta|hi|te|ml|kn|bn|mr|gu|or|en, only if the user explicitly asked for the answer in a language, else null>",
+  "language_only": true/false
 }}
 
 KNOWN SPECIALISTS (agents field): marine_data_discovery, weather_intelligence, ocean_analytics, geospatial, risk_assessment, visualization, reporting
@@ -185,7 +197,7 @@ RULES:
 15. INLAND PLACES. kind = "inland_place" when the user asks for weather, conditions or a forecast at a place that is clearly inland, far from the sea (Bengaluru, Delhi, Hyderabad, Pune, Jaipur, Lucknow). Put the place in `places` as typed. It is NOT off_topic (the user is asking about weather) and NOT a sea_question (Sagar Sarathi has no sea data for it). A coastal city or port is always a sea_question: Mumbai, Chennai, Kochi, Visakhapatnam, Kolkata, Mangalore, Goa. If unsure whether a place is on the coast, use sea_question.
 16. ENGLISH READING. `english_reading` is one short sentence: what the user wrote, in plain English, WITHOUT any instruction about the reply language ("answer in Kannada: pfzs near Mangalore" reads "PFZs near Mangalore"). Translate or transliterate Indian-language and romanized text ("kal subah rameswaram ke paas samudra mein jaana safe hai kya" becomes "Is it safe to go to sea near Rameswaram tomorrow morning?"). If the message is already English, copy it with its typos fixed. Keep place names. Do not answer the question, do not add facts, and do not guess a place the user did not write. It is shown to the user so they can see how they were understood.
 17. REPLY LANGUAGE. `reply_language` is set ONLY when the user explicitly asks for the answer in a language: "answer in Kannada", "reply in Tamil", "Hindi mein batao", "ಕನ್ನಡದಲ್ಲಿ ಹೇಳಿ", also when the language is misspelt ("kannda", "tamizh"). Give its code: ta Tamil, hi Hindi, te Telugu, ml Malayalam, kn Kannada, bn Bengali, mr Marathi, gu Gujarati, or Odia, en English. In every other case it is null, including when the message itself is written in an Indian language or in romanized Hindi, Tamil or Kannada: the language a message is written in is NOT a request for a reply in it. The request words are an instruction about the reply, not part of the sea question: still read the places, time and intent from the rest of the message.
-18. ASKING FOR THE EARLIER ANSWER IN ANOTHER LANGUAGE. When RECENT TURNS show a sea answer and the message only asks for it in a language ("answer the same in Kannada", "okay fine, now in Hindi", "in Tamil please", "say that again in Telugu", "can you give me that in Gujarati?", in any language or spelling) -> kind = "sea_question", is_followup = true, places and intents empty (the earlier question carries over), reply_language = that language's code, english_reading = the earlier question in plain English. It is never "reset_or_language_switch" and never "off_topic". When there is no earlier sea answer, and the message names no sea question, kind = "chat_followup" and reply_language is still set.
+18. ASKING FOR THE EARLIER ANSWER IN ANOTHER LANGUAGE. When RECENT TURNS show a sea answer and the message only asks for it in a language ("answer the same in Kannada", "okay fine, now in Hindi", "in Tamil please", "say that again in Telugu", "can you give me that in Gujarati?", in any language or spelling) -> kind = "sea_question", is_followup = true, places and intents empty (the earlier question carries over), reply_language = that language's code, english_reading = the earlier question in plain English. It is never "reset_or_language_switch" and never "off_topic". Also set `"language_only": true` for it: the message asks for NOTHING but that earlier answer in another language. `language_only` is false whenever the message also asks anything else ("in Hindi, and what about tomorrow?", "in Tamil and the wind?", a new place, a new time) and whenever it is not a request for a language. When there is no earlier sea answer, and the message names no sea question, kind = "chat_followup" and reply_language is still set.
 """
 
 
@@ -250,6 +262,7 @@ def _parse_understand_output(raw: str) -> UnderstoodPrompt | None:
         agents=agents,
         english_reading=_clean_english_reading(data.get("english_reading")),
         reply_language=_clean_reply_language(data.get("reply_language")),
+        language_only=data.get("language_only") is True,
     )
 
 
@@ -326,6 +339,7 @@ def _fallback_understand(message: str, session_history: list[dict] | None) -> Un
     if asked_language and carry_intent(session_history) and len(lowered.split()) <= 10:
         return UnderstoodPrompt(
             kind="sea_question", intents=[], places=[], when=None, is_followup=True, agents=[], reply_language=asked_language,
+            language_only=True,
         )
 
     # Reset / language switch
