@@ -796,24 +796,8 @@ def plan_voyage(
                 sub_pts = sub_pts[1:]
             points.extend(sub_pts)
     else:
-        # Default to coastal sea route using Floyd–Warshall obstacle avoidance
-        # so ships never route straight across land or closed boundaries.
-        try:
-            from orca.sea_route.router import sea_route
-            sr = sea_route(origin[0], origin[1], destination[0], destination[1], speed_knots=speed_kn, is_map_pick=True)
-            if sr and len(sr.coords) >= 2:
-                total_wp_dist = sr.distance_nm
-                adaptive_step = max(STEP_NM, total_wp_dist / 35.0)
-                points = []
-                for i in range(len(sr.coords) - 1):
-                    sub_pts = densify_route(sr.coords[i], sr.coords[i + 1], step_nm=adaptive_step)
-                    if i > 0:
-                        sub_pts = sub_pts[1:]
-                    points.extend(sub_pts)
-            else:
-                points = densify_route(origin, destination)
-        except Exception:
-            points = densify_route(origin, destination)
+        points = densify_route(origin, destination)
+
 
     segments, confidences, verdict, reason = _classify_route(points, departure, now, vessel_class, draft, speed_kn)
     _, direct_nm = bearing_and_distance(origin[0], origin[1], destination[0], destination[1])

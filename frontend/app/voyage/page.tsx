@@ -411,7 +411,11 @@ function VoyageContent() {
           waypoints: seaRes && seaRes.coords.length >= 2 ? seaRes.coords : null,
         }),
       });
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        const detail = errJson?.detail || `Server returned ${res.status}`;
+        throw new Error(detail);
+      }
       const data = (await res.json()) as VoyagePlanResponse;
       setPlan(data);
       if (data.segments.length > 0) {
@@ -437,12 +441,18 @@ function VoyageContent() {
         .then((r) => r.json())
         .then(setTide)
         .catch(() => {});
-    } catch {
-      setError("Could not reach Sagar Sarathi. Check the backend is running and try again.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Load failed")) {
+        setError("Could not reach Sagar Sarathi. Check the backend is running and try again.");
+      } else {
+        setError(msg || "Failed to calculate voyage plan.");
+      }
     } finally {
       setLoading(false);
     }
   }
+
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();

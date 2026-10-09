@@ -12,8 +12,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class SeaRouteConfig:
-    # Grid cell size in degrees.  0.06 ° ≈ 6.6 km; allowed range 0.01–0.1.
-    cell_deg: float = float(os.getenv("SEA_ROUTE_CELL_DEG", "0.06"))
+    # Grid cell size in degrees.  0.05 ° ≈ 5.5 km; allowed range 0.01–0.1.
+    cell_deg: float = float(os.getenv("SEA_ROUTE_CELL_DEG", "0.05"))
 
     # India bounding box (lng_min, lat_min, lng_max, lat_max).
     # Includes Lakshadweep (lng ~72) and Andaman & Nicobar (lng ~93).
@@ -24,10 +24,11 @@ class SeaRouteConfig:
 
     # Land-buffer: cells within this many nautical miles of the land polygon
     # edge are also blocked (keeps ships off rocks).
-    land_buffer_nm: float = float(os.getenv("SEA_ROUTE_LAND_BUFFER_NM", "3.0"))
+    land_buffer_nm: float = float(os.getenv("SEA_ROUTE_LAND_BUFFER_NM", "1.5"))
 
     # Coastal standoff buffer: keep routes safely offshore when smoothing.
-    standoff_buffer_nm: float = float(os.getenv("SEA_ROUTE_STANDOFF_BUFFER_NM", "2.5"))
+    standoff_buffer_nm: float = float(os.getenv("SEA_ROUTE_STANDOFF_BUFFER_NM", "2.0"))
+
 
     # Restricted-area buffer (nm around IMBL/boundary lines).
     restricted_buffer_nm: float = float(os.getenv("SEA_ROUTE_RESTRICTED_BUFFER_NM", "2.0"))

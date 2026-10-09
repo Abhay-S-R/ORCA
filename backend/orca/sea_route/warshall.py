@@ -222,8 +222,81 @@ def warshall_route(
 
     nxt = _dense_warshall(dist)
     if dist[s_idx, e_idx] >= _INF / 2:
-        return None
+        return _astar_route(start_row, start_col, end_row, end_col, grid)
     path_idx = _reconstruct(nxt, s_idx, e_idx)
     if path_idx is None:
-        return None
+        return _astar_route(start_row, start_col, end_row, end_col, grid)
     return [all_nodes[i] for i in path_idx]
+
+
+def _astar_route(
+    start_row: int, start_col: int,
+    end_row: int, end_col: int,
+    grid: SeaGrid,
+) -> list[tuple[int, int]] | None:
+    """A* pathfinder on the full-resolution sea navigability grid.
+
+    Used when the coarse-lattice Floyd–Warshall is partitioned by narrow
+    inlets, bays, or complex gulfs (e.g. Gulf of Kutch, Gulf of Khambhat, Palk Strait).
+    """
+    import heapq
+
+    if not grid.navigable[start_row, start_col] or not grid.navigable[end_row, end_col]:
+        return None
+    if (start_row, start_col) == (end_row, end_col):
+        return [(start_row, start_col)]
+
+    end_lat, end_lng = grid.cell_to_latlon(end_row, end_col)
+
+    def h(r: int, c: int) -> float:
+        lat, lng = grid.cell_to_latlon(r, c)
+        return _haversine_nm(lat, lng, end_lat, end_lng)
+
+    start_cell = (start_row, start_col)
+    goal_cell = (end_row, end_col)
+
+    g: dict[tuple[int, int], float] = {start_cell: 0.0}
+    came_from: dict[tuple[int, int], tuple[int, int]] = {}
+    open_set: list[tuple[float, int, int]] = [(h(start_row, start_col), start_row, start_col)]
+    closed: set[tuple[int, int]] = set()
+
+    while open_set:
+        _, row, col = heapq.heappop(open_set)
+        if (row, col) in closed:
+            continue
+        if row == end_row and col == end_col:
+            path: list[tuple[int, int]] = []
+            cur = goal_cell
+            while cur in came_from:
+                path.append(cur)
+                cur = came_from[cur]
+            path.append(start_cell)
+            path.reverse()
+            return path
+        closed.add((row, col))
+        cur_lat, cur_lng = grid.cell_to_latlon(row, col)
+
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if dr == 0 and dc == 0:
+                    continue
+                nr, nc = row + dr, col + dc
+                if not (0 <= nr < grid.nrows and 0 <= nc < grid.ncols and grid.navigable[nr, nc]):
+                    continue
+                if dr != 0 and dc != 0:
+                    # Prevent diagonal corner-cutting through blocked corners
+                    if not (grid.navigable[row + dr, col] and grid.navigable[row, col + dc]):
+                        continue
+                if (nr, nc) in closed:
+                    continue
+                n_lat, n_lng = grid.cell_to_latlon(nr, nc)
+                step = _haversine_nm(cur_lat, cur_lng, n_lat, n_lng)
+                p = _blocked_proximity_penalty(nr, nc, grid) * 0.1
+                ng = g[(row, col)] + step + p
+                if ng < g.get((nr, nc), float("inf")):
+                    g[(nr, nc)] = ng
+                    came_from[(nr, nc)] = (row, col)
+                    heapq.heappush(open_set, (ng + h(nr, nc), nr, nc))
+
+    return None
+

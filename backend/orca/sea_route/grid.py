@@ -67,10 +67,22 @@ class SeaGrid:
         col = max(0, min(self.ncols - 1, col))
         return row, col
 
+    def _is_navigable_open(self, r: int, c: int) -> bool:
+        if not (0 <= r < self.nrows and 0 <= c < self.ncols and self.navigable[r, c]):
+            return False
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if dr == 0 and dc == 0:
+                    continue
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < self.nrows and 0 <= nc < self.ncols and self.navigable[nr, nc]:
+                    return True
+        return False
+
     def snap_to_sea(self, lat: float, lng: float, max_search: int = 30) -> tuple[int, int] | None:
         """Return the nearest navigable cell to (lat, lng), within max_search steps."""
         r0, c0 = self.latlon_to_cell(lat, lng)
-        if self.navigable[r0, c0]:
+        if self._is_navigable_open(r0, c0):
             return r0, c0
         # Spiral outward.
         for dist in range(1, max_search + 1):
@@ -79,9 +91,10 @@ class SeaGrid:
                     if max(abs(dr), abs(dc)) != dist:
                         continue
                     r, c = r0 + dr, c0 + dc
-                    if 0 <= r < self.nrows and 0 <= c < self.ncols and self.navigable[r, c]:
+                    if self._is_navigable_open(r, c):
                         return r, c
         return None
+
 
 
 def _build_land_index(land_polygons, buffer_deg: float) -> STRtree:
