@@ -283,10 +283,9 @@ def _astar_route(
                 nr, nc = row + dr, col + dc
                 if not (0 <= nr < grid.nrows and 0 <= nc < grid.ncols and grid.navigable[nr, nc]):
                     continue
-                if dr != 0 and dc != 0:
+                if dr != 0 and dc != 0 and not (grid.navigable[row + dr, col] and grid.navigable[row, col + dc]):
                     # Prevent diagonal corner-cutting through blocked corners
-                    if not (grid.navigable[row + dr, col] and grid.navigable[row, col + dc]):
-                        continue
+                    continue
                 if (nr, nc) in closed:
                     continue
                 n_lat, n_lng = grid.cell_to_latlon(nr, nc)

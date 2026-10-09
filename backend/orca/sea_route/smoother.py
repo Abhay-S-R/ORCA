@@ -13,14 +13,12 @@ not just at discrete points.
 """
 from __future__ import annotations
 
-import math
-
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
 from shapely.geometry.base import BaseGeometry
 from shapely.strtree import STRtree
 
-
 from orca.agents.geospatial import depth_at_point
+from orca.sea_route.datasets import load_eez_polygon
 
 
 def _build_blocker_tree(
@@ -72,12 +70,11 @@ def smooth_path(
     raw_tree = _build_blocker_tree(land_polygons, restricted_areas, buffer_deg=0.0)
 
     # Standoff blockers: ensures shortcut chords do not shave within standoff_buffer_nm of coast/headlands.
-    mid_lat = (path[0][0] + path[-1][0]) / 2.0
-    lat_rad = math.radians(mid_lat)
     deg_per_nm = 1.0 / 60.0
     standoff_deg = standoff_buffer_nm * deg_per_nm
     standoff_tree = _build_blocker_tree(land_polygons, restricted_areas, buffer_deg=standoff_deg) if standoff_deg > 0 else None
 
+    eez_poly = load_eez_polygon()
     result: list[tuple[float, float]] = [path[0]]
     i = 0
     while i < len(path) - 1:
@@ -93,6 +90,20 @@ def smooth_path(
             if j > i + 1:
                 if standoff_tree is not None and not _segment_clear(lat_a, lng_a, lat_b, lng_b, standoff_tree):
                     continue
+                # Ensure shortcut chords between points in Indian waters do not cut outside Indian EEZ
+                if eez_poly is not None:
+                    pt_a = Point(lng_a, lat_a)
+                    pt_b = Point(lng_b, lat_b)
+                    if eez_poly.contains(pt_a) and eez_poly.contains(pt_b):
+                        outside_eez = False
+                        for frac in (0.25, 0.5, 0.75):
+                            s_lat = lat_a + frac * (lat_b - lat_a)
+                            s_lng = lng_a + frac * (lng_b - lng_a)
+                            if not eez_poly.contains(Point(s_lng, s_lat)):
+                                outside_eez = True
+                                break
+                        if outside_eez:
+                            continue
                 # Depth clearance check along shortcut chord (avoid shallow sandbars and headland reefs)
                 shallow_chord = False
                 for frac in (0.25, 0.5, 0.75):

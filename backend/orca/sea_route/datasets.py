@@ -32,6 +32,7 @@ LAND_FILE = Path(os.getenv("SEA_ROUTE_LAND_FILE", str(_DATA_ROOT / "sea_route" /
 EEZ_FILE = Path(os.getenv("SEA_ROUTE_EEZ_FILE", str(_DATA_ROOT / "sea_route" / "india_eez.geojson")))
 RESTRICTED_FILE = Path(os.getenv("SEA_ROUTE_RESTRICTED_FILE", str(_DATA_ROOT / "sea_route" / "restricted_areas.geojson")))
 PROTECTED_FILE = Path(os.getenv("SEA_ROUTE_PROTECTED_FILE", str(_DATA_ROOT / "sea_route" / "protected_areas.geojson")))
+SRILANKA_EEZ_FILE = Path(os.getenv("SEA_ROUTE_SRILANKA_EEZ_FILE", str(_DATA_ROOT / "tier1" / "boundaries" / "srilanka_eez_polygon.geojson")))
 
 # Primary data folder sources — INCOIS PFZ and tier-1 ocean marine feeds
 PFZ_FILE = Path(os.getenv("SEA_ROUTE_PFZ_FILE", str(_DATA_ROOT / "incois_osf_pfz" / "pfz" / "all_india_pfz_advisories.geojson")))
@@ -251,6 +252,21 @@ def load_restricted_areas() -> tuple[RestrictedArea, ...]:
             ))
         except Exception as exc:
             log.warning("sea_route: skipping bad restricted area: %s", exc)
+
+    if SRILANKA_EEZ_FILE.exists():
+        sl_data = _load_geojson(SRILANKA_EEZ_FILE)
+        for j, feat in enumerate(sl_data.get("features", [])):
+            try:
+                areas.append(RestrictedArea(
+                    id=f"sl_eez_{j}",
+                    name="Sri Lanka Exclusive Economic Zone",
+                    geometry=shape(feat["geometry"]),
+                    mode="block",
+                    note="Foreign territorial waters / Sri Lanka EEZ — vessels must remain in Indian waters",
+                ))
+            except Exception as exc:
+                log.warning("sea_route: skipping bad Sri Lanka EEZ area: %s", exc)
+
     log.info("sea_route: loaded %d restricted areas", len(areas))
     return tuple(areas)
 

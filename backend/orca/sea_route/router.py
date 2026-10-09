@@ -24,7 +24,6 @@ from functools import lru_cache
 from shapely.geometry import LineString, Point
 from shapely.strtree import STRtree
 
-from orca.sea_route.warshall import path_distance_nm, warshall_route
 from orca.sea_route.config import DEFAULT_CONFIG, SeaRouteConfig
 from orca.sea_route.datasets import (
     load_land_polygons,
@@ -33,6 +32,7 @@ from orca.sea_route.datasets import (
 )
 from orca.sea_route.grid import build_grid
 from orca.sea_route.smoother import smooth_path
+from orca.sea_route.warshall import path_distance_nm, warshall_route
 
 log = logging.getLogger("orca.sea_route.router")
 
