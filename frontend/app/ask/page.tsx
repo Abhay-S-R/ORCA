@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Compass, Fish, History, Maximize2, MapPin, Minimize2, PanelLeftOpen, ShieldCheck, Waves, Wind } from "lucide-react";
+import { Compass, Fish, History, Maximize2, MapPin, Minimize2, PanelLeftOpen, Plus, ShieldCheck, Waves, Wind } from "lucide-react";
 import { Button } from "../components/Button";
 import { Greeting } from "../components/Greeting";
 import { SavedLocationChips } from "../components/SavedLocationChips";
@@ -75,7 +75,7 @@ export default function AskPage() {
   const store = auth.status === "loading" ? null : auth.status === "signed_in" ? accountStore : browserStore;
   const [query, setQuery] = useState("");
   const [mapCollapsed, setMapCollapsed] = useState(false);
-  const [mapWidth, setMapWidth] = useState(42);
+  const [mapWidth, setMapWidth] = useState(35);
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [railCollapsed, setRailCollapsed] = useState(false);
@@ -251,6 +251,15 @@ export default function AskPage() {
   }
 
   function submit(q: string, options?: { llm?: "off"; drop?: string[]; position?: { lat: number; lon: number } }) {
+    collapseRail(true);
+    setMapWidth(35);
+    setMapCollapsed(false);
+    try {
+      localStorage.setItem(MAP_WIDTH_KEY, "35");
+    } catch {
+      /* storage disabled */
+    }
+    window.dispatchEvent(new Event("resize"));
     ask(q, options);
     setQuery("");
   }
@@ -387,7 +396,7 @@ export default function AskPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} />
+            <SavedLocationChips onSelect={askSavedLocation} addFrom={null} hideAdd={true} />
           </div>
           <Composer
             value={query}
@@ -420,7 +429,7 @@ export default function AskPage() {
             className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 lg:pr-2"
           >
           <div className="flex items-center justify-between gap-3 border-b border-hairline/60 pb-3">
-            <div className="flex min-w-0 items-baseline gap-2">
+            <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
               {railCollapsed && (
                 <button
                   type="button"
@@ -429,17 +438,27 @@ export default function AskPage() {
                   title={t("common.chats")}
                   className={`${iconButtonClass} hidden self-center lg:grid`}
                 >
-                  <PanelLeftOpen className="size-3.5" aria-hidden="true" />
+                  <PanelLeftOpen className="size-4" aria-hidden="true" />
                 </button>
               )}
-              <h1 className="shrink-0 text-xs font-bold uppercase tracking-wider text-ink-dim">{t("ask.title")}</h1>
+              <h1 className="shrink-0 text-base sm:text-xl font-bold uppercase tracking-wide text-ink">{t("ask.title")}</h1>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-2.5">
               {saveFailed && (
                 <span role="status" className="text-[11px] text-caution">
                   {t(saveFailed === "rejected" ? "ask.saveRejected" : "ask.notSaved")}
                 </span>
               )}
+              <button
+                type="button"
+                onClick={newChat}
+                aria-label={t("common.newChat")}
+                title={t("common.newChat")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-hairline/80 bg-shelf-1/90 px-3 py-1.5 text-sm font-semibold text-ink shadow-xs transition-colors hover:border-ocean-cyan/60 hover:text-ocean-cyan"
+              >
+                <Plus className="size-4" aria-hidden="true" />
+                <span>{t("common.newChat")}</span>
+              </button>
               {historyButton}
               {mapCollapsed && (
                 <button
@@ -489,7 +508,7 @@ export default function AskPage() {
           </div>
 
           <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center gap-2">
-            <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} />
+            <SavedLocationChips onSelect={askSavedLocation} addFrom={null} hideAdd={true} />
           </div>
           <Composer
             value={query}
@@ -515,9 +534,9 @@ export default function AskPage() {
               tabIndex={0}
               onPointerDown={startResizing}
               onDoubleClick={() => {
-                setMapWidth(42);
+                setMapWidth(35);
                 try {
-                  localStorage.setItem(MAP_WIDTH_KEY, "42");
+                  localStorage.setItem(MAP_WIDTH_KEY, "35");
                 } catch {}
                 window.dispatchEvent(new Event("resize"));
               }}
@@ -542,7 +561,7 @@ export default function AskPage() {
                   });
                 }
               }}
-              title="Drag to resize map & chat · Double-click to reset (42%)"
+              title="Drag to resize map & chat · Double-click to reset (35%)"
               className={`hidden lg:flex w-3 shrink-0 cursor-col-resize select-none items-center justify-center group relative z-20 transition-colors ${
                 isResizing ? "bg-ocean-cyan/20" : "hover:bg-shelf-2/60"
               }`}
@@ -592,50 +611,50 @@ export default function AskPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      setMapWidth(30);
+                      setMapWidth(35);
                       try {
-                        localStorage.setItem(MAP_WIDTH_KEY, "30");
+                        localStorage.setItem(MAP_WIDTH_KEY, "35");
                       } catch {}
                       window.dispatchEvent(new Event("resize"));
                     }}
-                    title="Compact map (30%)"
+                    title="Default 65:35 split (35% map)"
                     className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors ${
-                      mapWidth <= 35 ? "bg-ocean-cyan/20 text-ocean-cyan font-bold" : "text-ink-muted hover:text-ink"
+                      mapWidth <= 40 ? "bg-ocean-cyan/20 text-ocean-cyan font-bold" : "text-ink-muted hover:text-ink"
                     }`}
                   >
-                    30%
+                    35%
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      setMapWidth(42);
+                      setMapWidth(50);
                       try {
-                        localStorage.setItem(MAP_WIDTH_KEY, "42");
+                        localStorage.setItem(MAP_WIDTH_KEY, "50");
                       } catch {}
                       window.dispatchEvent(new Event("resize"));
                     }}
-                    title="Default split (42%)"
+                    title="Equal split (50%)"
                     className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors ${
-                      mapWidth > 35 && mapWidth < 55 ? "bg-ocean-cyan/20 text-ocean-cyan font-bold" : "text-ink-muted hover:text-ink"
+                      mapWidth > 40 && mapWidth < 60 ? "bg-ocean-cyan/20 text-ocean-cyan font-bold" : "text-ink-muted hover:text-ink"
                     }`}
                   >
-                    42%
+                    50%
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      setMapWidth(60);
+                      setMapWidth(65);
                       try {
-                        localStorage.setItem(MAP_WIDTH_KEY, "60");
+                        localStorage.setItem(MAP_WIDTH_KEY, "65");
                       } catch {}
                       window.dispatchEvent(new Event("resize"));
                     }}
-                    title="Expanded map (60%)"
+                    title="Expanded map (65%)"
                     className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors ${
-                      mapWidth >= 55 ? "bg-ocean-cyan/20 text-ocean-cyan font-bold" : "text-ink-muted hover:text-ink"
+                      mapWidth >= 60 ? "bg-ocean-cyan/20 text-ocean-cyan font-bold" : "text-ink-muted hover:text-ink"
                     }`}
                   >
-                    60%
+                    65%
                   </button>
                 </div>
               </div>

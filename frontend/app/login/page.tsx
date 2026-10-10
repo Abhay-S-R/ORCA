@@ -16,7 +16,7 @@ import { Field, inputClass } from "../components/Field";
 import { PasswordInput } from "../components/PasswordInput";
 import { Card } from "../components/Panel";
 import { OrcaMark } from "../nav";
-import { register, setHomePort, signInWithPassword, useAuth } from "../lib/auth";
+import { register, signInWithPassword, useAuth } from "../lib/auth";
 import { PERSONA_DEFAULT_ROUTE, PERSONA_STORAGE_KEY, type Persona } from "../persona/config";
 import { useT } from "../i18n/useT";
 
@@ -24,11 +24,6 @@ type Mode = "sign_in" | "register";
 
 // Only same-app paths: `?next=https://evil.example` must not become an open
 // redirect off the back of a successful sign-in.
-//
-// P4.4 — "opens on ___": an explicit `?next=` (a station card, a deep link)
-// always wins; absent one, the persona already chosen on this device (the
-// same key `PersonaProvider` reads/writes) picks the default landing route
-// instead of every sign-in landing on `/ask` regardless of who's asking.
 function nextPath(): string {
   const next = new URLSearchParams(window.location.search).get("next");
   if (next && next.startsWith("/") && !next.startsWith("//")) return next;
@@ -41,34 +36,6 @@ function nextPath(): string {
   return "/ask";
 }
 
-export const POPULAR_PORTS = [
-  { name: "Thoothukudi", lat: 8.8, lon: 78.14 },
-  { name: "Chennai", lat: 13.08, lon: 80.27 },
-  { name: "Kochi / Cochin", lat: 9.93, lon: 76.26 },
-  { name: "Visakhapatnam", lat: 17.68, lon: 83.21 },
-  { name: "Mangalore", lat: 12.87, lon: 74.84 },
-  { name: "Mumbai", lat: 18.94, lon: 72.83 },
-  { name: "Rameswaram", lat: 9.28, lon: 79.31 },
-  { name: "Kanyakumari", lat: 8.08, lon: 77.55 },
-  { name: "Paradip", lat: 20.31, lon: 86.61 },
-  { name: "Veraval", lat: 20.90, lon: 70.36 },
-  { name: "Kakinada", lat: 16.98, lon: 82.24 },
-  { name: "Kolkata / Haldia", lat: 22.02, lon: 88.06 },
-];
-
-// Parse a port name or "lat, lon" text into {lat, lon} — accepts:
-//   "8.8, 78.14"    → { lat: 8.8, lon: 78.14 }
-//   "8.8 78.14"     → { lat: 8.8, lon: 78.14 }
-//   anything else   → null (treated as a place name only, saved later via profile)
-function parseLatLon(text: string): { lat: number; lon: number } | null {
-  const m = text.match(/(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)/);
-  if (!m) return null;
-  const lat = parseFloat(m[1]);
-  const lon = parseFloat(m[2]);
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-  return { lat, lon };
-}
-
 export default function LoginPage() {
   const router = useRouter();
   const auth = useAuth();
@@ -77,10 +44,6 @@ export default function LoginPage() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [selectedPort, setSelectedPort] = useState("");
-  // Home port — the text the user typed (a name, "lat,lon", or both)
-  const [homePortText, setHomePortText] = useState("");
-  const [homePortName, setHomePortName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -103,14 +66,8 @@ export default function LoginPage() {
         setError(result.error);
         return;
       }
-      // Save home port if coordinates were provided
-      const coords = parseLatLon(homePortText);
-      if (coords) {
-        const name = homePortName.trim() || undefined;
-        await setHomePort(coords.lat, coords.lon, name);
-      }
       setPending(false);
-      router.push(nextPath());
+      router.push("/onboarding");
     } else {
       const result = await signInWithPassword(identifier, password);
       setPending(false);
@@ -200,75 +157,6 @@ export default function LoginPage() {
               />
             )}
           </Field>
-
-          {registering && (
-            <>
-              <Field label={t("login.homePort")} hint={t("login.homePortHint")}>
-                {(id) => (
-                  <select
-                    id={id}
-                    className={inputClass}
-                    value={selectedPort}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setSelectedPort(val);
-                      if (val === "custom") {
-                        setHomePortText("");
-                        setHomePortName("");
-                      } else if (val) {
-                        const port = POPULAR_PORTS.find((p) => p.name === val);
-                        if (port) {
-                          setHomePortText(`${port.lat}, ${port.lon}`);
-                          setHomePortName(port.name);
-                        }
-                      } else {
-                        setHomePortText("");
-                        setHomePortName("");
-                      }
-                    }}
-                  >
-                    <option value="">Select your home port (optional)</option>
-                    {POPULAR_PORTS.map((p) => (
-                      <option key={p.name} value={p.name}>
-                        {p.name} ({p.lat.toFixed(2)}°N, {p.lon.toFixed(2)}°E)
-                      </option>
-                    ))}
-                    <option value="custom">Other / Custom coordinates…</option>
-                  </select>
-                )}
-              </Field>
-
-              {selectedPort === "custom" && (
-                <>
-                  <Field label="COORDINATES" hint="lat, lon — e.g. 8.8, 78.14">
-                    {(id) => (
-                      <input
-                        id={id}
-                        className={inputClass}
-                        value={homePortText}
-                        onChange={(e) => setHomePortText(e.target.value)}
-                        placeholder="8.8, 78.14"
-                        autoComplete="off"
-                      />
-                    )}
-                  </Field>
-                  <Field label={t("login.homePortName")} hint={t("login.homePortNameHint")}>
-                    {(id) => (
-                      <input
-                        id={id}
-                        className={inputClass}
-                        value={homePortName}
-                        onChange={(e) => setHomePortName(e.target.value)}
-                        placeholder={t("login.homePortNamePlaceholder")}
-                        autoComplete="off"
-                        maxLength={80}
-                      />
-                    )}
-                  </Field>
-                </>
-              )}
-            </>
-          )}
 
           {error && (
             <p role="alert" className="mb-3 text-xs text-no-go">
