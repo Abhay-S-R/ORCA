@@ -6,4 +6,4 @@
 // Deliberately not "use client": it is a plain constant, so a server component
 // can import it too. auth.ts re-exports it for the callers that already read
 // it from there.
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";

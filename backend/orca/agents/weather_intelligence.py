@@ -132,11 +132,16 @@ def _fetch_open_meteo(url: str, lat: float, lon: float, variables: list[str], ho
     return payload
 
 
-def get_marine_weather(lat: float, lon: float, hours_ahead: int = 48) -> dict[str, Any]:
+def get_marine_weather(lat: float, lon: float, hours_ahead: int = 48, *, skip_live: bool = False) -> dict[str, Any]:
     """Tool per Architecture §3.1 Agent 4. Live Open-Meteo Marine + Forecast
     APIs, cached tier1/ fallback on any failure (plan §5.7 fallback cascade)."""
     now = datetime.now(UTC)
+    port: str | None = None
+    port_km: float | None = None
     try:
+        if skip_live:
+            # Agent 3 decided the cached rung (the live source's breaker is open): do not pay the 3 s timeout again (A4)
+            raise httpx.ConnectError("skipped: marine_data_discovery decided the cached rung")
         marine_raw = _fetch_open_meteo(
             OPEN_METEO_MARINE_URL, lat, lon,
             ["wave_height", "wave_period", "swell_wave_height", "ocean_current_velocity"],
@@ -168,6 +173,7 @@ def get_marine_weather(lat: float, lon: float, hours_ahead: int = 48) -> dict[st
         fallback_depth = 0
     except (httpx.HTTPError, KeyError, ValueError):
         port = _nearest_port(lat, lon, CACHED_MARINE_PORTS)
+        port_km = _haversine_km(lat, lon, *port_coordinates()[port])
         marine_raw = load_json(cached_marine_path(port))
         wind_raw = load_json(cached_weather_path(port))
         marine_df = pd.DataFrame(marine_raw["hourly"])
@@ -177,7 +183,7 @@ def get_marine_weather(lat: float, lon: float, hours_ahead: int = 48) -> dict[st
         cached_acquisition_utc = to_utc_iso(wind_raw["hourly"]["time"][0], offset)
         circuit_note = ", circuit_open" if resilience.circuit_open("open_meteo") else ""
         source = SourceDescriptor(
-            dataset=f"Open-Meteo Marine/Forecast API (cached tier1 fallback, port={port}{circuit_note})",
+            dataset=f"Open-Meteo Marine/Forecast API (cached tier1 fallback, port={port}, {port_km:.0f} km away{circuit_note})",
             authority_tier="T1",
             acquisition_timestamp=cached_acquisition_utc,
             native_units={
@@ -207,6 +213,10 @@ def get_marine_weather(lat: float, lon: float, hours_ahead: int = 48) -> dict[st
         ),
         "confidence": confidence,
         "fallback_depth": fallback_depth,
+        # which catalog source really served (A4): compared with Agent 3's decision in `run`
+        "source_used": "open_meteo_port_cache" if fallback_depth else "open_meteo_marine",
+        "port": port,
+        "port_km": port_km,
     }
 
 
@@ -287,6 +297,7 @@ def get_lightning_nowcast(lat: float, lon: float, radius_km: float = 25.0) -> di
         raw = _fetch_open_meteo(OPEN_METEO_FORECAST_URL, lat, lon, ["lightning_potential", "cape"], 1)
         potential = _first_non_null(raw["hourly"]["lightning_potential"])
         dataset = "Open-Meteo lightning_potential (CAPE-derived proxy for IMD Damini, live)"
+        used = "open_meteo_lightning_proxy"
         confidence = Confidence(score="MEDIUM", rationale="Live proxy source, not the authoritative Damini feed (unverified, §1.2)")
         acquisition = now.isoformat().replace("+00:00", "Z")
     except (httpx.HTTPError, KeyError, IndexError):
@@ -294,6 +305,7 @@ def get_lightning_nowcast(lat: float, lon: float, radius_km: float = 25.0) -> di
         cached = load_json(cached_lightning_path(port))
         potential = _first_non_null(cached["hourly"]["lightning_potential"])
         dataset = f"Open-Meteo lightning_potential (cached tier1 fallback, port={port})"
+        used = "open_meteo_lightning_cache"
         confidence = Confidence(
             score="LOW_DATA",
             rationale="Live proxy fetch failed; using cached snapshot"
@@ -306,6 +318,7 @@ def get_lightning_nowcast(lat: float, lon: float, radius_km: float = 25.0) -> di
     # cross-check this against (that's exactly the gap Damini would close).
     lightning_active = potential is not None and potential >= 1000
     return {
+        "source_used": used,
         "lightning_active": lightning_active,
         "lightning_potential_j_kg": potential,
         "source_provenance": SourceProvenance(dataset=dataset, acquisition_timestamp=acquisition, freshness_minutes=0),
@@ -717,7 +730,12 @@ def run(state: ORCAState) -> AgentResult:
         lat = (bbox.get("min_lat", _DEFAULT_LAT) + bbox.get("max_lat", _DEFAULT_LAT)) / 2
         lon = (bbox.get("min_lon", _DEFAULT_LON) + bbox.get("max_lon", _DEFAULT_LON)) / 2
 
-    weather = get_marine_weather(lat, lon, hours_ahead=48)
+    # A4 (2026-10-10): the wave/wind source is the one marine_data_discovery decided. It can pre-decide only what is knowable
+    # before the call: when the live source's breaker is open it names the cached rung and this agent skips the live attempt (a
+    # 3 s wait) instead of making its own choice. A live call that fails AT FETCH still falls to the declared next rung.
+    decisions = (state.get("discovery_sources") or {}).get("by_data_type") or {}
+    wave_decision = decisions.get("wave_height") or {}
+    weather = get_marine_weather(lat, lon, hours_ahead=48, skip_live=wave_decision.get("chosen") == "open_meteo_port_cache")
     lightning = get_lightning_nowcast(lat, lon)
     basin: Literal["BoB", "AS"] = "BoB" if lon >= 77.5 else "AS"
     cyclone = get_cyclone_status(basin)
@@ -735,7 +753,14 @@ def run(state: ORCAState) -> AgentResult:
     else:
         agreement = "disagree"
 
+    used_by_type = {
+        "wave_height": weather["source_used"], "wind_speed": weather["source_used"], "lightning": lightning["source_used"],
+    }
+    from orca.agents.discovery import source_report_entry
+
+    source_report = {dtype: source_report_entry(decisions.get(dtype), used) for dtype, used in used_by_type.items()}
     outputs = {
+        "source_report": source_report,
         "hourly": weather["hourly"],
         "lightning_active": lightning["lightning_active"],
         "imd_nowcast": {k: v for k, v in imd.items() if k not in ("confidence", "source_provenance")},

@@ -30,7 +30,7 @@ LOW_DATA and names the gap.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -197,6 +197,24 @@ class TidePrediction:
     fell_back: bool
     source_provenance: SourceProvenance
     confidence: Confidence
+    # Which source the heights really came from ("soi_tide_tables" | "stormglass_tides" | None when there are none): the trace
+    # compares this with what Agent 3 decided (A3, 2026-10-10).
+    source_used: str | None = None
+
+
+def tide_down_from_decision(decision: dict[str, Any] | None) -> tuple[tuple[str, ...], str | None]:
+    """(sources to treat as down, the reason when none is usable) from Agent 3's tide decision. Agent 3 checked, per station and
+    per requested time, which rung can answer; this agent takes that rung and no other. No decision (a unit test, a caller that
+    skipped Agent 3) means no constraint, as before."""
+    if not decision:
+        return (), None
+    chosen = decision.get("chosen")
+    if chosen == "soi_tide_tables":
+        return ("stormglass_tides",), None
+    if chosen == "stormglass_tides":
+        return ("soi_tide_tables",), None
+    reasons = "; ".join(str(r.get("reason")) for r in decision.get("rejected") or []) or "no usable tide source"
+    return ("soi_tide_tables", "stormglass_tides"), reasons
 
 
 def nearest_station(lat: float, lon: float) -> dict[str, Any]:
@@ -210,6 +228,7 @@ def predict_tides(
     *,
     when: datetime | None = None,
     down: tuple[str, ...] = (),
+    unusable_reason: str | None = None,
 ) -> TidePrediction:
     """Next high and low tide at the nearest SOI station, plus the current
     rising/falling state and a spring/neap classification from the station's
@@ -287,8 +306,11 @@ def predict_tides(
         datum = "n/a — no tide source for this station"
         confidence = Confidence(
             score="LOW_DATA",
-            rationale=f"No tide source available for station {code}: SOI table has no rows for it "
-            "and the Stormglass fallback covers no matching port",
+            rationale=(
+                f"No tide source available for station {code}: {unusable_reason}" if unusable_reason
+                else f"No tide source available for station {code}: SOI table has no rows for it "
+                "and the Stormglass fallback covers no matching port"
+            ),
         )
     elif not future:
         confidence = Confidence(
@@ -345,6 +367,7 @@ def predict_tides(
             freshness_minutes=0,  # astronomical prediction — the table does not go stale
         ),
         confidence=confidence,
+        source_used=("stormglass_tides" if fell_back else "soi_tide_tables") if events else None,
     )
 
 
@@ -472,6 +495,31 @@ def _chl_grid(bbox: dict[str, float] | None) -> dict[str, Any] | None:
 _READING_MAX_KM = 60.0       # a cell further than this is not "at" the place
 _SST_SOURCES = (("INSAT-3DR SST", sl.load_insat_sst), ("CMEMS SST", sl.load_cmems_sst))
 _CHL_SOURCES = (("EOS-06 OCM-3 chlorophyll", sl.load_eos06_chl), ("CMEMS ocean-colour chlorophyll", sl.load_cmems_chl))
+# which catalog source (marine_data_discovery's ids) each reader is (A5, 2026-10-10)
+_ID_BY_NAME = {
+    "INSAT-3DR SST": "mosdac_open_sst", "CMEMS SST": "copernicus_cmems",
+    "EOS-06 OCM-3 chlorophyll": "mosdac_open_chl", "CMEMS ocean-colour chlorophyll": "copernicus_cmems",
+    "NOAA CoastWatch SST": "noaa_coastwatch", "NOAA CoastWatch chlorophyll": "noaa_coastwatch",
+}
+# The declared last rung of both cascades (a LIVE fetch, so Agent 3 cannot pre-probe it): read only when Agent 3 decided it, never
+# speculatively (it is a network call).
+_COASTWATCH = {
+    "sst": ("NOAA CoastWatch SST", sl.load_coastwatch_sst, "degC"),
+    "chlorophyll": ("NOAA CoastWatch chlorophyll", sl.load_coastwatch_chl, "mg/m3"),
+}
+
+
+def _COASTWATCH_NAME(dtype: str) -> tuple[str, Any]:
+    return (_COASTWATCH[dtype][0], _COASTWATCH[dtype][1])
+
+
+def grid_reading(source_id: str, data_type: str, lat: float, lon: float) -> dict[str, Any] | None:
+    """The nearest-cell reading of ONE catalog source for "sst" or "chlorophyll" at a position, or None when it holds no cell
+    within `_READING_MAX_KM`. Agent 3's arrival probe asks this, so its "valid" means "this source has a reading HERE"."""
+    table, unit = (_SST_SOURCES, "degC") if data_type == "sst" else (_CHL_SOURCES, "mg/m3")
+    mine = tuple((name, loader) for name, loader in table if _ID_BY_NAME.get(name) == source_id)
+    readings = _source_readings(mine, lat, lon, unit)
+    return readings[0] if readings else None
 
 
 def _nearest_cell(frame: list[dict[str, float]], lat: float, lon: float) -> tuple[dict[str, float], float] | None:
@@ -502,7 +550,7 @@ def _source_readings(sources: tuple[Any, ...], lat: float, lon: float, unit: str
         prov = grid.get("provenance") or {}
         age = prov.get("freshness_minutes")
         out.append({
-            "source": name, "value": round(float(near[0]["value"]), 2), "unit": unit,
+            "source": name, "source_id": _ID_BY_NAME.get(name), "value": round(float(near[0]["value"]), 2), "unit": unit,
             "cell_distance_km": round(near[1], 1), "observed": (prov.get("acquisition_timestamp") or "")[:10] or None,
             "age_days": round(age / 1440, 1) if isinstance(age, (int, float)) else None,
         })
@@ -549,9 +597,14 @@ def _chl_class(value: float) -> str:
     return _CHL_CLASS["low" if value < _CHL_LOW else "high" if value > _CHL_HIGH else "moderate"]
 
 
-def point_readings(lat: float, lon: float) -> dict[str, Any]:
+def point_readings(lat: float, lon: float, decided: dict[str, str | None] | None = None) -> dict[str, Any]:
     """The SST and chlorophyll at (lat, lon): one headline reading per quantity (with its source, date and cell), the other
-    sources as cross-checks, and an `unusual_gap` sentence ONLY when a cross-check is outside the normal offset."""
+    sources as cross-checks, and an `unusual_gap` sentence ONLY when a cross-check is outside the normal offset.
+
+    `decided` ({"sst": id, "chlorophyll": id}, from marine_data_discovery) names the HEADLINE source (A5, 2026-10-10): Agent 3
+    checked that the source has a cell at this position and how old it is, so this agent no longer picks the national product by
+    a constant. Without a decision the national product is still the default."""
+    decided = decided or {}
     sst = _source_readings(_SST_SOURCES, lat, lon, "degC")
     chl = _source_readings(_CHL_SOURCES, lat, lon, "mg/m3")
     # INCOIS's own ocean-state model is one more cross-check for the sea surface temperature (a 0.5 deg model grid).
@@ -564,8 +617,16 @@ def point_readings(lat: float, lon: float) -> dict[str, Any]:
             })
     except Exception:
         pass
-    sst_head, sst_checks = _headline(sst, _SST_HEADLINE)
-    chl_head, chl_checks = _headline(chl, _CHL_HEADLINE)
+    def _preferred(table, dtype, default):
+        want = decided.get(dtype)
+        return next((n for n, _ in table if want and _ID_BY_NAME.get(n) == want), default)
+
+    for dtype, readings in (("sst", sst), ("chlorophyll", chl)):
+        if decided.get(dtype) == "noaa_coastwatch":
+            name, loader, unit = _COASTWATCH[dtype]
+            readings.extend(_source_readings(((name, loader),), lat, lon, unit))
+    sst_head, sst_checks = _headline(sst, _preferred(_SST_SOURCES + (_COASTWATCH_NAME("sst"),), "sst", _SST_HEADLINE))
+    chl_head, chl_checks = _headline(chl, _preferred(_CHL_SOURCES + (_COASTWATCH_NAME("chlorophyll"),), "chlorophyll", _CHL_HEADLINE))
 
     sst_gap = None
     if sst_head:
@@ -747,6 +808,7 @@ class NearestPFZ:
     # True when nothing lies within max_km and this is the nearest advisory
     # ORCA holds anywhere — reported, labelled as out of reach, never dropped.
     beyond_reach: bool = False
+    top_species: list[dict[str, Any]] = field(default_factory=list)
 
 
 # Beyond this a "nearest" zone is on another coast: the 906 km Betul answer to
@@ -787,6 +849,7 @@ def nearest_pfz(
     dist_km, row = min(parsed, key=lambda t: t[0])
     plat, plon = float(row["latitude_dd"]), float(row["longitude_dd"])
     bearing, _ = geospatial.bearing_and_distance(lat, lon, plat, plon)
+    top_sp = al.get_top_species_for_zone(row.get("sector"), row.get("depth_m"), plat, plon)
     return NearestPFZ(
         found=True,
         landing_center=row.get("landing_center"),
@@ -804,6 +867,7 @@ def nearest_pfz(
         max_km=max_km,
         incois_reference=_incois_reference(row),
         beyond_reach=dist_km > max_km,
+        top_species=top_sp,
     )
 
 
@@ -1702,7 +1766,11 @@ def run(state: ORCAState) -> AgentResult:
     query = (state.get("normalized_english_query") or state.get("raw_user_query") or "").lower()
     depth = coerce_reasoning_depth(state.get("reasoning_depth", "SHALLOW"))
 
-    tide = predict_tides(lat, lon, when=when)
+    # A3 (2026-10-10): the tide source is the one Agent 3 decided (it checked the station and the requested time), not this
+    # agent's own SOI-then-Stormglass order. `source_used` below is what really served, so the trace can show decided vs used.
+    decided_tide = ((state.get("discovery_sources") or {}).get("by_data_type") or {}).get("tide")
+    tide_down, tide_unusable = tide_down_from_decision(decided_tide)
+    tide = predict_tides(lat, lon, when=when, down=tide_down, unusable_reason=tide_unusable)
     near = nearest_pfz(lat, lon)
 
     # Agent 3's source-selection reasoning for the data types this agent
@@ -1734,6 +1802,7 @@ def run(state: ORCAState) -> AgentResult:
                 # Where the decision came from, so a trace reader can see this
                 # agent consumed Agent 3's call rather than making its own.
                 "decided_by": "marine_data_discovery" if dtype in decided else "ocean_analytics (no Agent 3 decision in state)",
+                **({"used": tide.source_used} if dtype == "tide" else {}),
             })
 
     # The user's own sector governs the status they see — resolved from their
@@ -1750,7 +1819,23 @@ def run(state: ORCAState) -> AgentResult:
     gauge = tide_gauge_observation(lat, lon)
     osf_point = nearest_osf_point_forecast(lat, lon)
 
+    # A5 (2026-10-10): SST / chlorophyll headline sources follow Agent 3; PFZ and tide are reported decided vs used.
+    colour = (
+        point_readings(lat, lon, {"sst": (decided.get("sst") or {}).get("chosen"), "chlorophyll": (decided.get("chlorophyll") or {}).get("chosen")})
+        if _asks_sea_colour(state, query) else None
+    )
+    from orca.agents.discovery import source_report_entry
+
+    source_report: dict[str, Any] = {
+        "tide": source_report_entry(decided.get("tide"), tide.source_used),
+        "pfz": source_report_entry(decided.get("pfz"), "incois_pfz" if near.found else None),
+    }
+    if colour is not None:
+        source_report["sst"] = source_report_entry(decided.get("sst"), (colour["sea_surface_temperature"]["headline"] or {}).get("source_id"))
+        source_report["chlorophyll"] = source_report_entry(decided.get("chlorophyll"), (colour["chlorophyll_a"]["headline"] or {}).get("source_id"))
+
     outputs: dict[str, Any] = {
+        "source_report": source_report,
         "tide": {
             "station_code": tide.station_code,
             "station_name": tide.station_name,
@@ -1762,6 +1847,10 @@ def run(state: ORCAState) -> AgentResult:
             "datum": tide.datum,
             "fell_back": tide.fell_back,
             "dataset": tide.source_provenance.dataset,
+            # decided by Agent 3 vs used here; `obeyed` is None when no decision was in the state
+            "source_decided": (decided_tide or {}).get("chosen") if decided_tide else None,
+            "source_used": tide.source_used,
+            "obeyed": ((decided_tide or {}).get("chosen") == tide.source_used) if decided_tide else None,
             # Predicted heights, cross-checked against what a gauge actually
             # measured — the observed side predict_tides deliberately omits.
             "observed_cross_check": {k: v for k, v in gauge.items() if k != "confidence"},
@@ -1785,11 +1874,13 @@ def run(state: ORCAState) -> AgentResult:
             "expired": near.expired,
             "max_km": near.max_km,
             "beyond_reach": near.beyond_reach,
+            "top_species": getattr(near, "top_species", []),
         },
+        "top_species": getattr(near, "top_species", []),
         "pfz_persistence": {k: v for k, v in persistence.items() if k != "confidence"},
         "sector_status": sec_status,
         "sst_chlorophyll_correlation": {k: v for k, v in correlation.items() if k != "confidence"},
-        **({"sea_colour_readings_at_the_place": point_readings(lat, lon)} if _asks_sea_colour(state, query) else {}),
+        **({"sea_colour_readings_at_the_place": colour} if colour is not None else {}),
         "wind_rose": {k: v for k, v in rose.items() if k != "confidence"},
         "wind_anomaly": {k: v for k, v in anomaly_wind.items() if k != "confidence"},
         "osf_point_forecast": {k: v for k, v in osf_point.items() if k != "confidence"},

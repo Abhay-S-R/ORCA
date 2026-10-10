@@ -43,15 +43,15 @@ Written 2026-10-09 from the implementation log (`docs/logs/DLC_implementation_lo
 - [x] **PC5.6: RUN on 2026-10-09, result in the log; two notes became their own points below** (distress phrases: all 6 raised live, 3 only by the planner's model; places: 11 of 16 right, 5 no-place prompts answered at the disclosed default, 1 route wrong).
 - [x] **PC5.6-NOTE-2 (SAFETY): romanized "help + boat failing" is distress with no model (written 2026-10-09).** *To verify:* send "naav ka engine kharab ho gaya, madad chahiye" and "nanna boat engine halaaytu malpe hatra sahaya beku": both give the MRCC response at once (not after 4-5 s); "route ke liye madad chahiye" must NOT raise an SOS. Hindi and Kannada only; native review still owed.
 - [x] **PC5.6-NOTE-1: a romanized route between two places is a passage answered for the origin (written 2026-10-10, checked live).** *To verify:* ask "mujhe tuticorin se pamban tak sabse surakshit raasta batao" and "karwar inda udupi varege surakshitha maarga heli": each answered for the first place (Tuticorin / Karwar), not the Gulf of Mannar default. (A route that names a whole coastline such as Goa still asks which port.)
-- [ ] **PC5.7: honest provenance labels** on the native-script path (a translation that returns its input unchanged is `degraded`; the docstring says Bhashini is primary). Two of the friend's tests (`test_pc5_language_ingress.py`) specify this and PC5.5; they fail until these are built.
+- [ ] **PC5.7 (now part of TRACE-1, audits 2 and 12): honest provenance labels** on the native-script path (a translation that returns its input unchanged is `degraded`; the docstring says Bhashini is primary). Two of the friend's tests (`test_pc5_language_ingress.py`) specify this and PC5.5; they fail until these are built.
 - [ ] **Part B: audit the remaining agents, one at a time** (plan section 9: marine_data_discovery, language_egress, weather, geospatial, ocean_analytics, risk, visualization, reporting, critic). Decide for each: does it need to exist, does it duplicate another, model or code. Record the decision before writing points.
 - [ ] **The core agentic architecture change** (the user's: "we are making changes to the core architecture now")
   Not written down anywhere yet: the question on record is whether planning coordinates the parallel specialists and whether they obey marine_data_discovery. **The user's usability case for the visualization agent is also not recorded and has to be restated.** First step is to write it as plan points, then implement one at a time.
 
 ### A4. Defects and quality
 
-- [ ] **D-15: a follow-up that names no place, after a "which place?" question, asks the question again (written 2026-10-10, checked live).** *To verify:* ask "pfzs near gujarat" (it lists ports), then "can you explain that in more detail": it asks which port again, not an answer at the Gulf of Mannar; then "near porbandar": answered for Porbandar.
-- [ ] **Critic false positives:** the critic deletes boundary information (IMBL distance) from correct answers.
+- [x] **D-15: a follow-up that names no place, after a "which place?" question, asks the question again (written 2026-10-10, checked live).** *To verify:* ask "pfzs near gujarat" (it lists ports), then "can you explain that in more detail": it asks which port again, not an answer at the Gulf of Mannar; then "near porbandar": answered for Porbandar.
+- [ ] **Critic false positives (the class, not only IMBL):** the critic judges the answer against a hand-written facts list (`critic.build_facts_block`); anything the narrator may say that is not on that list gets flagged and deleted. The IMBL case did NOT reproduce on 2026-10-10 (3 live boundary questions passed or were corrected correctly); the same class deleted the SST/chlorophyll answer on 2026-10-09 (fixed for those fields). Proposed: build the critic's facts from the same data view the narrator sees + a parity test. Not built.
 - [ ] **Marathi is detected as Hindi**, so Marathi chat replies come back in Hindi script.
 - [ ] **Foreign-script letters in a model's reply:** a Kannada reply twice contained a Korean word and a nonsense phrase. Proposed: reject a reply containing a script other than its own and Latin, and fall back to a translated English sentence.
 - [ ] **Bengali "Hello!" becomes "আসসালামুয়ালাইকুম"** (a Muslim greeting) by the translator; swap to a neutral "নমস্কার" before translating, if the user wants.
@@ -65,10 +65,18 @@ Written 2026-10-09 from the implementation log (`docs/logs/DLC_implementation_lo
 
 - [ ] **NOTE-LANG-3: a reply asked "in kannada" can come back with the Kannada text inside the English field** (found live 2026-10-10: "ok and for kundapura now, in kannada" produced an English CAUTION banner followed by Kannada, which was then translated again). Likely related to the foreign-script item above. *Your call:* fix it as one point (the English field must be English; if the narrative model returns another script, keep the data-built English answer).
 
-- [ ] **PLAN-FORCE-1: ocean analytics is forced to run for tide, fishing-zone, SST and chlorophyll questions (written 2026-10-10, checked live).** *To verify:* open /reasoning (or the agent strip on /ask) for "any hazard alerts and the tide at kochi tomorrow": Ocean Analytics ran (not skipped) and the answer mentions the tide; same for "which fishing zones should I avoid near malpe, and where is the nearest pfz"; "sst and chlorophyll at udupi" then "and for karwar" give each place its own SST and chlorophyll.
-- [ ] **VOICE-10: Kannada rates read in your chosen order (B), written 2026-10-10.** *To verify:* a Kannada answer with wind (e.g. "is it safe near udupi, answer in kannada") and press Play: the wind is read "ಪ್ರತಿ ಸೆಕೆಂಡಿಗೆ 2 ಮೀಟರ್" (and km/h "ಪ್ರತಿ ಗಂಟೆಗೆ 12 ಕಿಲೋಮೀಟರ್"). Other languages unchanged (VOICE-9).
+- [x] **PLAN-FORCE-1: ocean analytics is forced to run for tide, fishing-zone, SST and chlorophyll questions (written 2026-10-10, checked live).** *To verify:* open /reasoning (or the agent strip on /ask) for "any hazard alerts and the tide at kochi tomorrow": Ocean Analytics ran (not skipped) and the answer mentions the tide; same for "which fishing zones should I avoid near malpe, and where is the nearest pfz"; "sst and chlorophyll at udupi" then "and for karwar" give each place its own SST and chlorophyll.
+- [x] **VOICE-10: Kannada rates read in your chosen order (B), written 2026-10-10.** *To verify:* a Kannada answer with wind (e.g. "is it safe near udupi, answer in kannada") and press Play: the wind is read "ಪ್ರತಿ ಸೆಕೆಂಡಿಗೆ 2 ಮೀಟರ್" (and km/h "ಪ್ರತಿ ಗಂಟೆಗೆ 12 ಕಿಲೋಮೀಟರ್"). Other languages unchanged (VOICE-9).
 
-- [ ] **CI-FIX-1 / CI-FIX-2: the CI Lint job failed twice after the merge (ruff 0.17.0 findings, then a strict xfail that my distress fix closed); both fixed locally (2026-10-10), not pushed.** *To verify:* commit and push, then the GitHub "CI — Lint" run is green. ruff is now pinned to 0.17.0 in `backend/requirements.txt` (CI-FIX-3, your yes). From now on I run the CI's own steps (including `tests/test_messy_prompts.py` and `tests/unit/test_response_guarantee.py`), not only `tests/unit`.
+- [x] **CI-FIX-1 / CI-FIX-2: the CI Lint job failed twice after the merge (ruff 0.17.0 findings, then a strict xfail that my distress fix closed); both fixed locally (2026-10-10), not pushed.** *To verify:* commit and push, then the GitHub "CI — Lint" run is green. ruff is now pinned to 0.17.0 in `backend/requirements.txt` (CI-FIX-3, your yes). From now on I run the CI's own steps (including `tests/test_messy_prompts.py` and `tests/unit/test_response_guarantee.py`), not only `tests/unit`.
+
+- [ ] **TRACE-1 (MAIN PRIORITY, the user, 2026-10-10): revamp the agent trace like ChatGPT/Claude ("Worked for 33s" that expands into a clean ordered account) and, BEFORE it, audit every agent so the trace only says what the backend really did.** Tracked in `docs/ORCA_Agent_Trace_and_Audit.md` (updated on every piece of work). Audit 4 (marine_data_discovery) is written: it is advice, not obeyed, with five defects; waiting for your decision A (bind the specialists, recommended) or B (citation layer). PC5.7 is folded into the ingress/egress audits.
+  - [x] **AUDIT-4 A1 (written 2026-10-10): Agent 3's arrival check is honest.** *To verify:* open the agent trace/inspector for a tide question at Kochi ("tide at kochi"): the discovery step says tide from the Survey of India tables "for station KOC, covering <today>"; at New Mangalore ("tide at mangalore"): it says the Survey of India has no rows for NMP and falls to the Stormglass cache; a PFZ question shows the advisory's date and age. Decision A chosen; A2-A6 (catalog truth, binding tide/weather/SST/PFZ, decided-vs-used) are next.
+  - [x] **AUDIT-4 A2 + A3 (written 2026-10-10, checked live): the catalog tells the truth; tide obeys Agent 3.** *To verify:* "what is the tide at kochi" / "tide times at mangalore please" / "tide at tuticorin tomorrow": in the inspector Agent 3 names the tide source (Survey of India for Kochi and Tuticorin; the Stormglass cache for Mangalore, with "no Survey of India rows for station NMP") and Ocean Analytics' tide shows decided = used. A chlorophyll question still answers (CMEMS is now the fallback, not NASA). A4 (weather), A5 (SST/chlorophyll/PFZ) and A6 (decided vs used on the trace) are next.
+  - [x] **AUDIT-4 A4 (written 2026-10-10, checked live): weather obeys Agent 3.** *To verify:* "is it safe near kochi tomorrow morning": in the inspector Agent 3 names open_meteo_marine for waves and wind and open_meteo_lightning_proxy for lightning (no more "IMD Damini"), and the Weather Intelligence step shows `source_report` with decided = used and obeyed true for each; if Open-Meteo ever fails, the cached label now says how far the port is ("port=kochi, 4 km away"). Safety verdicts are unchanged.
+  - [x] **AUDIT-4 A5 (written 2026-10-10, checked live): SST, chlorophyll and PFZ obey Agent 3.** *To verify:* "give me the sst and chlorophyll values for udupi right now": in the inspector Agent 3 shows sst (INSAT: "cell N km away, observed <date>, N d old"), chlorophyll (EOS-06, same shape) and the PFZ advisory's date and age; Ocean Analytics' `source_report` shows decided = used and obeyed true for sst, chlorophyll, pfz and tide. A plain "is it safe near udupi" shows only tide and pfz in the report. The answer's numbers are unchanged.
+  - [x] **AUDIT-4 A6 (written 2026-10-10, checked live): decided vs used is on the trace data.** *To verify:* in the inspector, the Marine Data Discovery step has a plain sentence `trace_line` ("Chose data sources: wave height and wind speed from Open-Meteo ...; tides from ... ; fishing zones from INCOIS ..."; for "tide times at mangalore please" it says tides fell back to Stormglass because the Survey of India has no rows for NMP); each specialist's output has `source_report` (weather, ocean, geospatial); the final answer data has `source_check` = all checks obeyed, no mismatches. The UI does not draw these yet (next stage: the trace revamp). Audit 4 is complete in code after A1-A6.
+  - [ ] **AUDIT-6 geospatial (written 2026-10-10, no code changed): 8 defects G1-G8 in `docs/ORCA_Agent_Trace_and_Audit.md` section 5b.** Needs your decisions: G1 (the MPA check covers 1 of 11 usable MPAs: which are hard NO_GO, which only a disclosure), G3 (CAUTION band edge 3 or 5 nm), G7 (shallow-water scope). The others (G2 fishing-ban shore distance, G4 SMS "IMBL boundary clear", G5 provenance, G6 zones and bearing, G8) are fixes I can make once you say go.
 
 ### A5. Config and operations
 
@@ -87,33 +95,33 @@ Written 2026-10-09 from the implementation log (`docs/logs/DLC_implementation_lo
 *Tick each one only after checking it yourself. "How" is what to look at.*
 
 ### Chat understanding and safety
-- [ ] **D-1: "engine failed near pamban" is a distress.** *How:* send it; expect the MRCC response and no sea agents. Also "what should i do if my engine fails at sea" must get a normal answer.
-- [ ] **D-3: a Tamil place name no longer becomes "New York".** *How:* send `தூத்துக்குடியில் கடல் பாதுகாப்பானதா`; the answer must not mention New York.
-- [ ] **D-2: an English question never gets a Malayalam reply.** *How:* "pfzs near rameshwaram" answers in English.
-- [ ] **PC5.8: "answer in <language>" is honoured**, otherwise English for Latin text and the script's language for native script. *How:* "answer this in kannada: pfzs near mangalore" gives Kannada (**you confirmed this one**); "answer in english: <a Tamil question>" gives English.
-- [ ] **Identity questions** ("who are you", "what is your name") in all nine languages are answered as identity, with the right name. *How:* ask in a few languages.
-- [ ] **Planning model is Gemini flash-lite** (`ORCA_LLM_CHEAP_CHAIN`). *How:* a trace's planning step names `gemini · gemini-flash-lite-latest`.
-- [ ] **No Ollama and no IndicTrans2** anywhere in startup or use. *How:* the backend log has no mention of either; the first query is no slower.
+- [x] **D-1: "engine failed near pamban" is a distress.** *How:* send it; expect the MRCC response and no sea agents. Also "what should i do if my engine fails at sea" must get a normal answer.
+- [x] **D-3: a Tamil place name no longer becomes "New York".** *How:* send `தூத்துக்குடியில் கடல் பாதுகாப்பானதா`; the answer must not mention New York.
+- [x] **D-2: an English question never gets a Malayalam reply.** *How:* "pfzs near rameshwaram" answers in English.
+- [x] **PC5.8: "answer in <language>" is honoured**, otherwise English for Latin text and the script's language for native script. *How:* "answer this in kannada: pfzs near mangalore" gives Kannada (**you confirmed this one**); "answer in english: <a Tamil question>" gives English.
+- [x] **Identity questions** ("who are you", "what is your name") in all nine languages are answered as identity, with the right name. *How:* ask in a few languages.
+- [x] **Planning model is Gemini flash-lite** (`ORCA_LLM_CHEAP_CHAIN`). *How:* a trace's planning step names `gemini · gemini-flash-lite-latest`.
+- [x] **No Ollama and no IndicTrans2** anywhere in startup or use. *How:* the backend log has no mention of either; the first query is no slower.
 
 ### The answer card
-- [ ] **UI-CARD-3: the card is decluttered** (no "Cross-source check", no routing line, no empty header row above chat replies).
-- [ ] **UI-CARD-4: one action row (copy, play, try again) under every response**, including chat replies and distress; play is a small icon, not the blue button.
-- [ ] **D-16: a translated answer is never blank** (the "GO: reason" header split). *How:* Kannada/Tamil/Hindi answers show their text.
-- [ ] **D-7: no raw `understand_llm` text on the card** (the routing line was removed entirely).
-- [ ] **Sources & provenance dropdown** is closed by default and holds the evidence.
-- [ ] **D-4: the PFZ answer still shows its map/layer** (flagged in the guide, never checked).
+- [x] **UI-CARD-3: the card is decluttered** (no "Cross-source check", no routing line, no empty header row above chat replies).
+- [x] **UI-CARD-4: one action row (copy, play, try again) under every response**, including chat replies and distress; play is a small icon, not the blue button.
+- [x] **D-16: a translated answer is never blank** (the "GO: reason" header split). *How:* Kannada/Tamil/Hindi answers show their text.
+- [x] **D-7: no raw `understand_llm` text on the card** (the routing line was removed entirely).
+- [x] **Sources & provenance dropdown** is closed by default and holds the evidence.
+- [x] **D-4: the PFZ answer still shows its map/layer** (flagged in the guide, never checked).
 
 ### Speed
-- [ ] **FIX-COLD / FIX-COLD-2: the first query and the first Play are no longer slow.** *How:* restart (no `--reload`), wait about 20 s, ask one question and press Play; both should feel like the later ones. Via `localhost` a Python client pays ~2 s extra; browsers should not.
+- [x] **FIX-COLD / FIX-COLD-2: the first query and the first Play are no longer slow.** *How:* restart (no `--reload`), wait about 20 s, ask one question and press Play; both should feel like the later ones. Via `localhost` a Python client pays ~2 s extra; browsers should not.
 
 ### Voice (what was fixed on 2026-10-08/09, English and Indian languages)
-- [ ] **No "factorial"** after "Hello!" in English, Kannada, Hindi, Tamil and the others.
-- [ ] **Straight apostrophe:** "don't" and "it's" no longer pause.
-- [ ] **Dates, ranges and units are spoken properly in English:** "2 October 2026" (the year in digits, the form you approved), "30 to 35 meeters", "12 kilomeeters per hour".
-- [ ] **Phone numbers are read digit by digit** (the distress message).
-- [ ] **Male English voice; the name "Sagar Sarathi" in the Hindi voice.** *Not heard yet:* the male Hindi voice for the name (you approved the female one).
-- [ ] **Indian-language answers:** "30-35 m" reads as a range with its connecting word, "m" as metres, "km/<hour>" as per hour, "2 Oct 2026" with the native month. *How:* play a Kannada PFZ answer.
-- [ ] **Pressing Play twice never starts two overlapping audios.**
+- [x] **No "factorial"** after "Hello!" in English, Kannada, Hindi, Tamil and the others.
+- [x] **Straight apostrophe:** "don't" and "it's" no longer pause.
+- [x] **Dates, ranges and units are spoken properly in English:** "2 October 2026" (the year in digits, the form you approved), "30 to 35 meeters", "12 kilomeeters per hour".
+- [x] **Phone numbers are read digit by digit** (the distress message).
+- [x] **Male English voice; the name "Sagar Sarathi" in the Hindi voice.** *Not heard yet:* the male Hindi voice for the name (you approved the female one).
+- [x] **Indian-language answers:** "30-35 m" reads as a range with its connecting word, "m" as metres, "km/<hour>" as per hour, "2 Oct 2026" with the native month. *How:* play a Kannada PFZ answer.
+- [x] **Pressing Play twice never starts two overlapping audios.**
 
 ### Voice words, compass points and the check script (written 2026-10-09)
 
@@ -146,11 +154,11 @@ and for the fisherman answer:
 - [x] **FIX-CONTEXT-1: the chat keeps 20 turns, all questions in view (written 2026-10-09).** *To verify:* in one chat ask 7 different things (e.g. wave near Kochi, wind, tide, SST, PFZ, wave near Goa), then "what was my first question in this chat?": it names the wave height near Kochi. Also try a correction ("no I meant Kozhikode") and "why is that?" after an answer.
 
 - [x] **FIX-FOLLOWLANG-1: "answer the same in <language>" after an answer re-answers in that language (written 2026-10-09).** *To verify:* ask "answer this in gujarati: pfzs near mangrol", then "okay fine answer the same in kannada": the same PFZ answer appears in Kannada (not "Sure thing..."). Try "in hindi please", then "change language" (still a reset), and "clear the conversation".
-- [ ] **The name is spelled correctly in every language** (ಸಾಗರ ಸಾರಥಿ, सागर सारथी, ...), in translated answers and chat replies.
-- [ ] **No number is lost in a translated answer** (the Marathi/Bengali "झेडकेईईपीझेड5झेड" leak; the Hindi `ZKEEPZ` leak). *How:* a Marathi or Bengali PFZ/weather answer shows 16 km, 30-35 m, 1.5 m.
+- [x] **The name is spelled correctly in every language** (ಸಾಗರ ಸಾರಥಿ, सागर सारथी, ...), in translated answers and chat replies.
+- [x] **No number is lost in a translated answer** (the Marathi/Bengali "झेडकेईईपीझेड5झेड" leak; the Hindi `ZKEEPZ` leak). *How:* a Marathi or Bengali PFZ/weather answer shows 16 km, 30-35 m, 1.5 m.
 
 ### Earlier fixes that are verified (for the record, tick if you agree)
-- [ ] D-9 (PFZ questions run the PFZ agent), D-10 (follow-ups about the last reply), D-11/D-14 (no unrequested GO banner), D-12 (no "odd reply"), D-13 (inland places answered directly), D-6.
+- [x] D-9 (PFZ questions run the PFZ agent), D-10 (follow-ups about the last reply), D-11/D-14 (no unrequested GO banner), D-12 (no "odd reply"), D-13 (inland places answered directly), D-6.
 
 ---
 

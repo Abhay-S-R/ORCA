@@ -53,7 +53,9 @@ def test_source_decision_narrates_a_comparison() -> None:
 def test_source_decision_falls_down_the_declared_cascade_when_primary_down() -> None:
     d = select_source_with_fallback("chlorophyll", down=("mosdac_open_chl",))
     assert d is not None
-    assert d.chosen.id == "nasa_ocean_color"  # the declared §12.1 fallback
+    # was "nasa_ocean_color" until 2026-10-10: that source is a LISTING of granules (local_catalog says held_locally=False),
+    # it cannot serve a value, so the honest next rung is the one ORCA can actually read
+    assert d.chosen.id == "copernicus_cmems"
     assert "fallback" in d.narrative.lower()
 
 

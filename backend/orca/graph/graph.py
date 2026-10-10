@@ -491,10 +491,23 @@ def marine_data_discovery_run(state: ORCAState) -> AgentResult:
     from orca.contracts import SourceProvenance, coerce_reasoning_depth
 
     wanted = _data_types_for(state.get("matched_intent_rows") or [], state.get("execution_plan") or [])
+    # A5: a question about SST or chlorophyll gets BOTH settled here (before, only the DIAGNOSTIC / CONDITIONS rows did, and
+    # chlorophyll only DIAGNOSTIC), so the specialist's headline source is a decision, not its own constant.
+    from orca.agents.ocean_analytics import _asks_sea_colour
+
+    if _asks_sea_colour(state, (state.get("normalized_english_query") or state.get("raw_user_query") or "").lower()):
+        for dtype in ("sst", "chlorophyll"):
+            if dtype not in wanted:
+                wanted.append(dtype)
+    # The question's own context: where (the resolved position) and when (the time it asks about), so an arrival check can
+    # answer "can this source answer THIS question", not only "is the file readable" (audit 4, 2026-10-10).
+    loc = state.get("user_location") or {}
+    when = state.get("understood_when") or {}
+    ctx = {"lat": loc.get("lat"), "lon": loc.get("lon"), "when": when.get("start") if isinstance(when, dict) else None}
     selections: list[dict] = []
     unusable: list[str] = []
     for dtype in wanted:
-        decision = discovery.select_validated_source(dtype)
+        decision = discovery.select_validated_source(dtype, ctx=ctx)
         if decision is None:
             # Nothing in the catalog covers it. Recorded, not silently
             # dropped — "we hold no source for this" is an answer.
@@ -505,17 +518,20 @@ def marine_data_discovery_run(state: ORCAState) -> AgentResult:
             unusable.append(dtype)
 
     fell_through = [s for s in selections if s.get("fell_through")]
+    stale = [s["data_type"] for s in selections if (s.get("arrival") or {}).get("stale")]
 
     if unusable:
         confidence = Confidence(
             score="LOW_DATA",
             rationale=f"No usable source for: {', '.join(unusable)}",
         )
-    elif fell_through:
-        confidence = Confidence(
-            score="MEDIUM",
-            rationale=f"{len(fell_through)} of {len(selections)} data types fell to a declared fallback rung",
-        )
+    elif fell_through or stale:
+        parts = []
+        if fell_through:
+            parts.append(f"{len(fell_through)} of {len(selections)} data types fell to a declared fallback rung")
+        if stale:
+            parts.append(f"stale: {', '.join(stale)}")
+        confidence = Confidence(score="MEDIUM", rationale="; ".join(parts))
     else:
         confidence = Confidence(
             score="HIGH",
@@ -531,6 +547,9 @@ def marine_data_discovery_run(state: ORCAState) -> AgentResult:
             "source_selections": selections,
             "unusable_data_types": unusable,
             "fell_through": [s["data_type"] for s in fell_through],
+            "stale": stale,
+            # A6: the plain sentence the trace shows for this step, built from the decisions above (never from the UI)
+            "trace_line": discovery.discovery_trace_line(selections, unusable),
         },
         source_provenance=SourceProvenance(
             dataset="ORCA source catalog (Agent 3) — Architecture §12.1 cascades",
@@ -849,6 +868,17 @@ def geospatial_run(state: ORCAState) -> AgentResult:
     mpa = geospatial.check_boundary_proximity(lat, lon, _MPA_BOUNDARY)
     ban = geospatial.fishing_ban_status(lat, lon)
 
+    # A6: what this agent really reads, per data type, against what Agent 3 decided. It reads the treaty lines (or the EEZ proxy:
+    # both Marine Regions) and the protected-area file for "boundary" whatever was decided; the ban order only when it is on disk.
+    from orca.agents.discovery import source_report_entry
+
+    boundary_used = ["marineregions_eez", "unep_wcmc_wdpa"]
+    by_type = (state.get("discovery_sources") or {}).get("by_data_type") or {}
+    source_report = {"boundary": source_report_entry(by_type.get("boundary"), boundary_used)}
+    for dtype, used in (("eez", "marineregions_eez"), ("mpa", "unep_wcmc_wdpa"), ("fishing_ban", "dof_fishing_ban" if ban.get("available") else None)):
+        if dtype in by_type:
+            source_report[dtype] = source_report_entry(by_type[dtype], used)
+
     return AgentResult(
         agent_name="geospatial",
         query_id=state.get("query_id", ""),
@@ -866,6 +896,7 @@ def geospatial_run(state: ORCAState) -> AgentResult:
             "mpa_alert_level": mpa.alert_level,
             "fishing_ban": ban,
             "dataset": "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA (via Agent 6)",
+            "source_report": source_report,
         },
         source_provenance=SourceProvenance(
             dataset="Marine Regions VLIZ EEZ + UNEP-WCMC WDPA",

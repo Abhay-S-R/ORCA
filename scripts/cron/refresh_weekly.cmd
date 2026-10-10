@@ -23,7 +23,7 @@ set FRESHNESS_EXIT=%ERRORLEVEL%
 cd /d "%~dp0..\.."
 
 if %FRESHNESS_EXIT% neq 0 (
-    echo [ERROR] Freshness gate failed (exit code %FRESHNESS_EXIT%). Skipping deployment to Render.
+    echo [ERROR] Freshness gate failed [exit code %FRESHNESS_EXIT%]. Skipping deployment to Render.
     exit /b %FRESHNESS_EXIT%
 )
 

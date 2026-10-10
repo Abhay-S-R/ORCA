@@ -534,6 +534,16 @@ def _routing_summary(final_state: Mapping[str, Any]) -> dict:
     }
 
 
+def _source_check_for(weather: dict, ocean: dict, geo: dict) -> dict:
+    from orca.agents.discovery import source_check
+
+    return source_check({
+        "weather_intelligence": weather.get("source_report"),
+        "ocean_analytics": ocean.get("source_report"),
+        "geospatial": geo.get("source_report"),
+    })
+
+
 def _sse(payload: dict) -> str:
     """Every SSE frame goes out through here. allow_nan=False is the tripwire:
     if _json_safe ever misses a case, this raises here instead of shipping
@@ -816,6 +826,8 @@ async def _query_stream(
             # they are present on every answer rather than only the ones that
             # reached Ocean Analytics.
             "source_selections": discovery.get("source_selections", []),
+            # A6 (2026-10-10): did every specialist use what marine_data_discovery decided? Differences are listed, never hidden.
+            "source_check": _source_check_for(weather, ocean, geo),
             # P2.4 — every pair of sources that was compared for this answer.
             # The disagreements are also in `disclosures` (they belong above
             # the answer); this is the full record, agreements included, for

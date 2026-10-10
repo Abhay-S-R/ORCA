@@ -45,7 +45,9 @@ ROUTING_TABLE: tuple[RoutingRow, ...] = (
     ),
     RoutingRow(
         "PFZ_NEAREST",
-        ("nearest pfz", "fishing zone", "persistent fishing zone", "where to fish", "potential fishing", "best fishing zone", "fishing boundary", "state fishing limit"),
+        ("nearest pfz", "fishing zone", "persistent fishing zone", "where to fish", "potential fishing", "best fishing zone", "fishing boundary", "state fishing limit",
+         "what fish", "which fish", "types of fish", "fish species", "target species", "what to catch", "what can i catch",
+         "fish in zone", "fish in pfz", "fishes in zone", "type of fishes"),
         ("marine_data_discovery", "ocean_analytics", "geospatial", "visualization"),
     ),
     RoutingRow(
@@ -204,7 +206,7 @@ _EXECUTION_ORDER: tuple[str, ...] = (
 # A follow-up ("and for kundapura now?") inherits the subject of the last two turns, as `ocean_analytics._asks_sea_colour` does.
 _OCEAN_DATA_WORDS = re.compile(
     r"\b(sst|chlorophyll|chlorophyl|plankton|tides?|tidal|pfz|pfzs|temperature|ocean colou?r|water quality|fishing zones?|"
-    r"potential fishing zones?)\b",
+    r"potential fishing zones?|fish|fishes|species|catch|target species)\b",
     re.IGNORECASE,
 )
 _OCEAN_DATA_TURNS = 2
