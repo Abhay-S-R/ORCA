@@ -71,7 +71,7 @@ def _verdict_and_hazard(payload: dict[str, Any]) -> tuple[str, str]:
         hazard = f"cyclone: {weather['cyclone_alert']}"
     elif hazards.get("mpa_violation"):
         hazard = "inside MPA boundary"
-    elif hazards.get("imbl_alert_level") not in (None, "SAFE"):
+    elif str(hazards.get("imbl_alert_level") or "").upper() not in ("", "SAFE", "CLEAR"):
         hazard = f"IMBL boundary {hazards.get('imbl_alert_level', '').lower()}"
     else:
         hazard = "no active hazard"
