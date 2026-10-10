@@ -940,6 +940,43 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         f"{len(mpa_hits)} MPA(s) checked via point_in_polygon across {len(geospatial.load_boundaries())} boundaries"
     )
 
+    # G8: Dynamic confidence and coverage calculation based on data availability
+    # Expected geospatial checks: boundary proximity, MPA geofencing, seasonal fishing ban, and bathymetry depth
+    total_checks = 4
+    present_checks = sum([
+        1 if imbl_distance_nm is not None else 0,
+        1 if len(geospatial.load_boundaries()) > 0 else 0,
+        1 if ban.get("available") else 0,
+        1 if (depth_m is not None or on_land) else 0,
+    ])
+    geo_coverage = (present_checks, total_checks)
+
+    # Fallback depth: 0 if literal treaty line found, 1 if fell back to EEZ proxy
+    geo_fallback_depth = 0 if line is not None else 1
+
+    # Confidence score:
+    # HIGH: literal treaty line verified, all 4 checks available
+    # MEDIUM: fell back to EEZ proxy, or ban order / bathymetry unavailable
+    # LOW_DATA: missing boundary distance or severely degraded coverage
+    if line is not None and present_checks == total_checks:
+        geo_score = "HIGH"
+        geo_rationale = (
+            f"Authoritative treaty line check ({imbl_confidence_note}), {mpa_confidence_note}, "
+            "seasonal ban verified, and depth resolved"
+        )
+    elif imbl_distance_nm is not None and present_checks >= 2:
+        geo_score = "MEDIUM"
+        fallback_label = "treaty line" if line is not None else "EEZ proxy"
+        geo_rationale = (
+            f"Geospatial check via {fallback_label} ({imbl_confidence_note}) — {mpa_confidence_note}"
+            f" [coverage: {present_checks}/{total_checks}]"
+        )
+    else:
+        geo_score = "LOW_DATA"
+        geo_rationale = (
+            f"Degraded geospatial coverage ({present_checks}/{total_checks} checks) — {imbl_confidence_note}"
+        )
+
     return AgentResult(
         agent_name="geospatial",
         query_id=state.get("query_id", ""),
@@ -979,16 +1016,11 @@ def geospatial_run(state: ORCAState) -> AgentResult:
             acquisition_timestamp=imbl_vintage if line is not None else geospatial.boundary_data_vintage(),
             freshness_minutes=0,
         ),
-        # Real geometry, not a stub — but geodesic distance to a coarse
-        # boundary proxy (not the literal IMBL treaty line) stays MEDIUM
-        # until that's independently verified (plan §4 S5 exit note).
-        confidence=Confidence(score="MEDIUM", rationale=f"Real boundary check — {imbl_confidence_note} — and {mpa_confidence_note}"),
-        # Boundary geometry is STATIC-class reference data; coverage is whether
-        # the IMBL distance returned a number (MPA check always succeeds).
+        confidence=Confidence(score=geo_score, rationale=geo_rationale),
         freshness_class="STATIC",
         data_age_minutes=0,
-        fallback_depth=0,
-        coverage=(1 if imbl_distance_nm is not None else 0, 1),
+        fallback_depth=geo_fallback_depth,
+        coverage=geo_coverage,
     )
 
 
