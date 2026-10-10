@@ -343,7 +343,14 @@ def facts_paragraph(
     if isinstance(geo.get("imbl_distance_nm"), (int, float)):
         lines.append(f"The maritime boundary is {geo['imbl_distance_nm']:.1f} nm away.")
     if geo.get("mpa_violation"):
-        lines.append("This position is inside a marine protected area.")
+        names = geo.get("mpa_names") or []
+        if names:
+            lines.append(f"This position is inside a marine protected area ({', '.join(names)}).")
+        else:
+            lines.append("This position is inside a marine protected area.")
+    # G1: informational disclosure for non-NO_GO MPAs.
+    for entry in geo.get("mpa_regulatory") or []:
+        lines.append(f"Note: this position is inside {entry['name']} ({entry['designation']}). Check local regulations before fishing or anchoring.")
 
     if len(lines) <= 1:
         lines.append("No further readings were available for this answer.")

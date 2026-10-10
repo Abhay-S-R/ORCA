@@ -28,6 +28,7 @@ from pyproj import Geod
 from shapely import to_geojson
 from shapely.geometry import Point, box, shape
 from shapely.geometry.base import BaseGeometry
+from shapely.ops import nearest_points
 from shapely.strtree import STRtree
 
 DATA_ROOT = Path(__file__).resolve().parents[3] / "data"
@@ -752,6 +753,55 @@ def coast_of(lat: float, lon: float) -> str | None:
     return _MRCC_COAST.get(nearest["coordinating_mrcc"]) if nearest else None
 
 
+def distance_to_shore_nm(lat: float, lon: float) -> float | None:
+    """Geodesic distance in nautical miles to the Indian coastline or territorial baseline.
+
+    G2 fix: Formerly, `fishing_ban_status` used `check_boundary_proximity(lat, lon,
+    "Indian Exclusive Economic Zone")` as a proxy for distance from shore. That
+    measured distance to the nearest EEZ-polygon edge. Near international maritime
+    borders (such as the IMBL with Sri Lanka in Palk Bay / Gulf of Mannar), the nearest
+    EEZ polygon edge is the treaty line with Sri Lanka (3-12 NM away), NOT the Indian
+    coastline (20-35+ NM away). This caused offshore vessels in the EEZ to be falsely
+    classified as inside the 12 NM territorial-waters carve-out, silently suppressing
+    the central fishing ban disclosure.
+
+    Here we measure geodesic distance to:
+    1. The Indian land boundary from Census 2011 district polygons (_district_index).
+    2. The declared Indian straight baselines from india_maritime_boundary_lines.geojson.
+    If the district index is unavailable, falls back to the EEZ polygon edge.
+    """
+    pt = Point(lon, lat)
+    min_m = float("inf")
+    idx = _district_index()
+    if idx is not None:
+        tree, rows = idx
+        nearest_indices = tree.query_nearest(pt)
+        for i in nearest_indices:
+            geom = rows[i]["geometry"]
+            if geom.intersects(pt):
+                return 0.0
+            p1, p2 = nearest_points(pt, geom)
+            _, _, m = _GEOD.inv(pt.x, pt.y, p2.x, p2.y)
+            if m < min_m:
+                min_m = m
+
+    # Also check declared Indian Straight Baselines
+    for geom, props in load_boundary_lines():
+        if props.get("line_type") == "Straight baseline":
+            nearest = geom.interpolate(geom.project(pt))
+            _, _, m = _GEOD.inv(pt.x, pt.y, nearest.x, nearest.y)
+            if m < min_m:
+                min_m = m
+
+    if min_m < float("inf"):
+        return round(min_m * NM_PER_METER, 3)
+
+    try:
+        return check_boundary_proximity(lat, lon, "Indian Exclusive Economic Zone").distance_nm
+    except ValueError:
+        return None
+
+
 def fishing_ban_status(lat: float, lon: float, when: date | None = None) -> dict[str, Any]:
     """Is the uniform seasonal fishing ban in force at this position today?
 
@@ -759,12 +809,9 @@ def fishing_ban_status(lat: float, lon: float, when: date | None = None) -> dict
     itself, and it never becomes a GO either. PS-C8 lists fishing-ban waters
     beside MPAs and ORCA had nothing to say about them.
 
-    Distance from shore is taken as the distance to the nearest EEZ-polygon
-    edge, which for an inshore position IS the coastline — the same geometry
-    `check_boundary_proximity` uses. Far offshore that edge becomes the
-    200 NM line instead, which is harmless here: the only thing the number
-    decides is whether the position is inside the 12 NM territorial-waters
-    carve-out, and a point near the 200 NM line is not.
+    G2: Distance from shore is measured to the Indian coastline/baseline via
+    `distance_to_shore_nm`, rather than the distance to the nearest EEZ edge
+    (which near maritime borders like Sri Lanka is the IMBL, not the coast).
     """
     coast = coast_of(lat, lon)
     if coast is None:
@@ -777,14 +824,16 @@ def fishing_ban_status(lat: float, lon: float, when: date | None = None) -> dict
         return {"available": False,
                 "note": "no fishing-ban order on disk (run scripts/refresh_fishing_ban_order.py)"}
 
-    try:
-        shore_nm = check_boundary_proximity(lat, lon, "Indian Exclusive Economic Zone").distance_nm
-    except ValueError:
-        shore_nm = None
+    shore_nm = distance_to_shore_nm(lat, lon)
 
     status = ban["ban_status"](coast, when or datetime.now(tz=UTC).date(), shore_nm, ban["windows"])
-    return {"available": True, "distance_to_nearest_eez_edge_nm": shore_nm,
-            "order": ban["order"], **status}
+    return {
+        "available": True,
+        "distance_from_shore_nm": shore_nm,
+        "distance_to_nearest_eez_edge_nm": shore_nm,
+        "order": ban["order"],
+        **status,
+    }
 
 
 @lru_cache(maxsize=1)

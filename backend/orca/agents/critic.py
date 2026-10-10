@@ -372,6 +372,7 @@ def build_facts_block(state: ORCAState) -> str:
         "cyclone_alert": weather.get("cyclone_alert"),
         "distance_to_maritime_boundary_nautical_miles": geo.get("imbl_distance_nm"),
         "inside_marine_protected_area": geo.get("mpa_violation"),
+        "inside_mpa_names": geo.get("mpa_names", []),
         # A fishing zone's distance, NOT the boundary's: named so they cannot be confused.
         "nearest_fishing_zone_distance_km": pfz.get("distance_km") if found else None,
         "nearest_fishing_zone_distance_measured_from": pfz.get("measured_from") if found else None,
