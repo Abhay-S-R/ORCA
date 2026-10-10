@@ -94,7 +94,18 @@ from orca.trace import run_traced_node
 # clone (its own geodesic distance, computed the same way containment checks
 # always were).
 _IMBL_PROXY_BOUNDARY = "Sri Lankan Exclusive Economic Zone"
-_MPA_BOUNDARY = "Gulf of Mannar Marine National Park"
+# G1 fix: the old code checked ONE park via check_boundary_proximity.  Of the
+# 11 geofence-usable MPAs, 9 were invisible to the verdict.  Now point_in_polygon
+# checks them all.  Only the park below is a confirmed hard NO_GO today; every
+# other MPA the vessel is inside becomes a REGULATORY disclosure (like the
+# fishing ban) until a fisheries expert confirms which are truly no-go.
+_MPA_NOGO_NAMES: frozenset[str] = frozenset({"Gulf of Mannar Marine National Park"})
+# Boundary names that are EEZ polygons, not MPAs — excluded from MPA hit lists.
+_EEZ_NAMES: frozenset[str] = frozenset({
+    "Indian Exclusive Economic Zone",
+    "Indian Exclusive Economic Zone (Andaman & Nicobar)",
+    "Sri Lankan Exclusive Economic Zone",
+})
 
 
 def _not_run(
@@ -865,7 +876,16 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         imbl_boundary_name = _IMBL_PROXY_BOUNDARY
         imbl_between = None
         imbl_confidence_note = f"treaty-line dataset absent, fell back to {_IMBL_PROXY_BOUNDARY} proxy"
-    mpa = geospatial.check_boundary_proximity(lat, lon, _MPA_BOUNDARY)
+    # G1: check ALL geofence-usable MPAs, not just the one park.
+    mpa_hits = [
+        f for f in geospatial.point_in_polygon(lat, lon)
+        if f.name not in _EEZ_NAMES
+    ]
+    mpa_nogo = [f for f in mpa_hits if f.name in _MPA_NOGO_NAMES]
+    mpa_regulatory = [f for f in mpa_hits if f.name not in _MPA_NOGO_NAMES]
+    mpa_violation = len(mpa_nogo) > 0
+    mpa_names = [f.name for f in mpa_hits]
+
     ban = geospatial.fishing_ban_status(lat, lon)
 
     # A6: what this agent really reads, per data type, against what Agent 3 decided. It reads the treaty lines (or the EEZ proxy:
@@ -878,6 +898,18 @@ def geospatial_run(state: ORCAState) -> AgentResult:
     for dtype, used in (("eez", "marineregions_eez"), ("mpa", "unep_wcmc_wdpa"), ("fishing_ban", "dof_fishing_ban" if ban.get("available") else None)):
         if dtype in by_type:
             source_report[dtype] = source_report_entry(by_type[dtype], used)
+
+    # G1: mpa_regulatory is a list of informational MPA disclosures (like the fishing ban).
+    # Each entry names the park and its designation so the answer can say "you are inside X".
+    mpa_regulatory_list = [
+        {"name": f.name, "designation": f.designation, "source_file": f.source_file}
+        for f in mpa_regulatory
+    ]
+
+    # Coverage: IMBL distance + MPA check (point_in_polygon always returns a result).
+    mpa_confidence_note = (
+        f"{len(mpa_hits)} MPA(s) checked via point_in_polygon across {len(geospatial.load_boundaries())} boundaries"
+    )
 
     return AgentResult(
         agent_name="geospatial",
@@ -892,8 +924,10 @@ def geospatial_run(state: ORCAState) -> AgentResult:
             "imbl_alert_level": imbl_alert_level,
             "imbl_boundary_name": imbl_boundary_name,
             "imbl_between": imbl_between,
-            "mpa_violation": mpa.alert_level == "INSIDE",
-            "mpa_alert_level": mpa.alert_level,
+            "mpa_violation": mpa_violation,
+            "mpa_alert_level": "INSIDE" if mpa_violation else ("REGULATORY" if mpa_regulatory else "CLEAR"),
+            "mpa_names": mpa_names,
+            "mpa_regulatory": mpa_regulatory_list,
             "fishing_ban": ban,
             "dataset": "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA (via Agent 6)",
             "source_report": source_report,
@@ -908,13 +942,13 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         # Real geometry, not a stub — but geodesic distance to a coarse
         # boundary proxy (not the literal IMBL treaty line) stays MEDIUM
         # until that's independently verified (plan §4 S5 exit note).
-        confidence=Confidence(score="MEDIUM", rationale=f"Real boundary check — {imbl_confidence_note} — and {_MPA_BOUNDARY}"),
+        confidence=Confidence(score="MEDIUM", rationale=f"Real boundary check — {imbl_confidence_note} — and {mpa_confidence_note}"),
         # Boundary geometry is STATIC-class reference data; coverage is whether
-        # both proximity checks returned a distance.
+        # the IMBL distance returned a number (MPA check always succeeds).
         freshness_class="STATIC",
         data_age_minutes=0,
         fallback_depth=0,
-        coverage=(sum(1 for d in (imbl_distance_nm, mpa.distance_nm) if d is not None), 2),
+        coverage=(1 if imbl_distance_nm is not None else 0, 1),
     )
 
 
@@ -1169,7 +1203,9 @@ def reporting_run(state: ORCAState) -> AgentResult:
             agent_name="geospatial", query_id=query_id, reasoning_depth=depth,
             inputs_consumed={},
             outputs={"imbl_distance_nm": geo.get("imbl_distance_nm") if boundary_asked else None,
-                     "mpa_violation": geo.get("mpa_violation")},
+                     "mpa_violation": geo.get("mpa_violation"),
+                     "mpa_names": geo.get("mpa_names", []),
+                     "mpa_regulatory": geo.get("mpa_regulatory", [])},
             source_provenance=SourceProvenance(
                 dataset=geo.get("dataset", "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA"),
                 # Same vintage the geospatial node cites — the boundary files'

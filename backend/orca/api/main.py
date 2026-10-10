@@ -807,6 +807,8 @@ async def _query_stream(
                 "imbl_alert_level": geo.get("imbl_alert_level"),
                 "mpa_violation": geo.get("mpa_violation", False),
                 "mpa_alert_level": geo.get("mpa_alert_level"),
+                "mpa_names": geo.get("mpa_names", []),
+                "mpa_regulatory": geo.get("mpa_regulatory", []),
             },
             # Agent 8 (Phase 2 D3) — map_layers/chart_specs, already
             # validate_payload-clean plain dicts (graph.py's visualization_node).
