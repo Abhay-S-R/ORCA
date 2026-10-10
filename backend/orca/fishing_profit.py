@@ -13,10 +13,8 @@ Numbers are pre-calculated; the API route only reads and returns them.
 from __future__ import annotations
 
 import csv
-import json
 import math
 import os
-from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
@@ -634,7 +632,6 @@ def _build_cache() -> None:
     global _CACHE_BUILT
     if _CACHE_BUILT:
         return
-    ports_by_id  = {p["port_id"]: p for p in PORTS}
     zones_by_state: dict[str, list[dict]] = {}
     for zone in ZONES:
         zones_by_state.setdefault(zone["state"], []).append(zone)

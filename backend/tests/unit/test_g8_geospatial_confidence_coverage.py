@@ -1,10 +1,9 @@
 """Test G8: Dynamic confidence and coverage reporting for geospatial agent."""
 from __future__ import annotations
 
-from unittest import mock
 import pytest
+
 from orca.agents import geospatial
-from orca.contracts import Confidence
 from orca.graph.graph import geospatial_run
 
 

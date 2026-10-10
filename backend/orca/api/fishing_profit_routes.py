@@ -21,7 +21,6 @@ from orca.db.engine import get_db
 from orca.db.models import User
 from orca.db.repositories import get_vessel_for_owner, list_vessels_for_owner, user_home_port
 from orca.fishing_profit import (
-    DB_VESSEL_TO_PROFIT_KEY,
     get_all_ports,
     get_all_zones,
     get_zone_profits,
@@ -104,8 +103,8 @@ async def fishing_profit(
             fuel_burn_lph=burn,
         )
         return JSONResponse(content=result)
-    except Exception as exc:
-        logger.exception("fishing_profit error: %s", exc)
+    except Exception:
+        logger.exception("fishing_profit error")
         return JSONResponse(
             status_code=500,
             content={"error": "Profit calculation unavailable. Please try again later."},

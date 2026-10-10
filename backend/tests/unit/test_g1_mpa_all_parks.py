@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from shapely.geometry import shape
 
-from orca.agents.geospatial import load_boundaries, point_in_polygon
+from orca.agents.geospatial import point_in_polygon
 
 DATA_ROOT = Path(__file__).resolve().parents[3] / "data"
 MPA_FILE = DATA_ROOT / "tier1" / "boundaries" / "india_marine_mpas.geojson"

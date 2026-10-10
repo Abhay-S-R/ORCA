@@ -38,6 +38,7 @@ from orca.api.chats_routes import router as chats_router
 from orca.api.conditions_routes import router as conditions_router
 from orca.api.discovery_routes import router as discovery_router
 from orca.api.feedback_routes import router as feedback_router
+from orca.api.fishing_profit_routes import router as fishing_profit_router
 from orca.api.geospatial_routes import router as geospatial_router
 from orca.api.language_rerender import rerender_last_answer
 from orca.api.notifications_routes import router as notifications_router
@@ -56,7 +57,6 @@ from orca.api.trace_routes import (
 from orca.api.voice_routes import router as voice_router
 from orca.api.voyage_routes import router as voyage_router
 from orca.api.voyages_routes import router as voyages_router
-from orca.api.fishing_profit_routes import router as fishing_profit_router
 from orca.api.watches_routes import router as watches_router
 from orca.auth.rbac import get_optional_user
 from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT

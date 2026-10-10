@@ -6,16 +6,17 @@ emits 'CLEAR'. Every GO summary with a clear boundary named 'IMBL boundary clear
 as the hazard instead of 'no active hazard'.
 """
 
-import pytest
 import httpx
+import pytest
+
 from orca.channels.renderers import (
     _verdict_and_hazard,
-    render_sms,
+    render_harbour_board,
     render_ivr,
-    render_whatsapp,
+    render_sms,
     render_ussd,
     render_vhf,
-    render_harbour_board,
+    render_whatsapp,
 )
 
 

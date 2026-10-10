@@ -1,8 +1,7 @@
 """Test G7: Depth and shallow hazard checks wired into geospatial output and reporting."""
 from __future__ import annotations
 
-import pytest
-from orca.agents import geospatial, reporting
+from orca.agents import reporting
 from orca.contracts import AgentResult, Confidence, SourceProvenance
 from orca.graph.graph import geospatial_run
 

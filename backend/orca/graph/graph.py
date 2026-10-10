@@ -974,6 +974,7 @@ def geospatial_run(state: ORCAState) -> AgentResult:
     # HIGH: literal treaty line verified, all 4 checks available
     # MEDIUM: fell back to EEZ proxy, or ban order / bathymetry unavailable
     # LOW_DATA: missing boundary distance or severely degraded coverage
+    geo_score: Literal["HIGH", "MEDIUM", "LOW_DATA"]
     if line is not None and present_checks == total_checks:
         geo_score = "HIGH"
         geo_rationale = (

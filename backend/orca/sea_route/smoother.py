@@ -20,7 +20,6 @@ from shapely.strtree import STRtree
 from orca.agents.geospatial import depth_at_point
 from orca.sea_route.datasets import load_eez_polygon
 
-
 _TREE_CACHE: dict[float, STRtree] = {}
 
 

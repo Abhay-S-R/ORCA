@@ -1,10 +1,9 @@
 """Test G6: ZONES_TO_AVOID wiring, spatial_query_zones, bearing, and treaty metadata."""
 from __future__ import annotations
 
-import pytest
-from orca.agents import geospatial, reporting
+from orca.agents import reporting
 from orca.contracts import AgentResult, Confidence, SourceProvenance
-from orca.graph.graph import geospatial_run, reporting_run
+from orca.graph.graph import geospatial_run
 
 
 def test_geospatial_run_outputs_bearing_treaty_and_nearby_zones() -> None:

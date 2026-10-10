@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 import math
-import uuid
 from typing import Any
 
 from geoalchemy2.shape import from_shape

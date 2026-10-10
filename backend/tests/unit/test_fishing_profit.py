@@ -1,8 +1,6 @@
 """Unit tests for fishing zone profit engine and voyage fuel consumption integration."""
-import pytest
 from orca.fishing_profit import (
     BASE_FUEL_BURN_LPH,
-    DEFAULT_CRUISE_SPEED_KN,
     DIESEL_PRICE_INR_PER_LITRE,
     KM_PER_NM,
     PORTS,

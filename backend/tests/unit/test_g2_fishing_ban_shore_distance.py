@@ -10,6 +10,7 @@ suppressing the uniform annual fishing ban disclosure.
 from __future__ import annotations
 
 from datetime import date
+
 import pytest
 
 from orca.agents.geospatial import distance_to_shore_nm, fishing_ban_status
