@@ -11,12 +11,9 @@ import {
   Building2,
   LifeBuoy,
   Radio,
-  Send,
   CheckCircle2,
   AlertTriangle,
-  Users,
   History,
-  BellRing,
   RotateCw,
 } from "lucide-react";
 import { PageBody, PageHeader } from "../components/PageHeader";
@@ -303,7 +300,6 @@ const CHANNELS_LIST = [
 
 function BroadcastComposer({
   authorityPort,
-  authorityName,
 }: {
   authorityPort?: string | null;
   authorityName?: string | null;
@@ -333,8 +329,10 @@ function BroadcastComposer({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
-  // Sync default location & coordinates when authorityPort changes
-  useEffect(() => {
+  // Sync default location & coordinates during render when authorityPort changes
+  const [prevAuthorityPort, setPrevAuthorityPort] = useState(authorityPort);
+  if (authorityPort !== prevAuthorityPort) {
+    setPrevAuthorityPort(authorityPort);
     if (authorityPort) {
       setLocation(`${authorityPort} Sector`);
       const matched = PORT_AUTHORITIES.find((p) => p.name.toLowerCase() === authorityPort.toLowerCase());
@@ -343,7 +341,7 @@ function BroadcastComposer({
         setLon(String(matched.lon));
       }
     }
-  }, [authorityPort]);
+  }
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);

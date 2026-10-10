@@ -403,7 +403,7 @@ export default function AskPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <SavedLocationChips onSelect={askSavedLocation} addFrom={null} hideAdd={true} />
+            <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} hideAdd={true} />
           </div>
           <Composer
             value={query}
@@ -522,7 +522,7 @@ export default function AskPage() {
           </div>
 
           <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center gap-2">
-            <SavedLocationChips onSelect={askSavedLocation} addFrom={null} hideAdd={true} />
+            <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} hideAdd={true} />
           </div>
           <Composer
             value={query}

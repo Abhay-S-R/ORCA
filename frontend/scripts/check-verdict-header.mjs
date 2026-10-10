@@ -4,7 +4,27 @@
 // The Indic cases are the real backend answers that went blank on the card on 2026-10-07:
 // the old rule took the whole answer as the "GO: reason" header in all nine languages.
 import assert from "node:assert/strict";
-import { splitVerdictHeader } from "../app/lib/verdictHeader.ts";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+let splitVerdictHeader;
+try {
+  ({ splitVerdictHeader } = await import("../app/lib/verdictHeader.ts"));
+} catch (err) {
+  if (err?.code === "ERR_UNKNOWN_FILE_EXTENSION" || err?.message?.includes("Unknown file extension")) {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const tsCode = readFileSync(join(here, "..", "app", "lib", "verdictHeader.ts"), "utf8");
+    const jsCode = tsCode
+      .replace(/export type Verdict = [^;]+;/g, "")
+      .replace(/export function splitVerdictHeader\([^)]*\)[\s\S]*?\{[\s\S]*?\{/, "function splitVerdictHeader(text) {")
+      .replace(/as Verdict/g, "");
+    const fn = new Function(jsCode + "\nreturn splitVerdictHeader;");
+    splitVerdictHeader = fn();
+  } else {
+    throw err;
+  }
+}
 
 const KANNADA =
   "GO: ಸುರಕ್ಷಿತ ಕಾರ್ಯಾಚರಣೆಯ ಮಿತಿಯೊಳಗಿನ ಎಲ್ಲಾ ನಿಯತಾಂಕಗಳು ನಾಳೆ ರಾಮೇಶ್ವರಂನ ಸಮುದ್ರವು ಲಘು ಗಾಳಿ, ಕಡಿಮೆ ಅಲೆಗಳು ಮತ್ತು ಏರುತ್ತಿರುವ ಉಬ್ಬರವಿಳಿತದಿಂದ ಶಾಂತವಾಗಿದೆ ಮತ್ತು ಯಾವುದೇ ಮಿಂಚಿನ ಮುನ್ಸೂಚನೆ ಇಲ್ಲ. ಹೊರಗೆ ಹೋಗುವುದು ಸುರಕ್ಷಿತವಾಗಿದೆ.";

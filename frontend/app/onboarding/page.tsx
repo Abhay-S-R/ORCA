@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Anchor, Check, Ship, Volume2 } from "lucide-react";
 import { Button } from "../components/Button";
-import { Field, inputClass } from "../components/Field";
+import { inputClass } from "../components/Field";
 import { OrcaMark } from "../nav";
 import { authFetch, invalidateProfile, setHomePort, useAuth } from "../lib/auth";
 import { useLanguage } from "../language/context";
@@ -57,10 +57,6 @@ export default function OnboardingPage() {
       router.replace("/ask");
     }
   }, [auth.status, auth.profile, router]);
-
-  useEffect(() => {
-    setChosenLanguage(language);
-  }, [language]);
 
   function chooseLanguage(code: LangCode) {
     setChosenLanguage(code);
@@ -128,7 +124,7 @@ export default function OnboardingPage() {
     }
 
     setSaving(false);
-    window.location.href = "/ask";
+    router.push("/ask");
   }
 
   return (

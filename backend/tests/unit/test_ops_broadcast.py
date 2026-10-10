@@ -5,7 +5,6 @@ linking active watches, delivering notifications, and recording audit trails.
 """
 from __future__ import annotations
 
-import uuid
 import pytest
 from sqlalchemy.orm import Session
 
@@ -20,7 +19,6 @@ from orca.api.ops_routes import (
 )
 from orca.db.engine import get_sessionmaker
 from orca.db.models import User
-from orca.db.notifications_repo import list_notifications_for_user
 from orca.ops.port_authorities import ensure_port_authorities, ensure_test_mariners
 
 
