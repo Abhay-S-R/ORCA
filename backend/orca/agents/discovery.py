@@ -20,7 +20,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from orca import resilience
 
@@ -39,6 +39,11 @@ class DataSource:
     authority_tier: AuthorityTier
     typical_freshness_minutes: int  # 0 for static/reference datasets (boundaries, bathymetry)
     covers: tuple[str, ...]  # data_type keys this source can answer
+    # AUDIT 4 / A2 (2026-10-10). False = ORCA holds no reader that returns VALUES from this source, so Agent 3 never chooses
+    # it: it stays in the catalog (a judge can see it was considered and why it cannot serve), it is not a rung of a cascade.
+    # A static declaration (data/ is gitignored, so it cannot be read off the disk: CI has no data).
+    readable: bool = True
+    why_not_readable: str = ""
 
 
 @dataclass(frozen=True)
@@ -63,7 +68,8 @@ SOURCE_REGISTRY: tuple[DataSource, ...] = (
     # choosing a 2011 archive as its *primary* sea-surface temperature source ahead
     # of MOSDAC. The cadence below is the archive's real one: it does not update.
     DataSource("incois_erddap", "INCOIS ERDDAP Data Server (historical archive)", "TIER1",
-               365 * 24 * 60, ("salinity", "buoy_telemetry", "wave_spectrum")),
+               365 * 24 * 60, ("salinity", "buoy_telemetry", "wave_spectrum"),
+               readable=False, why_not_readable="a closed historical archive; ORCA fetches nothing from it"),
     DataSource("incois_osf_ww3", "INCOIS Ocean State Forecast (WaveWatch III)", "TIER1", 360,
                ("wave_height", "wave_period")),
     DataSource("incois_osf_hycom", "INCOIS Ocean State Forecast (HYCOM currents)", "TIER1", 360,
@@ -95,18 +101,30 @@ SOURCE_REGISTRY: tuple[DataSource, ...] = (
     # stack correction) — a map imagery layer, not a discovery source.
     DataSource("noaa_coastwatch", "NOAA CoastWatch ERDDAP — MUR SST / VIIRS-MODIS chlorophyll", "TIER1", 1440,
                ("sst", "chlorophyll")),
+    # The rung weather_intelligence REALLY falls to when the live call fails: the cached Open-Meteo records of the nearest port
+    # (data/tier1/ocean + data/tier1/weather, refreshed weekly). It was not in the catalog, so Agent 3 declared INCOIS WW3 and
+    # Stormglass as next rungs while the answer used this cache (found 2026-10-09: "cached tier1 fallback, port=gangolli, 192 h old").
+    DataSource("open_meteo_port_cache", "Open-Meteo cached port records (offline fixtures, nearest port)", "TIER1", 7 * 24 * 60,
+               ("wave_height", "wave_period", "swell_height", "wind_speed", "current_speed")),
     # --- Tier 2: free registration ---
     DataSource("copernicus_cmems", "Copernicus Marine Service (CMEMS) reanalysis", "TIER2", 7200,
                ("sst", "current_speed", "current_direction", "sea_surface_height", "wave_spectrum",
                 "chlorophyll", "sea_level_anomaly")),
-    DataSource("nasa_ocean_color", "NASA Ocean Color — MODIS-Aqua / VIIRS NRT", "TIER2", 720, ("chlorophyll", "par", "kd490")),
+    DataSource("nasa_ocean_color", "NASA Ocean Color — MODIS-Aqua / VIIRS NRT", "TIER2", 720, ("chlorophyll", "par", "kd490"),
+               readable=False, why_not_readable="a listing of granules (`local_catalog` says held_locally=False), no values are read"),
     DataSource("stormglass_tides", "Stormglass.io Marine API — tide extremes", "TIER2", 360, ("tide",)),
     DataSource("gfw_ais", "Global Fishing Watch — AIS fishing effort density", "TIER2", 1440, ("fishing_effort", "ais_presence")),
     # --- Tier 3: gated government portals ---
-    DataSource("mosdac_nrt_sst", "MOSDAC Registered NRT — INSAT-3DR/3DS L2/L3 SST", "TIER3", 90, ("sst",)),
-    DataSource("mosdac_nrt_chl", "MOSDAC Registered NRT — Oceansat-3 OCM Chlorophyll", "TIER3", 360, ("chlorophyll",)),
-    DataSource("mosdac_nrt_wind", "MOSDAC Registered NRT — Scatterometer ocean winds", "TIER3", 180, ("wind_speed", "wind_direction")),
-    DataSource("bhuvan_wms", "Bhuvan / VEDAS (NRSC) WMS thematic layers", "TIER3", 1440, ("wms_layer", "pfz_overlay")),
+    # The three MOSDAC "registered NRT" ids point at the SAME files the open products read (data/tier3/mosdac/..., checked in
+    # `freshness.SOURCE_FILES`): no separate registered feed is held, so claiming one would be a second name for one dataset.
+    DataSource("mosdac_nrt_sst", "MOSDAC Registered NRT — INSAT-3DR/3DS L2/L3 SST", "TIER3", 90, ("sst",),
+               readable=False, why_not_readable="the same files as mosdac_open_sst; no separate registered feed is held"),
+    DataSource("mosdac_nrt_chl", "MOSDAC Registered NRT — Oceansat-3 OCM Chlorophyll", "TIER3", 360, ("chlorophyll",),
+               readable=False, why_not_readable="the same files as mosdac_open_chl; no separate registered feed is held"),
+    DataSource("mosdac_nrt_wind", "MOSDAC Registered NRT — Scatterometer ocean winds", "TIER3", 180, ("wind_speed", "wind_direction"),
+               readable=False, why_not_readable="archived scatterometer vectors drawn as a map overlay (geospatial.wind_vectors), not a source of the wind reading"),
+    DataSource("bhuvan_wms", "Bhuvan / VEDAS (NRSC) WMS thematic layers", "TIER3", 1440, ("wms_layer", "pfz_overlay"),
+               readable=False, why_not_readable="a manifest of WMS imagery services, not values"),
     DataSource("icar_cmfri", "ICAR-CMFRI long-term landing archives & stock assessment", "TIER3", 0, ("catch_statistics", "stock_assessment")),
 )
 
@@ -123,7 +141,7 @@ FALLBACK_CASCADES: dict[str, tuple[str, ...]] = {
     "mosdac_open_sst": ("copernicus_cmems", "noaa_coastwatch"),
     "mosdac_open_chl": ("nasa_ocean_color", "copernicus_cmems", "noaa_coastwatch"),
     "incois_pfz": ("bhuvan_wms",),  # then the local sector CSV — see load_pfz_advisories
-    "open_meteo_marine": ("incois_osf_ww3", "stormglass_tides"),
+    "open_meteo_marine": ("incois_osf_ww3", "open_meteo_port_cache"),
     "soi_tide_tables": ("stormglass_tides", "incois_tide_gauge"),
     "incois_erddap": ("copernicus_cmems",),
     "incois_tide_gauge": ("copernicus_cmems",),  # altimetry sea-level anomaly when no gauge is near
@@ -226,7 +244,7 @@ def select_source_with_fallback(
             if s is not None and s not in try_order and data_type in s.covers:
                 try_order.append(s)
 
-    live = [s for s in try_order if s.id not in down and not resilience.circuit_open(s.id)]
+    live = [s for s in try_order if s.id not in down and s.readable and not _breaker_open(s.id)]
     if not live:
         return None
     chosen = live[0]
@@ -248,9 +266,13 @@ def select_source_with_fallback(
             f"{'same ' + chosen.authority_tier.replace('TIER', 'Tier ') + ' authority' if same_tier else 'Tier gap'} — {basis}."
         )
     else:
+        why_primary = (
+            f"cannot serve values ({primary.why_not_readable})" if not primary.readable
+            else f"unavailable ({', '.join(down) or 'no live response'})"
+        )
         narrative = (
             f"{chosen.dataset} selected as fallback for '{data_type}': "
-            f"{primary.dataset} unavailable ({', '.join(down) or 'no live response'}); "
+            f"{primary.dataset} {why_primary}; "
             f"dropped {try_order.index(chosen)} rung(s) down the declared cascade "
             f"({chosen.authority_tier.replace('TIER', 'Tier ')}, "
             f"{_freshness_phrase(chosen.typical_freshness_minutes)}). Confidence lowered accordingly."
@@ -290,6 +312,9 @@ class ArrivalCheck:
     checked: bool  # False = no local probe exists; `ok` is then meaningless
     ok: bool
     detail: str
+    # A source can arrive and still be old (an expired PFZ advisory is still the best information held, so it is NOT
+    # rejected). `stale` says so, so the decision, the card and the trace can: "ok" never means "current".
+    stale: bool = False
 
 
 def _finite_number(value: Any) -> bool:
@@ -298,54 +323,164 @@ def _finite_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
-def _check_pfz() -> tuple[bool, str]:
-    doc = load_pfz_advisories()
-    features = doc.get("features") or []
-    if not features:
-        return False, "PFZ advisory file holds no features"
-    return True, f"{len(features)} PFZ advisory feature(s) on disk"
+class Probe(NamedTuple):
+    ok: bool
+    detail: str
+    stale: bool = False
+    # Whether a failure counts against the source's circuit breaker. A source that is UNREADABLE or holds impossible values
+    # is broken for everyone; a source that merely does not cover THIS station or THIS time is fine for the next question
+    # (found 2026-10-10: one station's gap opened the breaker for every station).
+    systemic: bool = True
 
 
-def _check_tide_tables() -> tuple[bool, str]:
+# A probe returns a `Probe` and is given the question's context: {"lat", "lon", "when"} (any may be missing).
+# 2026-10-10 (audit 4): probes used to answer "is the FILE readable", not "can it answer THIS question".
+
+def _check_pfz(ctx: dict[str, Any]) -> Probe:
+    """Probe the INCOIS advisory rows the PFZ agent actually reads (`analytics_loaders.load_pfz_latest`, with their age).
+    Until 2026-10-10 this probed the cloud-cover FALLBACK geojson (six undated front cells): "6 PFZ features on disk, ok"
+    said nothing about the advisory the answer quotes. An old advisory is not rejected (the pointer is still the best
+    information there is), it is reported as stale with its date and age."""
+    from orca.data.analytics_loaders import load_pfz_latest
+
+    rows = load_pfz_latest()
+    if not rows:
+        return Probe(False, "no INCOIS PFZ advisory rows on disk")
+    newest = min(rows, key=lambda r: float(r["age_days"]) if r.get("age_days") is not None else 1e6)
+    age = newest.get("age_days")
+    stale = bool(newest.get("expired")) or (isinstance(age, (int, float)) and age >= 1)
+    age_txt = f"{age:g} day(s) old" if isinstance(age, (int, float)) else "age unknown"
+    state = "expired" if newest.get("expired") else "current"
+    return Probe(True, f"{len(rows)} advisory node(s); newest valid for {newest.get('valid_for')}, {age_txt}, {state}", stale)
+
+
+def _tide_context(ctx: dict[str, Any]) -> tuple[str | None, Any]:
+    """(station code, requested time) for the tide probe: the nearest SOI station to the position, and the start of the
+    time the question asks about (now when it names none)."""
+    from datetime import UTC, datetime
+
+    when = ctx.get("when")
+    if isinstance(when, str):
+        try:
+            when = datetime.fromisoformat(when)
+        except ValueError:
+            when = None
+    when = when or datetime.now(UTC)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    lat, lon = ctx.get("lat"), ctx.get("lon")
+    if lat is None or lon is None:
+        return None, when
+    from orca.agents.ocean_analytics import nearest_station
+
+    return nearest_station(float(lat), float(lon))["station_code"], when
+
+
+def _check_tide_tables(ctx: dict[str, Any]) -> Probe:
     from orca.data.analytics_loaders import load_soi_tide_events
 
     events = load_soi_tide_events()
     if not events:
-        return False, "Survey of India tide table is empty"
+        return Probe(False, "Survey of India tide table is empty")
+    # Per STATION and per REQUESTED TIME. "137 tide events, heights within range" was true of the whole file while the
+    # station the question was about had no rows, or its rows ended before the time asked for, and the answer then said
+    # "tide table ends before the requested time".
+    code, when = _tide_context(ctx)
+    if code is not None:
+        mine = [e for e in events if e["station_code"] == code]
+        if not mine:
+            return Probe(False, f"no Survey of India rows for station {code}", systemic=False)
+        last = max(e["when"] for e in mine)
+        if last < when:
+            return Probe(False, f"Survey of India table for {code} ends {last.date()}, before the requested {when.date()}", systemic=False)
+        events = mine
     heights = [e.get("height_m") for e in events]
     if not any(_finite_number(h) for h in heights):
-        return False, f"{len(events)} tide events, none with a readable height"
+        return Probe(False, f"{len(events)} tide events, none with a readable height")
     # A tide height outside this band is a parse failure, not a tide — the
     # largest range anywhere on the Indian coast (Gulf of Khambhat) is ~11 m.
     out_of_range = [h for h in heights if isinstance(h, (int, float)) and _finite_number(h) and not (-2.0 <= float(h) <= 15.0)]
     if out_of_range:
-        return False, f"tide height out of physical range: {out_of_range[0]} m"
-    return True, f"{len(events)} tide events, heights within range"
+        return Probe(False, f"tide height out of physical range: {out_of_range[0]} m")
+    where = f" for station {code}, covering {when.date()}" if code is not None else ""
+    return Probe(True, f"{len(events)} tide events{where}, heights within range")
 
 
-def _check_osf_points(product: str) -> tuple[bool, str]:
+def _check_stormglass_tides(ctx: dict[str, Any]) -> Probe:
+    """The second tide rung is a CACHE of Stormglass extremes on disk (`refresh_tide_tables.py` writes it), not a live call:
+    it was labelled "live source, validated on fetch" and never checked, although it is exactly what a station with no
+    Survey of India rows falls back to."""
+    from orca.data.analytics_loaders import load_stormglass_tide_events
+
+    code, when = _tide_context(ctx)
+    if code is None:
+        return Probe(True, "Stormglass cache present (no position to check a station against)")
+    events = load_stormglass_tide_events(code)
+    if not events:
+        return Probe(False, f"no cached Stormglass extremes for station {code}", systemic=False)
+    last = max(e["when"] for e in events)
+    if last < when:
+        return Probe(False, f"cached Stormglass extremes for {code} end {last.date()}, before the requested {when.date()}", systemic=False)
+    return Probe(True, f"{len(events)} cached Stormglass extremes for station {code}, covering {when.date()}")
+
+
+_PORT_CACHE_MAX_KM = 300.0   # a cached port further than this is not "the data for this place" (weather used any nearest one, silently)
+_PORT_CACHE_STALE_HOURS = 24.0
+
+
+def _check_open_meteo_port_cache(ctx: dict[str, Any]) -> Probe:
+    """Is there a cached Open-Meteo record near the position, and how old is it?"""
+    from datetime import UTC, datetime
+
+    from orca.agents import weather_intelligence as wi
+    from orca.data.loaders import cached_weather_path, load_json
+    from orca.data.normalize import to_utc_iso
+
+    lat, lon = ctx.get("lat"), ctx.get("lon")
+    try:
+        coords = wi.port_coordinates()
+        if lat is None or lon is None:
+            port = next(iter(coords)) if coords else None
+            if port is None:
+                raise RuntimeError("no cached ports")
+            km = 0.0
+        else:
+            port = wi._nearest_port(float(lat), float(lon), wi.CACHED_MARINE_PORTS)
+            km = wi._haversine_km(float(lat), float(lon), *coords[port])
+    except RuntimeError:
+        return Probe(False, "no cached Open-Meteo port records on disk")
+    if km > _PORT_CACHE_MAX_KM:
+        return Probe(False, f"the nearest cached port ({port}) is {km:.0f} km away, beyond {_PORT_CACHE_MAX_KM:.0f} km", systemic=False)
+    raw = load_json(cached_weather_path(port))
+    acquired = datetime.fromisoformat(to_utc_iso(raw["hourly"]["time"][0], raw.get("utc_offset_seconds", 0)))
+    age_h = max(0.0, (datetime.now(UTC) - acquired).total_seconds() / 3600)
+    stale = age_h >= _PORT_CACHE_STALE_HOURS
+    return Probe(True, f"cached record for port {port}, {km:.0f} km away, {age_h:.0f} h old", stale)
+
+
+def _check_osf_points(product: str) -> Probe:
     from orca.data.analytics_loaders import load_osf_point_forecasts
 
     points = load_osf_point_forecasts(product)
     if not points:
-        return False, f"no INCOIS OSF {product.upper()} point series extracted"
+        return Probe(False, f"no INCOIS OSF {product.upper()} point series extracted")
     placed = [
         p for p in points
         if _finite_number(p.get("lat")) and _finite_number(p.get("lon"))
         and abs(float(p["lat"])) <= _MAX_LATITUDE and abs(float(p["lon"])) <= _MAX_LONGITUDE
     ]
     if not placed:
-        return False, f"{len(points)} OSF {product.upper()} points, none with usable coordinates"
-    return True, f"{len(placed)} OSF {product.upper()} point series"
+        return Probe(False, f"{len(points)} OSF {product.upper()} points, none with usable coordinates")
+    return Probe(True, f"{len(placed)} OSF {product.upper()} point series")
 
 
-def _check_boundaries() -> tuple[bool, str]:
+def _check_boundaries(ctx: dict[str, Any]) -> Probe:
     from orca.agents import geospatial
 
     vintage = geospatial.boundary_data_vintage()
     if not vintage:
-        return False, "boundary geometry has no recorded acquisition date"
-    return True, f"boundary geometry acquired {vintage}"
+        return Probe(False, "boundary geometry has no recorded acquisition date")
+    return Probe(True, f"boundary geometry acquired {vintage}")
 
 
 # source_id -> a probe over what is actually on disk. A source absent from
@@ -353,14 +488,25 @@ def _check_boundaries() -> tuple[bool, str]:
 _ARRIVAL_PROBES: dict[str, Any] = {
     "incois_pfz": _check_pfz,
     "soi_tide_tables": _check_tide_tables,
-    "incois_osf_ww3": lambda: _check_osf_points("ww3"),
-    "incois_osf_hycom": lambda: _check_osf_points("hycom"),
+    "stormglass_tides": _check_stormglass_tides,
+    "open_meteo_port_cache": _check_open_meteo_port_cache,
+    "incois_osf_ww3": lambda ctx: _check_osf_points("ww3"),
+    "incois_osf_hycom": lambda ctx: _check_osf_points("hycom"),
     "marineregions_eez": _check_boundaries,
     "unep_wcmc_wdpa": _check_boundaries,
 }
 
+# The breaker keys the SPECIALISTS record failures under, where they differ from this catalog's ids (weather_intelligence
+# trips "open_meteo" and "incois_hazard_bulletins"). Agent 3 asked the breaker about "open_meteo_marine", which nothing ever
+# trips, so a source the specialists had already given up on still looked healthy to it (audit 4, 2026-10-10).
+_BREAKER_KEY: dict[str, str] = {"open_meteo_marine": "open_meteo", "incois_hazard_osf": "incois_hazard_bulletins"}
 
-def validate_arrival(source_id: str) -> ArrivalCheck:
+
+def _breaker_open(source_id: str) -> bool:
+    return resilience.circuit_open(source_id) or resilience.circuit_open(_BREAKER_KEY.get(source_id, source_id))
+
+
+def validate_arrival(source_id: str, ctx: dict[str, Any] | None = None) -> ArrivalCheck:
     """Did this source's data actually arrive in a usable state?
 
     A probe that raises is a failed arrival, not a crashed query — the whole
@@ -374,18 +520,18 @@ def validate_arrival(source_id: str) -> ArrivalCheck:
     if probe is None:
         return ArrivalCheck(source_id, checked=False, ok=True, detail="live source — validated on fetch, not before it")
     try:
-        ok, detail = probe()
+        result = probe(ctx or {})
     except Exception as exc:  # an unreadable file IS the failure being detected
-        ok, detail = False, f"unreadable: {type(exc).__name__}: {exc}"
-    if ok:
+        result = Probe(False, f"unreadable: {type(exc).__name__}: {exc}")
+    if result.ok:
         resilience.record_success(source_id)
-    else:
+    elif result.systemic:
         resilience.record_failure(source_id)
-    return ArrivalCheck(source_id, checked=True, ok=ok, detail=detail)
+    return ArrivalCheck(source_id, checked=True, ok=result.ok, detail=result.detail, stale=result.stale)
 
 
 def select_validated_source(
-    data_type: str, *, down: tuple[str, ...] = ()
+    data_type: str, *, down: tuple[str, ...] = (), ctx: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """`select_source_with_fallback`, plus the arrival check — and the cascade
     fall-through that failing it is supposed to cause.
@@ -403,7 +549,7 @@ def select_validated_source(
         decision = select_source_with_fallback(data_type, down=tuple(unavailable))
         if decision is None:
             break
-        check = validate_arrival(decision.chosen.id)
+        check = validate_arrival(decision.chosen.id, ctx)
         if check.ok:
             return {
                 "data_type": data_type,
@@ -412,7 +558,7 @@ def select_validated_source(
                 "narrative": decision.narrative,
                 "considered": [s.id for s in decision.considered],
                 "fallback_chain": list(decision.fallback_chain),
-                "arrival": {"checked": check.checked, "ok": True, "detail": check.detail},
+                "arrival": {"checked": check.checked, "ok": True, "detail": check.detail, "stale": check.stale},
                 "rejected": tried,
                 "fell_through": bool(tried),
             }
@@ -434,7 +580,7 @@ def select_validated_source(
         ),
         "considered": [t["source_id"] for t in tried],
         "fallback_chain": [],
-        "arrival": {"checked": True, "ok": False, "detail": "all rungs failed"},
+        "arrival": {"checked": True, "ok": False, "detail": "all rungs failed", "stale": False},
         "rejected": tried,
         "fell_through": True,
     }

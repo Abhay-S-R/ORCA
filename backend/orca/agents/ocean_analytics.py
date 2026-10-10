@@ -197,6 +197,24 @@ class TidePrediction:
     fell_back: bool
     source_provenance: SourceProvenance
     confidence: Confidence
+    # Which source the heights really came from ("soi_tide_tables" | "stormglass_tides" | None when there are none): the trace
+    # compares this with what Agent 3 decided (A3, 2026-10-10).
+    source_used: str | None = None
+
+
+def tide_down_from_decision(decision: dict[str, Any] | None) -> tuple[tuple[str, ...], str | None]:
+    """(sources to treat as down, the reason when none is usable) from Agent 3's tide decision. Agent 3 checked, per station and
+    per requested time, which rung can answer; this agent takes that rung and no other. No decision (a unit test, a caller that
+    skipped Agent 3) means no constraint, as before."""
+    if not decision:
+        return (), None
+    chosen = decision.get("chosen")
+    if chosen == "soi_tide_tables":
+        return ("stormglass_tides",), None
+    if chosen == "stormglass_tides":
+        return ("soi_tide_tables",), None
+    reasons = "; ".join(str(r.get("reason")) for r in decision.get("rejected") or []) or "no usable tide source"
+    return ("soi_tide_tables", "stormglass_tides"), reasons
 
 
 def nearest_station(lat: float, lon: float) -> dict[str, Any]:
@@ -210,6 +228,7 @@ def predict_tides(
     *,
     when: datetime | None = None,
     down: tuple[str, ...] = (),
+    unusable_reason: str | None = None,
 ) -> TidePrediction:
     """Next high and low tide at the nearest SOI station, plus the current
     rising/falling state and a spring/neap classification from the station's
@@ -287,8 +306,11 @@ def predict_tides(
         datum = "n/a — no tide source for this station"
         confidence = Confidence(
             score="LOW_DATA",
-            rationale=f"No tide source available for station {code}: SOI table has no rows for it "
-            "and the Stormglass fallback covers no matching port",
+            rationale=(
+                f"No tide source available for station {code}: {unusable_reason}" if unusable_reason
+                else f"No tide source available for station {code}: SOI table has no rows for it "
+                "and the Stormglass fallback covers no matching port"
+            ),
         )
     elif not future:
         confidence = Confidence(
@@ -345,6 +367,7 @@ def predict_tides(
             freshness_minutes=0,  # astronomical prediction — the table does not go stale
         ),
         confidence=confidence,
+        source_used=("stormglass_tides" if fell_back else "soi_tide_tables") if events else None,
     )
 
 
@@ -1702,7 +1725,11 @@ def run(state: ORCAState) -> AgentResult:
     query = (state.get("normalized_english_query") or state.get("raw_user_query") or "").lower()
     depth = coerce_reasoning_depth(state.get("reasoning_depth", "SHALLOW"))
 
-    tide = predict_tides(lat, lon, when=when)
+    # A3 (2026-10-10): the tide source is the one Agent 3 decided (it checked the station and the requested time), not this
+    # agent's own SOI-then-Stormglass order. `source_used` below is what really served, so the trace can show decided vs used.
+    decided_tide = ((state.get("discovery_sources") or {}).get("by_data_type") or {}).get("tide")
+    tide_down, tide_unusable = tide_down_from_decision(decided_tide)
+    tide = predict_tides(lat, lon, when=when, down=tide_down, unusable_reason=tide_unusable)
     near = nearest_pfz(lat, lon)
 
     # Agent 3's source-selection reasoning for the data types this agent
@@ -1734,6 +1761,7 @@ def run(state: ORCAState) -> AgentResult:
                 # Where the decision came from, so a trace reader can see this
                 # agent consumed Agent 3's call rather than making its own.
                 "decided_by": "marine_data_discovery" if dtype in decided else "ocean_analytics (no Agent 3 decision in state)",
+                **({"used": tide.source_used} if dtype == "tide" else {}),
             })
 
     # The user's own sector governs the status they see — resolved from their
@@ -1762,6 +1790,10 @@ def run(state: ORCAState) -> AgentResult:
             "datum": tide.datum,
             "fell_back": tide.fell_back,
             "dataset": tide.source_provenance.dataset,
+            # decided by Agent 3 vs used here; `obeyed` is None when no decision was in the state
+            "source_decided": (decided_tide or {}).get("chosen") if decided_tide else None,
+            "source_used": tide.source_used,
+            "obeyed": ((decided_tide or {}).get("chosen") == tide.source_used) if decided_tide else None,
             # Predicted heights, cross-checked against what a gauge actually
             # measured — the observed side predict_tides deliberately omits.
             "observed_cross_check": {k: v for k, v in gauge.items() if k != "confidence"},

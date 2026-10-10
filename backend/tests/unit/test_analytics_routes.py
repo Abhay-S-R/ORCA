@@ -82,7 +82,8 @@ def test_source_decision_walks_the_declared_cascade():
     r = client.get("/api/source-decision", params={"data_type": "chlorophyll", "down": "mosdac_open_chl"})
     assert r.status_code == 200
     body = r.json()
-    assert body["chosen"] == "nasa_ocean_color"
+    # was "nasa_ocean_color" until 2026-10-10: NASA is a listing of granules, not a source of values (audit 4, A2)
+    assert body["chosen"] == "copernicus_cmems"
     assert "fallback" in body["narrative"].lower()
 
 
