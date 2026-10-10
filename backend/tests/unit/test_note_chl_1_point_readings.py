@@ -241,3 +241,9 @@ def test_a_new_question_does_not_inherit_even_with_a_sea_colour_history():
 def test_only_the_last_two_turns_are_inherited():
     old = [{"english_query": "sst near udupi"}, {"english_query": "wave near goa"}, {"english_query": "wind near goa"}]
     assert oa._asks_sea_colour({"understood_is_followup": True, "session_history": old}, "and tomorrow") is False
+
+
+def test_only_the_missing_quantity_is_added_not_a_repeat_of_the_one_already_said():
+    said = "The sea surface temperature at Kochi is 26.81 °C (INSAT-3DR, 30 Sep, about 10 days old)."
+    out = with_colour_readings(said, _results(_readings()), {"place_name": "kochi"})
+    assert out.startswith(said) and out.count("26.81") == 1 and "0.07 mg/m3 (EOS-06" in out

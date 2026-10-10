@@ -520,5 +520,7 @@ def test_small_talk_does_not_excuse_an_invented_figure(providers):
 def test_the_prompt_exempts_only_the_small_talk_reply_from_the_reason_rule():
     with_small_talk = reporting._guard_prompt("hi", _NEEDS_PLACE, True)
     without = reporting._guard_prompt("pfzs near gujarat", _NEEDS_PLACE, False)
-    assert "Unless your reply starts with [SMALL_TALK], the REASON sentence" in with_small_talk
-    assert "6. The REASON sentence in WHAT IS REQUIRED" in without and "Unless your reply" not in without
+    # wording changed 2026-10-10 (rule 6 no longer quotes an example reason the model could copy, and asks for the required text
+    # in the user's language); the intent is unchanged: only the small-talk variant is exempt
+    assert "Unless your reply starts with [SMALL_TALK], convey every sentence of WHAT IS REQUIRED" in with_small_talk
+    assert "6. Convey every sentence of WHAT IS REQUIRED" in without and "Unless your reply" not in without

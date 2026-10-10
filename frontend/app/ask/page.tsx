@@ -33,7 +33,7 @@ import { Composer } from "./Composer";
 import { ChatTurn } from "./ChatTurn";
 import { ChatHistoryRail, CollapsedChatRail, iconButtonClass } from "./ChatHistoryRail";
 import { accountStore, browserStore } from "./chatStore";
-import { useAskThread, type InheritedValue, type Turn } from "./useAskThread";
+import { useAskThread, type Turn } from "./useAskThread";
 import { useT } from "../i18n/useT";
 import { useTour } from "../tour/useTour";
 import { TourCard, TOUR_PRESET, TOUR_FOLLOWUP } from "../tour/TourCard";
@@ -254,17 +254,6 @@ export default function AskPage() {
     return before.slice(lastReset + 1).some((t) => t.answer && t.answer.outcome !== "RESET");
   }
 
-  // P2.9 — the user rejecting a value this answer inherited from an earlier
-  // turn. Re-asks the SAME question and tells the backend which inheritance to
-  // refuse. The first version rewrote the question ("… (not Kannur — I have not
-  // said where yet)"), which put the place name straight back into the text,
-  // so the resolver found Kannur again — and without the name the session
-  // handed it back anyway. Neither layer can be talked out of a carry-over by
-  // the wording of the question; only a parameter reaches the code that does it.
-  function dropInherited(turn: Turn, value: InheritedValue) {
-    submit(turn.askedQuery, { drop: [value.field] });
-  }
-
   const voice = useVoiceInput({ onTranscriptConfirmed: submit, languageHint: language });
   const hasStarted = turns.length > 0;
 
@@ -464,8 +453,7 @@ export default function AskPage() {
                     onRerun={() => rerun(turn.id)}
                     onShowVersion={(index) => showVersion(turn.id, index)}
                     onFollowUp={submit}
-                    onDropInherited={(value) => dropInherited(turn, value)}
-                  />
+                    />
                 </div>
               ))}
             </div>

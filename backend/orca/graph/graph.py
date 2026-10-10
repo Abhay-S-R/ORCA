@@ -263,6 +263,11 @@ def _guard_reply(state: ORCAState, required: str, *, allow_small_talk: bool = Fa
     }
 
 
+# Rows whose answer does not depend on where the caller is (they read the ban order, the account, the exports, the system itself).
+_PLACE_FREE_ROWS = frozenset({"REGULATORY", "META", "EXPORT", "SUBSCRIPTION", "ADMINISTRATIVE"})
+_NO_PLACE_QUESTION = "Which place do you mean? Name a port, landing centre or stretch of coast, or share your position, and I will answer for it."
+
+
 def _refusal(outcome: str, body: str, state: ORCAState) -> dict:
     """A stop with no marine content in it. Certainty about *not knowing* is
     still certainty, so the tier is HIGH: no reading was taken, so nothing
@@ -620,6 +625,7 @@ def planning_node(state: ORCAState) -> dict:
         adopted = adopt_model_place(
             update["understood_places"], state.get("user_location"),
             [state.get("raw_user_query") or "", state.get("normalized_english_query") or ""],
+            [str((t.get("user_location") or {}).get("place_name") or "") for t in state.get("session_history") or []],
         )
         if adopted is not None:
             # No "Read X as Y" banner (the user, 2026-10-09: a misread is fine, the user can correct it).
@@ -641,10 +647,21 @@ def planning_node(state: ORCAState) -> dict:
     # instead of the whole pipeline again (13-18 s, and a fresh forecast that can change the verdict).
     # Code checks it against the real history; if the earlier answer cannot be re-rendered the normal
     # pipeline runs, so a request is never dropped.
+    # Found 2026-10-10: "okay fine now answer in english: SST and chlorophyll of the same place" was read as language-only
+    # and re-translated the earlier SAFETY answer, with no SST in it. The code checks the model's claim: a message that asks
+    # for ocean data the previous question did not ask for, or whose intents are not the previous turn's, is a new question.
+    history_prev = state.get("session_history") or []
+    prev_turn = history_prev[-1] if history_prev else {}
+    prev_rows = set(prev_turn.get("intent_rows") or [])
+    prev_asked = str(prev_turn.get("english_query") or prev_turn.get("query") or "")
+    new_subject = bool(set(update["understood_intents"]) - prev_rows) or (
+        planning.asks_for_ocean_data(state.get("raw_user_query") or "")
+        and not planning.asks_for_ocean_data(prev_asked)
+    )
     if (
         outputs.get("language_only") and update["reply_language"] and update["understood_kind"] == "sea_question"
         and update["understood_is_followup"] and not update["understood_places"] and not update["understood_when"]
-        and not update["query_outcome"]
+        and not update["query_outcome"] and not new_subject
     ):
         from orca.api.language_rerender import rerender_last_answer
 
@@ -663,10 +680,20 @@ def planning_node(state: ORCAState) -> dict:
     history_now = state.get("session_history") or []
     pending = (history_now[-1] if history_now else {}).get("place_question")
     loc_now: dict[str, Any] = dict(update.get("user_location") or state.get("user_location") or {})  # type: ignore[arg-type]
-    if (
-        pending and not update["query_outcome"] and update["understood_kind"] == "sea_question"
-        and not update["understood_places"] and loc_now.get("place_source") in ("regional_default", "session_carried")
+    # 2026-10-10 (the user): a first message that names no place, with nothing in the chat, no GPS fix and no home port to
+    # estimate it from, is genuinely placeless: ask which place, conversationally, instead of answering at the Gulf of Mannar
+    # default. Rules that need no place (the fishing-ban order, subscriptions, exports, meta, administrative) are left alone.
+    needs_a_place = not update["matched_intent_rows"] or any(r not in _PLACE_FREE_ROWS for r in update["matched_intent_rows"])
+    placeless = (
+        update["understood_kind"] == "sea_question" and not update["understood_places"] and needs_a_place
+        and loc_now.get("place_source") == "regional_default"
+    )
+    if not update["query_outcome"] and (
+        (pending and update["understood_kind"] == "sea_question" and not update["understood_places"]
+         and loc_now.get("place_source") in ("regional_default", "session_carried"))
+        or placeless
     ):
+        pending = pending or _NO_PLACE_QUESTION
         update.update(_refusal("NEEDS_PLACE", str(pending), state))
         update["execution_plan"] = []      # a refusal runs no agent, as every other place question does
         update["matched_intent_rows"] = []

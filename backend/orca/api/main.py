@@ -392,7 +392,9 @@ def _initial_state(
         "query_outcome": "DISTRESS" if distress else "ANSWERED",
         # Seeded with the place disclosure when there is one, appended to by
         # any node with something else to disclose (operator.add in ORCAState).
-        "disclosures": [d] if (d := (resolution or {}).get("disclosure")) and (resolution or {}).get("status") == "fallback" else [],
+        # Not seeded from the place resolution any more (2026-10-10): its "answered at <the last place>" sentence went stale the
+        # moment the model's reading replaced the position, and nothing draws a disclosure above an answer.
+        "disclosures": [],
     }
 
 
@@ -959,8 +961,7 @@ async def _language_change_stream(
             logging.getLogger("orca.auth").warning("account language not persisted", exc_info=True)
 
     frame = rerender_last_answer(
-        history, language, note=f"Switched replies to {language} — this is your last answer, re-rendered.",
-        rewrite_from_trace=True,
+        history, language, rewrite_from_trace=True,
     )
     if frame is not None:
         yield _sse({**frame, "context_turns": len(history)})

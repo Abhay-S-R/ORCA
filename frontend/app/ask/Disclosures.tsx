@@ -2,11 +2,8 @@
 
 // Phase 1's two new answer shapes (P1.2 render, P1.3 render).
 //
-// `DisclosureBanner` is the sentence that has to be read BEFORE the answer —
-// this was computed at a position you did not choose, in a sector that is a
-// fallback, off a reading past its staleness ceiling. Putting it under the
-// verdict would make it a footnote, and a footnote is how a fallback becomes
-// a lie (plan principle 3). So it renders above the answer card, always.
+// (`DisclosureBanner` was removed on 2026-10-10 at the user's request: nothing is drawn above an answer. A position that
+// is a guess is said in the answer's own words by the narrative, not in a box above it.)
 //
 // `RefusalCard` is the whole response when ORCA declines: an out-of-scope
 // question, a question it cannot place, or one about a time or a position it
@@ -14,24 +11,10 @@
 // deliberately — the point of a first-class refusal is that there is nothing
 // on screen to mistake for an answer.
 import type React from "react";
-import { AlertTriangle, Eraser, HelpCircle, MapPin } from "lucide-react";
+import { Eraser, HelpCircle, MapPin } from "lucide-react";
 import { Panel } from "../components/Panel";
 import { useT } from "../i18n/useT";
 import type { FinalResponse } from "./useAskThread";
-
-export function DisclosureBanner({ disclosures }: { disclosures?: string[] }) {
-  if (!disclosures?.length) return null;
-  return (
-    <div role="note" className="flex flex-col gap-1.5 rounded-xl border border-caution/35 bg-caution/5 p-3">
-      {disclosures.map((text, i) => (
-        <p key={i} className="flex items-start gap-2 text-[12px] leading-snug text-ink-muted">
-          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-caution" aria-hidden="true" />
-          <span className="min-w-0">{text}</span>
-        </p>
-      ))}
-    </div>
-  );
-}
 
 const HEADING_KEY: Record<string, string> = {
   OUT_OF_SCOPE: "disclosures.outOfScope",

@@ -19,12 +19,12 @@ import { SourceNarration } from "../components/SourceNarration";
 import { ErrorState, Skeleton } from "../components/States";
 import { type QueryIntent } from "../lib/queryIntent";
 import { type Persona } from "../persona/config";
-import type { AgentSpan, InheritedValue, Turn } from "./useAskThread";
+import type { AgentSpan, Turn } from "./useAskThread";
 import { turnVersions } from "./useAskThread";
 import { RerunControl, CopyControl } from "./RerunControl";
 import { IntentActions } from "./IntentActions";
-import { DisclosureBanner, RefusalCard, ResetNotice } from "./Disclosures";
-import { InheritedChips, SkippedNotice } from "./ReasoningEvidence";
+import { RefusalCard, ResetNotice } from "./Disclosures";
+import { SkippedNotice } from "./ReasoningEvidence";
 import { useT } from "../i18n/useT";
 
 
@@ -70,7 +70,6 @@ export function ChatTurn({
   onRerun,
   onShowVersion,
   onFollowUp,
-  onDropInherited,
 }: {
   turn: Turn;
   persona: Persona;
@@ -84,7 +83,6 @@ export function ChatTurn({
   onFollowUp: (q: string, options?: { llm?: "off"; position?: { lat: number; lon: number } }) => void;
   // P2.9 — the user rejecting an inherited value. Re-asks the question with
   // that value explicitly overridden rather than silently carried again.
-  onDropInherited: (value: InheritedValue) => void;
 }) {
   const t = useT();
   const { askedQuery, spans, answer, streaming, failed, renderedAs, focus } = turn;
@@ -208,16 +206,9 @@ export function ChatTurn({
 
       {answer && (answer.outcome == null || answer.outcome === "ANSWERED" || answer.outcome === "DISTRESS") && (
         <>
-          {/* Above the answer, never below it — see Disclosures.tsx. */}
-          <DisclosureBanner disclosures={answer.disclosures} />
-
-          {/* P2.9 / orca_final §16.2 — what this answer inherited from earlier
-              turns, above the answer for the same reason a disclosure is:
-              it changes what the answer is about. Removing a chip re-asks the
-              question with that value explicitly dropped. */}
-          {answer.inherited && answer.inherited.length > 0 && (
-            <InheritedChips inherited={answer.inherited} onRemove={onDropInherited} />
-          )}
+          {/* Nothing is drawn above the answer (the user, 2026-10-10): no disclosure banner and no "carried over"
+              chips. This is a chat: the model reads the last 20 turns to work out which place a message means, and the
+              user corrects it by saying so. `answer.disclosures` and `answer.inherited` are still on the wire. */}
           <Panel title="Answer">
             <div className="flex flex-col gap-4">
               {/* Architecture §2.6 rendering matrix — same facts, structure

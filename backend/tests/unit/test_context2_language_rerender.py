@@ -71,7 +71,7 @@ def test_a_language_only_request_translates_the_stored_answer_without_the_pipeli
     assert frame["final_english_response"] == FRAME["final_english_response"]  # the same facts
     assert frame["risk_assessment"] == FRAME["risk_assessment"] and frame["citations"] == FRAME["citations"]
     assert frame["detected_language"] == "kn" and frame["language_rerender"] is True
-    assert frame["disclosures"][0] == "earlier note" and "no new forecast" in frame["disclosures"][-1]
+    assert frame["disclosures"] == ["earlier note"]   # nothing is added to the earlier answer's own (2026-10-10: no banner notes)
     assert _route_after_planning({"query_outcome": update["query_outcome"]}) == "__end__"  # no specialist runs
 
 

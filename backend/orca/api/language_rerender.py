@@ -31,15 +31,13 @@ def _translate(english: str, language: str) -> str | None:
 
 
 def rerender_last_answer(
-    history: list[dict[str, Any]], language: str, persona: str = "fisherman", note: str | None = None,
-    rewrite_from_trace: bool = False,
+    history: list[dict[str, Any]], language: str, persona: str = "fisherman", rewrite_from_trace: bool = False,
 ) -> dict[str, Any] | None:
     """The `final_response` frame for the last answered turn of this chat in `language`, or None when there is no
     answered turn or it cannot be put into `language` (the caller then runs the normal pipeline or just confirms)."""
     last = next((t for t in reversed(history) if t.get("query_id")), None)
     if last is None:
         return None
-    note = note or f"Same answer in {language}: no new forecast was fetched."
     frame = last.get("frame")
     if isinstance(frame, dict) and frame.get("final_english_response"):
         vernacular = _translate(str(frame["final_english_response"]), language)
@@ -53,7 +51,7 @@ def rerender_last_answer(
                 "final_vernacular_response": vernacular,
                 "detected_language": language,
                 "confidence_reason": reason,
-                "disclosures": [*(frame.get("disclosures") or []), note],
+                "disclosures": list(frame.get("disclosures") or []),   # nothing is added: no "same answer in X" note (the user, 2026-10-10)
                 "language_rerender": True,
             }
     if not rewrite_from_trace:
@@ -73,7 +71,7 @@ def rerender_last_answer(
         "confidence_tier": rendered.confidence_tier,
         "citations": rendered.citations,
         "risk_assessment": None,
-        "disclosures": [note],
+        "disclosures": [],
         "distress_flag": False,
         "inherited": [],
         "normalized_english_query": last.get("english_query") or last.get("query"),

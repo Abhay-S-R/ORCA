@@ -326,21 +326,27 @@ def _mentions(name: str, texts: list[str]) -> bool:
 
 
 def adopt_model_place(
-    places: list[dict], user_location: dict | None, texts: list[str],
+    places: list[dict], user_location: dict | None, texts: list[str], history_places: list[str] | None = None,
 ) -> tuple[dict, dict, str | None] | None:
     """(user_location, place_resolution, note) when the model's single named place should set the position, else None.
 
     The model proposes, code checks: the place must be exactly one, must resolve in the gazetteer to a position (a whole
     coastline or an unknown name does not), and the words the model says it read (`raw`) must be in the message, so a
     model can never invent a place the user did not write. A position the caller chose, or one the text itself already
-    resolved exactly, is never replaced."""
+    resolved exactly, is never replaced.
+
+    A message that REFERS to a place without naming it ("the same place", "there", "the first one") has none of the place's
+    words in it: the model works it out from the chat and returns that place; it counts when the place is one a recent turn
+    was actually answered for (`history_places`), so a model still cannot invent one (2026-10-10, the user: it is a chatbot,
+    the 20 turns of context are how it knows what "same place" means)."""
     loc = user_location or {}
     if loc.get("place_source") in _KEEP_SOURCES or len(places) != 1:
         return None
     entry = places[0]
     raw = (entry.get("raw") or "").strip()
     normalized = (entry.get("normalized") or raw).strip()
-    if not normalized or not (_mentions(raw, texts) or _mentions(normalized, texts)):
+    in_chat = normalized.lower() in {h.lower() for h in history_places or [] if h}
+    if not normalized or not (_mentions(raw, texts) or _mentions(normalized, texts) or in_chat):
         return None
     resolution = resolve_confident(normalized)
     if resolution.status != "resolved" or resolution.place is None:
