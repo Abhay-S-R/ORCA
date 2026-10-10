@@ -178,10 +178,25 @@ def sea_route_ports() -> dict:
 
 
 @router.get("/sea-route/fishing-zones")
-def sea_route_fishing_zones() -> dict:
-    """Return fishing zones as a GeoJSON FeatureCollection."""
+def sea_route_fishing_zones(state: str | None = None) -> dict:
+    """Return fishing zones as a GeoJSON FeatureCollection.
+
+    Args:
+        state: Optional coastal state name (e.g. "Kerala", "Tamil Nadu").
+               When supplied, returns ONLY the zones legally belonging to that
+               state's 0–12 NM territorial waters under its Marine Fishing
+               Regulation Act (MFRA). Fishermen are not permitted to operate
+               in another state's territorial waters without that state's licence.
+    """
     from shapely import to_geojson as _to_geojson
-    zones = load_fishing_zones()
+    from orca.sea_route.state_fishing_rules import filter_zones_for_state, get_state_boundary
+
+    zones = list(load_fishing_zones())
+
+    # Apply state-based territorial filter (MFRA inter-state boundary enforcement)
+    if state:
+        zones = filter_zones_for_state(zones, state)
+
     features = []
     for z in zones:
         encoded = _to_geojson(z.geometry)
@@ -203,7 +218,26 @@ def sea_route_fishing_zones() -> dict:
                    if k not in ("id", "name", "entry_lat", "entry_lng")},
             },
         })
-    return {"type": "FeatureCollection", "features": features}
+
+    result: dict = {"type": "FeatureCollection", "features": features}
+
+    # Include state boundary metadata when filtering by state
+    if state:
+        boundary = get_state_boundary(state)
+        if boundary:
+            result["state_fishing_boundary"] = {
+                "state": boundary.state,
+                "max_fishing_nm": boundary.max_fishing_nm,
+                "traditional_zone_nm": boundary.traditional_zone_nm,
+                "seasonal_ban": boundary.seasonal_ban,
+                "note": (
+                    f"Zones filtered to {boundary.state} territorial waters (0–{boundary.max_fishing_nm} NM). "
+                    f"Mechanised vessels restricted within {boundary.traditional_zone_nm} NM of shore. "
+                    "Cross-state fishing requires the destination state's licence (MFRA)."
+                ),
+            }
+
+    return result
 
 
 @router.get("/sea-route/restricted-areas")

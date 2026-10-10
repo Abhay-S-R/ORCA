@@ -45,7 +45,7 @@ ROUTING_TABLE: tuple[RoutingRow, ...] = (
     ),
     RoutingRow(
         "PFZ_NEAREST",
-        ("nearest pfz", "fishing zone", "persistent fishing zone", "where to fish", "potential fishing"),
+        ("nearest pfz", "fishing zone", "persistent fishing zone", "where to fish", "potential fishing", "best fishing zone", "fishing boundary", "state fishing limit"),
         ("marine_data_discovery", "ocean_analytics", "geospatial", "visualization"),
     ),
     RoutingRow(

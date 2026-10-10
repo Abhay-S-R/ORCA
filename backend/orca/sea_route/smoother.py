@@ -21,12 +21,18 @@ from orca.agents.geospatial import depth_at_point
 from orca.sea_route.datasets import load_eez_polygon
 
 
+_TREE_CACHE: dict[float, STRtree] = {}
+
+
 def _build_blocker_tree(
     land_polygons: tuple[BaseGeometry, ...],
     restricted_areas,            # tuple[RestrictedArea, ...]
     buffer_deg: float = 0.0,
 ) -> STRtree | None:
-    """STRtree of all geometries a route segment must not cross."""
+    """STRtree of all geometries a route segment must not cross (cached)."""
+    key = round(buffer_deg, 6)
+    if key in _TREE_CACHE:
+        return _TREE_CACHE[key]
     geoms: list[BaseGeometry] = []
     if buffer_deg > 0:
         geoms.extend(p.buffer(buffer_deg) for p in land_polygons)
@@ -35,7 +41,10 @@ def _build_blocker_tree(
     for area in restricted_areas:
         if area.mode == "block":
             geoms.append(area.geometry.buffer(buffer_deg) if buffer_deg > 0 else area.geometry)
-    return STRtree(geoms) if geoms else None
+    tree = STRtree(geoms) if geoms else None
+    if tree is not None:
+        _TREE_CACHE[key] = tree
+    return tree
 
 
 def _segment_clear(

@@ -136,8 +136,8 @@ CAPABILITY CATALOGUE:
 - Sea Safety & Go/No-Go: Real-time risk assessment, boat safety thresholds, advisory warnings.
 - Sea Conditions: Wave height, swell, wind speed & direction, current, sea surface temperature.
 - Tides: High/low tide timings, tidal heights, ebb/flood directions.
-- Potential Fishing Zones (PFZ): INCOIS PFZ coordinates, bearing, distance, persistence.
-- Maritime Boundaries: International Maritime Boundary Line (IMBL), EEZ borders, restricted zones.
+- Potential Fishing Zones (PFZ): INCOIS PFZ coordinates, bearing, distance, persistence; state-assigned fishing limits and home port zones.
+- Maritime Boundaries: International Maritime Boundary Line (IMBL), state fishing limits (0–12 NM under MFRA), EEZ borders, restricted zones.
 - Severe Weather: Cyclone tracking, storm surge, squall alerts, lightning hazards.
 - Trip Optimization: Best departure timing, endurance/range limits, fuel economics.
 

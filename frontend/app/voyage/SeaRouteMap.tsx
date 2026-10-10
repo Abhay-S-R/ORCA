@@ -388,7 +388,7 @@ export function SeaRouteMap({
     <div className="relative w-full">
       <div
         ref={containerRef}
-        className="h-[440px] min-h-[380px] lg:h-[500px] w-full rounded-2xl shadow-xl ring-1 ring-hairline overflow-hidden"
+        className="h-[440px] min-h-[380px] lg:h-[435px] w-full rounded-2xl shadow-xl ring-1 ring-hairline overflow-hidden"
         aria-label="Sea route map"
       />
       {/* Basemap switcher: Chart vs Satellite */}
