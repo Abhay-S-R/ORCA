@@ -153,6 +153,18 @@ async def _lifespan(app: FastAPI):
         _stop_sentinel = stop_sentinel
     except Exception:  # Sentinel must never block the API coming up
         logging.getLogger("orca.sentinel").warning("sentinel failed to start", exc_info=True)
+    # Ensure coastal authority accounts exist for all ports
+    try:
+        from orca.db.engine import get_sessionmaker
+        from orca.ops.port_authorities import ensure_port_authorities
+
+        _auth_db = get_sessionmaker()()
+        try:
+            ensure_port_authorities(_auth_db)
+        finally:
+            _auth_db.close()
+    except Exception:
+        logging.getLogger("orca.ops").warning("could not auto-seed port authorities", exc_info=True)
     # Memory watchdog — log RSS every 60s so there's always a reading within
     # the last minute before a silent Render OOM kill.
     _memory_watchdog_task = None
@@ -780,6 +792,36 @@ async def _query_stream(
                 if final_state.get("distress_flag", False)
                 else None
             ),
+            "target_authority": (
+                next(
+                    ((e.get("outputs") or {}).get("target_authority")
+                     for e in reversed(final_state.get("audit_trace_log") or [])
+                     if e.get("agent_name") == "distress"),
+                    None,
+                )
+                if final_state.get("distress_flag", False)
+                else None
+            ),
+            "survival_advice": (
+                next(
+                    ((e.get("outputs") or {}).get("survival_advice")
+                     for e in reversed(final_state.get("audit_trace_log") or [])
+                     if e.get("agent_name") == "distress"),
+                    None,
+                )
+                if final_state.get("distress_flag", False)
+                else None
+            ),
+            "survival_suggestions": (
+                next(
+                    ((e.get("outputs") or {}).get("survival_suggestions")
+                     for e in reversed(final_state.get("audit_trace_log") or [])
+                     if e.get("agent_name") == "distress"),
+                    None,
+                )
+                if final_state.get("distress_flag", False)
+                else None
+            ),
             # Raw values for /safety's gauges — the verdict answers "is it
             # safe", these answer "why", which a vessel-class-aware page
             # needs to show, not just the badge.
@@ -890,7 +932,7 @@ async def _query_stream(
         _persist_audit_trace_log(final_state.get("query_id", ""), final_state.get("audit_trace_log", []), session_uuid)
         if final_state.get("distress_flag"):
             _mrcc = final.get("mrcc_contact")
-            _record_distress_event(final_state, _mrcc if isinstance(_mrcc, dict) else None)
+            _record_distress_event(final_state, _mrcc if isinstance(_mrcc, dict) else None, user_id=user_id)
         # The turn itself is remembered by _remember_turns in query(), not
         # here: a query-cache hit or a coalesced follower never runs this
         # generator, and remembering only here left those turns out of the
@@ -1038,17 +1080,20 @@ async def _remember_turns(session_id: str | None, query: str, stream: AsyncItera
         yield line
 
 
-def _record_distress_event(final_state: Mapping[str, Any], mrcc_contact: dict | None) -> None:
-    """Puts the distress query on the authority queue (P4.16). Best-effort for
-    the same reason as the audit write below: the caller's MRCC contacts are
-    in the answer already, and a DB outage must not fail that answer."""
+def _record_distress_event(
+    final_state: Mapping[str, Any], mrcc_contact: dict | None, user_id: uuid.UUID | None = None,
+) -> None:
+    """Puts the distress query on the authority queue (P4.16) and triggers
+    an emergency alert to the user's home port coastal authority account.
+    Best-effort: caller's MRCC contacts are in the answer already, and a DB outage
+    must not fail that answer."""
     try:
         from orca.db.engine import get_sessionmaker
         from orca.ops.distress_queue import record_event
 
         db = get_sessionmaker()()
         try:
-            record_event(db, dict(final_state), mrcc_contact)
+            record_event(db, dict(final_state), mrcc_contact, user_id=user_id)
         finally:
             db.close()
     except Exception:

@@ -478,6 +478,129 @@ def emit_datsg_handoff(
 NABHMITRA_MAX_CHARS = 160
 
 
+_SURVIVAL_ACTIONS: dict[str, dict[str, Any]] = {
+    "sinking": {
+        "category": "Vessel Sinking / Taking on Water",
+        "steps": [
+            "DON LIFE JACKETS IMMEDIATELY: Ensure every person aboard fastens a life vest / PFD with whistle accessible.",
+            "ACTIVATE BILGE PUMPS & CONTAIN LEAK: Start all electric and manual bilge pumps immediately; attempt to plug hull breach if safely accessible.",
+            "BROADCAST MAYDAY ON VHF CH 16: Call 'MAYDAY MAYDAY MAYDAY', give vessel name, GPS coordinates, souls on board, and nature of sinking.",
+            "PREPARE GRAB BAG & LIFE RAFT: Lash emergency grab bag (flares, water, handheld VHF, EPIRB). Deploy life raft if water ingress is uncontrollable.",
+            "STAY WITH VESSEL: Remain on the hull as long as safe; never abandon ship until the deck enters the water beneath you.",
+            "COLD WATER SURVIVAL (H.E.L.P.): If forced into sea, huddle together in Heat Escape Lessening Posture to slow hypothermia.",
+        ],
+    },
+    "medical": {
+        "category": "Medical Emergency at Sea",
+        "steps": [
+            "STOP BLEEDING: Apply direct, continuous pressure with a clean compress; elevate wounded limbs if no fracture is suspected.",
+            "RECOVERY POSITION: If casualty is unconscious but breathing, turn them on their side in recovery position to keep airway clear.",
+            "CPR IF NOT BREATHING: If casualty has no breath or pulse, immediately begin chest compressions at 100-120 per minute in center of chest.",
+            "PREPARE FOR HELICOPTER / BOAT EVAC: Clear boat deck, secure loose tarps/gear, document patient vital signs and timeline.",
+            "PREVENT SHOCK & HYPOTHERMIA: Keep patient calm, horizontal, and insulated from wet deck with blankets or foil emergency sheets.",
+        ],
+    },
+    "engine_failure": {
+        "category": "Engine Failure / Adrift at Sea",
+        "steps": [
+            "DEPLOY SEA ANCHOR / DROGUE: Stream a sea anchor or weighted bucket from the bow to hold vessel head into swell and prevent rolling/capsize.",
+            "STANDBY ON VHF CHANNEL 16: Transmit PAN-PAN urgency call with current GPS coordinates and estimated drift rate/direction.",
+            "MAKE VESSEL VISIBLE: Hoist day shapes (two black balls) or turn on all navigation lights; rig radar reflector.",
+            "PREPARE ANCHOR: If drifting towards rocky shoreline, shoals, or shipping lane, drop anchor before reaching shallow surf.",
+            "CONSERVE POWER & WATER: Turn off non-essential electronics; ration fresh drinking water among crew.",
+        ],
+    },
+    "man_overboard": {
+        "category": "Man Overboard",
+        "steps": [
+            "THROW FLOTATION IMMEDIATELY: Toss life ring, buoy, or buoyant cushions toward the person in the water to mark location and provide flotation.",
+            "POST DEDICATED WATCH: Keep one crew member pointing continuously at the casualty in the water without looking away.",
+            "PRESS GPS MOB BUTTON: Mark the casualty's exact GPS waypoint on your chartplotter immediately.",
+            "CAREFUL APPROACH: Maneuver vessel upwind/downwave of the victim to provide a sea break without propeller danger.",
+            "TREAT FOR HYPOTHERMIA: Use boarding ladder or recovery sling; wrap casualty in dry blankets and shelter from wind.",
+        ],
+    },
+    "general": {
+        "category": "Emergency Maritime Distress Protocol",
+        "steps": [
+            "ALL HANDS IN LIFE JACKETS: Ensure all crew members immediately fasten life jackets (PFDs).",
+            "RADIO MAYDAY ON VHF CHANNEL 16: Broadcast distress call with GPS coordinates, nature of emergency, and souls on board.",
+            "PREPARE VISUAL DISTRESS SIGNALS: Have red handheld/parachute flares and orange smoke canisters ready for incoming search units.",
+            "STAY WITH VESSEL: Remain aboard or alongside the boat — search craft spot a vessel hull far more easily than people in the water.",
+            "CONSERVE POWER: Protect mobile phones in watertight cases and conserve battery for emergency responder callbacks.",
+        ],
+    },
+}
+
+
+def get_survival_suggestions(
+    distress_type: str | None,
+    matched_phrase: str | None = None,
+    text: str = "",
+) -> dict[str, Any]:
+    """Provides actionable survival protocols tailored to the distress condition
+    while coastal rescue authorities and Coast Guard mobilize."""
+    text_lower = (text or "").lower()
+    phrase_lower = (matched_phrase or "").lower()
+    combined = f"{text_lower} {phrase_lower}"
+
+    category_key = "general"
+
+    if distress_type == "medical_pattern" or any(w in combined for w in [
+        "bleed", "injur", "unconscious", "breath", "heart", "pain", "doctor",
+        "hurt", "blood", "wound", "காயம்", "ரத்தம்", "घायल", "खून", "പരിക്ക്", "గాయం"
+    ]):
+        category_key = "medical"
+    elif any(w in combined for w in [
+        "sink", "water", "capsiz", "going down", "doob", "mung", "boat sinking",
+        "taking on water", "flood", "மூழ்க", "கவிழ்", "डूब", "മുങ്ങ", "మునిగి"
+    ]):
+        category_key = "sinking"
+    elif any(w in combined for w in ["overboard", "drown", "man overboard", "fell in", "தண்ணீரில்"]):
+        category_key = "man_overboard"
+    elif any(w in combined for w in [
+        "engine", "motor", "adrift", "fuel", "propeller", "drift", "lost at sea",
+        "stuck", "strand", "பழுது", "खराब", "बंद", "കെട്ടു"
+    ]):
+        category_key = "engine_failure"
+
+    action_data = _SURVIVAL_ACTIONS.get(category_key, _SURVIVAL_ACTIONS["general"])
+    return {
+        "category_key": category_key,
+        "category": action_data["category"],
+        "steps": list(action_data["steps"]),
+    }
+
+
+def format_survival_advice(advice: dict[str, Any]) -> str:
+    """Formats structured survival actions as human-readable numbered checklist."""
+    category = advice.get("category", "Emergency Maritime Survival Actions")
+    steps = advice.get("steps", [])
+    numbered_steps = "\n".join(f"{i + 1}. {step}" for i, step in enumerate(steps))
+    return f"CRITICAL SURVIVAL ACTIONS WHILE AUTHORITIES REACH YOU ({category}):\n{numbered_steps}"
+
+
+def resolve_coastal_authority_contact(user_location: dict[str, Any] | None) -> dict[str, Any]:
+    """Resolves the port authority responsible for this vessel's sector/home port."""
+    from orca.ops.port_authorities import resolve_port_authority_config
+
+    lat, lon = _position_of(user_location)
+    place_name = None
+    if isinstance(user_location, dict):
+        place_name = user_location.get("home_port_name") or user_location.get("place_name")
+
+    cfg = resolve_port_authority_config(port_name=place_name, lat=lat, lon=lon)
+    return {
+        "port_name": cfg["port_name"],
+        "display_name": cfg["display_name"],
+        "authority_name": cfg["display_name"],
+        "email": cfg["email"],
+        "phone": cfg["phone"],
+        "emergency_unit": cfg["emergency_unit"],
+        "status": "ALERT_TRIGGERED",
+    }
+
+
 def render_nabhmitra_text(handoff: dict[str, Any], vessel_name: str | None = None) -> str:
     """The existing CAP-fallback payload as one line of ASCII, for keying into
     a Nabhmitra or VCSS terminal (orca_final §13.2).
@@ -535,6 +658,13 @@ def run(
         timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     )
 
+    survival_advice = get_survival_suggestions(
+        detection.get("distress_type"),
+        matched_phrase=detection.get("matched_phrase"),
+        text=combined_text,
+    )
+    target_authority = resolve_coastal_authority_contact(location)
+
     return AgentResult(
         agent_name="distress",
         query_id=state.get("query_id", ""),
@@ -544,6 +674,9 @@ def run(
             "detection": detection,
             "mrcc_contact": mrcc,
             "handoff": handoff,
+            "target_authority": target_authority,
+            "survival_advice": survival_advice,
+            "survival_suggestions": survival_advice.get("steps", []),
             # P1.7 — the same payload in the form a Nabhmitra/VCSS terminal takes.
             "nabhmitra_text": render_nabhmitra_text(handoff),
         },
@@ -567,3 +700,4 @@ def run(
             "true in both directions: a match may be a false positive, a non-match may be a false negative",
         ),
     )
+
