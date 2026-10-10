@@ -184,3 +184,28 @@ def test_geonamescache_foreign_places_and_misspellings():
     r_togo = pr.resolve_or_ask("is it safe to go to sea tomorrow")
     assert r_togo.status == "fallback"
 
+
+def test_conversational_and_indian_queries_no_false_foreign_positives():
+    """Common English filler words (okay, fine, much, never, come, make) must NEVER
+    match obscure foreign alternate names (e.g. Les Cayes, Much, Nevers, Comé, Mackay),
+    and queries with resolved Indian places must never be overridden."""
+    # Indian queries with conversational filler
+    r_mumbai = pr.resolve_or_ask("okay fine what about mumbai")
+    assert r_mumbai.status == "resolved"
+    assert r_mumbai.place is not None and r_mumbai.place.name.lower() == "mumbai"
+
+    r_kundapur = pr.resolve_or_ask("why has catch declined near Kundapur")
+    assert r_kundapur.status == "resolved"
+    assert r_kundapur.place is not None and r_kundapur.place.name.lower() == "kundapur"
+
+    # Conversational questions without a place should fallback, NOT be out_of_range
+    for q in [
+        "okay fine what about the weather",
+        "how much rain will fall",
+        "is it never safe to go out",
+        "can you come tomorrow",
+    ]:
+        res = pr.resolve_or_ask(q)
+        assert res.status == "fallback", f"Query '{q}' should be fallback, got {res.status}: {res.disclosure}"
+
+

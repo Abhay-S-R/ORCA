@@ -359,6 +359,11 @@ def facts_paragraph(
             f"Forecast peak wind {anomaly['observed_peak']} {anomaly.get('units', 'km/h')} is anomalous ({anomaly.get('direction', 'high')}) compared to the {anomaly.get('baseline_days', 30)}-day ERA5 baseline at {anomaly.get('nearest_port', place)}."
         ))
 
+    # O5: Historical comparison against ERA5 daily archive
+    hist = ocean.get("historical_comparison") or {}
+    if hist.get("available") and hist.get("statement"):
+        lines.append(_sentence(hist["statement"]))
+
     geo = out.get("geospatial", {})
     if isinstance(geo.get("imbl_distance_nm"), (int, float)):
         b_name = f" ({geo['imbl_boundary_name']})" if geo.get("imbl_boundary_name") else ""

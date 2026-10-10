@@ -183,3 +183,119 @@ def test_narration_view_prunes_bulky_fields_from_source_selections():
     assert cleaned["chosen"] == "soi_tide_tables"
     assert "considered" not in cleaned
     assert "fallback_chain" not in cleaned
+
+
+def test_o4_correlation_gated_by_intent():
+    """Verify O4: sst_chlorophyll_correlation is gated and not computed for general safety queries."""
+    from orca.agents import ocean_analytics
+
+    # General safety query without sea-colour / correlation keywords or bbox
+    state_safety: ORCAState = {
+        "query_id": "test-safety",
+        "raw_user_query": "is it safe to go fishing tomorrow",
+        "normalized_english_query": "is it safe to go fishing tomorrow",
+        "reasoning_depth": "SHALLOW",
+        "user_location": {"lat": 8.8, "lon": 78.1, "place_name": "Thoothukudi", "place_source": "explicit"},
+    }
+    res_safety = ocean_analytics.run(state_safety)
+    corr_safety = res_safety.outputs["sst_chlorophyll_correlation"]
+    assert corr_safety["available"] is False
+    assert "not requested" in corr_safety.get("note", "").lower()
+
+    # Query asking for SST and chlorophyll correlation
+    state_diagnostic: ORCAState = {
+        "query_id": "test-diag",
+        "raw_user_query": "what is the correlation between sst and chlorophyll",
+        "normalized_english_query": "what is the correlation between sst and chlorophyll",
+        "reasoning_depth": "SHALLOW",
+        "user_location": {"lat": 8.8, "lon": 78.1, "place_name": "Thoothukudi", "place_source": "explicit"},
+    }
+    res_diagnostic = ocean_analytics.run(state_diagnostic)
+    corr_diag = res_diagnostic.outputs["sst_chlorophyll_correlation"]
+    # Evaluated (either available or has data note from the readers, not gated out)
+    assert "not requested" not in corr_diag.get("note", "").lower()
+
+
+def test_o5_historical_comparison_wiring():
+    """Verify O5: historical_comparison is evaluated when asked, forwarded in reporting_run, and surfaced in facts."""
+    from orca.agents import ocean_analytics
+    from orca.graph.graph import reporting_run
+
+    # When query asks about past weather comparison
+    state_hist: ORCAState = {
+        "query_id": "test-hist",
+        "raw_user_query": "was last week rougher than today",
+        "normalized_english_query": "was last week rougher than today",
+        "reasoning_depth": "SHALLOW",
+        "user_location": {"lat": 8.8, "lon": 78.1, "place_name": "Thoothukudi", "place_source": "explicit"},
+    }
+    res_hist = ocean_analytics.run(state_hist)
+    hist_out = res_hist.outputs["historical_comparison"]
+    assert hist_out["available"] is True
+    assert "peak wind" in hist_out["statement"]
+    assert hist_out["comparison"] in ("rougher", "calmer", "about the same")
+
+    # Verify inclusion in facts_paragraph
+    ocean_result = AgentResult(
+        agent_name="ocean_analytics",
+        query_id="test-hist",
+        reasoning_depth="SHALLOW",
+        inputs_consumed={},
+        outputs=res_hist.outputs,
+        source_provenance=SourceProvenance(dataset="test", acquisition_timestamp="", freshness_minutes=0),
+        confidence=Confidence(score="HIGH", rationale="test"),
+    )
+    facts = reporting.facts_paragraph({"go_no_go": "GO", "reason": "safe"}, [ocean_result])
+    assert "ERA5 archive" in facts
+
+    # Verify reporting_run consumes ocean_data with historical_comparison
+    rep_res = reporting_run({
+        **state_hist,
+        "ocean_data": res_hist.outputs,
+        "risk_assessment": {"go_no_go": "GO", "reason": "safe"},
+    })
+    assert rep_res.agent_name == "reporting"
+
+    # When query does NOT ask about past comparison
+    state_no_hist: ORCAState = {
+        "query_id": "test-no-hist",
+        "raw_user_query": "what is the wind speed right now",
+        "normalized_english_query": "what is the wind speed right now",
+        "reasoning_depth": "SHALLOW",
+        "user_location": {"lat": 8.8, "lon": 78.1, "place_name": "Thoothukudi", "place_source": "explicit"},
+    }
+    res_no_hist = ocean_analytics.run(state_no_hist)
+    assert res_no_hist.outputs["historical_comparison"]["available"] is False
+
+
+def test_o6_productivity_district_resolution():
+    """Verify O6: productivity diagnosis resolves to specific districts or falls back to coastal states."""
+    from orca.agents import ocean_analytics
+
+    # 1. Kundapur in Karnataka: should resolve to Karnataka state CMFRI data rather than failing
+    state_kundapur: ORCAState = {
+        "query_id": "test-kundapur",
+        "raw_user_query": "why has catch declined near Kundapur",
+        "normalized_english_query": "why has catch declined near Kundapur",
+        "reasoning_depth": "DEEP",
+        "user_location": {"lat": 13.62, "lon": 74.69, "place_name": "Kundapur", "state": "Karnataka", "place_source": "explicit"},
+    }
+    res_k = ocean_analytics.run(state_kundapur)
+    diag_k = res_k.outputs["productivity_diagnosis"]
+    assert diag_k["state"] == "Karnataka"
+    assert "Karnataka landed" in diag_k["detail"]
+    assert diag_k["verdict"] != "insufficient data"
+
+    # 2. Mumbai: should resolve to "Mumbai Coastal"
+    state_mumbai: ORCAState = {
+        "query_id": "test-mumbai",
+        "raw_user_query": "why has catch dropped in Mumbai",
+        "normalized_english_query": "why has catch dropped in Mumbai",
+        "reasoning_depth": "DEEP",
+        "user_location": {"lat": 18.96, "lon": 72.82, "place_name": "Mumbai", "place_source": "explicit"},
+    }
+    res_m = ocean_analytics.run(state_mumbai)
+    diag_m = res_m.outputs["productivity_diagnosis"]
+    assert diag_m["district"] == "Mumbai Coastal"
+    assert len(diag_m["series"]) >= 3
+

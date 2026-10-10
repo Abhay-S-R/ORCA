@@ -743,6 +743,14 @@ def run(state: ORCAState) -> AgentResult:
     # An international location outside India's maritime waters is OUT_OF_RANGE
     # regardless of whether the model classified it as inland_place or sea_question.
     state_place_res = state.get("place_resolution") or {}
+    has_resolved_indian_place = (
+        state_place_res.get("status") == "resolved"
+        or any(
+            resolve_or_ask(n).status == "resolved"
+            for n in [(p.get("normalized") or p.get("raw") or "").strip() for p in understood.places]
+            if n
+        )
+    )
     if state_place_res.get("status") == "out_of_range":
         query_outcome = "OUT_OF_RANGE"
         query_outcome_body = state_place_res.get("disclosure")
@@ -750,7 +758,7 @@ def run(state: ORCAState) -> AgentResult:
         res = next(resolve_or_ask(n) for n in [(p.get("normalized") or p.get("raw") or "").strip() for p in understood.places] if n and resolve_or_ask(n).status == "out_of_range")
         query_outcome = "OUT_OF_RANGE"
         query_outcome_body = res.disclosure
-    elif (intl := international_place_name(query or raw_query)) or (intl := foreign_place_name(query or raw_query)):
+    elif not has_resolved_indian_place and ((intl := international_place_name(query or raw_query)) or (intl := foreign_place_name(query or raw_query))):
         lat0, lat1, lon0, lon1 = DATA_EXTENT
         query_outcome = "OUT_OF_RANGE"
         query_outcome_body = (

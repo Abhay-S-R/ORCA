@@ -1364,6 +1364,8 @@ def reporting_run(state: ORCAState) -> AgentResult:
                     "source_selections",
                     # O3: Forward sector fallback disclosure (P1.6, R-INDIA-2)
                     "sector_disclosure",
+                    # O5: Forward historical comparison (R-EDGE-2)
+                    "historical_comparison",
                 )
                 if ocean.get(k) is not None
             },

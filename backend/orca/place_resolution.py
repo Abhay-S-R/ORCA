@@ -315,15 +315,12 @@ def resolve_or_ask(text: str, session: dict | None = None) -> PlaceResolution:
                 f"{place.name.title()} is a whole coastline, not a position — conditions at "
                 f"either end of it are different answers. Which of these did you mean?",
             )
-        intl = international_place_name(text) or foreign_place_name(text)
-        if intl and intl.lower() != place.name.lower():
-            lat0, lat1, lon0, lon1 = DATA_EXTENT
-            return PlaceResolution(
-                "out_of_range", None, [],
-                f"{intl} is outside India's maritime waters ({lat0:g}–{lat1:g}°N, {lon0:g}–{lon1:g}°E). "
-                "Sagar Sarathi only covers conditions off the Indian coast and Exclusive Economic Zone "
-                "(Arabian Sea, Bay of Bengal, and Indian Ocean).",
-            )
+        # FIX-PLACE-2 (2026-10-11): when the gazetteer already resolved a known
+        # Indian place, trust it.  The previous code scanned the FULL query text
+        # for foreign city names even after the gazetteer matched, so common
+        # English filler words (e.g. "okay") fuzzy-matched to foreign cities
+        # (Les Cayes, Haiti) and overrode the correct Indian resolution.  The
+        # foreign-place check is only useful when NO Indian place was found.
         return PlaceResolution("resolved", place, [], None)
 
     # Nothing matched exactly. Before treating the query as naming no place at

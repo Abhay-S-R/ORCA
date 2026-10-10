@@ -1450,13 +1450,21 @@ def historical_comparison(lat: float, lon: float, query: str) -> dict[str, Any]:
 
     coords = {p: c for p in CACHED_WEATHER_PORTS if (c := _port_latlon(p)) is not None}
     if not coords:
-        return {"available": False, "statement": "No cached weather archive on disk to compare against."}
+        return {
+            "available": False,
+            "statement": "No cached weather archive on disk to compare against.",
+            "confidence": Confidence(score="LOW_DATA", rationale="no cached weather archive"),
+        }
     port = min(coords, key=lambda p: _km_between(lat, lon, *coords[p]))
 
     baseline = al.load_era5_baseline(port)
     daily = al.load_era5_daily_series(port)
     if baseline is None or daily is None:
-        return {"available": False, "statement": f"No ERA5 archive is cached for {port} — nothing to compare against."}
+        return {
+            "available": False,
+            "statement": f"No ERA5 archive is cached for {port} — nothing to compare against.",
+            "confidence": Confidence(score="LOW_DATA", rationale=f"no ERA5 archive for {port}"),
+        }
 
     query_lower = query.lower()
     days_back = next((n for phrase, n in _HISTORICAL_DAYS_BACK.items() if phrase in query_lower), _DEFAULT_HISTORICAL_DAYS_BACK)
@@ -1468,12 +1476,17 @@ def historical_comparison(lat: float, lon: float, query: str) -> dict[str, Any]:
             "available": False,
             "statement": f"The ERA5 archive for {port} covers {baseline['period_start']}..{baseline['period_end']} "
                          f"only — {target_date} is outside that window.",
+            "confidence": Confidence(score="LOW_DATA", rationale="target date outside ERA5 archive window"),
         }
     past_value = (daily.get("wind_speed_10m_max") or [None] * len(dates))[dates.index(target_date)]
     speeds = [v for v in (load_json(cached_weather_path(port)).get("hourly", {}).get("wind_speed_10m") or []) if v is not None]
     today_value = max(float(v) for v in speeds) if speeds else None
     if past_value is None or today_value is None:
-        return {"available": False, "statement": f"Wind data for {port} on one of the two dates is missing."}
+        return {
+            "available": False,
+            "statement": f"Wind data for {port} on one of the two dates is missing.",
+            "confidence": Confidence(score="LOW_DATA", rationale="wind data missing for comparison"),
+        }
 
     comparison = "rougher" if past_value > today_value else ("calmer" if past_value < today_value else "about the same")
     return {
@@ -1489,6 +1502,10 @@ def historical_comparison(lat: float, lon: float, query: str) -> dict[str, Any]:
             f"{target_date} at {port} (ERA5 archive): peak wind {float(past_value):.1f} km/h. "
             f"Today's forecast peak: {today_value:.1f} km/h. {target_date} was {comparison} — wind only, "
             "no stored daily wave-height history exists to compare."
+        ),
+        "confidence": Confidence(
+            score="MEDIUM",
+            rationale=f"ERA5 reference archive comparison at {port} for {target_date}",
         ),
     }
 
@@ -1796,6 +1813,73 @@ def _worst(*confidences: Confidence) -> Confidence:
     return Confidence(score=worst.score, rationale="; ".join(c.rationale for c in confidences if c.score == worst.score))
 
 
+def _asks_correlation(state: Any, query: str) -> bool:
+    """O4: SST-chlorophyll correlation is computed only when the query/plan is diagnostic,
+    asks for sea colour / correlation, has an explicit target_bbox, or runs in DEEP mode.
+    Routine safety questions without a bounding box do not evaluate the correlation grid."""
+    if _asks_sea_colour(state, query):
+        return True
+    if state.get("target_bbox") is not None:
+        return True
+    if any(w in query for w in ("correlat", "correlation", "upwelling", "productivity", "plankton")):
+        return True
+    rows = state.get("matched_intent_rows") or []
+    return "DIAGNOSTIC" in rows
+
+
+def _asks_historical_comparison(query: str) -> bool:
+    """O5: Historical comparison against the ERA5 reanalysis archive is computed when
+    the user asks about past conditions or compares today against previous periods."""
+    return any(phrase in query for phrase in (
+        "rougher", "calmer", "last week", "a week ago", "last month", "a month ago",
+        "compared to", "historical", "was it rough", "yesterday", "past week"
+    ))
+
+
+def _resolve_productivity_target(
+    lat: float, lon: float, loc: dict[str, Any], query: str, user_state: str | None, near: Any
+) -> str:
+    """O6: Resolve the best district or state to query diagnose_productivity_decline with.
+
+    Prefers exact or proximity matches for the 4 district sectors with multi-year
+    landings ('Thoothukudi (Gulf of Mannar)', 'Ramanathapuram (Palk Bay)',
+    'Ernakulam (Kochi)', 'Mumbai Coastal'). If outside those 4 centres, resolves
+    to the user's coastal state so CMFRI state-level landings (covering all 12
+    coastal states) provide authoritative regional context rather than failing with
+    'insufficient data'.
+    """
+    q_low = query.lower()
+    place_name = (loc.get("place_name") or "").lower()
+
+    # 1. Textual name match against the 4 district sectors
+    if any(k in q_low or k in place_name for k in ("mumbai", "bombay")):
+        return "Mumbai Coastal"
+    if any(k in q_low or k in place_name for k in ("ernakulam", "kochi", "cochin")):
+        return "Ernakulam (Kochi)"
+    if any(k in q_low or k in place_name for k in ("ramanathapuram", "palk bay", "rameswaram", "pamban")):
+        return "Ramanathapuram (Palk Bay)"
+    if any(k in q_low or k in place_name for k in ("thoothukudi", "tuticorin", "gulf of mannar")):
+        return "Thoothukudi (Gulf of Mannar)"
+
+    # 2. Coordinate proximity to the 4 district centroids (< 80 km)
+    district_centres = (
+        ("Thoothukudi (Gulf of Mannar)", 8.76, 78.13),
+        ("Ramanathapuram (Palk Bay)", 9.36, 78.83),
+        ("Ernakulam (Kochi)", 9.98, 76.28),
+        ("Mumbai Coastal", 18.96, 72.82),
+    )
+    for name, c_lat, c_lon in district_centres:
+        if _km_between(lat, lon, c_lat, c_lon) <= 80.0:
+            return name
+
+    # 3. Check if user location or query explicitly matches an Indian coastal state
+    if user_state:
+        return user_state
+
+    # 4. Fallback to place name, landing center, or Thoothukudi
+    return loc.get("place_name") or (near.landing_center if getattr(near, "found", False) else None) or "Thoothukudi"
+
+
 def run(state: ORCAState) -> AgentResult:
     """(ORCAState) -> AgentResult. Directly callable, no langgraph import
     (plan §3.4). Always returns tide + nearest-PFZ + sector status; adds the
@@ -1869,11 +1953,28 @@ def run(state: ORCAState) -> AgentResult:
     sec_status["nearest_advisory_out_of_sector"] = bool(
         near.found and near.sector_id and near.sector_id != user_sector
     )
-    correlation = correlate_sst_chlorophyll(state.get("target_bbox"))
+    correlation = (
+        correlate_sst_chlorophyll(state.get("target_bbox"))
+        if _asks_correlation(state, query)
+        else {
+            "available": False,
+            "note": "SST-chlorophyll correlation is not requested for this query; it is evaluated for diagnostic/sea-colour queries or when an explicit regional bounding box is requested.",
+            "confidence": Confidence(score="LOW_DATA", rationale="not requested by query intent"),
+        }
+    )
     rose = wind_rose(lat, lon)
     anomaly_wind = wind_anomaly(lat, lon)
     gauge = tide_gauge_observation(lat, lon)
     osf_point = nearest_osf_point_forecast(lat, lon)
+    hist_comp = (
+        historical_comparison(lat, lon, query)
+        if _asks_historical_comparison(query)
+        else {
+            "available": False,
+            "statement": "Historical comparison against the ERA5 archive is evaluated for queries asking about past weather or comparisons with previous periods.",
+            "confidence": Confidence(score="LOW_DATA", rationale="not requested by query intent"),
+        }
+    )
 
     # A5 (2026-10-10): SST / chlorophyll headline sources follow Agent 3; PFZ and tide are reported decided vs used.
     colour = (
@@ -1941,6 +2042,7 @@ def run(state: ORCAState) -> AgentResult:
         **({"sea_colour_readings_at_the_place": colour} if colour is not None else {}),
         "wind_rose": {k: v for k, v in rose.items() if k != "confidence"},
         "wind_anomaly": {k: v for k, v in anomaly_wind.items() if k != "confidence"},
+        "historical_comparison": {k: v for k, v in hist_comp.items() if k != "confidence"},
         "osf_point_forecast": {k: v for k, v in osf_point.items() if k != "confidence"},
         "source_selections": source_selections,
         # P1.6 — None when the sector really is this position's. A sentence
@@ -1981,14 +2083,27 @@ def run(state: ORCAState) -> AgentResult:
     # Gridded SST/chlorophyll correlation is a specialized oceanographic layer (D3 seam).
     # If the user specifically asks about ocean temperature/colour, or if gridded data is available,
     # it contributes to confidence.
-    is_ocean_color_query = any(w in query for w in ("sst", "chlorophyll", "temperature", "plankton", "water quality", "satellite"))
-    if correlation.get("available") or is_ocean_color_query:
-        contributing.append(correlation["confidence"])
+    is_ocean_color_query = any(w in query for w in ("sst", "chlorophyll", "temperature", "plankton", "water quality", "satellite", "correlat"))
+    if correlation.get("available") and is_ocean_color_query:
+        corr_conf = correlation.get("confidence")
+        if isinstance(corr_conf, Confidence):
+            contributing.append(corr_conf)
+
+    if hist_comp.get("available") and _asks_historical_comparison(query):
+        hist_conf = hist_comp.get("confidence")
+        if isinstance(hist_conf, Confidence):
+            contributing.append(hist_conf)
+        else:
+            contributing.append(Confidence(score="MEDIUM", rationale="ERA5 historical comparison"))
 
     is_decline_query = any(w in query for w in ("decline", "declined", "why has", "productivity", "catch dropped", "fewer fish"))
     if is_decline_query or depth == "DEEP":
-        district = "Thoothukudi" if lon >= 78 and lat <= 9.5 else near.landing_center or "Thoothukudi"
-        diag = diagnose_productivity_decline(district)
+        target = _resolve_productivity_target(lat, lon, loc, query, user_state, near)
+        diag = diagnose_productivity_decline(target)
+        if diag.get("verdict") == "insufficient data" and user_state and target != user_state:
+            state_diag = diagnose_productivity_decline(user_state)
+            if state_diag.get("verdict") != "insufficient data":
+                diag = state_diag
         outputs["productivity_diagnosis"] = {k: v for k, v in diag.items() if k != "confidence"}
         contributing.append(diag["confidence"])
 

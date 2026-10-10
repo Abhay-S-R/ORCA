@@ -743,33 +743,47 @@ def is_region_name(name: str) -> bool:
 # Indian place resolved, no word-list match) — the happy path never calls it.
 
 _FOREIGN_STOPWORDS: frozenset[str] = frozenset({
-    "weather", "today", "tomorrow", "safe", "safety", "fish", "fishing", "sea",
-    "water", "wind", "wave", "waves", "storm", "boat", "port", "coast",
+    "weather", "today", "tomorrow", "yesterday", "safe", "safety", "fish", "fishing", "sea",
+    "water", "wind", "wave", "waves", "storm", "boat", "port", "coast", "coastal",
     "morning", "night", "next", "week", "help", "danger", "rough", "calm",
     "tide", "tides", "cyclone", "current", "speed", "what", "when", "where",
-    "which", "who", "how", "is", "it", "can", "go", "out", "to", "in", "at",
-    "on", "near", "from", "for", "about", "there", "here", "now", "the",
-    "and", "or", "of", "my", "village", "area", "town", "beach", "spot",
+    "which", "who", "whom", "whose", "why", "how", "is", "it", "its", "can", "could",
+    "go", "going", "gone", "went", "out", "to", "in", "at", "on", "near", "from",
+    "for", "about", "there", "here", "now", "the", "and", "or", "of", "my", "your",
+    "our", "their", "his", "her", "village", "area", "town", "beach", "spot",
     "conditions", "forecast", "tell", "me", "please", "give", "any", "some",
     "good", "bad", "high", "low", "deep", "depth", "distance", "heading",
-    "direction", "zone", "zones", "harbour", "harbor", "landing",
+    "direction", "zone", "zones", "harbour", "harbor", "landing", "centre", "center",
+    "okay", "ok", "fine", "cool", "sure", "yes", "yeah", "yep", "no", "nope", "nah",
+    "well", "alright", "right", "left", "hello", "hi", "hey", "thanks", "thank",
+    "you", "much", "many", "more", "most", "less", "least", "all", "both", "neither",
+    "either", "none", "nothing", "something", "anything", "everything",
+    "never", "always", "also", "even", "still", "again", "back", "away",
+    "come", "came", "make", "made", "take", "took", "see", "saw", "seen",
+    "look", "know", "knew", "think", "thought", "find", "found", "show", "shown",
+    "need", "want", "would", "should", "will", "shall", "may", "might", "must",
+    "have", "has", "had", "having", "been", "being", "were", "was", "are", "am",
+    "do", "does", "did", "done", "doing", "say", "said", "saying",
+    "time", "day", "days", "hour", "hours", "part", "parts", "bay",
+    "catch", "catches", "declined", "decline", "declining", "drop", "dropped",
+    "fall", "fell", "rise", "rose", "rising", "trend", "alert", "advisory",
 })
 
 
 @lru_cache(maxsize=1)
-def _foreign_place_index() -> tuple[dict[str, str], list[str]]:
-    """``(exact_lookup, fuzzy_keys)`` for foreign city / country names.
+def _foreign_place_index() -> tuple[dict[str, str], list[str], list[str]]:
+    """``(exact_lookup, fuzzy_single, fuzzy_multi)`` for foreign city / country names.
 
     ``exact_lookup`` maps lowercased city / country names (including ASCII
     alternate names) to their display names, excluding anything that overlaps
-    with a known Indian place.  ``fuzzy_keys`` is a list of primary (canonical)
-    city / country name keys — a much smaller set — for ``difflib`` fuzzy
-    search.
+    with a known Indian place.  ``fuzzy_single`` and ``fuzzy_multi`` are
+    canonical keys partitioned by single-word vs multi-word to prevent
+    spurious cross-matching during ``difflib`` fuzzy search.
     """
     try:
         import geonamescache
     except ImportError:
-        return {}, []
+        return {}, [], []
 
     gc = geonamescache.GeonamesCache()
     cities = gc.get_cities()
@@ -815,9 +829,15 @@ def _foreign_place_index() -> tuple[dict[str, str], list[str]]:
                 primary[low] = name
                 for alt in c.get("alternatenames", []):
                     alt_low = alt.lower().strip()
+                    # Only index multi-word alternate names (e.g. "San Francisco Bay",
+                    # "Ho Chi Minh City") to prevent single common English words or
+                    # foreign transliterations / airport codes (e.g. "okay" -> Les Cayes,
+                    # "had" -> Halmstad, "was" -> Washington, "mky" -> Mackay) from
+                    # overriding conversational queries.
                     if (
                         alt_low
-                        and len(alt_low) >= 3
+                        and " " in alt_low
+                        and len(alt_low) >= 5
                         and alt_low.isascii()
                         and alt_low not in indian_excluded
                         and alt_low not in _FOREIGN_STOPWORDS
