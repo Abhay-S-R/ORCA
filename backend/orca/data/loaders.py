@@ -657,7 +657,10 @@ def _inland_place_names() -> tuple[str, ...]:
     path = DATA_DIR / "tier1" / "boundaries" / "2011_Dist.shp"
     if not path.exists():
         return ()
-    import shapefile  # pyshp: pure-python .shp/.dbf reader, no GDAL
+    try:
+        import shapefile  # pyshp: pure-python .shp/.dbf reader, no GDAL
+    except ImportError:
+        return ()
 
     reader = shapefile.Reader(str(path))
     names: set[str] = set()

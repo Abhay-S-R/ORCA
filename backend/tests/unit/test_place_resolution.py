@@ -139,3 +139,22 @@ def test_the_position_guard_lets_the_default_through_and_stops_the_open_ocean():
     assert pr.position_guard(DEFAULT_LAT, DEFAULT_LON) is None
     off_somalia = pr.position_guard(12.0, 50.0)
     assert off_somalia is not None and "outside the sea area" in off_somalia
+
+
+def test_international_places_are_refused_as_out_of_range():
+    """An international city, country, or foreign sea (e.g. New York, Dubai, Singapore, London)
+    must return status='out_of_range' with a clear disclosure explaining that Sagar Sarathi
+    only covers India's maritime waters and EEZ."""
+    for query, expected_name in [
+        ("sea conditions in New York", "New York"),
+        ("is it safe near Dubai", "Dubai"),
+        ("wave height in Singapore", "Singapore"),
+        ("what is the weather in London", "London"),
+        ("wind speed in Tokyo", "Tokyo"),
+        ("is it safe in the Atlantic Ocean", "Atlantic Ocean"),
+    ]:
+        r = pr.resolve_or_ask(query)
+        assert r.status == "out_of_range", query
+        assert r.place is None, query
+        assert r.disclosure and expected_name in r.disclosure, query
+        assert "outside India's maritime waters" in r.disclosure, query

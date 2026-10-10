@@ -16,6 +16,8 @@ Four outcomes, and the caller must render all four differently:
   rather than a position. Return candidates with coordinates and ask.
 * ``unresolvable`` — the text names a place *and we cannot place it* ("near my
   village"). Say "I don't know where that is" and ask. Never a default.
+* ``out_of_range`` — the text names an international location or sea area
+  outside India's maritime waters. Refuse with OUT_OF_RANGE.
 * ``fallback``     — the text names no place at all. Answering somewhere is
   still better than refusing, but the disclosure goes on the card **before**
   the answer, never after it.
@@ -41,7 +43,7 @@ from orca.data.loaders import (
     resolve_all_places_from_text,
 )
 
-Status = Literal["resolved", "ambiguous", "unresolvable", "fallback"]
+Status = Literal["resolved", "ambiguous", "unresolvable", "fallback", "out_of_range"]
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,69 @@ _COORD_PAIR = re.compile(
 # data extent" guard. Matches the span every dataset under data/ covers
 # (Arabian Sea through the Andaman Sea), not a guess at the EEZ.
 DATA_EXTENT = (5.0, 25.0, 66.0, 96.0)  # (lat_min, lat_max, lon_min, lon_max)
+
+# International locations (cities, ports, countries, foreign oceans/seas) outside
+# Sagar Sarathi's maritime extent. Naming an international location is an explicit
+# query about a place we hold no data for: it must be refused with OUT_OF_RANGE
+# rather than falling back to the Gulf of Mannar default with "This question names no place".
+_INTERNATIONAL_PLACES: tuple[str, ...] = (
+    # Global cities / major foreign ports
+    "new york", "new york city", "london", "dubai", "singapore", "tokyo", "sydney",
+    "melbourne", "paris", "los angeles", "san francisco", "miami", "seattle",
+    "boston", "chicago", "houston", "vancouver", "toronto", "hong kong", "shanghai",
+    "beijing", "seoul", "bangkok", "jakarta", "manila", "cape town", "rio de janeiro",
+    "buenos aires", "cairo", "istanbul", "athens", "rome", "barcelona", "lisbon",
+    "amsterdam", "rotterdam", "hamburg", "oslo", "stockholm", "helsinki", "copenhagen",
+    "dublin", "auckland", "honolulu", "durban", "alexandria", "marseille", "naples",
+    "valencia", "perth", "brisbane", "adelaide", "darwin", "wellington", "vladivostok",
+    # Subcontinent / Middle East / Indian Ocean basin foreign ports
+    "karachi", "gwadar", "lahore", "islamabad", "chittagong", "chattogram", "cox's bazar",
+    "coxs bazar", "dhaka", "colombo", "galle", "jaffna", "trincomalee", "hambantota",
+    "male", "yangon", "kathmandu", "thimphu", "bandar abbas", "muscat", "salalah",
+    "doha", "manama", "kuwait city", "abu dhabi", "jeddah", "aden", "djibouti",
+    "mogadishu", "mombasa", "zanzibar", "dar es salaam",
+    # Countries and foreign regions
+    "united states", "united states of america", "usa", "united kingdom", "uk",
+    "great britain", "england", "scotland", "wales", "ireland", "australia",
+    "new zealand", "canada", "japan", "china", "russia", "germany", "france",
+    "italy", "spain", "portugal", "netherlands", "norway", "sweden", "denmark",
+    "finland", "greece", "turkey", "egypt", "south africa", "brazil", "argentina",
+    "mexico", "united arab emirates", "uae", "saudi arabia", "qatar", "kuwait",
+    "bahrain", "oman", "yemen", "iran", "iraq", "pakistan", "bangladesh",
+    "sri lanka", "maldives", "myanmar", "burma", "thailand", "malaysia",
+    "indonesia", "philippines", "vietnam", "taiwan", "south korea", "north korea",
+    # Foreign oceans, seas, and gulfs
+    "atlantic", "atlantic ocean", "pacific", "pacific ocean", "arctic", "arctic ocean",
+    "southern ocean", "antarctic ocean", "mediterranean", "mediterranean sea",
+    "red sea", "black sea", "baltic", "baltic sea", "north sea", "caribbean",
+    "caribbean sea", "persian gulf", "gulf of mexico", "south china sea",
+    "east china sea", "sea of japan", "yellow sea", "coral sea", "tasman sea",
+    "bering sea", "caspian sea", "english channel", "strait of malacca",
+    "malacca strait", "suez canal", "panama canal", "strait of gibraltar",
+    "strait of hormuz", "bab el mandeb",
+)
+
+_INTERNATIONAL_ACRONYMS: dict[str, str] = {
+    "usa": "USA",
+    "uk": "UK",
+    "uae": "UAE",
+}
+
+_INTERNATIONAL_PATTERN: re.Pattern = re.compile(
+    r"\b(?:" + "|".join(re.escape(p) for p in sorted(_INTERNATIONAL_PLACES, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def international_place_name(text: str) -> str | None:
+    """The first international place or sea area outside India's maritime waters
+    named in `text`, formatted for display, or None."""
+    m = _INTERNATIONAL_PATTERN.search(text)
+    if m is None:
+        return None
+    matched = m.group(0).strip()
+    low = matched.lower()
+    return _INTERNATIONAL_ACRONYMS.get(low, matched.title())
 
 # Every forecast product in the tree is a 7-day one (Open-Meteo, WW3). A
 # question about day 9 has no answer here and must be told so rather than
@@ -218,6 +283,15 @@ def resolve_or_ask(text: str, session: dict | None = None) -> PlaceResolution:
                 f"{place.name.title()} is a whole coastline, not a position — conditions at "
                 f"either end of it are different answers. Which of these did you mean?",
             )
+        intl = international_place_name(text)
+        if intl and intl.lower() != place.name.lower():
+            lat0, lat1, lon0, lon1 = DATA_EXTENT
+            return PlaceResolution(
+                "out_of_range", None, [],
+                f"{intl} is outside India's maritime waters ({lat0:g}–{lat1:g}°N, {lon0:g}–{lon1:g}°E). "
+                "Sagar Sarathi only covers conditions off the Indian coast and Exclusive Economic Zone "
+                "(Arabian Sea, Bay of Bengal, and Indian Ocean).",
+            )
         return PlaceResolution("resolved", place, [], None)
 
     # Nothing matched exactly. Before treating the query as naming no place at
@@ -258,6 +332,16 @@ def resolve_or_ask(text: str, session: dict | None = None) -> PlaceResolution:
             f"{inland} is inland — I only cover conditions at sea off India's coast. "
             "Name a coastal port or landing centre, or send your position, and I will "
             "answer for it.",
+        )
+
+    intl = international_place_name(text)
+    if intl:
+        lat0, lat1, lon0, lon1 = DATA_EXTENT
+        return PlaceResolution(
+            "out_of_range", None, [],
+            f"{intl} is outside India's maritime waters ({lat0:g}–{lat1:g}°N, {lon0:g}–{lon1:g}°E). "
+            "Sagar Sarathi only covers conditions off the Indian coast and Exclusive Economic Zone "
+            "(Arabian Sea, Bay of Bengal, and Indian Ocean).",
         )
 
     carried = (session or {}).get("last_place")
@@ -565,6 +649,13 @@ def validate_reading(
         resolution = resolve_confident(normalized)
         if resolution.status == "resolved":
             continue
+        if resolution.status == "out_of_range" or international_place_name(normalized):
+            body = resolution.disclosure or (
+                f"{normalized.title()} is outside India's maritime waters. "
+                "Sagar Sarathi only covers conditions off the Indian coast and Exclusive Economic Zone "
+                "(Arabian Sea, Bay of Bengal, and Indian Ocean)."
+            )
+            return ValidationOutcome("OUT_OF_RANGE", body)
         # ambiguous, unresolvable, or fallback (not found in gazetteer) —
         # all three mean we cannot honestly answer at the place the model named.
         body = resolution.disclosure or (
@@ -643,4 +734,9 @@ if __name__ == "__main__":  # self-check; `python -m orca.place_resolution`
     assert time_guard("is it safe tomorrow") is None
     assert position_guard(200.0, 0.0) is not None
     assert position_guard(DEFAULT_LAT, DEFAULT_LON) is None  # the default is wet, by construction
+    ny = resolve_or_ask("is it safe in New York")
+    assert ny.status == "out_of_range" and "New York" in (ny.disclosure or ""), ny
+    assert ny.place is None
+    dubai = resolve_or_ask("sea conditions in Dubai")
+    assert dubai.status == "out_of_range" and "Dubai" in (dubai.disclosure or ""), dubai
     print("place_resolution self-check OK")

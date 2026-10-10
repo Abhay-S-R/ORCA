@@ -726,13 +726,38 @@ def run(state: ORCAState) -> AgentResult:
     understood_agents = understood.agents  # PC2.1
 
     # --- Step 2: Validate reading (PC2.3: folded from query_guard) ---
-    from orca.place_resolution import position_guard, time_guard, validate_reading
+    from orca.place_resolution import (
+        DATA_EXTENT,
+        international_place_name,
+        position_guard,
+        resolve_or_ask,
+        time_guard,
+        validate_reading,
+    )
 
     query_outcome: str | None = None
     query_outcome_body: str | None = None
     soft_disclosures: list[str] = []
 
-    if understood_kind in NON_SEA_KINDS:
+    # An international location outside India's maritime waters is OUT_OF_RANGE
+    # regardless of whether the model classified it as inland_place or sea_question.
+    state_place_res = state.get("place_resolution") or {}
+    if state_place_res.get("status") == "out_of_range":
+        query_outcome = "OUT_OF_RANGE"
+        query_outcome_body = state_place_res.get("disclosure")
+    elif any(resolve_or_ask(n).status == "out_of_range" for n in [(p.get("normalized") or p.get("raw") or "").strip() for p in understood.places] if n):
+        res = next(resolve_or_ask(n) for n in [(p.get("normalized") or p.get("raw") or "").strip() for p in understood.places] if n and resolve_or_ask(n).status == "out_of_range")
+        query_outcome = "OUT_OF_RANGE"
+        query_outcome_body = res.disclosure
+    elif intl := international_place_name(query or raw_query):
+        lat0, lat1, lon0, lon1 = DATA_EXTENT
+        query_outcome = "OUT_OF_RANGE"
+        query_outcome_body = (
+            f"{intl} is outside India's maritime waters ({lat0:g}–{lat1:g}°N, {lon0:g}–{lon1:g}°E). "
+            "Sagar Sarathi only covers conditions off the Indian coast and Exclusive Economic Zone "
+            "(Arabian Sea, Bay of Bengal, and Indian Ocean)."
+        )
+    elif understood_kind in NON_SEA_KINDS:
         # Non-sea kinds pass through without place/time validation
         pass
     else:

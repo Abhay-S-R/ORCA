@@ -1355,6 +1355,15 @@ def reporting_run(state: ORCAState) -> AgentResult:
                     "osf_point_forecast",
                     # NOTE-CHL-1: SST / chlorophyll at the place, only present when the question asked for them
                     "sea_colour_readings_at_the_place",
+                    # O1: Forward wind, correlation, and species outputs to narrative and facts
+                    "wind_rose",
+                    "wind_anomaly",
+                    "sst_chlorophyll_correlation",
+                    "top_species",
+                    # O2: Forward tool / source selection narratives
+                    "source_selections",
+                    # O3: Forward sector fallback disclosure (P1.6, R-INDIA-2)
+                    "sector_disclosure",
                 )
                 if ocean.get(k) is not None
             },
