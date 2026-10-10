@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -219,7 +219,7 @@ def content_date_from_name(name: str) -> str | None:
             # `%b` matches the locale's "Aug", not the "AUG" MOSDAC writes.
             for candidate in (raw, raw.title()):
                 try:
-                    found.append(datetime.strptime(candidate, fmt).replace(tzinfo=timezone.utc))
+                    found.append(datetime.strptime(candidate, fmt).replace(tzinfo=UTC))
                     break
                 except ValueError:
                     continue
@@ -238,7 +238,7 @@ def _scan(patterns: tuple[str, ...]) -> tuple[datetime | None, str | None, int]:
             if not path.is_file():
                 continue
             count += 1
-            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
             if newest is None or mtime > newest:
                 newest = mtime
             dated = content_date_from_name(path.name)
@@ -251,7 +251,7 @@ def observe(source_id: str, *, now: datetime | None = None) -> Observed:
     """Measure one source's on-disk freshness. Never raises: an unreadable or
     absent dataset is reported as unobserved, which downstream renders as
     "unverified" — the one thing it must never do is silently read as fresh."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     cls = SOURCE_CLASS.get(source_id)
     newest, content, count = _scan(SOURCE_FILES.get(source_id, ()))
     fetched_live = source_id in FETCHED_LIVE
@@ -266,7 +266,7 @@ def observe(source_id: str, *, now: datetime | None = None) -> Observed:
     # These diverge badly and in the direction that flatters us: the Copernicus
     # chlorophyll granule was downloaded three weeks ago and holds 2023 data.
     if content:
-        content_dt = datetime.strptime(content, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        content_dt = datetime.strptime(content, "%Y-%m-%d").replace(tzinfo=UTC)
         age = max(0, int((now - content_dt).total_seconds() // 60))
     else:
         age = max(0, int((now - newest).total_seconds() // 60))
@@ -284,7 +284,7 @@ def observe(source_id: str, *, now: datetime | None = None) -> Observed:
 
 
 def observe_all(*, now: datetime | None = None) -> dict[str, Observed]:
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     return {sid: observe(sid, now=now) for sid in SOURCE_CLASS}
 
 
@@ -324,8 +324,8 @@ def is_stale(path: Path, max_age_minutes: int, *, now: datetime | None = None) -
     """
     if not path.is_file():
         return True
-    now = now or datetime.now(timezone.utc)
-    mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    now = now or datetime.now(UTC)
+    mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
     return mtime < now - timedelta(minutes=max_age_minutes)
 
 
@@ -352,7 +352,7 @@ def acquisition_date(payload: dict[str, Any], path: Path) -> str:
         if isinstance(value, str) and value:
             return value[:10]
     if path.is_file():
-        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).strftime("%Y-%m-%d")
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).strftime("%Y-%m-%d")
     return ""
 
 
@@ -411,7 +411,7 @@ if __name__ == "__main__":  # smallest check that fails if the logic breaks
     assert recency("incois_pfz", "2026-09-02", d)["band"] == "history"
     assert recency("incois_pfz", "", d)["band"] == "history"
 
-    now = datetime(2026, 9, 18, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
     with tempfile.TemporaryDirectory() as tmp:
         p = Path(tmp) / "cache.json"
         p.write_text('{"acquisition_date": "2026-08-27"}', encoding="utf-8")

@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -74,7 +74,7 @@ def _newest(paths: list[Path], pattern: re.Pattern[str], fmt: str) -> tuple[Path
         if not m:
             continue
         try:
-            dated.append((datetime.strptime(m.group(1), fmt).replace(tzinfo=timezone.utc), p))
+            dated.append((datetime.strptime(m.group(1), fmt).replace(tzinfo=UTC), p))
         except ValueError:
             continue
     if not dated:
@@ -84,7 +84,7 @@ def _newest(paths: list[Path], pattern: re.Pattern[str], fmt: str) -> tuple[Path
 
 
 def _freshness_minutes(acquired: datetime) -> int:
-    return max(0, int((datetime.now(timezone.utc) - acquired).total_seconds() // 60))
+    return max(0, int((datetime.now(UTC) - acquired).total_seconds() // 60))
 
 
 def _recency(recency_source_id: str, acquired: datetime) -> dict[str, Any]:
@@ -491,7 +491,7 @@ def _coastwatch_frame(
             "value": round(v, nd),
         })
         if acquired is None:
-            acquired = datetime.fromisoformat(str(row[idx["time"]]).replace("Z", "+00:00"))
+            acquired = datetime.fromisoformat(str(row[idx["time"]]))
     if not records or acquired is None:
         return None
     return records, acquired
@@ -552,7 +552,7 @@ def load_coastwatch_chl(bbox: dict[str, float] | None = None) -> dict[str, Any] 
 
 
 def _as_utc(numpy_datetime: Any) -> datetime:
-    return datetime.fromisoformat(str(numpy_datetime)[:19]).replace(tzinfo=timezone.utc)
+    return datetime.fromisoformat(str(numpy_datetime)[:19]).replace(tzinfo=UTC)
 
 
 # --- co-location ------------------------------------------------------------

@@ -16,7 +16,7 @@ from __future__ import annotations
 import csv
 import json
 import re
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +69,7 @@ def load_soi_tide_events() -> list[dict[str, Any]]:
 def _parse_soi_utc(raw: str) -> datetime:
     # "2026-08-30 03:43:00 UTC"
     return datetime.strptime(raw.replace(" UTC", ""), "%Y-%m-%d %H:%M:%S").replace(
-        tzinfo=timezone.utc
+        tzinfo=UTC
     )
 
 
@@ -140,7 +140,7 @@ def load_stormglass_tide_events(station_code: str) -> list[dict[str, Any]]:
         events.append({
             "station_code": station_code,
             "station_name": port.title(),
-            "when": when.astimezone(timezone.utc),
+            "when": when.astimezone(UTC),
             "tide_event": "HIGH TIDE" if row.get("type") == "high" else "LOW TIDE",
             # 2 dp, like the chart-datum table: Stormglass returns a float with
             # 17 significant digits and a tide height is not known to a micron.
