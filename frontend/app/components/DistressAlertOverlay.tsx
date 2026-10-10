@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { AlertOctagon, Phone, Radio, Volume2, VolumeX, X, ShieldAlert, LifeBuoy } from "lucide-react";
-import { Button } from "./Button";
+import { Phone, Volume2, VolumeX, X, ShieldAlert, LifeBuoy } from "lucide-react";
 
 export interface DistressOverlayData {
   isOpen: boolean;

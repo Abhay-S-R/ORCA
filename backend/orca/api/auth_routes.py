@@ -150,12 +150,25 @@ def list_vessels(user: User = Depends(get_current_user), db: Session = Depends(g
     return [_vessel_out(v) for v in list_vessels_for_owner(db, user.id)]
 
 
+CANONICAL_TO_DB_VESSEL_CLASS: dict[str, str] = {
+    "small_fishing": "fibreglass",
+    "mechanized_trawler": "trawler",
+    "cargo_vessel": "cargo",
+    "catamaran": "catamaran",
+    "fibreglass": "fibreglass",
+    "mechanised": "mechanised",
+    "trawler": "trawler",
+    "cargo": "cargo",
+}
+
+
 @router.post("/vessels", response_model=VesselOut, status_code=status.HTTP_201_CREATED)
 def register_vessel(body: VesselIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> VesselOut:
     # user_id and vessel_id are never accepted from the client as a subject —
     # owner_user_id always comes from the verified token (plan §5.4 Day 10).
+    db_class = CANONICAL_TO_DB_VESSEL_CLASS.get(body.vessel_class, body.vessel_class)
     vessel = create_vessel(
-        db, owner_user_id=user.id, vessel_class=body.vessel_class, name=body.name,
+        db, owner_user_id=user.id, vessel_class=db_class, name=body.name,
         registration_no=body.registration_no, draft_m=body.draft_m, length_m=body.length_m,
         crew_size=body.crew_size, cruise_speed_kn=body.cruise_speed_kn,
         fuel_burn_lph=body.fuel_burn_lph, engine_count=body.engine_count,

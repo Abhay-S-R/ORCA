@@ -1,7 +1,6 @@
 "use client";
 
-import React from "react";
-import { AlertTriangle, ExternalLink, LifeBuoy, Maximize2, Phone, Radio, ShieldAlert } from "lucide-react";
+import { LifeBuoy, Maximize2, Phone, ShieldAlert } from "lucide-react";
 import type { FinalResponse } from "../ask/useAskThread";
 import type { DistressOverlayData } from "./DistressAlertOverlay";
 

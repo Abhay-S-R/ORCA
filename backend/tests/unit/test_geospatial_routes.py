@@ -47,4 +47,5 @@ def test_boundary_provenance_endpoint_surfaces_the_citation_evidence():
     assert prov["marine_protected_areas"], "audited WDPA records must be reachable"
     assert prov["eez_gazetteer"], "VLIZ EEZ gazetteer records must be reachable"
     assert prov["boundary_data_vintage"]
+    assert prov["boundary_line_vintage"] == "2026-09-16T19:19:33.460Z"
     assert all(e["mrgid"] for e in prov["eez_gazetteer"])

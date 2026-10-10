@@ -38,6 +38,7 @@ from orca.api.chats_routes import router as chats_router
 from orca.api.conditions_routes import router as conditions_router
 from orca.api.discovery_routes import router as discovery_router
 from orca.api.feedback_routes import router as feedback_router
+from orca.api.fishing_profit_routes import router as fishing_profit_router
 from orca.api.geospatial_routes import router as geospatial_router
 from orca.api.language_rerender import rerender_last_answer
 from orca.api.notifications_routes import router as notifications_router
@@ -211,6 +212,7 @@ app.include_router(feedback_router)
 app.include_router(ops_router)
 app.include_router(replay_router)  # Phase 4 — /api/replay/gaja, historical replay (parent plan §1.3)
 app.include_router(system_status_router)  # /api/system-status — live/fallback/simulated disclosure
+app.include_router(fishing_profit_router)  # /api/fishing-profit — zone profit estimates (fishing_zone_profit_implementation_plan.md)
 
 # Agent 8 raster tile pyramid (orca/tiles.py) — serves the PNGs
 # scripts/generate_tiles.py writes offline, at the same "/tiles/{layer_id}/
@@ -847,10 +849,17 @@ async def _query_stream(
             "hazard_breakdown": {
                 "imbl_distance_nm": geo.get("imbl_distance_nm"),
                 "imbl_alert_level": geo.get("imbl_alert_level"),
+                "imbl_vintage": geo.get("imbl_vintage"),
+                "imbl_bearing_deg": geo.get("imbl_bearing_deg"),
+                "imbl_boundary_name": geo.get("imbl_boundary_name"),
+                "imbl_treaty": geo.get("imbl_treaty"),
+                "imbl_treaty_date": geo.get("imbl_treaty_date"),
                 "mpa_violation": geo.get("mpa_violation", False),
                 "mpa_alert_level": geo.get("mpa_alert_level"),
                 "mpa_names": geo.get("mpa_names", []),
                 "mpa_regulatory": geo.get("mpa_regulatory", []),
+                "depth_m": geo.get("depth_m"),
+                "shallow_hazard": geo.get("shallow_hazard", False),
             },
             # Agent 8 (Phase 2 D3) — map_layers/chart_specs, already
             # validate_payload-clean plain dicts (graph.py's visualization_node).
@@ -1308,7 +1317,8 @@ async def query(
     if vessel_class is None and user is not None and user.active_vessel_id is not None and "vessel_class" not in dropped:
         active_vessel = get_vessel_for_owner(db, user.active_vessel_id, user.id)
         if active_vessel is not None:
-            vessel_class = active_vessel.vessel_class
+            from orca.agents.risk_assessment import risk_vessel_class
+            vessel_class = risk_vessel_class(active_vessel.vessel_class)
 
     # None = follow the environment. Anything unrecognised is also None rather
     # than an error: a mistyped demo parameter must not fail a safety query.

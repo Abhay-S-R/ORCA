@@ -16,7 +16,7 @@ import { Field, inputClass } from "../components/Field";
 import { PasswordInput } from "../components/PasswordInput";
 import { Card } from "../components/Panel";
 import { OrcaMark } from "../nav";
-import { register, setHomePort, signInWithPassword, useAuth } from "../lib/auth";
+import { authFetch, invalidateProfile, register, setHomePort, signInWithPassword, useAuth } from "../lib/auth";
 import { PERSONA_DEFAULT_ROUTE, PERSONA_STORAGE_KEY, type Persona } from "../persona/config";
 import { useT } from "../i18n/useT";
 
@@ -81,6 +81,8 @@ export default function LoginPage() {
   // Home port — the text the user typed (a name, "lat,lon", or both)
   const [homePortText, setHomePortText] = useState("");
   const [homePortName, setHomePortName] = useState("");
+  const [selectedVesselClass, setSelectedVesselClass] = useState("");
+  const [vesselName, setVesselName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -108,6 +110,28 @@ export default function LoginPage() {
       if (coords) {
         const name = homePortName.trim() || undefined;
         await setHomePort(coords.lat, coords.lon, name);
+      }
+      // Save vessel if selected during registration
+      if (selectedVesselClass) {
+        try {
+          const vRes = await authFetch("/api/vessels", {
+            method: "POST",
+            body: JSON.stringify({
+              vessel_class: selectedVesselClass,
+              name: vesselName.trim() || undefined,
+            }),
+          });
+          if (vRes.ok) {
+            const vData = await vRes.json();
+            await authFetch("/api/profile/active-vessel", {
+              method: "PUT",
+              body: JSON.stringify({ vessel_id: vData.id }),
+            });
+            invalidateProfile();
+          }
+        } catch {
+          // best-effort
+        }
       }
       setPending(false);
       router.push(nextPath());
@@ -266,6 +290,40 @@ export default function LoginPage() {
                     )}
                   </Field>
                 </>
+              )}
+
+              <Field label="VESSEL TYPE" hint="Select your vessel to personalize safety thresholds and zone profits">
+                {(id) => (
+                  <select
+                    id={id}
+                    className={inputClass}
+                    value={selectedVesselClass}
+                    onChange={(e) => setSelectedVesselClass(e.target.value)}
+                  >
+                    <option value="">Select your vessel (optional)</option>
+                    <option value="fibreglass">Small fishing boat / Fibreglass</option>
+                    <option value="catamaran">Catamaran (Traditional boat)</option>
+                    <option value="mechanised">Mechanised boat</option>
+                    <option value="trawler">Mechanised Trawler</option>
+                    <option value="cargo">Cargo vessel</option>
+                  </select>
+                )}
+              </Field>
+
+              {selectedVesselClass && (
+                <Field label="VESSEL NAME" hint="Optional boat name or registration number">
+                  {(id) => (
+                    <input
+                      id={id}
+                      className={inputClass}
+                      value={vesselName}
+                      onChange={(e) => setVesselName(e.target.value)}
+                      placeholder="e.g. Matsya Raj"
+                      autoComplete="off"
+                      maxLength={80}
+                    />
+                  )}
+                </Field>
               )}
             </>
           )}

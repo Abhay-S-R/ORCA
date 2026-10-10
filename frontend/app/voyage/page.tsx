@@ -6,7 +6,7 @@
 // single point, walked along the whole passage at each leg's own ETA.
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, Anchor, Bell, BellOff, Droplets, Download, MapPin, Navigation, Printer, Route as RouteIcon, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, Anchor, Bell, BellOff, Droplets, Download, MapPin, Navigation, Printer, Save, Trash2 } from "lucide-react";
 import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
@@ -15,7 +15,6 @@ import { type RouteGeoJson } from "../components/MapView";
 import { SeaRouteMap } from "./SeaRouteMap";
 import { PageHeader, PageBody } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
-import { Readout, ReadoutGrid } from "../components/Readout";
 import { SourceChip } from "../components/SourceChip";
 import { ErrorState } from "../components/States";
 import { VerdictBadge } from "../components/VerdictBadge";
@@ -78,34 +77,6 @@ type VoyagePlanResponse = {
   nearest_safe_harbour: NearestSafeHarbour | null;
   fuel_burn_lph: number | null;
   fuel_estimate_liters: number | null;
-};
-type Tide = {
-  station_name: string; tidal_state: string; range_m: number | null; spring_neap: string;
-  next_high: { when: string; height_m: number } | null; next_low: { when: string; height_m: number } | null;
-  datum: string;
-  fell_back: boolean;
-  source_provenance: { dataset: string; acquisition_timestamp: string };
-  // The heights above are PREDICTED (astronomical). This is what an INCOIS
-  // gauge actually measured, carried alongside rather than blended in — the
-  // residual between them is a surge or a set-up, not an error in the table.
-  observed_cross_check: {
-    available: boolean;
-    // in_situ_gauge = an INCOIS gauge measured this. satellite_altimetry =
-    // no gauge within 150 km, so CMEMS DUACS anomaly stands in. The two are
-    // not interchangeable and must not render as the same card.
-    source_kind?: "in_situ_gauge" | "satellite_altimetry";
-    note?: string;
-    dataset?: string;
-    absolute_dynamic_topography_m?: number;
-    station_name?: string;
-    distance_km?: number;
-    observed_level_m?: number;
-    predicted_astronomical_m?: number;
-    sea_level_anomaly_m?: number;
-    status?: string;
-    tsunami_trigger_state?: string;
-    observed_at_ist?: string;
-  };
 };
 
 const STATUS_TONE = { CLEAR: "go", CAUTION: "caution", BLOCKED: "no-go" } as const;
@@ -285,6 +256,7 @@ function VoyageContent() {
   useEffect(() => {
     if (routeMode !== "port_to_zone" || ports.length === 0) return;
     if (!fromPortId && defaultHomePort) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- initializing departure port from default home port
       setFromPortId(defaultHomePort.id);
       setOrigin({ lat: defaultHomePort.lat, lon: defaultHomePort.lng });
       setOriginCheck(null);
@@ -625,6 +597,7 @@ function VoyageContent() {
     if (routeMode !== "port_to_zone" || !toZoneId) return;
     const exists = zoneList.some((z) => z.properties?.id === toZoneId);
     if (!exists) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting destination when selected zone is not in active state
       setToZoneId("");
       setDestination(null);
       setDestinationCheck(null);

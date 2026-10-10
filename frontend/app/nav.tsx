@@ -38,8 +38,6 @@ import { useAuth } from "./lib/auth";
 import { useT } from "./i18n/useT";
 import {
   resolveDistressContact,
-  HOME_PORT_MAX_RADIUS_KM,
-  NATIONWIDE_MRCC,
 } from "./lib/distressContacts";
 
 // P-HP-1 — SOS routes dynamically based on proximity to home port.
@@ -196,7 +194,6 @@ export function SosButton() {
   // - Mobile: `tel:` anchor triggers device dialpad with single tap
   // - Web / Desktop: 1-click clipboard copy for phone & coordinates + VHF instructions
   const dialog = useRef<HTMLDialogElement>(null);
-  const [reachedBackend, setReachedBackend] = useState<boolean | null>(null);
   const [sentPosition, setSentPosition] = useState<{ lat: number; lon: number } | null>(null);
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedCoords, setCopiedCoords] = useState(false);
@@ -236,7 +233,6 @@ export function SosButton() {
 
   function trigger() {
     dialog.current?.showModal();
-    setReachedBackend(null);
     setSentPosition(null);
     setCopiedPhone(false);
     setCopiedCoords(false);
@@ -248,11 +244,9 @@ export function SosButton() {
       es.onmessage = (ev) => {
         const data = JSON.parse(ev.data);
         if (data.type !== "final_response") return;
-        setReachedBackend(true);
         es.close();
       };
       es.onerror = () => {
-        setReachedBackend(false);
         es.close();
       };
     }
@@ -275,7 +269,6 @@ export function SosButton() {
   }
 
   const primary = resolution.primary;
-  const isLocal = resolution.isWithinHomePortRadius;
   const cleanPhone = primary.phone.replace(/[^+\d]/g, "");
   const formattedCoords = sentPosition
     ? `${sentPosition.lat.toFixed(4)}° N, ${sentPosition.lon.toFixed(4)}° E`
