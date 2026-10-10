@@ -809,6 +809,8 @@ class NearestPFZ:
     # ORCA holds anywhere — reported, labelled as out of reach, never dropped.
     beyond_reach: bool = False
     top_species: list[dict[str, Any]] = field(default_factory=list)
+    state: str | None = None
+    boundary_note: str | None = None
 
 
 # Beyond this a "nearest" zone is on another coast: the 906 km Betul answer to
@@ -825,18 +827,50 @@ def nearest_pfz(
     lon: float = _DEFAULT_LON,
     *,
     sector_id: str | None = None,
+    state: str | None = None,
     max_km: float = PFZ_MAX_REACH_KM,
 ) -> NearestPFZ:
     """Closest INCOIS PFZ advisory node to a point within `max_km`, with
     distance, true bearing and 16-point compass heading — 'which way and how
     far', the only form of this answer usable from a boat.
 
+    When `state` is supplied (or inferred from coordinates/home port), filters
+    to Potential Fishing Zones strictly within that coastal state's territorial
+    waters (MFRA 0–12 NM) so vessels do not cross interstate boundaries.
+
     Searches every sector's *latest* advisory (analytics_loaders.load_pfz_latest),
     not only today's file: a cloud-covered sector still has zones, and the
     result carries their age so the caller says how old they are."""
     rows = al.load_pfz_latest()
+    target_state = state
+    if not target_state and not sector_id:
+        from orca.sea_route.datasets import _guess_coastal_state
+        guessed = _guess_coastal_state(lat, lon)
+        if guessed and guessed != "India":
+            target_state = guessed
+
     if sector_id:
         rows = [r for r in rows if r.get("sector_id") == sector_id]
+    elif target_state:
+        from orca.sea_route.state_fishing_rules import get_state_boundary
+        boundary = get_state_boundary(target_state)
+        allowed_sectors = {s.upper() for s in boundary.zone_sectors} if boundary else {target_state.upper()}
+        state_rows = []
+        for r in rows:
+            sec = (r.get("sector") or "").upper()
+            if sec in allowed_sectors or any(a in sec for a in allowed_sectors):
+                state_rows.append(r)
+            elif not sec:
+                try:
+                    plat, plon = float(r["latitude_dd"]), float(r["longitude_dd"])
+                    from orca.sea_route.datasets import _guess_coastal_state
+                    if _guess_coastal_state(plat, plon).upper() in allowed_sectors:
+                        state_rows.append(r)
+                except Exception:
+                    pass
+        if state_rows:
+            rows = state_rows
+
     parsed: list[tuple[float, dict[str, Any]]] = []
     for r in rows:
         try:
@@ -845,11 +879,23 @@ def nearest_pfz(
             continue
         parsed.append((_km_between(lat, lon, plat, plon), r))
     if not parsed:
-        return NearestPFZ(False, None, None, None, None, None, None, None, None, sector_id, max_km=max_km)
+        return NearestPFZ(False, None, None, None, None, None, None, None, None, sector_id, max_km=max_km, state=target_state)
     dist_km, row = min(parsed, key=lambda t: t[0])
     plat, plon = float(row["latitude_dd"]), float(row["longitude_dd"])
     bearing, _ = geospatial.bearing_and_distance(lat, lon, plat, plon)
-    top_sp = al.get_top_species_for_zone(row.get("sector"), row.get("depth_m"), plat, plon)
+    zone_sector = row.get("sector") or target_state
+    top_sp = al.get_top_species_for_zone(zone_sector, row.get("depth_m"), plat, plon)
+
+    boundary_note = None
+    if target_state:
+        from orca.sea_route.state_fishing_rules import get_state_boundary
+        b = get_state_boundary(target_state)
+        trad_nm = b.traditional_zone_nm if b else 3.0
+        boundary_note = (
+            f"Advisory within {target_state} territorial waters (0–12 NM under {target_state} MFRA). "
+            f"Mechanised craft restricted within {trad_nm:.1f} NM nearshore zone."
+        )
+
     return NearestPFZ(
         found=True,
         landing_center=row.get("landing_center"),
@@ -868,6 +914,8 @@ def nearest_pfz(
         incois_reference=_incois_reference(row),
         beyond_reach=dist_km > max_km,
         top_species=top_sp,
+        state=target_state,
+        boundary_note=boundary_note,
     )
 
 
@@ -1766,12 +1814,20 @@ def run(state: ORCAState) -> AgentResult:
     query = (state.get("normalized_english_query") or state.get("raw_user_query") or "").lower()
     depth = coerce_reasoning_depth(state.get("reasoning_depth", "SHALLOW"))
 
+    # Resolve coastal state from user location, home port, or coordinates
+    user_state = loc.get("state")
+    if not user_state:
+        from orca.sea_route.datasets import _guess_coastal_state
+        guessed = _guess_coastal_state(lat, lon)
+        if guessed and guessed != "India":
+            user_state = guessed
+
     # A3 (2026-10-10): the tide source is the one Agent 3 decided (it checked the station and the requested time), not this
     # agent's own SOI-then-Stormglass order. `source_used` below is what really served, so the trace can show decided vs used.
     decided_tide = ((state.get("discovery_sources") or {}).get("by_data_type") or {}).get("tide")
     tide_down, tide_unusable = tide_down_from_decision(decided_tide)
     tide = predict_tides(lat, lon, when=when, down=tide_down, unusable_reason=tide_unusable)
-    near = nearest_pfz(lat, lon)
+    near = nearest_pfz(lat, lon, state=user_state)
 
     # Agent 3's source-selection reasoning for the data types this agent
     # actually consumes — a first-class output surfaced on the answer card and
@@ -1874,6 +1930,8 @@ def run(state: ORCAState) -> AgentResult:
             "expired": near.expired,
             "max_km": near.max_km,
             "beyond_reach": near.beyond_reach,
+            "state": getattr(near, "state", None),
+            "boundary_note": getattr(near, "boundary_note", None),
             "top_species": getattr(near, "top_species", []),
         },
         "top_species": getattr(near, "top_species", []),
