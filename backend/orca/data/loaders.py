@@ -730,6 +730,147 @@ def is_region_name(name: str) -> bool:
     return name.lower() in _REGION_KEYS
 
 
+# Foreign (non-Indian) place lookup using geonamescache — the deterministic
+# second layer behind `international_place_name`'s static word list.  The word
+# list handles the 100-odd most common international places instantly (compiled
+# regex, zero imports).  This layer extends coverage to 28k+ world cities and
+# 252 countries with fuzzy matching for misspellings, using an offline JSON
+# database (~35 MB installed, pure Python, no GDAL or network calls).
+#
+# The index is built once on first call and cached via @lru_cache: ~500 ms to
+# build, O(1) per exact lookup, ~30 ms per fuzzy lookup against the 28k
+# primary names.  The cost is paid only for queries that reach this far (no
+# Indian place resolved, no word-list match) — the happy path never calls it.
+
+_FOREIGN_STOPWORDS: frozenset[str] = frozenset({
+    "weather", "today", "tomorrow", "safe", "safety", "fish", "fishing", "sea",
+    "water", "wind", "wave", "waves", "storm", "boat", "port", "coast",
+    "morning", "night", "next", "week", "help", "danger", "rough", "calm",
+    "tide", "tides", "cyclone", "current", "speed", "what", "when", "where",
+    "which", "who", "how", "is", "it", "can", "go", "out", "to", "in", "at",
+    "on", "near", "from", "for", "about", "there", "here", "now", "the",
+    "and", "or", "of", "my", "village", "area", "town", "beach", "spot",
+    "conditions", "forecast", "tell", "me", "please", "give", "any", "some",
+    "good", "bad", "high", "low", "deep", "depth", "distance", "heading",
+    "direction", "zone", "zones", "harbour", "harbor", "landing",
+})
+
+
+@lru_cache(maxsize=1)
+def _foreign_place_index() -> tuple[dict[str, str], list[str]]:
+    """``(exact_lookup, fuzzy_keys)`` for foreign city / country names.
+
+    ``exact_lookup`` maps lowercased city / country names (including ASCII
+    alternate names) to their display names, excluding anything that overlaps
+    with a known Indian place.  ``fuzzy_keys`` is a list of primary (canonical)
+    city / country name keys — a much smaller set — for ``difflib`` fuzzy
+    search.
+    """
+    try:
+        import geonamescache
+    except ImportError:
+        return {}, []
+
+    gc = geonamescache.GeonamesCache()
+    cities = gc.get_cities()
+    countries = gc.get_countries()
+
+    # Comprehensive set of Indian place names to exclude.  Any name that could
+    # plausibly refer to an Indian location must never be classified as foreign.
+    indian_excluded: set[str] = set()
+    for c in cities.values():
+        if c["countrycode"] == "IN":
+            indian_excluded.add(c["name"].lower())
+            for alt in c.get("alternatenames", []):
+                if alt:
+                    indian_excluded.add(alt.lower())
+    for k in _GAZETTEER:
+        indian_excluded.add(k.lower())
+    for r in _REGION_KEYS:
+        indian_excluded.add(r.lower())
+    for inp in _inland_place_names():
+        indian_excluded.add(inp.lower())
+    for p in port_coordinates():
+        indian_excluded.add(p.lower())
+    for t in tide_station_coordinates():
+        indian_excluded.add(t.lower())
+
+    exact: dict[str, str] = {}
+    primary: dict[str, str] = {}
+
+    for c in countries.values():
+        if c["iso"] != "IN":
+            name = c["name"]
+            low = name.lower()
+            if low not in indian_excluded and low not in _FOREIGN_STOPWORDS and len(low) >= 3:
+                exact[low] = name
+                primary[low] = name
+
+    for c in cities.values():
+        if c["countrycode"] != "IN":
+            name = c["name"]
+            low = name.lower()
+            if low not in indian_excluded and low not in _FOREIGN_STOPWORDS and len(low) >= 3:
+                exact[low] = name
+                primary[low] = name
+                for alt in c.get("alternatenames", []):
+                    alt_low = alt.lower().strip()
+                    if (
+                        alt_low
+                        and len(alt_low) >= 3
+                        and alt_low.isascii()
+                        and alt_low not in indian_excluded
+                        and alt_low not in _FOREIGN_STOPWORDS
+                        and alt_low not in exact
+                    ):
+                        exact[alt_low] = name
+
+    fuzzy_single = [k for k in primary if " " not in k]
+    fuzzy_multi = [k for k in primary if " " in k]
+    return exact, fuzzy_single, fuzzy_multi
+
+
+_FOREIGN_FUZZY_CUTOFF = 0.88
+
+
+def is_foreign_city(name: str, *, fuzzy: bool = True) -> str | None:
+    """Display name of a foreign (non-Indian) city or country, or ``None``.
+
+    Uses geonamescache for exact matching (O(1) dict lookup against 178k+
+    entries including alternate names) and optionally ``difflib`` for fuzzy
+    matching of misspellings (against primary names, cutoff 0.88).
+
+    Returns ``None`` for any name that matches a known Indian place, is a
+    common English word, or is too short (< 3 chars).  Degrades gracefully
+    to ``None`` when ``geonamescache`` is not installed.
+    """
+    exact, fuzzy_single, fuzzy_multi = _foreign_place_index()
+    if not exact:
+        return None
+
+    cand = name.strip().lower()
+    if not cand or len(cand) < 3 or cand in _FOREIGN_STOPWORDS:
+        return None
+
+    words = cand.split()
+    if all(w in _FOREIGN_STOPWORDS for w in words):
+        return None
+
+    if cand in exact:
+        return exact[cand]
+
+    if fuzzy and len(cand) >= 5:
+        target_keys = fuzzy_multi if " " in cand else fuzzy_single
+        if target_keys:
+            import difflib
+
+            matches = difflib.get_close_matches(cand, target_keys, n=1, cutoff=_FOREIGN_FUZZY_CUTOFF)
+            if matches:
+                return exact[matches[0]]
+
+    return None
+
+
 def places_within_region(name: str, limit: int = 4) -> list[ResolvedPlace]:
     """The specific gazetteer places closest to a region's own centroid — the
     candidate list a region query is answered with. Derived from the table

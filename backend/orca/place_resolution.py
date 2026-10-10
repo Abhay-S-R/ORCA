@@ -37,6 +37,7 @@ from orca.data.loaders import (
     DEFAULT_LON,
     ResolvedPlace,
     inland_place_name,
+    is_foreign_city,
     is_region_name,
     near_miss_place_names,
     places_within_region,
@@ -195,6 +196,37 @@ def international_place_name(text: str) -> str | None:
     low = matched.lower()
     return _INTERNATIONAL_ACRONYMS.get(low, matched.title())
 
+
+def foreign_place_name(text: str) -> str | None:
+    """The first foreign (non-Indian) city or country named in ``text``,
+    using geonamescache for offline lookup with fuzzy matching.
+
+    Scans multi-word n-grams (2-3 words) with full fuzzy matching,
+    and single words with exact-only matching to avoid false positives
+    on common English words.  Returns ``None`` when nothing foreign is
+    found or when ``geonamescache`` is not installed.
+    """
+    tokens = re.findall(r"[a-zA-Z]+", text)
+    n = len(tokens)
+
+    # Multi-word n-grams: exact + fuzzy (false positives rare for phrases)
+    for length in (3, 2):
+        for i in range(n - length + 1):
+            phrase = " ".join(tokens[i : i + length])
+            result = is_foreign_city(phrase)
+            if result:
+                return result
+
+    # Single-word tokens: exact only (avoids "wave" → "Wavre" etc.)
+    for tok in tokens:
+        if len(tok) >= 4:
+            result = is_foreign_city(tok, fuzzy=False)
+            if result:
+                return result
+
+    return None
+
+
 # Every forecast product in the tree is a 7-day one (Open-Meteo, WW3). A
 # question about day 9 has no answer here and must be told so rather than
 # answered off the last frame we do have.
@@ -283,7 +315,7 @@ def resolve_or_ask(text: str, session: dict | None = None) -> PlaceResolution:
                 f"{place.name.title()} is a whole coastline, not a position — conditions at "
                 f"either end of it are different answers. Which of these did you mean?",
             )
-        intl = international_place_name(text)
+        intl = international_place_name(text) or foreign_place_name(text)
         if intl and intl.lower() != place.name.lower():
             lat0, lat1, lon0, lon1 = DATA_EXTENT
             return PlaceResolution(
@@ -340,6 +372,16 @@ def resolve_or_ask(text: str, session: dict | None = None) -> PlaceResolution:
         return PlaceResolution(
             "out_of_range", None, [],
             f"{intl} is outside India's maritime waters ({lat0:g}–{lat1:g}°N, {lon0:g}–{lon1:g}°E). "
+            "Sagar Sarathi only covers conditions off the Indian coast and Exclusive Economic Zone "
+            "(Arabian Sea, Bay of Bengal, and Indian Ocean).",
+        )
+
+    foreign = foreign_place_name(text)
+    if foreign:
+        lat0, lat1, lon0, lon1 = DATA_EXTENT
+        return PlaceResolution(
+            "out_of_range", None, [],
+            f"{foreign} is outside India's maritime waters ({lat0:g}–{lat1:g}°N, {lon0:g}–{lon1:g}°E). "
             "Sagar Sarathi only covers conditions off the Indian coast and Exclusive Economic Zone "
             "(Arabian Sea, Bay of Bengal, and Indian Ocean).",
         )
@@ -649,7 +691,7 @@ def validate_reading(
         resolution = resolve_confident(normalized)
         if resolution.status == "resolved":
             continue
-        if resolution.status == "out_of_range" or international_place_name(normalized):
+        if resolution.status == "out_of_range" or international_place_name(normalized) or foreign_place_name(normalized):
             body = resolution.disclosure or (
                 f"{normalized.title()} is outside India's maritime waters. "
                 "Sagar Sarathi only covers conditions off the Indian coast and Exclusive Economic Zone "
@@ -739,4 +781,11 @@ if __name__ == "__main__":  # self-check; `python -m orca.place_resolution`
     assert ny.place is None
     dubai = resolve_or_ask("sea conditions in Dubai")
     assert dubai.status == "out_of_range" and "Dubai" in (dubai.disclosure or ""), dubai
+    # Geonamescache layer — misspellings and obscure foreign cities
+    sf = resolve_or_ask("is it safe in san fransisco")
+    assert sf.status == "out_of_range" and "San Francisco" in (sf.disclosure or ""), sf
+    abj = resolve_or_ask("sea conditions near abuja")
+    assert abj.status == "out_of_range" and "Abuja" in (abj.disclosure or ""), abj
+    # Indian near-misses must NOT be classified as foreign
+    assert resolve_or_ask("what are the nearest fishing zones near gujurat").status == "ambiguous"
     print("place_resolution self-check OK")

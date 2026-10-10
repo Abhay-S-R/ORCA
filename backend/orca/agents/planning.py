@@ -728,6 +728,7 @@ def run(state: ORCAState) -> AgentResult:
     # --- Step 2: Validate reading (PC2.3: folded from query_guard) ---
     from orca.place_resolution import (
         DATA_EXTENT,
+        foreign_place_name,
         international_place_name,
         position_guard,
         resolve_or_ask,
@@ -749,7 +750,7 @@ def run(state: ORCAState) -> AgentResult:
         res = next(resolve_or_ask(n) for n in [(p.get("normalized") or p.get("raw") or "").strip() for p in understood.places] if n and resolve_or_ask(n).status == "out_of_range")
         query_outcome = "OUT_OF_RANGE"
         query_outcome_body = res.disclosure
-    elif intl := international_place_name(query or raw_query):
+    elif (intl := international_place_name(query or raw_query)) or (intl := foreign_place_name(query or raw_query)):
         lat0, lat1, lon0, lon1 = DATA_EXTENT
         query_outcome = "OUT_OF_RANGE"
         query_outcome_body = (

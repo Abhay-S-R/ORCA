@@ -158,3 +158,29 @@ def test_international_places_are_refused_as_out_of_range():
         assert r.place is None, query
         assert r.disclosure and expected_name in r.disclosure, query
         assert "outside India's maritime waters" in r.disclosure, query
+
+
+def test_geonamescache_foreign_places_and_misspellings():
+    """Geonamescache-backed second layer catches misspellings of world cities
+    and less common foreign places, while strictly preserving Indian near-misses."""
+    # Misspellings & foreign cities
+    for query, expected_name in [
+        ("is it safe in san fransisco", "San Francisco"),
+        ("sea conditions near abuja", "Abuja"),
+        ("wave forecast for cairo", "Cairo"),
+        ("fishing conditions in auckland", "Auckland"),
+    ]:
+        r = pr.resolve_or_ask(query)
+        assert r.status == "out_of_range", query
+        assert r.place is None, query
+        assert r.disclosure and expected_name.lower() in r.disclosure.lower(), query
+        assert "outside India's maritime waters" in r.disclosure, query
+
+    # Indian near-misses must NOT be classified as foreign
+    r_gujurat = pr.resolve_or_ask("what are the nearest fishing zones near gujurat")
+    assert r_gujurat.status == "ambiguous"
+
+    # Common English questions with "to go" or "sea" must not match foreign places like Togo
+    r_togo = pr.resolve_or_ask("is it safe to go to sea tomorrow")
+    assert r_togo.status == "fallback"
+

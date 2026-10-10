@@ -341,3 +341,13 @@ def test_a_chosen_position_outside_the_data_extent_is_still_refused():
     loc = {"lat": 12.0, "lon": 50.0, "place_source": "explicit"}
     outcome = validate_reading(_GUJARAT, None, loc, now=_NOW)
     assert outcome is not None and outcome.code == "OUT_OF_RANGE"
+
+
+def test_foreign_places_refused_by_validate_reading():
+    """Foreign places identified via geonamescache or static word list must return OUT_OF_RANGE."""
+    for place_str in ["new york", "dubai", "san fransisco", "abuja", "auckland"]:
+        outcome = validate_reading([{"raw": place_str, "normalized": place_str}], None, None, now=_NOW)
+        assert outcome is not None, place_str
+        assert outcome.code == "OUT_OF_RANGE", place_str
+        assert "outside India's maritime waters" in outcome.body, place_str
+
