@@ -282,6 +282,10 @@ type DistressEvent = {
   distress_type: string | null;
   matched_language: string | null;
   matched_phrase: string | null;
+  target_port?: string | null;
+  authority_name?: string | null;
+  survival_suggestions?: string[] | null;
+  is_assigned_to_reader?: boolean;
   // As surfaced to the caller by distress.surface_mrcc_contact.
   mrcc_contact: {
     primary?: { name?: string; phone?: string | null };
@@ -297,6 +301,7 @@ function DistressQueue() {
   const [events, setEvents] = useState<DistressEvent[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [portFilter, setPortFilter] = useState<"all" | "assigned">("all");
 
   const load = useCallback(async () => {
     try {
@@ -330,6 +335,8 @@ function DistressQueue() {
     .filter((e) => e.state !== "closed" && e.lat !== null && e.lon !== null)
     .map((e) => ({ id: e.id, lat: e.lat!, lon: e.lon!, label: titleCase(e.place_name) ?? `${e.lat!.toFixed(3)}, ${e.lon!.toFixed(3)}` }));
   const active = (events ?? []).filter((e) => e.state !== "closed").length;
+  const hasAssigned = (events ?? []).some((e) => e.is_assigned_to_reader);
+  const displayedEvents = (events ?? []).filter((e) => portFilter === "all" || e.is_assigned_to_reader);
 
   return (
     <Panel title={`Distress queue — last 24 h${events ? ` · ${active} active` : ""}`} className="mb-4">
@@ -340,13 +347,50 @@ function DistressQueue() {
       )}
       {events && events.length > 0 && (
         <>
+          {active > 0 && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-sm border border-no-go/40 bg-no-go/10 px-3 py-2 text-xs text-no-go">
+              <span className="flex items-center gap-2 font-medium">
+                <LifeBuoy className="size-4 animate-pulse shrink-0" />
+                <span>
+                  <strong>CRITICAL DISTRESS SIGNAL ACTIVE:</strong> Coastal authorities alerted &amp; rescue units mobilizing.
+                </span>
+              </span>
+              <span className="font-mono text-[11px] font-semibold tracking-wider">
+                {active} ACTIVE INCIDENT{active > 1 ? "S" : ""}
+              </span>
+            </div>
+          )}
+
+          {hasAssigned && (
+            <div className="mb-3 flex gap-2 text-xs">
+              <button
+                type="button"
+                className={`rounded px-2.5 py-1 font-medium transition-colors ${
+                  portFilter === "all" ? "bg-shelf-3 text-ink" : "text-ink-dim hover:text-ink"
+                }`}
+                onClick={() => setPortFilter("all")}
+              >
+                All sectors ({events.length})
+              </button>
+              <button
+                type="button"
+                className={`rounded px-2.5 py-1 font-medium transition-colors ${
+                  portFilter === "assigned" ? "bg-no-go/20 text-no-go border border-no-go/40" : "text-ink-dim hover:text-ink"
+                }`}
+                onClick={() => setPortFilter("assigned")}
+              >
+                Assigned to your port ({events.filter((e) => e.is_assigned_to_reader).length})
+              </button>
+            </div>
+          )}
+
           {markers.length > 0 && (
             <div className="mb-3 h-56 overflow-hidden rounded-sm border border-hairline">
               <MapView className="h-full w-full" distressMarkers={markers} showLayerPanel={false} showRegionSwitcher={false} showLegends={false} showSoundingHud={false} />
             </div>
           )}
           <ul className="flex flex-col gap-2" aria-live="assertive">
-            {events.map((e) => (
+            {displayedEvents.map((e) => (
               <li key={e.id} className="rounded-sm border border-hairline bg-shelf-1/60 p-3 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge tone={STATE_TONE[e.state]}>{e.state.toUpperCase()}</Badge>
@@ -366,6 +410,20 @@ function DistressQueue() {
                     )}
                   </span>
                 </div>
+                <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                  {e.authority_name ? (
+                    <Badge tone="accent">
+                      Assigned: {e.authority_name}
+                    </Badge>
+                  ) : e.target_port ? (
+                    <Badge tone="accent">
+                      Sector: {e.target_port} Authority
+                    </Badge>
+                  ) : null}
+                  {e.is_assigned_to_reader && (
+                    <Badge tone="no-go">Your Port Unit</Badge>
+                  )}
+                </div>
                 <p className="mt-1 text-ink-muted">
                   {e.distress_type === "sos_control" ? "SOS button" : `Phrase "${e.matched_phrase ?? "?"}"${e.matched_language ? ` (${e.matched_language})` : ""}`}
                   {e.mrcc_contact?.nearest_station
@@ -378,6 +436,20 @@ function DistressQueue() {
                     trace
                   </Link>
                 </p>
+
+                {e.survival_suggestions && e.survival_suggestions.length > 0 && (
+                  <details className="mt-2 rounded border border-hairline/60 bg-abyss/40 p-2 text-[11px]">
+                    <summary className="cursor-pointer font-medium text-ink-dim hover:text-ink">
+                      Vessel Survival Instructions ({e.survival_suggestions.length} steps issued)
+                    </summary>
+                    <ol className="mt-1.5 list-decimal space-y-1 pl-4 text-ink-muted">
+                      {e.survival_suggestions.map((step, idx) => (
+                        <li key={idx}>{step}</li>
+                      ))}
+                    </ol>
+                  </details>
+                )}
+
                 {e.state !== "closed" && (
                   <div className="mt-2 flex gap-2">
                     {e.state === "open" && (

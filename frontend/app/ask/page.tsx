@@ -36,6 +36,7 @@ import { accountStore, browserStore } from "./chatStore";
 import { useAskThread, type Turn } from "./useAskThread";
 import { useT } from "../i18n/useT";
 import { useTour } from "../tour/useTour";
+import { DistressAlertOverlay, type DistressOverlayData } from "../components/DistressAlertOverlay";
 import { TourCard, TOUR_PRESET, TOUR_FOLLOWUP } from "../tour/TourCard";
 
 const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapView), {
@@ -108,6 +109,33 @@ export default function AskPage() {
       .find((x) => x.answer?.distress_flag && x.answer.user_location && x.answer.user_location.place_source !== "regional_default");
     const loc = t?.answer?.user_location;
     return t && loc ? [{ id: t.id, lat: loc.lat, lon: loc.lon, label: loc.place_name?.replace(/\b\p{L}/gu, (c) => c.toUpperCase()) ?? "your position" }] : [];
+  }, [turns]);
+
+  const [distressOverlay, setDistressOverlay] = useState<DistressOverlayData | null>(null);
+  const seenDistressRef = useRef<Set<string>>(new Set());
+
+  // Automatically trigger the fullscreen Red Alert overlay upon receiving a distress query answer
+  useEffect(() => {
+    const latestDistress = [...turns].reverse().find(
+      (t) => t.answer && (t.answer.distress_flag || t.answer.outcome === "DISTRESS")
+    );
+    if (latestDistress && latestDistress.answer) {
+      const qid = latestDistress.answer.query_id || latestDistress.id;
+      if (!seenDistressRef.current.has(qid)) {
+        seenDistressRef.current.add(qid);
+        setDistressOverlay({
+          isOpen: true,
+          queryId: qid,
+          distressType: latestDistress.answer.distress_flag ? "distress" : null,
+          mrccContact: latestDistress.answer.mrcc_contact,
+          targetAuthority: latestDistress.answer.target_authority,
+          survivalAdvice: latestDistress.answer.survival_advice,
+          survivalSuggestions: latestDistress.answer.survival_suggestions,
+          position: latestDistress.answer.user_location,
+          rawText: latestDistress.answer.final_english_response,
+        });
+      }
+    }
   }, [turns]);
 
   // P4.1 — the vessel class that actually drove the most recent verdict, so
@@ -453,7 +481,8 @@ export default function AskPage() {
                     onRerun={() => rerun(turn.id)}
                     onShowVersion={(index) => showVersion(turn.id, index)}
                     onFollowUp={submit}
-                    />
+                    onOpenDistressOverlay={(data) => setDistressOverlay({ ...data, isOpen: true })}
+                  />
                 </div>
               ))}
             </div>
@@ -648,6 +677,11 @@ export default function AskPage() {
           />
         )}
       </AnimatePresence>
+
+      <DistressAlertOverlay
+        data={distressOverlay}
+        onClose={() => setDistressOverlay((prev) => (prev ? { ...prev, isOpen: false } : null))}
+      />
     </div>
   );
 }

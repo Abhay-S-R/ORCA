@@ -62,6 +62,9 @@ function groupRuns(spans: AgentSpan[]): { span: AgentSpan; runs: number; latency
   return order.map((name) => byAgent.get(name)!);
 }
 
+import { DistressChatCard } from "../components/DistressChatCard";
+import type { DistressOverlayData } from "../components/DistressAlertOverlay";
+
 export function ChatTurn({
   turn,
   persona,
@@ -70,6 +73,7 @@ export function ChatTurn({
   onRerun,
   onShowVersion,
   onFollowUp,
+  onOpenDistressOverlay,
 }: {
   turn: Turn;
   persona: Persona;
@@ -77,12 +81,8 @@ export function ChatTurn({
   onRetry: () => void;
   onRerun: () => void;
   onShowVersion: (index: number) => void;
-  // `options` carries P2.11's LLM-off re-run, so the same handler that asks a
-  // follow-up can also re-ask this question deterministically. `position` is a
-  // place chip's own coordinates, so picking a place re-asks the same question there.
   onFollowUp: (q: string, options?: { llm?: "off"; position?: { lat: number; lon: number } }) => void;
-  // P2.9 — the user rejecting an inherited value. Re-asks the question with
-  // that value explicitly overridden rather than silently carried again.
+  onOpenDistressOverlay?: (data: DistressOverlayData) => void;
 }) {
   const t = useT();
   const { askedQuery, spans, answer, streaming, failed, renderedAs, focus } = turn;
@@ -209,7 +209,7 @@ export function ChatTurn({
           {/* Nothing is drawn above the answer (the user, 2026-10-10): no disclosure banner and no "carried over"
               chips. This is a chat: the model reads the last 20 turns to work out which place a message means, and the
               user corrects it by saying so. `answer.disclosures` and `answer.inherited` are still on the wire. */}
-          <Panel title="Answer">
+          <Panel title={answer.distress_flag || answer.outcome === "DISTRESS" ? "Distress Handoff & Emergency Actions" : "Answer"}>
             <div className="flex flex-col gap-4">
               {/* Architecture §2.6 rendering matrix — same facts, structure
                   differs by persona. Only rendered once risk_assessment
@@ -260,29 +260,37 @@ export function ChatTurn({
                 </p>
               )}
 
-              {(() => {
-                const answerBody = answer.final_vernacular_response || answer.final_english_response;
-                // Always rendered. This used to be hidden whenever it equalled
-                // the "VERDICT: reason" status line — which is exactly what a
-                // provider outage produced, so the Response went blank
-                // (chatbot plan C0.2e). The fallback now carries the readings,
-                // and says when no model wrote it.
-                const unwritten = answer.response_engine?.startsWith("Deterministic") ?? false;
-                return (
-                  <div className="flex flex-col gap-2.5">
-                    <FormattedResponse
-                      text={answerBody}
-                      language={answer.detected_language}
-                      large={(renderedAs ?? persona) === "fisherman"}
-                    />
-                    {unwritten && (
-                      <p className="text-[11px] text-ink-dim">{t("chatTurn.writtenWithoutModel")}</p>
-                    )}
-                    {/* Under the text, in one row: copy, play, try again. */}
-                    <div className="-ml-2">{actionRow}</div>
-                  </div>
-                );
-              })()}
+              {answer.distress_flag || answer.outcome === "DISTRESS" ? (
+                <DistressChatCard
+                  answer={answer}
+                  onOpenOverlay={onOpenDistressOverlay}
+                  actions={actionRow}
+                />
+              ) : (
+                (() => {
+                  const answerBody = answer.final_vernacular_response || answer.final_english_response;
+                  // Always rendered. This used to be hidden whenever it equalled
+                  // the "VERDICT: reason" status line — which is exactly what a
+                  // provider outage produced, so the Response went blank
+                  // (chatbot plan C0.2e). The fallback now carries the readings,
+                  // and says when no model wrote it.
+                  const unwritten = answer.response_engine?.startsWith("Deterministic") ?? false;
+                  return (
+                    <div className="flex flex-col gap-2.5">
+                      <FormattedResponse
+                        text={answerBody}
+                        language={answer.detected_language}
+                        large={(renderedAs ?? persona) === "fisherman"}
+                      />
+                      {unwritten && (
+                        <p className="text-[11px] text-ink-dim">{t("chatTurn.writtenWithoutModel")}</p>
+                      )}
+                      {/* Under the text, in one row: copy, play, try again. */}
+                      <div className="-ml-2">{actionRow}</div>
+                    </div>
+                  );
+                })()
+              )}
 
               <IntentActions actions={answer.intent_actions ?? []} />
 

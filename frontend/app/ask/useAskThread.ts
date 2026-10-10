@@ -109,6 +109,25 @@ export type FinalResponse = {
   // One concrete action per ROUTE / META / EXPORT / … intent (P5.29).
   intent_actions?: IntentAction[];
   distress_flag?: boolean;
+  mrcc_contact?: {
+    primary?: { name?: string; phone?: string | null; vhf_channel?: string };
+    nationwide_fallback?: { name?: string; phone?: string | null };
+    nearest_station?: { station?: string; coordinating_mrcc?: string; straight_line_distance_km?: number } | null;
+  } | null;
+  target_authority?: {
+    port_name?: string;
+    display_name?: string;
+    authority_name?: string;
+    email?: string;
+    phone?: string;
+    emergency_unit?: string;
+  } | null;
+  survival_advice?: {
+    category_key?: string;
+    category?: string;
+    steps?: string[];
+  } | null;
+  survival_suggestions?: string[] | null;
   user_location?: { lat: number; lon: number; place_name?: string | null; place_source?: string } | null;
   // Phase 1 (contracts.QueryOutcome). Anything but "ANSWERED"/"DISTRESS" is a
   // refusal or a question back, and must NOT be drawn as an answer with a

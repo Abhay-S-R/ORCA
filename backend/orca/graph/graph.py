@@ -192,6 +192,20 @@ def _distress_update(result: AgentResult, entry: dict, node: str) -> dict:
         # Bypasses Reporting entirely (Architecture §3.2 step 1) — surfaces
         # MRCC contact directly, never synthesized/persona-rendered.
         mrcc = result.outputs["mrcc_contact"]
+        target_auth = result.outputs.get("target_authority") or {}
+        survival_advice = result.outputs.get("survival_advice") or {}
+
+        auth_msg = ""
+        auth_name = target_auth.get("display_name") or target_auth.get("authority_name")
+        if auth_name:
+            auth_msg = (
+                f" Alert triggered and sent to {auth_name} "
+                f"({target_auth.get('emergency_unit', target_auth.get('port_name', 'Port Control'))}, "
+                f"Tel: {target_auth.get('phone', '1093')}). Authorities are mobilizing."
+            )
+
+        advice_text = distress.format_survival_advice(survival_advice) if hasattr(distress, "format_survival_advice") else ""
+
         # The wire field a client branches on, set HERE and not only in
         # main.py's _initial_state: that one is seeded from the `distress=`
         # query parameter (the SOS button), so a distress call detected from
@@ -200,7 +214,9 @@ def _distress_update(result: AgentResult, entry: dict, node: str) -> dict:
         update["query_outcome"] = "DISTRESS"
         update["final_english_response"] = (
             f"DISTRESS DETECTED. Coast Guard MRCC: {mrcc['primary']['phone']} "
-            f"(nationwide: {mrcc['nationwide_fallback']['phone']}), VHF channel {mrcc['primary']['vhf_channel']}. "
+            f"(nationwide: {mrcc['nationwide_fallback']['phone']}), VHF channel {mrcc['primary']['vhf_channel']}."
+            f"{auth_msg}\n\n"
+            f"{advice_text}\n\n"
             "This handoff is SIMULATED — no live DAT-SG/telephony integration exists yet."
         )
         update["confidence_tier"] = "HIGH"
