@@ -68,11 +68,11 @@ export default function WatchesPage() {
     // Use the user's registered home port — never a hardcoded default.
     if (!homePort) return;
     await createWatch({
-      watch_type: "wave_height",
+      watch_type: "all",
       lat: homePort.lat,
       lon: homePort.lon,
       radius_km: 10,
-      thresholds: { wave_height_m: DEFAULT_WAVE_THRESHOLD },
+      thresholds: { wave_height_m: DEFAULT_WAVE_THRESHOLD, wind_kt: 25 },
       channels: ["in_app"],
       enabled: true,
     });
@@ -104,7 +104,7 @@ export default function WatchesPage() {
           </Button>
           {hasHomePort ? (
             <span className="text-[11px] text-ink-dim">
-              {homePortName ? `${homePortName} — ` : ""}{t("watches.waveDefault")}
+              {homePortName ? `${homePortName} — ` : ""}{t("watches.allDefault")}
             </span>
           ) : (
             <span className="text-[11px] text-ink-dim">
@@ -152,7 +152,7 @@ export default function WatchesPage() {
 
 function AdvancedWatchForm({ onCreated, defaultLat, defaultLon }: { onCreated: () => void; defaultLat?: number; defaultLon?: number }) {
   const t = useT();
-  const [type, setType] = useState<WatchType>("wave_height");
+  const [type, setType] = useState<WatchType>("all");
   // Pre-fill with the user's home port coordinates when available, otherwise blank.
   const [lat, setLat] = useState(defaultLat !== undefined ? String(defaultLat) : "");
   const [lon, setLon] = useState(defaultLon !== undefined ? String(defaultLon) : "");
@@ -195,6 +195,7 @@ function AdvancedWatchForm({ onCreated, defaultLat, defaultLon }: { onCreated: (
       <Field label={t("watches.watchType")}>
         {(id) => (
           <select id={id} className={inputClass} value={type} onChange={(e) => setType(e.target.value as WatchType)}>
+            <option value="all">{t("watches.allParameters")}</option>
             <option value="wave_height">{t("watches.waveHeight")}</option>
             <option value="weather">{t("watches.weather")}</option>
             <option value="lightning">{t("watches.lightning")}</option>

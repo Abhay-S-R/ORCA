@@ -9,6 +9,7 @@ import type { BadgeTone } from "../components/Badge";
 // ---------------------------------------------------------------------------
 
 export type WatchType =
+  | "all"
   | "weather"
   | "wave_height"
   | "lightning"

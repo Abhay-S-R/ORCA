@@ -322,3 +322,63 @@ def get_authority_user_for_port(
         db.refresh(user)
 
     return cfg, user
+
+
+def ensure_test_mariners(db: Session) -> list[User]:
+    """Ensures at least one active test user exists for each mariner persona
+    (fisherman, commercial_navigator, researcher) so broadcast targeting can be verified."""
+    mariners = [
+        {
+            "email": "fisherman@orca.test",
+            "display_name": "Kadal Meenavan (Fisherman)",
+            "persona": "fisherman",
+            "home_port_name": "Mumbai",
+            "lat": 18.9446,
+            "lon": 72.8347,
+        },
+        {
+            "email": "navigator@orca.test",
+            "display_name": "MV Sagar Deep (Commercial Navigator)",
+            "persona": "commercial_navigator",
+            "home_port_name": "Mumbai",
+            "lat": 18.9446,
+            "lon": 72.8347,
+        },
+        {
+            "email": "researcher@orca.test",
+            "display_name": "NIO Ocean Research (Researcher)",
+            "persona": "researcher",
+            "home_port_name": "Mumbai",
+            "lat": 18.9446,
+            "lon": 72.8347,
+        },
+    ]
+    created: list[User] = []
+    pw_hash = hash_password(DEFAULT_AUTHORITY_PASSWORD)
+    for m in mariners:
+        stmt = select(User).where(User.email == m["email"])
+        user = db.execute(stmt).scalar_one_or_none()
+        if user is None:
+            user = User(
+                email=m["email"],
+                password_hash=pw_hash,
+                display_name=m["display_name"],
+                role="user",
+                default_persona=m["persona"],
+                language="en",
+                home_port=_point_wkb(m["lat"], m["lon"]),
+                home_port_name=m["home_port_name"],
+                status="active",
+            )
+            db.add(user)
+            db.flush()
+        else:
+            if user.default_persona != m["persona"]:
+                user.default_persona = m["persona"]
+            if not user.home_port_name:
+                user.home_port_name = m["home_port_name"]
+                user.home_port = _point_wkb(m["lat"], m["lon"])
+        created.append(user)
+    db.commit()
+    return created
+

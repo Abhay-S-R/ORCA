@@ -102,3 +102,10 @@ def test_near_threshold_verdict_watches():
 
 def test_pfz_shift_never_reports_near_threshold():
     assert _is_near_threshold("pfz_shift", {}, _decision(has_advisory=True)) is False
+
+
+def test_near_threshold_all_watches():
+    assert _is_near_threshold("all", {"wave_height_m": 2.5}, _decision(wave_height_m=2.1, go_no_go="GO")) is True
+    assert _is_near_threshold("all", {}, _decision(wave_height_m=1.0, go_no_go="CAUTION")) is True
+    assert _is_near_threshold("all", {}, _decision(wave_height_m=1.0, go_no_go="GO", geofence={"band": "WATCH"})) is True
+    assert _is_near_threshold("all", {"wave_height_m": 2.5}, _decision(wave_height_m=1.0, go_no_go="GO", geofence={"band": "CLEAR"})) is False

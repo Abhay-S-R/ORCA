@@ -206,3 +206,50 @@ npm run dev
   - Run `python scripts/seed_port_authorities.py` again to ensure the password hash is properly set in the `users` table.
 - **TypeScript compile check**:
   - Run `npx tsc --noEmit` from the `frontend/` directory to verify frontend integrity.
+
+---
+
+## 8. Migration 011 — "All Parameters" Multi-Variable Sentinel Watches
+
+This update adds an **"All parameters"** standing watch option that monitors all variables simultaneously:
+- **What it monitors**: Wave height, wind speed, weather worsening/improvements, lightning nowcasts, cyclone warnings, live SACHET CAP emergency alerts, maritime boundary (IMBL) proximity bands, and Potential Fishing Zone (PFZ) advisory shifts.
+- **Default Everywhere**: "All parameters" is now the default selection on `/watches` (both in the quick "Watch my home port" action and in the Advanced Watch form dropdown).
+- **Database Migration**:
+  Execute inside the Postgres container:
+  ```bash
+  docker exec orca-postgres-1 psql -U orca -d orca -c "ALTER TYPE watch_type ADD VALUE IF NOT EXISTS 'all';"
+  ```
+  Or via `migrate.sh`: `011_watch_type_all.sql`.
+
+---
+
+## 9. Coastal Authority Multi-Persona Alert Broadcasting (`/ops`)
+
+Each coastal authority account can write and broadcast alerts targeting every other user type across the district:
+
+### 1. Target Audience / User Types Supported
+- **🌐 All User Types (`all`)**: Broadcasts to all active mariners and vessel operators in the database.
+- **🎣 Fishermen (`fisherman`)**: Targets artisanal, mechanized, and traditional fishing boats.
+- **🚢 Commercial Navigators (`commercial_navigator`)**: Targets cargo ships, container vessels, tankers, and tugs.
+- **🔬 Ocean Researchers (`researcher`)**: Targets oceanographic survey ships and research teams.
+- **⚓ Port Jurisdiction Mariners (`port_users`)**: Targets vessels and subscribers operating specifically in the authority's port sector.
+
+### 2. Linking to Active Watches & Notification Delivery
+When a coastal authority issues an alert:
+- An in-app notification is inserted into the `notifications` table for every targeted recipient.
+- The system checks if any recipient has an active watch in that coordinate sector (or an `"all"` parameters watch).
+- If a matching watch is found:
+  - Links `watch_id = watch.id`.
+  - Updates `last_fired_at = now()`.
+  - The alert automatically appears in the recipient's **Watch Alert History** (`/watches/{id}/history`) and updates map badges.
+- Every broadcast is committed to the security audit trail (`audit_trace_log`) with event `coastal_authority_alert_broadcast`.
+
+### 3. Authority Sign-In
+- Sign in normally via `/login` with the authority's email (e.g. `authority.mumbai@orca.test`) and password (`orca-authority-local-dev`).
+- Once signed in with an authority account, navigate to `/ops` to access District Ops and broadcast alerts.
+
+### 4. API Endpoints
+- `POST /api/ops/broadcast/publish`: Protected by `require_role("authority", "admin")`. Issues alerts across personas.
+- `GET /api/ops/broadcast/history`: Returns audit history of broadcasts issued by coastal authorities.
+- `GET /api/ops/authorities`: Returns the roster of all 12 pre-configured port authorities.
+
