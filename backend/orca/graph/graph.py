@@ -462,7 +462,7 @@ _CORE_DATA_TYPES: tuple[str, ...] = ("wave_height", "wind_speed", "boundary", "l
 # Ocean deciding `pfz` and `catch_statistics` for itself on a plain safety
 # question, because Agent 3 had never been asked for them — which is the
 # "each specialist picks its own sources" arrangement this node replaces.
-_OCEAN_DATA_TYPES: tuple[str, ...] = ("pfz", "tide", "catch_statistics")
+_OCEAN_DATA_TYPES: tuple[str, ...] = ("pfz", "tide", "catch_statistics", "fishing_ban")
 _INTENT_DATA_TYPES: dict[str, tuple[str, ...]] = {
     "SAFETY_CHECK": ("tide", "cyclone"),
     "PFZ_NEAREST": ("pfz", "bathymetry"),
@@ -1366,6 +1366,8 @@ def reporting_run(state: ORCAState) -> AgentResult:
                     "sector_disclosure",
                     # O5: Forward historical comparison (R-EDGE-2)
                     "historical_comparison",
+                    # O7: Forward seasonal fishing ban status
+                    "fishing_ban",
                 )
                 if ocean.get(k) is not None
             },

@@ -811,6 +811,8 @@ class NearestPFZ:
     top_species: list[dict[str, Any]] = field(default_factory=list)
     state: str | None = None
     boundary_note: str | None = None
+    fishing_ban: dict[str, Any] | None = None
+    ban_note: str | None = None
 
 
 # Beyond this a "nearest" zone is on another coast: the 906 km Betul answer to
@@ -829,6 +831,7 @@ def nearest_pfz(
     sector_id: str | None = None,
     state: str | None = None,
     max_km: float = PFZ_MAX_REACH_KM,
+    when: Any = None,
 ) -> NearestPFZ:
     """Closest INCOIS PFZ advisory node to a point within `max_km`, with
     distance, true bearing and 16-point compass heading — 'which way and how
@@ -879,7 +882,11 @@ def nearest_pfz(
             continue
         parsed.append((_km_between(lat, lon, plat, plon), r))
     if not parsed:
-        return NearestPFZ(False, None, None, None, None, None, None, None, None, sector_id, max_km=max_km, state=target_state)
+        fallback_ban = geospatial.fishing_ban_status(lat, lon, when)
+        return NearestPFZ(
+            False, None, None, None, None, None, None, None, None, sector_id,
+            max_km=max_km, state=target_state, fishing_ban=fallback_ban,
+        )
     dist_km, row = min(parsed, key=lambda t: t[0])
     plat, plon = float(row["latitude_dd"]), float(row["longitude_dd"])
     bearing, _ = geospatial.bearing_and_distance(lat, lon, plat, plon)
@@ -895,6 +902,23 @@ def nearest_pfz(
             f"Advisory within {target_state} territorial waters (0–12 NM under {target_state} MFRA). "
             f"Mechanised craft restricted within {trad_nm:.1f} NM nearshore zone."
         )
+
+    # O7: Seasonal fishing ban check (DoF uniform EEZ ban & State monsoon bans)
+    ban = geospatial.fishing_ban_status(plat, plon, when)
+    ban_note = None
+    if ban.get("available") and ban.get("in_ban_period"):
+        coast_str = (ban.get("coast") or "").title()
+        win_str = ban.get("window") or ""
+        if ban.get("applies_here"):
+            ban_note = (
+                f"Seasonal fishing ban alert: Uniform seasonal fishing ban in force on the {coast_str} Coast ({win_str}). "
+                "Mechanised fishing is prohibited in the EEZ beyond 12 NM under Department of Fisheries order."
+            )
+        else:
+            ban_note = (
+                f"Seasonal fishing ban note: Uniform EEZ fishing ban is active on the {coast_str} Coast ({win_str}). "
+                f"Coastal waters within 12 NM are governed by {target_state or 'state'} MFRA monsoon ban regulations."
+            )
 
     return NearestPFZ(
         found=True,
@@ -916,6 +940,8 @@ def nearest_pfz(
         top_species=top_sp,
         state=target_state,
         boundary_note=boundary_note,
+        fishing_ban=ban,
+        ban_note=ban_note,
     )
 
 
@@ -1911,7 +1937,8 @@ def run(state: ORCAState) -> AgentResult:
     decided_tide = ((state.get("discovery_sources") or {}).get("by_data_type") or {}).get("tide")
     tide_down, tide_unusable = tide_down_from_decision(decided_tide)
     tide = predict_tides(lat, lon, when=when, down=tide_down, unusable_reason=tide_unusable)
-    near = nearest_pfz(lat, lon, state=user_state)
+    when_date = when.date() if isinstance(when, datetime) else None
+    near = nearest_pfz(lat, lon, state=user_state, when=when_date)
 
     # Agent 3's source-selection reasoning for the data types this agent
     # actually consumes — a first-class output surfaced on the answer card and
@@ -1929,7 +1956,7 @@ def run(state: ORCAState) -> AgentResult:
 
     decided = (state.get("discovery_sources") or {}).get("by_data_type") or {}
     source_selections = []
-    for dtype in ("pfz", "tide", "catch_statistics"):
+    for dtype in ("pfz", "tide", "catch_statistics", "fishing_ban"):
         d = decided.get(dtype) or select_validated_source(dtype)
         if d is not None and d.get("chosen"):
             source_selections.append({
@@ -1942,7 +1969,7 @@ def run(state: ORCAState) -> AgentResult:
                 # Where the decision came from, so a trace reader can see this
                 # agent consumed Agent 3's call rather than making its own.
                 "decided_by": "marine_data_discovery" if dtype in decided else "ocean_analytics (no Agent 3 decision in state)",
-                **({"used": tide.source_used} if dtype == "tide" else {}),
+                **({"used": tide.source_used} if dtype == "tide" else {"used": "dof_fishing_ban"} if dtype == "fishing_ban" else {}),
             })
 
     # The user's own sector governs the status they see — resolved from their
@@ -2034,8 +2061,11 @@ def run(state: ORCAState) -> AgentResult:
             "state": getattr(near, "state", None),
             "boundary_note": getattr(near, "boundary_note", None),
             "top_species": getattr(near, "top_species", []),
+            "fishing_ban": getattr(near, "fishing_ban", None),
+            "ban_note": getattr(near, "ban_note", None),
         },
         "top_species": getattr(near, "top_species", []),
+        "fishing_ban": getattr(near, "fishing_ban", None),
         "pfz_persistence": {k: v for k, v in persistence.items() if k != "confidence"},
         "sector_status": sec_status,
         "sst_chlorophyll_correlation": {k: v for k, v in correlation.items() if k != "confidence"},

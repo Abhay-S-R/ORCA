@@ -299,3 +299,63 @@ def test_o6_productivity_district_resolution():
     assert diag_m["district"] == "Mumbai Coastal"
     assert len(diag_m["series"]) >= 3
 
+
+def test_o7_fishing_ban_integration():
+    """Verify O7: Seasonal fishing ban is evaluated, tracked in source_selections, and surfaced in reporting."""
+    from datetime import date
+    from orca.agents import ocean_analytics, reporting
+    from orca.contracts import AgentResult, Confidence, SourceProvenance
+    from orca.graph.graph import reporting_run
+
+    # 1. nearest_pfz evaluated in ban window (e.g. May 1 on East Coast)
+    near = ocean_analytics.nearest_pfz(8.8, 78.1, when=date(2026, 5, 1))
+    assert near.fishing_ban is not None
+    assert near.fishing_ban["available"] is True
+    assert near.fishing_ban["in_ban_period"] is True
+    assert near.ban_note is not None
+    assert "Seasonal fishing ban" in near.ban_note
+
+    # 2. ocean_analytics run produces fishing_ban output and includes it in source_selections
+    state_pfz: ORCAState = {
+        "query_id": "test-pfz-ban",
+        "raw_user_query": "where is the nearest fishing zone",
+        "normalized_english_query": "where is the nearest fishing zone",
+        "reasoning_depth": "SHALLOW",
+        "user_location": {"lat": 8.8, "lon": 78.1, "place_name": "Thoothukudi", "place_source": "explicit"},
+        "target_time_window": {"start": "2026-05-01T06:00:00Z"},
+    }
+    res = ocean_analytics.run(state_pfz)
+    assert "fishing_ban" in res.outputs
+    ban_out = res.outputs["fishing_ban"]
+    assert ban_out["available"] is True
+    assert ban_out["in_ban_period"] is True
+
+    # Verify source_selections tracks dof_fishing_ban
+    selections = res.outputs.get("source_selections", [])
+    ban_sel = next((s for s in selections if s["data_type"] == "fishing_ban"), None)
+    assert ban_sel is not None
+    assert ban_sel["chosen"] == "dof_fishing_ban"
+
+    # 3. reporting_run forwards fishing_ban to reporting
+    ocean_result = AgentResult(
+        agent_name="ocean_analytics",
+        query_id="test-pfz-ban",
+        reasoning_depth="SHALLOW",
+        inputs_consumed={},
+        outputs=res.outputs,
+        source_provenance=SourceProvenance(dataset="test", acquisition_timestamp="", freshness_minutes=0),
+        confidence=Confidence(score="HIGH", rationale="test"),
+    )
+    rep_res = reporting_run({
+        **state_pfz,
+        "ocean_data": res.outputs,
+        "risk_assessment": {"go_no_go": "GO", "reason": "safe"},
+    })
+    assert rep_res.agent_name == "reporting"
+
+    # 4. facts_paragraph surfaces the ban warning
+    facts = reporting.facts_paragraph({"go_no_go": "GO", "reason": "safe"}, [ocean_result])
+    assert "Seasonal fishing ban alert" in facts
+    assert "East Coast" in facts or "prohibited" in facts
+
+

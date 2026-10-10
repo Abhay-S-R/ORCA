@@ -341,6 +341,17 @@ def facts_paragraph(
                 lines.append(_sentence(f"Top target fish species for this zone (CMFRI landings & OBIS depth records): {', '.join(sp_strs)}"))
         if pfz.get("boundary_note"):
             lines.append(_sentence(pfz["boundary_note"]))
+        # O7: Seasonal fishing ban alert
+        ban = pfz.get("fishing_ban") or ocean.get("fishing_ban") or {}
+        if ban.get("available") and ban.get("in_ban_period"):
+            coast_str = f"on the {(ban.get('coast') or '').title()} Coast" if ban.get("coast") else ""
+            win_str = f" ({ban.get('window')})" if ban.get("window") else ""
+            lines.append(_sentence(
+                f"Seasonal fishing ban alert: The uniform annual fishing ban is in force {coast_str}{win_str}. "
+                "Mechanised fishing vessels are prohibited in the EEZ beyond territorial waters under Department of Fisheries order."
+            ))
+        elif pfz.get("ban_note"):
+            lines.append(_sentence(pfz["ban_note"]))
 
     lines.extend(_colour_lines(ocean.get("sea_colour_readings_at_the_place") or {}, place))
 
@@ -973,6 +984,13 @@ CRITICAL RULES:
    - When wind_anomaly indicates anomalous=True, state that the forecast peak wind is unusual (high/low) compared to the ERA5 monthly reference baseline at that port.
    - When sector_disclosure is present, explicitly state that the fishing zone sector status was derived from the regional fallback position, not from the user's specific location.
    - When explaining data sources, you may cite the source selection narrative provided under source_selections (e.g. why national official sources or fallbacks were selected).
+10e. Seasonal fishing ban (DoF uniform EEZ ban & State monsoon bans):
+   - When nearest_pfz or ocean_analytics carries fishing_ban and in_ban_period is True:
+     Explicitly alert the user that the uniform annual seasonal fishing ban is currently in force on that coast
+     (e.g., East Coast: 15 April to 14 June; West Coast: 1 June to 31 July).
+     Warn that mechanised fishing vessels are strictly prohibited in the EEZ beyond territorial waters
+     under the Department of Fisheries order, and state MFRA monsoon ban regulations govern coastal waters.
+     Traditional non-motorized craft are exempted under the order.
 11. Times and timezones. Always express times in Indian Standard Time (IST). Never refer to UTC or reply with UTC timestamps — if any telemetry contains a UTC time, translate it to IST (+05:30) for the user.
 12. Language. Write the whole answer in English, whatever language or script USER QUERY is written in (romanized Hindi, Tamil, Kannada and so on included). USER QUERY may begin with an instruction about the reply language ("say it in Kannada:", "answer in Tamil", "Hindi mein batao"). That instruction is NOT part of the question and NOT a text to translate: answer the sea question that follows it, in full, with the measured facts. Never translate, quote or repeat the question as your answer, and do NOT mention the language request or apologise for it: it is carried out by a translation step that runs after you, on your English. Do not reply in the user's language, do not transliterate, and do not mix languages: the answer is checked, and one that is not English is thrown away.{critique_rule}"""
 
