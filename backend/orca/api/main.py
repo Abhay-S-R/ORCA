@@ -56,6 +56,7 @@ from orca.api.trace_routes import (
 from orca.api.voice_routes import router as voice_router
 from orca.api.voyage_routes import router as voyage_router
 from orca.api.voyages_routes import router as voyages_router
+from orca.api.fishing_profit_routes import router as fishing_profit_router
 from orca.api.watches_routes import router as watches_router
 from orca.auth.rbac import get_optional_user
 from orca.data.loaders import DEFAULT_LAT as _DEFAULT_LAT
@@ -211,6 +212,7 @@ app.include_router(feedback_router)
 app.include_router(ops_router)
 app.include_router(replay_router)  # Phase 4 — /api/replay/gaja, historical replay (parent plan §1.3)
 app.include_router(system_status_router)  # /api/system-status — live/fallback/simulated disclosure
+app.include_router(fishing_profit_router)  # /api/fishing-profit — zone profit estimates (fishing_zone_profit_implementation_plan.md)
 
 # Agent 8 raster tile pyramid (orca/tiles.py) — serves the PNGs
 # scripts/generate_tiles.py writes offline, at the same "/tiles/{layer_id}/
