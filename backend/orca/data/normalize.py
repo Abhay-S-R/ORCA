@@ -22,7 +22,7 @@ would be guessing, not correctness.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -75,7 +75,7 @@ def to_utc_iso(naive_local: str, utc_offset_seconds: int) -> str:
     Confirmed against the actual cached fixtures, not assumed."""
     local_dt = datetime.fromisoformat(naive_local)
     utc_dt = local_dt - timedelta(seconds=utc_offset_seconds)
-    return utc_dt.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+    return utc_dt.replace(tzinfo=UTC).isoformat().replace("+00:00", "Z")
 
 
 def normalize_to_common_frame(

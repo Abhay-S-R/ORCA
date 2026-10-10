@@ -30,7 +30,7 @@ LOW_DATA and names the gap.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -808,6 +808,7 @@ class NearestPFZ:
     # True when nothing lies within max_km and this is the nearest advisory
     # ORCA holds anywhere — reported, labelled as out of reach, never dropped.
     beyond_reach: bool = False
+    top_species: list[dict[str, Any]] = field(default_factory=list)
 
 
 # Beyond this a "nearest" zone is on another coast: the 906 km Betul answer to
@@ -848,6 +849,7 @@ def nearest_pfz(
     dist_km, row = min(parsed, key=lambda t: t[0])
     plat, plon = float(row["latitude_dd"]), float(row["longitude_dd"])
     bearing, _ = geospatial.bearing_and_distance(lat, lon, plat, plon)
+    top_sp = al.get_top_species_for_zone(row.get("sector"), row.get("depth_m"), plat, plon)
     return NearestPFZ(
         found=True,
         landing_center=row.get("landing_center"),
@@ -865,6 +867,7 @@ def nearest_pfz(
         max_km=max_km,
         incois_reference=_incois_reference(row),
         beyond_reach=dist_km > max_km,
+        top_species=top_sp,
     )
 
 
@@ -1871,7 +1874,9 @@ def run(state: ORCAState) -> AgentResult:
             "expired": near.expired,
             "max_km": near.max_km,
             "beyond_reach": near.beyond_reach,
+            "top_species": getattr(near, "top_species", []),
         },
+        "top_species": getattr(near, "top_species", []),
         "pfz_persistence": {k: v for k, v in persistence.items() if k != "confidence"},
         "sector_status": sec_status,
         "sst_chlorophyll_correlation": {k: v for k, v in correlation.items() if k != "confidence"},

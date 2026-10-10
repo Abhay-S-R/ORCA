@@ -371,3 +371,69 @@ def data_source_detail(source_id: str) -> dict:
             primary for primary, c in FALLBACK_CASCADES.items() if source_id in c
         ],
     }
+
+
+@router.get("/species")
+def list_marine_species(
+    confidence: str | None = None,
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Master marine fish species catalog combining OBIS, AquaMaps, and CMFRI.
+
+    Harmonized via WoRMS AphiaIDs with multi-factor confidence scoring.
+    """
+    all_sp = al.load_marine_species()
+    report = al.load_marine_species_report()
+
+    filtered = all_sp
+    if confidence:
+        c_upper = confidence.strip().capitalize()
+        filtered = [s for s in filtered if s.get("confidence") == c_upper]
+
+    if q:
+        query = q.strip().lower()
+        filtered = [
+            s for s in filtered
+            if query in (s.get("scientific_name") or "").lower()
+            or query in (s.get("common_name") or "").lower()
+            or query in (s.get("family") or "").lower()
+            or query in (s.get("order") or "").lower()
+        ]
+
+    total = len(filtered)
+    page = filtered[offset : offset + limit]
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "species": page,
+        "report_summary": {
+            "timestamp": report.get("timestamp"),
+            "sources": report.get("sources"),
+            "confidence_breakdown": report.get("confidence_breakdown"),
+            "overlaps": report.get("overlaps"),
+        },
+        "spot_checks": report.get("fishbase_spot_checks", []),
+    }
+
+
+@router.get("/species/{aphia_id}")
+def get_species_detail(aphia_id: int) -> dict[str, Any]:
+    """Retrieve full biological & survey profile for a single species by WoRMS AphiaID."""
+    all_sp = al.load_marine_species()
+    match = next((s for s in all_sp if s.get("aphia_id") == aphia_id), None)
+    if match is None:
+        raise HTTPException(404, f"Species with AphiaID {aphia_id} not found")
+
+    report = al.load_marine_species_report()
+    spot_checks = report.get("fishbase_spot_checks", [])
+    fb_match = next((sc for sc in spot_checks if sc.get("species") == match.get("scientific_name")), None)
+
+    return {
+        "species": match,
+        "fishbase_benchmark": fb_match,
+    }
+
