@@ -11,10 +11,10 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sys
 import time
 from pathlib import Path
 from typing import Any
+
 import pandas as pd
 
 from .aquamaps_client import AquaMapsEngine

@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .pipeline import DEFAULT_USER_WKT, ALL_INDIA_WKT, DEFAULT_OUTPUT_DIR, run_pipeline
+from .pipeline import ALL_INDIA_WKT, DEFAULT_OUTPUT_DIR, DEFAULT_USER_WKT, run_pipeline
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,7 +65,7 @@ def run_refresh_cycle(geometry_wkt: str, prob_threshold: float, output_dir: Path
         logger.info("Refresh cycle completed successfully.")
         return report
     except Exception as e:
-        logger.error(f"Refresh cycle failed with error: {e}", exc_info=True)
+        logger.exception("Refresh cycle failed")
         record_history("ERROR", {"error": str(e)})
         raise
 

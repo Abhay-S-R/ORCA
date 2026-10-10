@@ -14,10 +14,11 @@ import sqlite3
 import time
 from pathlib import Path
 from typing import Any
+
 import pandas as pd
 import requests
-from shapely.geometry import Point, shape
 from shapely import wkt
+from shapely.geometry import Point
 
 logger = logging.getLogger("marine_species.aquamaps")
 
@@ -238,7 +239,7 @@ class AquaMapsEngine:
                     "species": sp,
                     "max_probability": max_p,
                     "mean_probability": mean_p,
-                    "cells_count": int(len(grp)),
+                    "cells_count": len(grp),
                     "source_dataset": source_name,
                     "retrieval_date": time.strftime("%Y-%m-%d"),
                 })

@@ -1,5 +1,5 @@
-import pytest
 from fastapi.testclient import TestClient
+
 from orca.api.main import app
 
 client = TestClient(app)

@@ -11,13 +11,12 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 from pathlib import Path
 from typing import Any
+
 import pandas as pd
 import pdfplumber
 from shapely import wkt
-from shapely.geometry import Point, Polygon
 
 logger = logging.getLogger("marine_species.cmfri")
 

@@ -11,6 +11,7 @@ import logging
 import time
 from pathlib import Path
 from typing import Any
+
 import requests
 
 logger = logging.getLogger("marine_species.worms")
@@ -49,7 +50,7 @@ class WoRMSResolver:
 
     def resolve_names(self, names: list[str], chunk_size: int = 50) -> dict[str, dict[str, Any] | None]:
         """Resolve a list of scientific names to accepted WoRMS taxonomy."""
-        unique_names = sorted(set(n.strip() for n in names if n and n.strip()))
+        unique_names = sorted({n.strip() for n in names if n and n.strip()})
         to_fetch = [n for n in unique_names if n not in self.cache]
 
         if to_fetch:
@@ -139,6 +140,5 @@ class WoRMSResolver:
     def _write_unresolved_log(self) -> None:
         if self.unresolved:
             with open(UNRESOLVED_LOG, "a", encoding="utf-8") as f:
-                for u in sorted(set(self.unresolved)):
-                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Unresolved name: {u}\n")
+                f.writelines(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Unresolved name: {u}\n" for u in sorted(set(self.unresolved)))
             logger.info(f"{len(set(self.unresolved))} names could not be resolved by WoRMS (logged to {UNRESOLVED_LOG})")

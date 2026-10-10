@@ -14,6 +14,7 @@ import logging
 import time
 from pathlib import Path
 from typing import Any
+
 import pandas as pd
 import requests
 
@@ -55,7 +56,7 @@ class OBISClient:
         max_records: int = 10000,
     ) -> list[dict[str, Any]]:
         """Fetch unique species checklist from OBIS /checklist endpoint."""
-        logger.info(f"Querying OBIS /checklist for fish classes (Actinopterygii: 10194, Elasmobranchii: 10193)")
+        logger.info("Querying OBIS /checklist for fish classes (Actinopterygii: 10194, Elasmobranchii: 10193)")
         
         all_species: list[dict[str, Any]] = []
         skip = 0
@@ -128,7 +129,7 @@ class OBISClient:
         max_occurrences: int = 5000,
     ) -> list[dict[str, Any]]:
         """Fetch detailed occurrences from OBIS /occurrence endpoint."""
-        logger.info(f"Querying OBIS /occurrence for detailed spatial telemetry")
+        logger.info("Querying OBIS /occurrence for detailed spatial telemetry")
         occurrences: list[dict[str, Any]] = []
         skip = 0
 
