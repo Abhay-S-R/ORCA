@@ -1,29 +1,31 @@
 "use client";
 
 // P3.3 (`R-NEW-12`) + P3.4 (`R-UX-6`) — the two MANDATORY setup screens:
-// language, then role. Full screen, not skippable, not buried in settings.
-// Everything else the wizard would ask (home port, vessel, crew, phone/SMS
-// consent, reading comfort, units) is deliberately NOT here — the DLC's own
-// rule is "ask at the moment it first matters", in conversation, which is
-// Ask's job, not a wizard's. Reached from `AppChrome`'s onboarding gate
-// (`default_persona === "unresolved"`), for any signed-in account, not only
-// a fresh signup.
+// language, then role with home port & vessel type. Full screen, not skippable,
+// not buried in settings.
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Volume2 } from "lucide-react";
+import { Anchor, Check, Ship, Volume2 } from "lucide-react";
 import { Button } from "../components/Button";
+import { inputClass } from "../components/Field";
 import { OrcaMark } from "../nav";
-import { authFetch, invalidateProfile, useAuth } from "../lib/auth";
+import { authFetch, invalidateProfile, setHomePort, useAuth } from "../lib/auth";
 import { useLanguage } from "../language/context";
 import { LANGUAGES, fontClassForLanguage, speakLanguageName, type LangCode } from "../i18n/languages";
 import { PERSONAS, type Persona } from "../persona/config";
 import { usePersona } from "../persona/context";
 import { useT } from "../i18n/useT";
+import { PRESET_HOME_PORTS } from "../profile/page";
 
 type Step = "language" | "role";
 
-// Role descriptions are now sourced from i18n via useT() below (P3.4/P3.12),
-// so they render in whichever language the user just selected on step 1.
+const VESSEL_OPTIONS = [
+  { value: "fibreglass", label: "Fibreglass boat" },
+  { value: "catamaran", label: "Catamaran" },
+  { value: "mechanised", label: "Mechanised boat" },
+  { value: "trawler", label: "Trawler" },
+  { value: "cargo", label: "Cargo vessel" },
+] as const;
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -33,7 +35,18 @@ export default function OnboardingPage() {
   const t = useT();
   const [step, setStep] = useState<Step>("language");
   const [chosenLanguage, setChosenLanguage] = useState<LangCode>(language);
-  const [chosenRole, setChosenRole] = useState<Persona | null>(null);
+  const [chosenRole, setChosenRole] = useState<Persona | null>("fisherman");
+
+  // Home port selection state
+  const [selectedPortPreset, setSelectedPortPreset] = useState("Thoothukudi (Tuticorin)");
+  const [customLat, setCustomLat] = useState("");
+  const [customLon, setCustomLon] = useState("");
+  const [customPortName, setCustomPortName] = useState("");
+
+  // Vessel selection state
+  const [chosenVesselClass, setChosenVesselClass] = useState("fibreglass");
+  const [vesselName, setVesselName] = useState("");
+
   const [saving, setSaving] = useState(false);
 
   // A signed-out visitor, or one whose profile already resolved a persona,
@@ -51,29 +64,71 @@ export default function OnboardingPage() {
     speakLanguageName(LANGUAGES.find((l) => l.code === code)!);
   }
 
+  function handlePortPresetChange(val: string) {
+    setSelectedPortPreset(val);
+    if (val !== "custom") {
+      setCustomLat("");
+      setCustomLon("");
+      setCustomPortName("");
+    }
+  }
+
   async function finish() {
     if (!chosenRole) return;
     setSaving(true);
     setPersona(chosenRole);
+
     try {
+      // 1. Save persona
       await authFetch("/api/profile/persona", {
         method: "PUT",
         body: JSON.stringify({ default_persona: chosenRole }),
       });
+
+      // 2. Save home port
+      if (selectedPortPreset === "custom") {
+        const lat = parseFloat(customLat);
+        const lon = parseFloat(customLon);
+        if (!isNaN(lat) && !isNaN(lon)) {
+          await setHomePort(lat, lon, customPortName.trim() || undefined);
+        }
+      } else if (selectedPortPreset) {
+        const preset = PRESET_HOME_PORTS.find((p) => p.name === selectedPortPreset);
+        if (preset) {
+          await setHomePort(preset.lat, preset.lon, preset.name);
+        }
+      }
+
+      // 3. Save vessel & make active
+      if (chosenVesselClass) {
+        const vRes = await authFetch("/api/vessels", {
+          method: "POST",
+          body: JSON.stringify({
+            vessel_class: chosenVesselClass,
+            ...(vesselName.trim() ? { name: vesselName.trim() } : {}),
+          }),
+        }).catch(() => null);
+
+        if (vRes?.ok) {
+          const created = await vRes.json();
+          await authFetch("/api/profile/active-vessel", {
+            method: "PUT",
+            body: JSON.stringify({ vessel_id: created.id }),
+          }).catch(() => {});
+        }
+      }
     } catch {
-      /* best-effort — the local choice still takes effect this session */
+      /* best-effort */
     } finally {
-      // Bug found in browser testing: without this, AppChrome's onboarding
-      // gate re-read the pre-mutation cached profile ("unresolved") on the
-      // very next render and bounced straight back here.
       invalidateProfile();
     }
+
     setSaving(false);
-    router.replace("/ask");
+    router.push("/ask");
   }
 
   return (
-    <div className="mx-auto flex h-full max-w-md flex-col justify-center gap-6 p-5">
+    <div className="mx-auto flex h-full max-w-lg flex-col justify-center gap-5 p-5">
       <div className="flex flex-col items-center gap-2 text-center">
         <OrcaMark className="size-8" />
         <div className="flex items-center gap-1.5" aria-hidden="true">
@@ -129,7 +184,9 @@ export default function OnboardingPage() {
             <h1 className="text-lg font-semibold tracking-tight text-ink">{t("onboarding.roleTitle")}</h1>
             <p className="mt-1 text-xs text-ink-muted">{t("onboarding.roleHint")}</p>
           </div>
-          <div className="flex flex-col gap-2.5">
+
+          {/* 1. Persona Selection */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {PERSONAS.filter((p) => p.id !== "unresolved").map((p) => {
               const selected = chosenRole === p.id;
               const roleId = p.id as Exclude<Persona, "unresolved">;
@@ -139,20 +196,91 @@ export default function OnboardingPage() {
                   type="button"
                   onClick={() => setChosenRole(p.id)}
                   aria-pressed={selected}
-                  className={`glass flex items-center justify-between gap-3 rounded-xl border p-4 text-left transition-all ${
-                    selected ? "border-accent shadow-md" : "border-hairline/80 hover:border-hairline-strong"
+                  className={`glass flex items-start justify-between gap-2.5 rounded-xl border p-3 text-left transition-all ${
+                    selected ? "border-accent bg-accent/5 shadow-sm" : "border-hairline/80 hover:border-hairline-strong"
                   }`}
                 >
-                  <div>
-                    {/* P3.4 / P3.12 — role label and description translated into the chosen language */}
-                    <div className="text-sm font-semibold text-ink">{t(`role.${roleId}`)}</div>
-                    <div className="mt-0.5 text-xs text-ink-muted">{t(`role.${roleId}.desc`)}</div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-ink">{t(`role.${roleId}`)}</div>
+                    <div className="mt-0.5 text-[11px] text-ink-muted line-clamp-2">{t(`role.${roleId}.desc`)}</div>
                   </div>
-                  {selected && <Check className="size-4 shrink-0 text-accent" aria-hidden="true" />}
+                  {selected && <Check className="size-3.5 shrink-0 text-accent mt-0.5" aria-hidden="true" />}
                 </button>
               );
             })}
           </div>
+
+          {/* 2. Home Port Selection */}
+          <div className="glass flex flex-col gap-2 rounded-xl border border-hairline/80 p-3.5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-ink">
+              <Anchor className="size-3.5 text-ocean-cyan" aria-hidden="true" />
+              <span>{t("profile.selectPort")}</span>
+            </div>
+            <select
+              className={inputClass}
+              value={selectedPortPreset}
+              onChange={(e) => handlePortPresetChange(e.target.value)}
+            >
+              <option value="">-- {t("profile.selectPort")} --</option>
+              {PRESET_HOME_PORTS.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.name} ({p.lat > 0 ? `${p.lat.toFixed(2)}°N` : `${Math.abs(p.lat).toFixed(2)}°S`}, {p.lon.toFixed(2)}°E)
+                </option>
+              ))}
+              <option value="custom">-- {t("profile.customPort")} --</option>
+            </select>
+
+            {selectedPortPreset === "custom" && (
+              <div className="mt-1 grid grid-cols-2 gap-2">
+                <input
+                  className={inputClass}
+                  placeholder="Latitude (e.g. 8.77)"
+                  value={customLat}
+                  onChange={(e) => setCustomLat(e.target.value)}
+                  inputMode="decimal"
+                />
+                <input
+                  className={inputClass}
+                  placeholder="Longitude (e.g. 78.23)"
+                  value={customLon}
+                  onChange={(e) => setCustomLon(e.target.value)}
+                  inputMode="decimal"
+                />
+                <input
+                  className={`col-span-2 ${inputClass}`}
+                  placeholder="Port / Place name (optional)"
+                  value={customPortName}
+                  onChange={(e) => setCustomPortName(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* 3. Vessel Type Selection */}
+          <div className="glass flex flex-col gap-2 rounded-xl border border-hairline/80 p-3.5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-ink">
+              <Ship className="size-3.5 text-ocean-cyan" aria-hidden="true" />
+              <span>{t("profile.vesselType")}</span>
+            </div>
+            <select
+              className={inputClass}
+              value={chosenVesselClass}
+              onChange={(e) => setChosenVesselClass(e.target.value)}
+            >
+              {VESSEL_OPTIONS.map((v) => (
+                <option key={v.value} value={v.value}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
+            <input
+              className={inputClass}
+              placeholder="Vessel name (optional, e.g. Sagar-1)"
+              value={vesselName}
+              onChange={(e) => setVesselName(e.target.value)}
+            />
+          </div>
+
           <div className="flex gap-2.5">
             <Button variant="ghost" className="flex-1" onClick={() => setStep("language")}>
               {t("common.back")}
@@ -166,3 +294,4 @@ export default function OnboardingPage() {
     </div>
   );
 }
+

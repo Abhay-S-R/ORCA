@@ -34,11 +34,13 @@ function writeLocal(locations: SavedLocation[]) {
 export function SavedLocationChips({
   onSelect,
   addFrom,
+  hideAdd = false,
 }: {
   onSelect: (loc: SavedLocation) => void;
   // The position "+" saves — the last answered turn's resolved location.
   // `null` before anything has been answered yet (nothing to bookmark).
   addFrom: { lat: number; lon: number } | null;
+  hideAdd?: boolean;
 }) {
   const t = useT();
   const [locations, setLocations] = useState<SavedLocation[]>([]);
@@ -95,7 +97,7 @@ export function SavedLocationChips({
     });
   }
 
-  if (locations.length === 0 && !addFrom) return null;
+  if (locations.length === 0 && (!addFrom || hideAdd)) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -117,7 +119,8 @@ export function SavedLocationChips({
           </button>
         </span>
       ))}
-      {addFrom &&
+      {!hideAdd &&
+        addFrom &&
         (adding ? (
           <span className="inline-flex items-center gap-1">
             <input
