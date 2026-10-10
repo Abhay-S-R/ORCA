@@ -10,6 +10,7 @@ import { Readout, ReadoutGrid } from "./Readout";
 import { deleteWatch, updateWatch, watchHistory, type OrcaNotification, type Watch } from "../lib/watches";
 
 const TYPE_LABEL: Record<string, string> = {
+  all: "All parameters",
   weather: "Weather",
   wave_height: "Wave height",
   lightning: "Lightning",

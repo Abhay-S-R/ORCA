@@ -15,6 +15,7 @@ from orca.agents.geospatial import (
     PILOT_BBOX_WSEN,
     bearing_and_distance,
     boundary_data_vintage,
+    boundary_line_vintage,
     check_boundary_proximity,
     current_vectors,
     depth_at_point,
@@ -223,6 +224,7 @@ def boundary_provenance() -> dict:
     return {
         **prov,
         "boundary_data_vintage": boundary_data_vintage(),
+        "boundary_line_vintage": boundary_line_vintage(),
         "note": "Static reference geometry. The vintage is the OLDEST of the contributing sources.",
     }
 

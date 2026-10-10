@@ -134,7 +134,10 @@ class HomePortIn(BaseModel):
         return v
 
 
-VesselClass = Literal["catamaran", "fibreglass", "mechanised", "trawler", "cargo"]
+VesselClass = Literal[
+    "catamaran", "fibreglass", "mechanised", "trawler", "cargo",
+    "small_fishing", "mechanized_trawler", "cargo_vessel",
+]
 
 
 class VesselIn(BaseModel):

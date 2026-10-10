@@ -304,6 +304,32 @@ def detect_crossing(
             snapshot=snapshot,
         )
 
+    # 3c. wind threshold newly exceeded or dropped back below
+    wind_threshold_kt = thresholds.get("wind_kt")
+    if wind_threshold_kt is None and thresholds.get("wind_speed_ms") is not None:
+        wind_threshold_kt = thresholds["wind_speed_ms"] * 1.94384
+
+    if wind_threshold_kt is not None and snapshot.wind_speed_ms is not None:
+        curr_wind_kt = snapshot.wind_speed_ms * 1.94384
+        prev_wind_ms = (last_payload or {}).get("wind_speed_ms")
+        prev_wind_kt = (prev_wind_ms * 1.94384) if prev_wind_ms is not None else None
+        if curr_wind_kt >= wind_threshold_kt and (prev_wind_kt is None or prev_wind_kt < wind_threshold_kt):
+            return Crossing(
+                fired=True,
+                severity="warning",
+                title=f"Wind speed crossed {wind_threshold_kt:.0f} kt",
+                reason=f"Forecast wind speed {curr_wind_kt:.1f} kt ({snapshot.wind_speed_ms:.1f} m/s) at your watch point.",
+                snapshot=snapshot,
+            )
+        if curr_wind_kt < wind_threshold_kt and (prev_wind_kt is not None and prev_wind_kt >= wind_threshold_kt):
+            return Crossing(
+                fired=True,
+                severity="info",
+                title=f"Wind speed dropped back below {wind_threshold_kt:.0f} kt",
+                reason=f"Forecast wind speed {curr_wind_kt:.1f} kt ({snapshot.wind_speed_ms:.1f} m/s) at your watch point.",
+                snapshot=snapshot,
+            )
+
     # unchanged — the no-notification-spam functional requirement
     return Crossing(fired=False, severity="info", title="", reason="no change", snapshot=snapshot)
 
@@ -527,17 +553,61 @@ def evaluate(
     if watch_type == "geofence_approach":
         snapshot = (check or geofence_check)(location["lat"], location["lon"])
         crossing = detect_geofence_crossing(snapshot, last_payload)
+        snap_payload = snapshot.as_payload()
     elif watch_type == "pfz_shift":
         snapshot = (check or pfz_shift_check)(location["lat"], location["lon"])
         crossing = detect_pfz_shift_crossing(snapshot, last_payload)
+        snap_payload = snapshot.as_payload()
+    elif watch_type == "all":
+        # Multi-parameter monitoring: checks weather/wave/wind/lightning/cyclone/CAP alerts,
+        # boundary proximity, and PFZ shifts all together.
+        if check:
+            res = check(location["lat"], location["lon"], vessel_class=vessel_class)
+            if isinstance(res, GeofenceSnapshot):
+                weather_snap = cheap_check(location["lat"], location["lon"], vessel_class=vessel_class)
+                geo_snap = res
+                pfz_snap = pfz_shift_check(location["lat"], location["lon"])
+            elif isinstance(res, PfzShiftSnapshot):
+                weather_snap = cheap_check(location["lat"], location["lon"], vessel_class=vessel_class)
+                geo_snap = geofence_check(location["lat"], location["lon"])
+                pfz_snap = res
+            else:
+                weather_snap = res
+                geo_snap = geofence_check(location["lat"], location["lon"])
+                pfz_snap = pfz_shift_check(location["lat"], location["lon"])
+        else:
+            weather_snap = cheap_check(location["lat"], location["lon"], vessel_class=vessel_class)
+            geo_snap = geofence_check(location["lat"], location["lon"])
+            pfz_snap = pfz_shift_check(location["lat"], location["lon"])
+
+        prev_weather = (last_payload or {}).get("weather") if (last_payload and "weather" in last_payload) else last_payload
+        prev_geo = (last_payload or {}).get("geofence") if (last_payload and "geofence" in last_payload) else (last_payload if (last_payload and "band" in last_payload) else None)
+        prev_pfz = (last_payload or {}).get("pfz") if (last_payload and "pfz" in last_payload) else (last_payload if (last_payload and "has_advisory" in last_payload) else None)
+
+        weather_crossing = detect_crossing(watch_type, thresholds, weather_snap, prev_weather)
+        geo_crossing = detect_geofence_crossing(geo_snap, prev_geo)
+        pfz_crossing = detect_pfz_shift_crossing(pfz_snap, prev_pfz)
+
+        fired_crossings = [c for c in (weather_crossing, geo_crossing, pfz_crossing) if c.fired]
+        _SEV_ORDER = {"danger": 4, "warning": 3, "advisory": 2, "info": 1}
+        if fired_crossings:
+            crossing = max(fired_crossings, key=lambda c: _SEV_ORDER.get(c.severity, 0))
+        else:
+            crossing = Crossing(fired=False, severity="info", title="", reason="no change", snapshot=weather_snap)
+
+        snap_payload = weather_snap.as_payload()
+        snap_payload["weather"] = weather_snap.as_payload()
+        snap_payload["geofence"] = geo_snap.as_payload()
+        snap_payload["pfz"] = pfz_snap.as_payload()
     else:
         snapshot = (check or cheap_check)(location["lat"], location["lon"], vessel_class=vessel_class)
         crossing = detect_crossing(watch_type, thresholds, snapshot, last_payload)
+        snap_payload = snapshot.as_payload()
 
     if not crossing.fired:
         return WatchDecision(
             watch_id=watch_id, query_id=query_id, fired=False, severity="info",
-            title="", body="", alert_payload={}, snapshot_payload=snapshot.as_payload(),
+            title="", body="", alert_payload={}, snapshot_payload=snap_payload,
         )
 
     alert = build_alert(watch_type, location_name, crossing, language=language)
@@ -549,5 +619,5 @@ def evaluate(
         title=crossing.title,
         body=crossing.reason,
         alert_payload={**alert, "sagar_vani_sms": alert.get("sms", ""), "generated_at": now_utc_iso()},
-        snapshot_payload=snapshot.as_payload(),
+        snapshot_payload=snap_payload,
     )

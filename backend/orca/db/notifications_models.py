@@ -20,7 +20,7 @@ from orca.db.models import Base
 
 # create_type=False: every enum below already exists in the DB (001 / 002).
 watch_type_enum = ENUM(
-    "weather", "wave_height", "lightning", "cyclone", "geofence_approach", "pfz_shift",
+    "weather", "wave_height", "lightning", "cyclone", "geofence_approach", "pfz_shift", "all",
     name="watch_type", create_type=False,
 )
 feedback_kind_enum = ENUM(

@@ -95,8 +95,8 @@ SOURCE_REGISTRY: tuple[DataSource, ...] = (
                ("lightning",)),
     DataSource("datagov_catch", "data.gov.in Marine Fish Landings & species trends", "TIER1", 0, ("catch_statistics",)),
     DataSource("gebco_bathymetry", "GEBCO 2026 15\" Bathymetry Grid", "TIER1", 0, ("bathymetry",)),
-    DataSource("unep_wcmc_wdpa", "UNEP-WCMC WDPA / OSM (marine boundaries)", "TIER1", 0, ("boundary", "mpa")),
-    DataSource("marineregions_eez", "Marine Regions VLIZ EEZ / IMBL dataset", "TIER1", 0, ("eez", "imbl", "boundary")),
+    DataSource("marineregions_eez", "Marine Regions VLIZ EEZ / IMBL dataset", "TIER1", 0, ("boundary", "eez", "imbl")),
+    DataSource("unep_wcmc_wdpa", "UNEP-WCMC WDPA (marine protected areas)", "TIER1", 0, ("mpa",)),
     DataSource("icg_sar", "Indian Coast Guard SAR station roster (MRCC/MRSC/CGDHQ)", "TIER1", 0,
                ("sar_station", "emergency_contact")),
     DataSource("dof_fishing_ban", "Department of Fisheries uniform annual fishing-ban order", "TIER1", 0,
@@ -489,7 +489,7 @@ def _grid_probe(source_id: str):
         age = reading.get("age_days")
         stale = isinstance(age, (int, float)) and age > _GRID_STALE_DAYS
         age_txt = f"{age:g} d old" if isinstance(age, (int, float)) else "age unknown"
-        return Probe(True, f"{reading['source']}: cell {reading['cell_distance_km']} km away, observed {reading.get('observed')}, {age_txt}", bool(stale))
+        return Probe(True, f"{reading['source']}: cell {reading['cell_distance_km']} km away, observed {reading.get('observed')}, {age_txt}", stale)
 
     return probe
 
@@ -503,11 +503,11 @@ def source_report_entry(decision: dict[str, Any] | None, used: str | list[str] |
         return {"decided": None, "used": used, "obeyed": None}
     decided = decision.get("chosen")
     considered = decision.get("considered") or []
-    used_all = used if isinstance(used, list) else [used]
+    used_all: list[str] = [u for u in used if u is not None] if isinstance(used, list) else ([used] if used is not None else [])
     obeyed = decided in used_all or any(
         u in considered and decided in considered and considered.index(u) > considered.index(decided) for u in used_all
     )
-    return {"decided": decided, "used": used, "obeyed": bool(obeyed)}
+    return {"decided": decided, "used": used, "obeyed": obeyed}
 
 
 def source_check(reports: dict[str, dict[str, Any] | None]) -> dict[str, Any]:
@@ -598,7 +598,11 @@ def _check_osf_points(product: str) -> Probe:
 def _check_boundaries(ctx: dict[str, Any]) -> Probe:
     from orca.agents import geospatial
 
-    vintage = geospatial.boundary_data_vintage()
+    dtype = ctx.get("data_type")
+    if dtype in ("boundary", "imbl"):
+        vintage = geospatial.boundary_line_vintage() or geospatial.boundary_data_vintage()
+    else:
+        vintage = geospatial.boundary_data_vintage()
     if not vintage:
         return Probe(False, "boundary geometry has no recorded acquisition date")
     return Probe(True, f"boundary geometry acquired {vintage}")

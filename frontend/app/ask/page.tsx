@@ -138,6 +138,8 @@ export default function AskPage() {
     }
   }, [turns]);
 
+  const [selectedVesselClass, setSelectedVesselClass] = useState<string | null>(null);
+
   // P4.1 — the vessel class that actually drove the most recent verdict, so
   // the vessel button in the composer shows what is real rather than an assumption.
   const latestVesselClass = useMemo(() => {
@@ -147,6 +149,8 @@ export default function AskPage() {
     }
     return null;
   }, [turns]);
+
+  const activeVesselClass = latestVesselClass || selectedVesselClass;
 
   useEffect(() => {
     try {
@@ -250,7 +254,7 @@ export default function AskPage() {
     }
   }
 
-  function submit(q: string, options?: { llm?: "off"; drop?: string[]; position?: { lat: number; lon: number } }) {
+  function submit(q: string, options?: { llm?: "off"; drop?: string[]; position?: { lat: number; lon: number }; vessel_class?: string | null }) {
     collapseRail(true);
     setMapWidth(35);
     setMapCollapsed(false);
@@ -260,7 +264,10 @@ export default function AskPage() {
       /* storage disabled */
     }
     window.dispatchEvent(new Event("resize"));
-    ask(q, options);
+    ask(q, {
+      ...options,
+      vessel_class: options?.vessel_class ?? activeVesselClass,
+    });
     setQuery("");
   }
 
@@ -407,7 +414,14 @@ export default function AskPage() {
             isFisherman={persona === "fisherman"}
             centered
             presets={PRESETS}
-            leading={<VesselChip auth={auth} vesselClass={latestVesselClass} variant="icon" />}
+            leading={
+              <VesselChip
+                auth={auth}
+                vesselClass={activeVesselClass}
+                onVesselChange={setSelectedVesselClass}
+                variant="icon"
+              />
+            }
           />
           {!tour.active && !tour.completed && (
             <button
@@ -518,7 +532,14 @@ export default function AskPage() {
             voice={voice}
             isFisherman={persona === "fisherman"}
             centered={false}
-            leading={<VesselChip auth={auth} vesselClass={latestVesselClass} variant="icon" />}
+            leading={
+              <VesselChip
+                auth={auth}
+                vesselClass={activeVesselClass}
+                onVesselChange={setSelectedVesselClass}
+                variant="icon"
+              />
+            }
           />
           </div>
 

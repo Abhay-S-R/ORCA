@@ -475,7 +475,7 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
   // "Carried over" chip, sent as `drop=place,vessel_class,intent`. The backend
   // refuses to inherit exactly those, at the point each is inherited; the
   // question itself is sent unchanged.
-  function ask(q: string, options?: { llm?: "off"; drop?: string[]; position?: { lat: number; lon: number } }) {
+  function ask(q: string, options?: { llm?: "off"; drop?: string[]; position?: { lat: number; lon: number }; vessel_class?: string | null }) {
     if (!q.trim()) return;
     sourceRef.current?.close();
 
@@ -522,6 +522,9 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     const positionParam = options?.position
       ? `&lat=${options.position.lat}&lon=${options.position.lon}`
       : "";
+    const vesselParam = options?.vessel_class
+      ? `&vessel_class=${encodeURIComponent(options.vessel_class)}`
+      : "";
     // The token rides on the URL: an EventSource cannot send a header, and
     // without it /query answers a signed-in user as a guest — no home port,
     // and a chat row nobody owns (chatbot plan C0.1).
@@ -529,7 +532,7 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
       // The user may have switched chats while the context was restoring.
       if (chatIdRef.current !== sessionId) return;
       const es = new EventSource(
-        `${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${positionParam || geoParam}${llmParam}${dropParam}${authParam}`,
+        `${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${positionParam || geoParam}${vesselParam}${llmParam}${dropParam}${authParam}`,
       );
       sourceRef.current = es;
       es.onmessage = (ev) => {

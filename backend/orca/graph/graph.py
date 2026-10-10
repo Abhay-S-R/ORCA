@@ -882,6 +882,11 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         imbl_alert_level = line["alert_level"]
         imbl_boundary_name = line["line_name"]
         imbl_between = line["between"]
+        imbl_bearing_deg = line.get("bearing_deg")
+        imbl_treaty = line.get("treaty")
+        imbl_treaty_date = line.get("treaty_date")
+        imbl_treaty_url = line.get("treaty_url")
+        imbl_vintage = line.get("vintage") or geospatial.boundary_line_vintage()
         imbl_confidence_note = f"nearest of 32 treaty lines: {line['line_name']}"
     else:
         # india_maritime_boundary_lines.geojson absent from this clone — the
@@ -891,6 +896,11 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         imbl_alert_level = fallback.alert_level
         imbl_boundary_name = _IMBL_PROXY_BOUNDARY
         imbl_between = None
+        imbl_bearing_deg = None
+        imbl_treaty = None
+        imbl_treaty_date = None
+        imbl_treaty_url = None
+        imbl_vintage = geospatial.boundary_data_vintage()
         imbl_confidence_note = f"treaty-line dataset absent, fell back to {_IMBL_PROXY_BOUNDARY} proxy"
     # G1: check ALL geofence-usable MPAs, not just the one park.
     mpa_hits = [
@@ -901,6 +911,25 @@ def geospatial_run(state: ORCAState) -> AgentResult:
     mpa_regulatory = [f for f in mpa_hits if f.name not in _MPA_NOGO_NAMES]
     mpa_violation = len(mpa_nogo) > 0
     mpa_names = [f.name for f in mpa_hits]
+
+    # G6: spatial_query_zones for nearby zones to avoid
+    nearby_zone_features = geospatial.spatial_query_zones(lat, lon, radius_nm=50.0)
+    nearby_zones = [
+        {
+            "name": f.name,
+            "designation": f.designation,
+            "source_file": f.source_file,
+            "orca_precision": f.orca_precision,
+        }
+        for f in nearby_zone_features
+    ]
+    nearby_zone_names = [f.name for f in nearby_zone_features]
+
+    # G7: depth_at_point for bathymetry depth and shallow water hazard
+    depth_res = geospatial.depth_at_point(lat, lon)
+    depth_m = depth_res.depth_m
+    on_land = depth_res.on_land
+    shallow_hazard = depth_res.shallow_hazard
 
     ban = geospatial.fishing_ban_status(lat, lon)
 
@@ -927,6 +956,44 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         f"{len(mpa_hits)} MPA(s) checked via point_in_polygon across {len(geospatial.load_boundaries())} boundaries"
     )
 
+    # G8: Dynamic confidence and coverage calculation based on data availability
+    # Expected geospatial checks: boundary proximity, MPA geofencing, seasonal fishing ban, and bathymetry depth
+    total_checks = 4
+    present_checks = sum([
+        1 if imbl_distance_nm is not None else 0,
+        1 if len(geospatial.load_boundaries()) > 0 else 0,
+        1 if ban.get("available") else 0,
+        1 if (depth_m is not None or on_land) else 0,
+    ])
+    geo_coverage = (present_checks, total_checks)
+
+    # Fallback depth: 0 if literal treaty line found, 1 if fell back to EEZ proxy
+    geo_fallback_depth = 0 if line is not None else 1
+
+    # Confidence score:
+    # HIGH: literal treaty line verified, all 4 checks available
+    # MEDIUM: fell back to EEZ proxy, or ban order / bathymetry unavailable
+    # LOW_DATA: missing boundary distance or severely degraded coverage
+    geo_score: Literal["HIGH", "MEDIUM", "LOW_DATA"]
+    if line is not None and present_checks == total_checks:
+        geo_score = "HIGH"
+        geo_rationale = (
+            f"Authoritative treaty line check ({imbl_confidence_note}), {mpa_confidence_note}, "
+            "seasonal ban verified, and depth resolved"
+        )
+    elif imbl_distance_nm is not None and present_checks >= 2:
+        geo_score = "MEDIUM"
+        fallback_label = "treaty line" if line is not None else "EEZ proxy"
+        geo_rationale = (
+            f"Geospatial check via {fallback_label} ({imbl_confidence_note}) — {mpa_confidence_note}"
+            f" [coverage: {present_checks}/{total_checks}]"
+        )
+    else:
+        geo_score = "LOW_DATA"
+        geo_rationale = (
+            f"Degraded geospatial coverage ({present_checks}/{total_checks} checks) — {imbl_confidence_note}"
+        )
+
     return AgentResult(
         agent_name="geospatial",
         query_id=state.get("query_id", ""),
@@ -940,31 +1007,37 @@ def geospatial_run(state: ORCAState) -> AgentResult:
             "imbl_alert_level": imbl_alert_level,
             "imbl_boundary_name": imbl_boundary_name,
             "imbl_between": imbl_between,
+            "imbl_bearing_deg": imbl_bearing_deg,
+            "imbl_treaty": imbl_treaty,
+            "imbl_treaty_date": imbl_treaty_date,
+            "imbl_treaty_url": imbl_treaty_url,
+            "imbl_vintage": imbl_vintage,
+            "imbl_acquisition_timestamp": imbl_vintage,
             "mpa_violation": mpa_violation,
             "mpa_alert_level": "INSIDE" if mpa_violation else ("REGULATORY" if mpa_regulatory else "CLEAR"),
             "mpa_names": mpa_names,
             "mpa_regulatory": mpa_regulatory_list,
             "fishing_ban": ban,
+            "nearby_zones": nearby_zones,
+            "nearby_zone_names": nearby_zone_names,
+            "depth_m": depth_m,
+            "on_land": on_land,
+            "shallow_hazard": shallow_hazard,
             "dataset": "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA (via Agent 6)",
             "source_report": source_report,
         },
         source_provenance=SourceProvenance(
             dataset="Marine Regions VLIZ EEZ + UNEP-WCMC WDPA",
-            # Static reference data, but not undated: this is when the VLIZ /
-            # WDPA files were acquired (criterion 4 covers the IMBL distance).
-            acquisition_timestamp=geospatial.boundary_data_vintage(),
+            # G5: The IMBL distance is computed from the 32 treaty lines file (acquired 2026-09-16),
+            # not the older EEZ polygon file (2026-08-30). Cite the lines vintage when available.
+            acquisition_timestamp=imbl_vintage if line is not None else geospatial.boundary_data_vintage(),
             freshness_minutes=0,
         ),
-        # Real geometry, not a stub — but geodesic distance to a coarse
-        # boundary proxy (not the literal IMBL treaty line) stays MEDIUM
-        # until that's independently verified (plan §4 S5 exit note).
-        confidence=Confidence(score="MEDIUM", rationale=f"Real boundary check — {imbl_confidence_note} — and {mpa_confidence_note}"),
-        # Boundary geometry is STATIC-class reference data; coverage is whether
-        # the IMBL distance returned a number (MPA check always succeeds).
+        confidence=Confidence(score=geo_score, rationale=geo_rationale),
         freshness_class="STATIC",
         data_age_minutes=0,
-        fallback_depth=0,
-        coverage=(1 if imbl_distance_nm is not None else 0, 1),
+        fallback_depth=geo_fallback_depth,
+        coverage=geo_coverage,
     )
 
 
@@ -1218,15 +1291,27 @@ def reporting_run(state: ORCAState) -> AgentResult:
         results.append(AgentResult(
             agent_name="geospatial", query_id=query_id, reasoning_depth=depth,
             inputs_consumed={},
-            outputs={"imbl_distance_nm": geo.get("imbl_distance_nm") if boundary_asked else None,
-                     "mpa_violation": geo.get("mpa_violation"),
-                     "mpa_names": geo.get("mpa_names", []),
-                     "mpa_regulatory": geo.get("mpa_regulatory", [])},
+            outputs={
+                "imbl_distance_nm": geo.get("imbl_distance_nm") if boundary_asked else None,
+                "imbl_bearing_deg": geo.get("imbl_bearing_deg") if boundary_asked else None,
+                "imbl_boundary_name": geo.get("imbl_boundary_name") if boundary_asked else None,
+                "imbl_between": geo.get("imbl_between") if boundary_asked else None,
+                "imbl_treaty": geo.get("imbl_treaty") if boundary_asked else None,
+                "imbl_treaty_date": geo.get("imbl_treaty_date") if boundary_asked else None,
+                "mpa_violation": geo.get("mpa_violation"),
+                "mpa_names": geo.get("mpa_names", []),
+                "mpa_regulatory": geo.get("mpa_regulatory", []),
+                "nearby_zones": geo.get("nearby_zones", []) if boundary_asked else [],
+                "nearby_zone_names": geo.get("nearby_zone_names", []) if boundary_asked else [],
+                "depth_m": geo.get("depth_m"),
+                "shallow_hazard": geo.get("shallow_hazard"),
+                "on_land": geo.get("on_land"),
+            },
             source_provenance=SourceProvenance(
                 dataset=geo.get("dataset", "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA"),
-                # Same vintage the geospatial node cites — the boundary files'
-                # own acquisition date, not a blank (criterion 4).
-                acquisition_timestamp=geospatial.boundary_data_vintage(), freshness_minutes=0,
+                # Same vintage the geospatial node cites — treaty lines when present, else boundary files' vintage.
+                acquisition_timestamp=geo.get("imbl_vintage") or geospatial.boundary_line_vintage() or geospatial.boundary_data_vintage(),
+                freshness_minutes=0,
             ),
             confidence=geo_confidence,
         ))

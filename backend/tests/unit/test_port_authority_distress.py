@@ -9,23 +9,20 @@ Verifies:
 """
 from __future__ import annotations
 
-import json
 import uuid
+
 import pytest
 from sqlalchemy import text
 
 from orca.agents import distress
-from orca.graph.graph import _distress_update
-from orca.ops.port_authorities import (
-    PORT_AUTHORITIES,
-    ensure_port_authorities,
-    get_authority_user_for_port,
-    resolve_port_authority_config,
-)
-from orca.ops import distress_queue as dq
 from orca.db.engine import get_sessionmaker
 from orca.db.repositories import create_user
-from orca.db.models import User
+from orca.graph.graph import _distress_update
+from orca.ops import distress_queue as dq
+from orca.ops.port_authorities import (
+    ensure_port_authorities,
+    resolve_port_authority_config,
+)
 
 
 @pytest.fixture

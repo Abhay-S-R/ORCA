@@ -102,7 +102,7 @@ def resolve_vessel_class(
     from orca.agents.risk_assessment import risk_vessel_class
 
     if explicit:
-        return explicit
+        return risk_vessel_class(explicit)
     named = vessel_class_from_text(text)
     if named:
         return risk_vessel_class(named)

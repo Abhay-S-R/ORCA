@@ -43,8 +43,8 @@ ETOPO_PILOT_FILE = DATA_ROOT / "tier1" / "bathymetry" / "etopo_south_india_bathy
 _GEOD = Geod(ellps="WGS84")
 NM_PER_METER = 1.0 / 1852.0
 
-# Geodesic nautical-mile bands for the proximity alert level (plan §4 S5 Day 4).
-_PROXIMITY_BANDS: tuple[tuple[float, str], ...] = ((1.0, "DANGER"), (5.0, "CAUTION"))
+# Geodesic nautical-mile bands for the proximity alert level (plan §4 S5 Day 4; G3: 3.0 NM matches risk_assessment's CAUTION threshold).
+_PROXIMITY_BANDS: tuple[tuple[float, str], ...] = ((1.0, "DANGER"), (3.0, "CAUTION"))
 
 # Static per pilot region for Phase 1; a per-vessel-draft threshold is Phase 2 scope.
 SHALLOW_HAZARD_THRESHOLD_M = 10.0
@@ -135,6 +135,24 @@ def _load_geojson_features(path: Path, source_label: str) -> list[BoundaryFeatur
 
 
 @lru_cache(maxsize=1)
+def boundary_line_vintage() -> str:
+    """The acquisition timestamp of the 32 delimited maritime boundary treaty lines.
+
+    Read directly from `india_maritime_boundary_lines.geojson`'s WFS `timeStamp`.
+    This is the dataset that `nearest_boundary_line` queries for the IMBL distance.
+    """
+    path = BOUNDARIES_DIR / "india_maritime_boundary_lines.geojson"
+    if not path.exists():
+        return ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        value = data.get("timeStamp")
+        return str(value) if value else ""
+    except Exception:
+        return ""
+
+
+@lru_cache(maxsize=1)
 def boundary_data_vintage() -> str:
     """When the boundary set was acquired, read from the files themselves.
 
@@ -149,6 +167,8 @@ def boundary_data_vintage() -> str:
     for name, key in (
         ("india_eez_polygon.geojson", "timeStamp"),
         ("srilanka_eez_polygon.geojson", "timeStamp"),
+        ("india_maritime_boundary_lines.geojson", "timeStamp"),
+        ("andaman_eez.geojson", "timeStamp"),
         ("mpa_geofence_provenance.json", "generated_at"),
     ):
         path = BOUNDARIES_DIR / name
@@ -240,7 +260,7 @@ def _district_index() -> tuple[STRtree, list[dict[str, Any]]] | None:
             "district": record["DISTRICT"],
             "state": record["ST_NM"],
             "censuscode": record["censuscode"],
-            "geometry": shape(geom.__geo_interface__),
+            "geometry": shape(dict(geom.__geo_interface__)),
         })
     return STRtree([r["geometry"] for r in rows]), rows
 
@@ -311,6 +331,8 @@ def nearest_boundary_line(lat: float, lon: float) -> dict[str, Any] | None:
         "treaty_date": props.get("doc_date"),
         "length_km": props.get("length_km"),
         "source_file": "india_maritime_boundary_lines.geojson",
+        "vintage": boundary_line_vintage(),
+        "acquisition_timestamp": boundary_line_vintage(),
     }
 
 
@@ -780,18 +802,16 @@ def distance_to_shore_nm(lat: float, lon: float) -> float | None:
             geom = rows[i]["geometry"]
             if geom.intersects(pt):
                 return 0.0
-            p1, p2 = nearest_points(pt, geom)
+            _, p2 = nearest_points(pt, geom)
             _, _, m = _GEOD.inv(pt.x, pt.y, p2.x, p2.y)
-            if m < min_m:
-                min_m = m
+            min_m = min(min_m, m)
 
     # Also check declared Indian Straight Baselines
     for geom, props in load_boundary_lines():
         if props.get("line_type") == "Straight baseline":
             nearest = geom.interpolate(geom.project(pt))
             _, _, m = _GEOD.inv(pt.x, pt.y, nearest.x, nearest.y)
-            if m < min_m:
-                min_m = m
+            min_m = min(min_m, m)
 
     if min_m < float("inf"):
         return round(min_m * NM_PER_METER, 3)

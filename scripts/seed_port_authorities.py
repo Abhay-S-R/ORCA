@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Seed Coastal Authority Accounts for all Major Indian Ports.
 
 Creates or verifies authority accounts for each port:
@@ -29,7 +28,11 @@ if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
 from orca.db.engine import get_db
-from orca.ops.port_authorities import DEFAULT_AUTHORITY_PASSWORD, PORT_AUTHORITIES, ensure_port_authorities
+from orca.ops.port_authorities import (
+    DEFAULT_AUTHORITY_PASSWORD,
+    PORT_AUTHORITIES,
+    ensure_port_authorities,
+)
 
 
 def main():
