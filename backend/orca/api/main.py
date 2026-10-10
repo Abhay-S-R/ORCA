@@ -806,10 +806,16 @@ async def _query_stream(
                 "imbl_distance_nm": geo.get("imbl_distance_nm"),
                 "imbl_alert_level": geo.get("imbl_alert_level"),
                 "imbl_vintage": geo.get("imbl_vintage"),
+                "imbl_bearing_deg": geo.get("imbl_bearing_deg"),
+                "imbl_boundary_name": geo.get("imbl_boundary_name"),
+                "imbl_treaty": geo.get("imbl_treaty"),
+                "imbl_treaty_date": geo.get("imbl_treaty_date"),
                 "mpa_violation": geo.get("mpa_violation", False),
                 "mpa_alert_level": geo.get("mpa_alert_level"),
                 "mpa_names": geo.get("mpa_names", []),
                 "mpa_regulatory": geo.get("mpa_regulatory", []),
+                "depth_m": geo.get("depth_m"),
+                "shallow_hazard": geo.get("shallow_hazard", False),
             },
             # Agent 8 (Phase 2 D3) — map_layers/chart_specs, already
             # validate_payload-clean plain dicts (graph.py's visualization_node).

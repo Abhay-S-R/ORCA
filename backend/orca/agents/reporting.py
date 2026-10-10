@@ -337,7 +337,9 @@ def facts_paragraph(
 
     geo = out.get("geospatial", {})
     if isinstance(geo.get("imbl_distance_nm"), (int, float)):
-        lines.append(f"The maritime boundary is {geo['imbl_distance_nm']:.1f} nm away.")
+        b_name = f" ({geo['imbl_boundary_name']})" if geo.get("imbl_boundary_name") else ""
+        bearing = f", bearing {geo['imbl_bearing_deg']:.0f}°" if isinstance(geo.get("imbl_bearing_deg"), (int, float)) else ""
+        lines.append(f"The maritime boundary{b_name} is {geo['imbl_distance_nm']:.1f} nm away{bearing}.")
     if geo.get("mpa_violation"):
         names = geo.get("mpa_names") or []
         if names:
@@ -347,6 +349,15 @@ def facts_paragraph(
     # G1: informational disclosure for non-NO_GO MPAs.
     for entry in geo.get("mpa_regulatory") or []:
         lines.append(f"Note: this position is inside {entry['name']} ({entry['designation']}). Check local regulations before fishing or anchoring.")
+    # G6: nearby avoidance zones
+    nearby = geo.get("nearby_zones") or []
+    avoid = [z for z in nearby if "Indian Exclusive Economic Zone" not in z.get("name", "")]
+    if avoid:
+        zone_str = ", ".join(f"{z['name']} ({z.get('designation', '')})".strip() for z in avoid[:3])
+        lines.append(f"Nearby zones within 50 nm: {zone_str}.")
+    # G7: shallow water hazard
+    if geo.get("shallow_hazard") and geo.get("depth_m") is not None:
+        lines.append(f"Shallow water hazard: water depth is {geo['depth_m']} m (under 10 m threshold).")
 
     if len(lines) <= 1:
         lines.append("No further readings were available for this answer.")

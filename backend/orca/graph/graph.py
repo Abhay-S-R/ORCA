@@ -866,6 +866,10 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         imbl_alert_level = line["alert_level"]
         imbl_boundary_name = line["line_name"]
         imbl_between = line["between"]
+        imbl_bearing_deg = line.get("bearing_deg")
+        imbl_treaty = line.get("treaty")
+        imbl_treaty_date = line.get("treaty_date")
+        imbl_treaty_url = line.get("treaty_url")
         imbl_vintage = line.get("vintage") or geospatial.boundary_line_vintage()
         imbl_confidence_note = f"nearest of 32 treaty lines: {line['line_name']}"
     else:
@@ -876,6 +880,10 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         imbl_alert_level = fallback.alert_level
         imbl_boundary_name = _IMBL_PROXY_BOUNDARY
         imbl_between = None
+        imbl_bearing_deg = None
+        imbl_treaty = None
+        imbl_treaty_date = None
+        imbl_treaty_url = None
         imbl_vintage = geospatial.boundary_data_vintage()
         imbl_confidence_note = f"treaty-line dataset absent, fell back to {_IMBL_PROXY_BOUNDARY} proxy"
     # G1: check ALL geofence-usable MPAs, not just the one park.
@@ -887,6 +895,25 @@ def geospatial_run(state: ORCAState) -> AgentResult:
     mpa_regulatory = [f for f in mpa_hits if f.name not in _MPA_NOGO_NAMES]
     mpa_violation = len(mpa_nogo) > 0
     mpa_names = [f.name for f in mpa_hits]
+
+    # G6: spatial_query_zones for nearby zones to avoid
+    nearby_zone_features = geospatial.spatial_query_zones(lat, lon, radius_nm=50.0)
+    nearby_zones = [
+        {
+            "name": f.name,
+            "designation": f.designation,
+            "source_file": f.source_file,
+            "orca_precision": f.orca_precision,
+        }
+        for f in nearby_zone_features
+    ]
+    nearby_zone_names = [f.name for f in nearby_zone_features]
+
+    # G7: depth_at_point for bathymetry depth and shallow water hazard
+    depth_res = geospatial.depth_at_point(lat, lon)
+    depth_m = depth_res.depth_m
+    on_land = depth_res.on_land
+    shallow_hazard = depth_res.shallow_hazard
 
     ban = geospatial.fishing_ban_status(lat, lon)
 
@@ -926,6 +953,10 @@ def geospatial_run(state: ORCAState) -> AgentResult:
             "imbl_alert_level": imbl_alert_level,
             "imbl_boundary_name": imbl_boundary_name,
             "imbl_between": imbl_between,
+            "imbl_bearing_deg": imbl_bearing_deg,
+            "imbl_treaty": imbl_treaty,
+            "imbl_treaty_date": imbl_treaty_date,
+            "imbl_treaty_url": imbl_treaty_url,
             "imbl_vintage": imbl_vintage,
             "imbl_acquisition_timestamp": imbl_vintage,
             "mpa_violation": mpa_violation,
@@ -933,6 +964,11 @@ def geospatial_run(state: ORCAState) -> AgentResult:
             "mpa_names": mpa_names,
             "mpa_regulatory": mpa_regulatory_list,
             "fishing_ban": ban,
+            "nearby_zones": nearby_zones,
+            "nearby_zone_names": nearby_zone_names,
+            "depth_m": depth_m,
+            "on_land": on_land,
+            "shallow_hazard": shallow_hazard,
             "dataset": "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA (via Agent 6)",
             "source_report": source_report,
         },
@@ -1206,10 +1242,22 @@ def reporting_run(state: ORCAState) -> AgentResult:
         results.append(AgentResult(
             agent_name="geospatial", query_id=query_id, reasoning_depth=depth,
             inputs_consumed={},
-            outputs={"imbl_distance_nm": geo.get("imbl_distance_nm") if boundary_asked else None,
-                     "mpa_violation": geo.get("mpa_violation"),
-                     "mpa_names": geo.get("mpa_names", []),
-                     "mpa_regulatory": geo.get("mpa_regulatory", [])},
+            outputs={
+                "imbl_distance_nm": geo.get("imbl_distance_nm") if boundary_asked else None,
+                "imbl_bearing_deg": geo.get("imbl_bearing_deg") if boundary_asked else None,
+                "imbl_boundary_name": geo.get("imbl_boundary_name") if boundary_asked else None,
+                "imbl_between": geo.get("imbl_between") if boundary_asked else None,
+                "imbl_treaty": geo.get("imbl_treaty") if boundary_asked else None,
+                "imbl_treaty_date": geo.get("imbl_treaty_date") if boundary_asked else None,
+                "mpa_violation": geo.get("mpa_violation"),
+                "mpa_names": geo.get("mpa_names", []),
+                "mpa_regulatory": geo.get("mpa_regulatory", []),
+                "nearby_zones": geo.get("nearby_zones", []) if boundary_asked else [],
+                "nearby_zone_names": geo.get("nearby_zone_names", []) if boundary_asked else [],
+                "depth_m": geo.get("depth_m"),
+                "shallow_hazard": geo.get("shallow_hazard"),
+                "on_land": geo.get("on_land"),
+            },
             source_provenance=SourceProvenance(
                 dataset=geo.get("dataset", "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA"),
                 # Same vintage the geospatial node cites — treaty lines when present, else boundary files' vintage.
