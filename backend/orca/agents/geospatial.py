@@ -135,6 +135,24 @@ def _load_geojson_features(path: Path, source_label: str) -> list[BoundaryFeatur
 
 
 @lru_cache(maxsize=1)
+def boundary_line_vintage() -> str:
+    """The acquisition timestamp of the 32 delimited maritime boundary treaty lines.
+
+    Read directly from `india_maritime_boundary_lines.geojson`'s WFS `timeStamp`.
+    This is the dataset that `nearest_boundary_line` queries for the IMBL distance.
+    """
+    path = BOUNDARIES_DIR / "india_maritime_boundary_lines.geojson"
+    if not path.exists():
+        return ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        value = data.get("timeStamp")
+        return str(value) if value else ""
+    except Exception:
+        return ""
+
+
+@lru_cache(maxsize=1)
 def boundary_data_vintage() -> str:
     """When the boundary set was acquired, read from the files themselves.
 
@@ -149,6 +167,8 @@ def boundary_data_vintage() -> str:
     for name, key in (
         ("india_eez_polygon.geojson", "timeStamp"),
         ("srilanka_eez_polygon.geojson", "timeStamp"),
+        ("india_maritime_boundary_lines.geojson", "timeStamp"),
+        ("andaman_eez.geojson", "timeStamp"),
         ("mpa_geofence_provenance.json", "generated_at"),
     ):
         path = BOUNDARIES_DIR / name
@@ -240,7 +260,7 @@ def _district_index() -> tuple[STRtree, list[dict[str, Any]]] | None:
             "district": record["DISTRICT"],
             "state": record["ST_NM"],
             "censuscode": record["censuscode"],
-            "geometry": shape(geom.__geo_interface__),
+            "geometry": shape(dict(geom.__geo_interface__)),
         })
     return STRtree([r["geometry"] for r in rows]), rows
 
@@ -311,6 +331,8 @@ def nearest_boundary_line(lat: float, lon: float) -> dict[str, Any] | None:
         "treaty_date": props.get("doc_date"),
         "length_km": props.get("length_km"),
         "source_file": "india_maritime_boundary_lines.geojson",
+        "vintage": boundary_line_vintage(),
+        "acquisition_timestamp": boundary_line_vintage(),
     }
 
 

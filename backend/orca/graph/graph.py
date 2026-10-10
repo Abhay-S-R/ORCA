@@ -866,6 +866,7 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         imbl_alert_level = line["alert_level"]
         imbl_boundary_name = line["line_name"]
         imbl_between = line["between"]
+        imbl_vintage = line.get("vintage") or geospatial.boundary_line_vintage()
         imbl_confidence_note = f"nearest of 32 treaty lines: {line['line_name']}"
     else:
         # india_maritime_boundary_lines.geojson absent from this clone — the
@@ -875,6 +876,7 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         imbl_alert_level = fallback.alert_level
         imbl_boundary_name = _IMBL_PROXY_BOUNDARY
         imbl_between = None
+        imbl_vintage = geospatial.boundary_data_vintage()
         imbl_confidence_note = f"treaty-line dataset absent, fell back to {_IMBL_PROXY_BOUNDARY} proxy"
     # G1: check ALL geofence-usable MPAs, not just the one park.
     mpa_hits = [
@@ -924,6 +926,8 @@ def geospatial_run(state: ORCAState) -> AgentResult:
             "imbl_alert_level": imbl_alert_level,
             "imbl_boundary_name": imbl_boundary_name,
             "imbl_between": imbl_between,
+            "imbl_vintage": imbl_vintage,
+            "imbl_acquisition_timestamp": imbl_vintage,
             "mpa_violation": mpa_violation,
             "mpa_alert_level": "INSIDE" if mpa_violation else ("REGULATORY" if mpa_regulatory else "CLEAR"),
             "mpa_names": mpa_names,
@@ -934,9 +938,9 @@ def geospatial_run(state: ORCAState) -> AgentResult:
         },
         source_provenance=SourceProvenance(
             dataset="Marine Regions VLIZ EEZ + UNEP-WCMC WDPA",
-            # Static reference data, but not undated: this is when the VLIZ /
-            # WDPA files were acquired (criterion 4 covers the IMBL distance).
-            acquisition_timestamp=geospatial.boundary_data_vintage(),
+            # G5: The IMBL distance is computed from the 32 treaty lines file (acquired 2026-09-16),
+            # not the older EEZ polygon file (2026-08-30). Cite the lines vintage when available.
+            acquisition_timestamp=imbl_vintage if line is not None else geospatial.boundary_data_vintage(),
             freshness_minutes=0,
         ),
         # Real geometry, not a stub — but geodesic distance to a coarse
@@ -1208,9 +1212,9 @@ def reporting_run(state: ORCAState) -> AgentResult:
                      "mpa_regulatory": geo.get("mpa_regulatory", [])},
             source_provenance=SourceProvenance(
                 dataset=geo.get("dataset", "Marine Regions VLIZ EEZ + UNEP-WCMC WDPA"),
-                # Same vintage the geospatial node cites — the boundary files'
-                # own acquisition date, not a blank (criterion 4).
-                acquisition_timestamp=geospatial.boundary_data_vintage(), freshness_minutes=0,
+                # Same vintage the geospatial node cites — treaty lines when present, else boundary files' vintage.
+                acquisition_timestamp=geo.get("imbl_vintage") or geospatial.boundary_line_vintage() or geospatial.boundary_data_vintage(),
+                freshness_minutes=0,
             ),
             confidence=geo_confidence,
         ))

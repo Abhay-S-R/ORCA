@@ -805,6 +805,7 @@ async def _query_stream(
             "hazard_breakdown": {
                 "imbl_distance_nm": geo.get("imbl_distance_nm"),
                 "imbl_alert_level": geo.get("imbl_alert_level"),
+                "imbl_vintage": geo.get("imbl_vintage"),
                 "mpa_violation": geo.get("mpa_violation", False),
                 "mpa_alert_level": geo.get("mpa_alert_level"),
                 "mpa_names": geo.get("mpa_names", []),
