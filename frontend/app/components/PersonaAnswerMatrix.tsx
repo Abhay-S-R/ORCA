@@ -439,21 +439,11 @@ export function PersonaAnswerMatrix({
           <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-hairline bg-shelf-2/60 text-accent">
             <HeaderIcon className="size-4" aria-hidden="true" />
           </span>
-          <p className="truncate text-sm font-bold tracking-tight text-ink">{INTENT_TITLE[intent]}</p>
+          <p className="truncate text-base font-bold tracking-tight text-ink">{INTENT_TITLE[intent]}</p>
         </div>
       </div>
 
-      {/* Status row — the verdict word and reason stay visible for every
-          persona (what VerdictBadge's `summary` prop used to guarantee),
-          just without the loud banner chrome.
-
-          P2.2: two renderings, and which one is used is never a styling
-          choice. A CAUTION or NO_GO gets the chip, whatever was asked. A GO
-          on a question that was not about safety gets a single quiet line —
-          the risk assessment still ran (it runs on every query, and that
-          design must not be reverted), the answer still says so, it simply
-          does not shout a verdict nobody asked for on top of an answer about
-          fishing zones. */}
+      {/* Status row — verdict badge and reason */}
       <div className="flex items-start gap-3.5">
         <div className="min-w-0 flex-1">
           {leadWithVerdict ? (
@@ -462,28 +452,11 @@ export function PersonaAnswerMatrix({
                 <Badge tone={verdictTone(verdict)} icon={<VerdictIcon className="size-3" aria-hidden="true" />}>
                   {VERDICT_LABEL[verdict]}
                 </Badge>
-                {confidenceTier === "LOW_DATA" && (
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-data-limited">
-                    Data limited — verify locally
-                  </span>
-                )}
               </div>
-              {confidenceTier === "LOW_DATA" && confidenceReason && (
-                <p className="mt-1 text-[11px] leading-relaxed text-data-limited/90">{confidenceReason}</p>
-              )}
-              {reason && <p className="mt-1.5 text-sm leading-relaxed text-ink">{reason}</p>}
+              {reason && <p className="mt-1.5 text-sm leading-relaxed text-ink/90">{reason}</p>}
             </>
           ) : (
-            <div className="flex flex-col gap-1.5">
-              {confidenceTier === "LOW_DATA" && (
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-data-limited">
-                  Data limited — verify locally
-                </span>
-              )}
-              {confidenceTier === "LOW_DATA" && confidenceReason && (
-                <p className="text-[11px] leading-relaxed text-data-limited/90">{confidenceReason}</p>
-              )}
-            </div>
+            reason ? <p className="text-sm leading-relaxed text-ink/90">{reason}</p> : null
           )}
         </div>
       </div>

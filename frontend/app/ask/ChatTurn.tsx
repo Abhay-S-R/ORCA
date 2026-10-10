@@ -8,7 +8,6 @@ import { motion } from "framer-motion";
 import { ChevronDown, History, PowerOff, Radio } from "lucide-react";
 import { AgentPill, AgentStrip, AGENT_ORDER, nextRunningAgent, type AgentStatus } from "../components/AgentPill";
 import { Button } from "../components/Button";
-import { ConfidenceMeter } from "../components/ConfidenceMeter";
 import { Panel } from "../components/Panel";
 import { PersonaAnswerMatrix } from "../components/PersonaAnswerMatrix";
 import { ProfilePrompt } from "../components/ProfilePrompt";
@@ -26,17 +25,6 @@ import { IntentActions } from "./IntentActions";
 import { RefusalCard, ResetNotice } from "./Disclosures";
 import { SkippedNotice } from "./ReasoningEvidence";
 import { useT } from "../i18n/useT";
-
-
-const FOLLOW_UPS: Record<QueryIntent, string[]> = {
-  safety: ["What are the wind and wave timings for the next 24 hours?", "Where is the nearest fishing zone right now?"],
-  fishing: ["Is it safe to venture there tomorrow?", "How far is that zone from the maritime boundary?"],
-  boundary: ["Is it safe to go out tomorrow morning?", "Where are the fishing zones closest to my position?"],
-  current: ["Is it safe to go out tomorrow morning?", "What are the wave conditions right now?"],
-  wave: ["Is it safe to go out tomorrow morning?", "What is the surface current speed and direction?"],
-  wind: ["Is it safe to go out tomorrow morning?", "What are the wave conditions right now?"],
-  general: ["Is it safe to go out tomorrow morning?", "Where are the fishing zones closest to my port?"],
-};
 
 // One pill per AGENT, not per span. A Critic-driven re-invocation makes the named specialist,
 // Reporting and the Critic report a second time; drawing each span put the Critic in the strip twice
@@ -209,7 +197,7 @@ export function ChatTurn({
           {/* Nothing is drawn above the answer (the user, 2026-10-10): no disclosure banner and no "carried over"
               chips. This is a chat: the model reads the last 20 turns to work out which place a message means, and the
               user corrects it by saying so. `answer.disclosures` and `answer.inherited` are still on the wire. */}
-          <Panel title={answer.distress_flag || answer.outcome === "DISTRESS" ? "Distress Handoff & Emergency Actions" : "Answer"}>
+          <Panel title={answer.distress_flag || answer.outcome === "DISTRESS" ? "Distress Handoff & Emergency Actions" : undefined}>
             <div className="flex flex-col gap-4">
               {/* Architecture §2.6 rendering matrix — same facts, structure
                   differs by persona. Only rendered once risk_assessment
@@ -308,11 +296,6 @@ export function ChatTurn({
                 <SkippedNotice skipped={answer.skipped_agents} />
               )}
 
-              <div className="border-t border-hairline pt-3.5">
-                {/* P2.3 (`R-JUDGE-4`) — the derivation, not just the tier. */}
-                <ConfidenceMeter tier={answer.confidence_tier} inputs={answer.confidence_inputs} />
-              </div>
-
               {/* Differentiator 4 — Agent 3's source-selection reasoning, on
                   the card, not buried in the trace. A dropdown, closed by default (2026-10-06):
                   the source narrations are long, and the card should lead with the answer. */}
@@ -346,26 +329,6 @@ export function ChatTurn({
                   )}
                   </div>
                 </details>
-              )}
-
-              {/* Follow-up suggestions — the response never dead-ends into a
-                  blank input; each chip re-asks with the new question. */}
-              {focus && (
-                <div className="flex flex-wrap items-center gap-1.5 border-t border-hairline/50 pt-3.5">
-                  <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
-                    {t("chatTurn.followUp")}
-                  </span>
-                  {FOLLOW_UPS[focus.intent].map((q) => (
-                    <button
-                      key={q}
-                      type="button"
-                      onClick={() => onFollowUp(q)}
-                      className="rounded-lg border border-hairline/60 bg-shelf-2/50 px-2.5 py-1.5 text-[11px] text-ink-muted transition-colors hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink"
-                    >
-                      {q}
-                    </button>
-                  ))}
-                </div>
               )}
 
               {/* P2.11 (`R-NEW-3`): the "Re-run this without any LLM" button was removed from the card

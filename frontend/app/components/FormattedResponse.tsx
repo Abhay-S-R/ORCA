@@ -182,7 +182,7 @@ export function FormattedResponse({ text, className = "", language, large = fals
     return (
       <div lang={language ?? undefined} className={`space-y-3 ${className} ${langClass}`}>
         {parsed.paragraphs.map((p, i) => (
-          <p key={i} className={`leading-relaxed text-ink ${large ? "text-lg" : "text-[14px]"}`}>
+          <p key={i} className={`leading-relaxed text-ink/90 ${large ? "text-base" : "text-sm"}`}>
             {renderInlineMarkdown(p)}
           </p>
         ))}
@@ -192,22 +192,18 @@ export function FormattedResponse({ text, className = "", language, large = fals
 
   return (
     <div lang={language ?? undefined} className={`space-y-3.5 ${className} ${langClass}`}>
-      {/* Verdict prefix is stripped from the raw text above but, same as the
-          unsectioned branch, no longer rendered as its own banner box here —
-          PersonaAnswerMatrix's status row already states it once. */}
-
       {/* 2. Metadata Strip (Sector & Timestamp) */}
       {parsed.metadata && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-hairline/60 bg-shelf-1/40 px-3 py-1.5 text-[11px] text-ink-muted">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-hairline/60 bg-shelf-1/40 px-3 py-1.5 text-xs text-ink-muted">
           {parsed.metadata.sector && (
-            <span className="inline-flex items-center gap-1">
+            <span className="inline-flex items-center gap-1.5">
               <MapPin className="size-3 text-accent shrink-0" />
               <strong className="font-medium text-ink-dim">{t("chatTurn.sector")}</strong>{" "}
               {parsed.metadata.sector}
             </span>
           )}
           {parsed.metadata.timestamp && (
-            <span className="inline-flex items-center gap-1 font-mono">
+            <span className="inline-flex items-center gap-1.5 font-mono">
               <Clock className="size-3 text-ink-dim shrink-0" />
               {parsed.metadata.timestamp}
             </span>
@@ -233,7 +229,7 @@ export function FormattedResponse({ text, className = "", language, large = fals
             >
               {/* Section Header */}
               <div
-                className={`flex items-center gap-2 border-b px-3.5 py-2 text-xs font-semibold ${
+                className={`flex items-center gap-2 border-b px-3.5 py-2 text-[13px] sm:text-sm font-semibold ${
                   isDirective
                     ? "border-go/20 bg-go/10 text-go"
                     : "border-hairline/60 bg-shelf-2/50 text-ink"
@@ -249,9 +245,9 @@ export function FormattedResponse({ text, className = "", language, large = fals
                   return (
                     <div
                       key={iIdx}
-                      className={`flex items-start gap-2.5 leading-relaxed text-ink-muted ${large ? "text-base" : "text-xs"}`}
+                      className={`flex items-start gap-2.5 leading-relaxed text-ink/90 ${large ? "text-base" : "text-sm"}`}
                     >
-                      <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-accent/80" />
+                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-accent/80" />
                       <div className="min-w-0 flex-1">
                         {renderInlineMarkdown(item)}
                       </div>
