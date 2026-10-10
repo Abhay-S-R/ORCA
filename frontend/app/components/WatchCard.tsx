@@ -8,6 +8,8 @@ import { Bell, BellOff, Trash2 } from "lucide-react";
 import { Badge, type BadgeTone } from "./Badge";
 import { Readout, ReadoutGrid } from "./Readout";
 import { deleteWatch, updateWatch, watchHistory, type OrcaNotification, type Watch } from "../lib/watches";
+import { useAuth } from "../lib/auth";
+import { resolveWatchLocation } from "../lib/ports";
 
 const TYPE_LABEL: Record<string, string> = {
   all: "All parameters",
@@ -36,6 +38,15 @@ function bandTone(band: string | undefined): BadgeTone {
   if (band === "ADVISORY") return "accent";
   return "neutral";
 }
+
+const DEFAULT_ALL_THRESHOLDS: Record<string, number> = {
+  wave_height_m: 2.5,
+  wind_kt: 25,
+  wind_gust_kt: 32,
+  current_kt: 2.2,
+  visibility_nm: 3.0,
+  lightning_km: 15,
+};
 
 export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -96,7 +107,17 @@ export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => v
     setShowHistory((v) => !v);
   }
 
-  const thresholdEntries = Object.entries(watch.thresholds ?? {});
+  const baseThresholds = watch.watch_type === "all" ? DEFAULT_ALL_THRESHOLDS : {};
+  const mergedThresholds = { ...baseThresholds, ...(watch.thresholds ?? {}) };
+  const thresholdEntries = Object.entries(mergedThresholds);
+
+  const auth = useAuth();
+  const locationInfo = resolveWatchLocation(
+    watch.lat,
+    watch.lon,
+    auth.profile?.home_port,
+    auth.profile?.home_port_name
+  );
 
   return (
     <section className="rounded-md border border-hairline bg-shelf-1/70 p-4">
@@ -135,7 +156,8 @@ export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => v
       <ReadoutGrid cols={3}>
         <Readout
           label="Location"
-          value={watch.lat != null && watch.lon != null ? `${watch.lat.toFixed(3)}, ${watch.lon.toFixed(3)}` : "area"}
+          value={locationInfo.portName}
+          hint={locationInfo.coords}
         />
         <Readout label="Radius" value={watch.radius_km ?? "—"} unit={watch.radius_km ? "km" : undefined} />
         <Readout

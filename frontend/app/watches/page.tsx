@@ -72,7 +72,15 @@ export default function WatchesPage() {
       lat: homePort.lat,
       lon: homePort.lon,
       radius_km: 10,
-      thresholds: { wave_height_m: DEFAULT_WAVE_THRESHOLD, wind_kt: 25 },
+      thresholds: {
+        wave_height_m: DEFAULT_WAVE_THRESHOLD,
+        wind_kt: 25,
+        wind_gust_kt: 32,
+        swell_wave_m: 2.0,
+        current_kt: 2.2,
+        visibility_nm: 3.0,
+        lightning_km: 15,
+      },
       channels: ["in_app"],
       enabled: true,
     });
@@ -158,7 +166,12 @@ function AdvancedWatchForm({ onCreated, defaultLat, defaultLon }: { onCreated: (
   const [lon, setLon] = useState(defaultLon !== undefined ? String(defaultLon) : "");
   const [radius, setRadius] = useState("10");
   const [wave, setWave] = useState(String(DEFAULT_WAVE_THRESHOLD));
-  const [wind, setWind] = useState("");
+  const [wind, setWind] = useState("25");
+  const [gust, setGust] = useState("32");
+  const [swell, setSwell] = useState("2.0");
+  const [current, setCurrent] = useState("2.2");
+  const [visibility, setVisibility] = useState("3.0");
+  const [lightning, setLightning] = useState("15");
   const [busy, setBusy] = useState(false);
   // P5.28 — a point-with-radius watch or a drawn area, never both; the DB
   // constraint (`sentinel_has_geometry`) already enforces one geometry.
@@ -178,6 +191,13 @@ function AdvancedWatchForm({ onCreated, defaultLat, defaultLon }: { onCreated: (
       if (usesThresholds) {
         if (wave) thresholds.wave_height_m = Number(wave);
         if (wind) thresholds.wind_kt = Number(wind);
+        if (type === "all") {
+          if (gust) thresholds.wind_gust_kt = Number(gust);
+          if (swell) thresholds.swell_wave_m = Number(swell);
+          if (current) thresholds.current_kt = Number(current);
+          if (visibility) thresholds.visibility_nm = Number(visibility);
+          if (lightning) thresholds.lightning_km = Number(lightning);
+        }
       }
       await createWatch(
         geometryMode === "area" && area
@@ -246,6 +266,15 @@ function AdvancedWatchForm({ onCreated, defaultLat, defaultLon }: { onCreated: (
           <>
             <Field label={t("watches.waveThreshold")}>{(id) => <input id={id} className={inputClass} value={wave} onChange={(e) => setWave(e.target.value)} inputMode="decimal" />}</Field>
             <Field label={t("watches.windThreshold")} hint={t("watches.windHint")}>{(id) => <input id={id} className={inputClass} value={wind} onChange={(e) => setWind(e.target.value)} inputMode="decimal" />}</Field>
+            {type === "all" && (
+              <>
+                <Field label="Wind Gust (kt)">{(id) => <input id={id} className={inputClass} value={gust} onChange={(e) => setGust(e.target.value)} inputMode="decimal" />}</Field>
+                <Field label="Swell Wave (m)">{(id) => <input id={id} className={inputClass} value={swell} onChange={(e) => setSwell(e.target.value)} inputMode="decimal" />}</Field>
+                <Field label="Current Drift (kt)">{(id) => <input id={id} className={inputClass} value={current} onChange={(e) => setCurrent(e.target.value)} inputMode="decimal" />}</Field>
+                <Field label="Visibility Limit (nm)">{(id) => <input id={id} className={inputClass} value={visibility} onChange={(e) => setVisibility(e.target.value)} inputMode="decimal" />}</Field>
+                <Field label="Lightning Alert (km)">{(id) => <input id={id} className={inputClass} value={lightning} onChange={(e) => setLightning(e.target.value)} inputMode="decimal" />}</Field>
+              </>
+            )}
           </>
         )}
       </div>

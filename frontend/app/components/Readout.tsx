@@ -38,7 +38,11 @@ export function Readout({
           {label}
         </dt>
         <dd className={compact ? "mt-1 flex min-w-0 flex-col" : "mt-1 flex min-w-0 items-baseline gap-1.5"}>
-          <span data-readout className={`min-w-0 whitespace-nowrap font-mono font-bold tracking-tight text-ink ${compact ? "text-lg" : "text-xl"}`}>
+          <span
+            data-readout
+            title={typeof value === "string" ? value : undefined}
+            className={`min-w-0 truncate font-mono font-bold tracking-tight text-ink ${compact ? "text-lg" : "text-lg sm:text-xl"}`}
+          >
             {value}
           </span>
           {unit && (
