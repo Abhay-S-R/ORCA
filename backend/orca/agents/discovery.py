@@ -79,7 +79,7 @@ SOURCE_REGISTRY: tuple[DataSource, ...] = (
     DataSource("soi_tide_tables", "Survey of India 2026 Annual Tide Tables", "TIER1", 0, ("tide",)),
     DataSource("incois_tide_gauge", "INCOIS Tide Gauge Network (TEWS)", "TIER1", 15, ("tide_observed", "sea_level_anomaly")),
     DataSource("incois_pfz", "INCOIS Potential Fishing Zone advisories", "TIER1", 1440, ("pfz",)),
-    DataSource("incois_hazard_osf", "INCOIS Hazard Alerts & Ocean State Warnings", "TIER1", 30,
+    DataSource("incois_hazard_osf", "INCOIS Hazard Alerts & Ocean State Warnings", "TIER1", 10,
                ("hazard", "swell_surge", "high_wave", "kallakkadal")),
     DataSource("ndma_sachet", "NDMA SACHET / IMD CAP alert feed", "TIER1", 15, ("cyclone", "hazard", "cap_alert")),
     # Track + cone geometry only (IMD RSMC has no machine-readable track). Never

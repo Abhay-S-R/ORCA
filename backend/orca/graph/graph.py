@@ -455,7 +455,9 @@ def _route_after_planning(state: ORCAState) -> list[str] | str:
 # ocean_analytics_node's note on fail-safe execution); the rest are added only
 # when an intent actually asks for them, so a "is it safe?" query does not pay
 # to pick a chlorophyll source it will never read.
-_CORE_DATA_TYPES: tuple[str, ...] = ("wave_height", "wind_speed", "boundary", "lightning", "cyclone")
+_CORE_DATA_TYPES: tuple[str, ...] = (
+    "wave_height", "wind_speed", "boundary", "lightning", "cyclone", "hazard", "cyclone_track"
+)
 # What Ocean Analytics consumes when it runs. Resolved by Agent 3 whenever
 # Ocean is in the plan (or the plan is empty, which gates nothing off), NOT
 # only when an intent happens to name them: the first live run of P2.6 showed
@@ -793,7 +795,9 @@ def weather_node(state: ORCAState) -> dict:
         )
 
     result, entry = run_traced_node("weather_intelligence", weather_intelligence.run, state)
-    _attach_discovery(entry, state, ("wave_height", "wind_speed", "lightning", "cyclone"))
+    _attach_discovery(
+        entry, state, ("wave_height", "wind_speed", "lightning", "cyclone", "hazard", "cyclone_track")
+    )
     return {
         # Same shape the geospatial node stores: Agent 7's compute_confidence
         # reads weather_data["confidence"], so dropping it here meant a cached
@@ -1270,7 +1274,8 @@ def reporting_run(state: ORCAState) -> AgentResult:
     if weather:
         results.append(AgentResult(
             agent_name="weather_intelligence", query_id=query_id, reasoning_depth=depth,
-            inputs_consumed={}, outputs={"lightning_active": weather.get("lightning_active"), "cyclone_alert": weather.get("cyclone_alert")},
+            inputs_consumed={},
+            outputs={k: v for k, v in weather.items() if k != "confidence"},
             source_provenance=SourceProvenance(
                 dataset=weather.get("dataset", "Open-Meteo Marine API + Forecast API"),
                 acquisition_timestamp=weather.get("acquisition_timestamp", ""),

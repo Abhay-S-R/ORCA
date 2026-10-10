@@ -108,7 +108,8 @@ def _decision(chosen, considered):
     return {"chosen": chosen, "considered": considered}
 
 
-def _run_with(weather_used, lightning_used, state, skip_seen=None):
+def _run_with(weather_used, lightning_used, state, skip_seen=None, hazard_used=None,
+              track_used=None, hazard_skip_seen=None, track_skip_seen=None, hazard_conf=None):
     from orca.contracts import Confidence, SourceProvenance
 
     hourly = [{"wave_height": 0.5, "wind_speed_10m": 7.0}]
@@ -118,14 +119,35 @@ def _run_with(weather_used, lightning_used, state, skip_seen=None):
                "source_used": weather_used, "port": None, "port_km": None}
     lightning = {"lightning_active": False, "source_provenance": prov, "confidence": conf, "source_used": lightning_used}
     imd = {"expired": True, "alert_count": 0, "lightning_flagged": False, "confidence": conf, "source_provenance": prov}
-    cyc = {"active_cyclones": [], "confidence": conf}
+    cyc = {"active_cyclones": [], "confidence": conf, "source_used": "ndma_sachet"}
 
     def gmw(lat, lon, hours_ahead=48, *, skip_live=False):
         if skip_seen is not None:
             skip_seen.append(skip_live)
         return weather
 
-    with mock.patch.object(wi, "get_marine_weather", gmw), mock.patch.object(wi, "get_lightning_nowcast", lambda lat, lon: lightning),             mock.patch.object(wi, "get_cyclone_status", lambda basin: cyc), mock.patch.object(wi, "get_imd_nowcast_alerts", lambda lat, lon: imd),             mock.patch("orca.demo_fixtures.fixture_result", lambda state, name: None):
+    def giha(region, *, skip_live=False):
+        if hazard_skip_seen is not None:
+            hazard_skip_seen.append(skip_live)
+        used = "ndma_sachet" if skip_live else (hazard_used or "incois_hazard_osf")
+        h_conf = hazard_conf or (Confidence(score="MEDIUM", rationale="fallback") if skip_live else conf)
+        return {"region": region, "active_warnings": [], "source_used": used, "fallback_depth": 1 if skip_live else 0,
+                "source_provenance": prov, "confidence": h_conf}
+
+    def gct(*, skip_live=False):
+        if track_skip_seen is not None:
+            track_skip_seen.append(skip_live)
+        return {"available": True, "systems": [], "geojson": {"type": "FeatureCollection", "features": []},
+                "cached": skip_live, "note": "GDACS checked", "source": "GDACS (EU JRC)",
+                "source_used": track_used or "gdacs_tc"}
+
+    with mock.patch.object(wi, "get_marine_weather", gmw), \
+            mock.patch.object(wi, "get_lightning_nowcast", lambda lat, lon: lightning), \
+            mock.patch.object(wi, "get_cyclone_status", lambda basin: cyc), \
+            mock.patch.object(wi, "get_imd_nowcast_alerts", lambda lat, lon: imd), \
+            mock.patch.object(wi, "get_incois_hazard_alerts", giha), \
+            mock.patch.object(wi, "get_cyclone_tracks", gct), \
+            mock.patch("orca.demo_fixtures.fixture_result", lambda state, name: None):
         return wi.run(state)  # type: ignore[arg-type]
 
 
@@ -171,3 +193,54 @@ def test_the_lightning_nowcast_names_which_source_served():
 
     with mock.patch.object(wi, "_fetch_open_meteo", live):
         assert wi.get_lightning_nowcast(9.96, 76.27)["source_used"] == "open_meteo_lightning_proxy"
+
+
+# --- W4, W5, W6: hazard & cyclone track wiring -------------------------------------------------------------
+
+def test_hazard_and_cyclone_track_in_source_report_obeyed():
+    state = _state({
+        "wave_height": _decision("open_meteo_marine", ["open_meteo_marine", "open_meteo_port_cache"]),
+        "wind_speed": _decision("open_meteo_marine", ["open_meteo_marine", "open_meteo_port_cache"]),
+        "lightning": _decision("open_meteo_lightning_proxy", ["open_meteo_lightning_proxy"]),
+        "cyclone": _decision("ndma_sachet", ["ndma_sachet"]),
+        "hazard": _decision("incois_hazard_osf", ["incois_hazard_osf", "ndma_sachet"]),
+        "cyclone_track": _decision("gdacs_tc", ["gdacs_tc"]),
+    })
+    res = _run_with("open_meteo_marine", "open_meteo_lightning_proxy", state)
+    report = res.outputs["source_report"]
+    assert report["hazard"] == {"decided": "incois_hazard_osf", "used": "incois_hazard_osf", "obeyed": True}
+    assert report["cyclone_track"] == {"decided": "gdacs_tc", "used": "gdacs_tc", "obeyed": True}
+    assert report["cyclone"] == {"decided": "ndma_sachet", "used": "ndma_sachet", "obeyed": True}
+
+
+def test_hazard_obeys_discovery_decision_to_skip_live():
+    h_seen = []
+    state = _state({"hazard": _decision("ndma_sachet", ["incois_hazard_osf", "ndma_sachet"])})
+    res = _run_with("open_meteo_marine", "open_meteo_lightning_proxy", state, hazard_skip_seen=h_seen)
+    assert h_seen == [True]
+    assert res.outputs["incois_hazard"]["source_used"] == "ndma_sachet"
+    assert res.outputs["source_report"]["hazard"]["obeyed"] is True
+
+
+def test_cyclone_track_skips_live_when_no_active_cyclone():
+    t_seen = []
+    res = _run_with("open_meteo_marine", "open_meteo_lightning_proxy", _state({}), track_skip_seen=t_seen)
+    assert t_seen == [True]
+    assert res.outputs["cyclone_tracks"]["available"] is True
+
+
+def test_weather_outputs_contain_incois_hazard_and_cyclone_tracks():
+    res = _run_with("open_meteo_marine", "open_meteo_lightning_proxy", _state({}))
+    assert "incois_hazard" in res.outputs
+    assert "cyclone_tracks" in res.outputs
+    assert res.outputs["incois_hazard"]["source_used"] == "incois_hazard_osf"
+    assert res.outputs["cyclone_tracks"]["note"] != ""
+
+
+def test_incois_hazard_degradation_degrades_composite_confidence():
+    from orca.contracts import Confidence
+    state = _state({})
+    res = _run_with("open_meteo_marine", "open_meteo_lightning_proxy", state,
+                    hazard_conf=Confidence(score="MEDIUM", rationale="SACHET fallback used"))
+    assert res.confidence.score == "MEDIUM"
+    assert "incois_hazard=SACHET fallback used" in res.confidence.rationale

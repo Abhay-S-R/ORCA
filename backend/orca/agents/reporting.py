@@ -81,7 +81,7 @@ def assemble_response(query_id: str, results: list[AgentResult]) -> AssembledRes
 
 
 def _format_outputs(outputs: dict[str, Any]) -> str:
-    return ", ".join(f"{k}={v}" for k, v in outputs.items())
+    return ", ".join(f"{k}={v}" for k, v in outputs.items() if k != "hourly")
 
 
 # Architecture §2.6 output rendering matrix — one instruction block per
@@ -296,6 +296,49 @@ def facts_paragraph(
         lines.append("Lightning is active in the area.")
     if weather.get("cyclone_alert"):
         lines.append("A cyclone alert is in force.")
+
+    # W1: IMD district nowcast convective alerts (non-expired only)
+    imd = weather.get("imd_nowcast") or {}
+    if not imd.get("expired") and imd.get("alerts"):
+        alert_strs = []
+        for a in imd["alerts"][:3]:
+            dist = a.get("district")
+            color = (a.get("severity_color") or "").title()
+            sev = (a.get("severity") or "").title()
+            cat = a.get("event_category") or a.get("events") or "convective weather"
+            sev_label = f"{color} alert" if color else (sev if sev else "warning")
+            if dist:
+                alert_strs.append(f"{dist} ({sev_label}: {cat})")
+            else:
+                alert_strs.append(f"{sev_label}: {cat}")
+        if alert_strs:
+            lines.append(_sentence(f"IMD convective nowcast in force: {', '.join(alert_strs)}"))
+
+    # W2: Disclose source disagreement on convective risk
+    agreement = weather.get("lightning_source_agreement")
+    if agreement == "disagree":
+        lines.append(
+            _sentence(
+                "Note: IMD district nowcast and Open-Meteo lightning indicators disagree on convective risk in this area; "
+                "convective conditions are treated conservatively as active."
+            )
+        )
+
+    # W4: Active INCOIS ocean state hazard warnings (HWA / SSA / currents)
+    hazard = weather.get("incois_hazard") or {}
+    active_hazard_warnings = hazard.get("active_warnings") or []
+    if active_hazard_warnings:
+        warn_types = []
+        for w in active_hazard_warnings[:3]:
+            htype = (w.get("hazard_type") or w.get("disaster_type") or "marine hazard").replace("_", " ").title()
+            msg = w.get("message") or w.get("headline") or ""
+            dist = w.get("district") or ""
+            label = f"{dist} ({htype})" if dist else htype
+            if msg and len(msg) < 80:
+                label += f": {msg}"
+            warn_types.append(label)
+        if warn_types:
+            lines.append(_sentence(f"INCOIS ocean state warning in force: {'; '.join(warn_types)}"))
 
     ocean = out.get("ocean_analytics", {})
     tide = ocean.get("tide") or {}
@@ -768,7 +811,7 @@ def narration_view(value: Any) -> Any:
             for k, v in value.items()
             if k not in ("considered", "fallback_chain")
         }
-    out = {k: narration_view(v) for k, v in value.items() if k != "band"}
+    out = {k: narration_view(v) for k, v in value.items() if k not in ("band", "hourly")}
     band = value.get("band")
     if band:
         if band == "fresh":
@@ -991,6 +1034,15 @@ CRITICAL RULES:
      Warn that mechanised fishing vessels are strictly prohibited in the EEZ beyond territorial waters
      under the Department of Fisheries order, and state MFRA monsoon ban regulations govern coastal waters.
      Traditional non-motorized craft are exempted under the order.
+10f. Convective weather, hazard warnings & lightning source agreement:
+   - When incois_hazard carries active warnings, explicitly mention the active INCOIS ocean state
+     warnings (e.g. High Wave Alert, Swell Surge Alert, or currents) in force for the coast/district.
+   - When imd_nowcast carries active, non-expired alerts (expired is False and alerts are present),
+     mention the active IMD district nowcast warnings and their severity (e.g. Orange/Yellow/Red alert)
+     for nearby coastal districts. Never report expired nowcasts as active.
+   - When lightning_source_agreement is "disagree", explicitly disclose that IMD district nowcasts
+     and Open-Meteo lightning proxy indicators disagree on convective risk in the area, and caution
+     that convective conditions should be treated conservatively as active.
 11. Times and timezones. Always express times in Indian Standard Time (IST). Never refer to UTC or reply with UTC timestamps — if any telemetry contains a UTC time, translate it to IST (+05:30) for the user.
 12. Language. Write the whole answer in English, whatever language or script USER QUERY is written in (romanized Hindi, Tamil, Kannada and so on included). USER QUERY may begin with an instruction about the reply language ("say it in Kannada:", "answer in Tamil", "Hindi mein batao"). That instruction is NOT part of the question and NOT a text to translate: answer the sea question that follows it, in full, with the measured facts. Never translate, quote or repeat the question as your answer, and do NOT mention the language request or apologise for it: it is carried out by a translation step that runs after you, on your English. Do not reply in the user's language, do not transliterate, and do not mix languages: the answer is checked, and one that is not English is thrown away.{critique_rule}"""
 
