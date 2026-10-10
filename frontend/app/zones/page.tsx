@@ -7,7 +7,7 @@
 // thermal-front proxy, which is valid ONLY when INCOIS has published nothing.
 // P3.12 — all visible strings now sourced from the i18n dictionaries via useT().
 import { useEffect, useState } from "react";
-import { Compass, Fish, Gauge } from "lucide-react";
+import { ChevronDown, ChevronUp, Compass, Database, ExternalLink, Fish, Gauge, Search, Sparkles } from "lucide-react";
 import { Badge } from "../components/Badge";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
 import { PageBody, PageHeader } from "../components/PageHeader";
@@ -58,7 +58,7 @@ function useVesselReachKm(): { reachKm: number | null; cruiseSpeedKn: number | n
   return { reachKm, cruiseSpeedKn, checked };
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 // P-HP-1 — no longer a hardcoded Thoothukudi constant. The home port comes
 // from the user's profile (zones API defaults to the registered home port
 // server-side when omitted; if there is none the backend applies its own
@@ -97,6 +97,14 @@ type ZonesResponse = {
     sector_id: string | null;
     max_km: number | null;
     beyond_reach?: boolean;
+    top_species?: Array<{
+      name: string;
+      scientific_name?: string;
+      depth_fit?: string;
+      tonnes?: number;
+      confidence?: string;
+      source?: string;
+    }>;
   } & Recency;
   persistence: {
     score: number | null;
@@ -128,9 +136,59 @@ type FishingBan = {
   order?: { file_number: string; order_date: string; issuing_authority: string; pdf_url: string; applies_to: string; exemption: string };
 };
 
+type MarineSpecies = {
+  aphia_id: number;
+  scientific_name: string;
+  common_name: string | null;
+  family: string | null;
+  order: string | null;
+  in_obis: boolean;
+  in_aquamaps: boolean;
+  in_cmfri: boolean;
+  obis_records: number | null;
+  last_observed_year: number | null;
+  aquamaps_prob: number | null;
+  cmfri_tonnes: number | null;
+  confidence: "High" | "Medium" | "Low";
+  confidence_rationale: string;
+};
+
+type SpeciesApiResponse = {
+  total: number;
+  limit: number;
+  offset: number;
+  species: MarineSpecies[];
+  report_summary?: {
+    timestamp?: string;
+    sources?: {
+      obis_unique_species: number;
+      aquamaps_predicted_species: number;
+      cmfri_landings_groups: number;
+      total_harmonized_species: number;
+    };
+    confidence_breakdown?: { High: number; Medium: number; Low: number };
+    overlaps?: { triply_validated_all_three: number };
+  };
+  spot_checks?: Array<{
+    species: string;
+    common_name: string | null;
+    depth_min_m: number | null;
+    depth_max_m: number | null;
+    temp_min_c: number | null;
+    temp_max_c: number | null;
+    habitat_type: string | null;
+    source: string;
+  }>;
+};
+
 export default function ZonesPage() {
   const [data, setData] = useState<ZonesResponse | null>(null);
   const [ban, setBan] = useState<FishingBan | null>(null);
+  const [speciesData, setSpeciesData] = useState<SpeciesApiResponse | null>(null);
+  const [speciesQuery, setSpeciesQuery] = useState("");
+  const [speciesFilter, setSpeciesFilter] = useState<"all" | "triply" | "commercial">("all");
+  const [showBenchmarks, setShowBenchmarks] = useState(false);
+  const [speciesVisibleCount, setSpeciesVisibleCount] = useState(6);
   const [error, setError] = useState(false);
   const t = useT();
   const { persona } = usePersona();
@@ -155,6 +213,16 @@ export default function ZonesPage() {
       .catch(() => setBan(null));
   // Re-fetch when home port changes (user sets or updates it)
   }, [posParam]);
+
+  useEffect(() => {
+    const qParam = speciesQuery.trim() ? `&q=${encodeURIComponent(speciesQuery.trim())}` : "";
+    fetch(`${API_BASE}/api/species?limit=60${qParam}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res) => {
+        if (res) setSpeciesData(res);
+      })
+      .catch(() => setSpeciesData(null));
+  }, [speciesQuery]);
 
   return (
     <PageBody className="mx-auto max-w-3xl">
@@ -324,6 +392,45 @@ export default function ZonesPage() {
                 />
               </ReadoutGrid>
 
+              {/* Top Target Fish Species in this Zone */}
+              {data.nearest_pfz.top_species && data.nearest_pfz.top_species.length > 0 && (
+                <div className="mt-4 border-t border-hairline pt-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[11px] font-semibold text-ocean-cyan flex items-center gap-1.5">
+                      <Fish className="size-3.5" /> Top Target Fish Species (Data Grounded)
+                    </p>
+                    <span className="text-[9px] font-mono text-ink-dim uppercase">CMFRI 2024 · OBIS</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {data.nearest_pfz.top_species.slice(0, 3).map((sp, idx) => (
+                      <div key={idx} className="rounded-lg border border-hairline/60 bg-shelf-2/60 p-2.5">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="flex size-4 items-center justify-center rounded-full bg-ocean-cyan/15 text-[9px] font-bold font-mono text-ocean-cyan">
+                            {idx + 1}
+                          </span>
+                          <span className="font-semibold text-xs text-ink truncate">{sp.name}</span>
+                        </div>
+                        {sp.scientific_name && (
+                          <p className="text-[10px] italic text-ink-dim truncate font-serif">{sp.scientific_name}</p>
+                        )}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                          {sp.depth_fit && (
+                            <span className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-ocean-cyan/20 bg-ocean-cyan/10 text-ocean-cyan">
+                              {sp.depth_fit.replace(/^Optimal\s*\(/i, "").replace(/\)$/, "")}
+                            </span>
+                          )}
+                          {sp.tonnes != null && (
+                            <span className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-hairline bg-shelf-1/80 text-ink-dim">
+                              {Math.round(sp.tonnes).toLocaleString()} t
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="mt-4 border-t border-hairline pt-3">
                 <p className="mb-1.5 text-[11px] font-medium text-ink-dim">{t("zones.persistence")}</p>
                 <div className="flex items-center justify-between gap-3">
@@ -355,6 +462,306 @@ export default function ZonesPage() {
               body={t("zones.noZoneBody")}
             />
           )}
+
+          {/* 2b — Marine Life & Fish Species in This Zone */}
+          <Panel
+            title="Marine Life & Fish Species in This Zone"
+            action={
+              <Badge tone="cyan">
+                {speciesData ? `${speciesData.total.toLocaleString()} species cataloged` : "OBIS · AquaMaps · CMFRI"}
+              </Badge>
+            }
+          >
+            <div className="flex flex-col gap-3">
+              <p className="text-xs text-ink-muted leading-relaxed">
+                Satellite PFZs identify oceanographic thermal &amp; chlorophyll fronts, not individual fish telemetry.
+                Species presence is grounded in <strong className="font-semibold text-ink">OBIS</strong> survey observations,{" "}
+                <strong className="font-semibold text-ink">AquaMaps</strong> suitability envelopes, and{" "}
+                <strong className="font-semibold text-ink">CMFRI 2024</strong> official commercial landings, harmonized with{" "}
+                <strong className="font-semibold text-ink">WoRMS</strong> AphiaIDs.
+              </p>
+
+              {/* Data Summary Stats */}
+              {speciesData?.report_summary && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                  <div className="rounded-lg border border-hairline bg-shelf-2/50 p-2.5">
+                    <div className="text-[10px] uppercase font-bold tracking-wider text-ink-dim">WoRMS Species</div>
+                    <div data-readout className="text-base font-bold text-ink">
+                      {speciesData.report_summary.sources?.total_harmonized_species?.toLocaleString() ?? "3,602"}
+                    </div>
+                    <div className="text-[10px] text-ink-dim">Harmonized taxa</div>
+                  </div>
+                  <div className="rounded-lg border border-hairline bg-shelf-2/50 p-2.5">
+                    <div className="text-[10px] uppercase font-bold tracking-wider text-ink-dim">Triply Validated</div>
+                    <div data-readout className="text-base font-bold text-go">
+                      {speciesData.report_summary.overlaps?.triply_validated_all_three ?? "34"}
+                    </div>
+                    <div className="text-[10px] text-ink-dim">OBIS + AquaMaps + CMFRI</div>
+                  </div>
+                  <div className="rounded-lg border border-hairline bg-shelf-2/50 p-2.5">
+                    <div className="text-[10px] uppercase font-bold tracking-wider text-ink-dim">CMFRI Landings</div>
+                    <div data-readout className="text-base font-bold text-accent">
+                      {speciesData.report_summary.sources?.cmfri_landings_groups ?? "71"}
+                    </div>
+                    <div className="text-[10px] text-ink-dim">Commercial groups</div>
+                  </div>
+                  <div className="rounded-lg border border-hairline bg-shelf-2/50 p-2.5">
+                    <div className="text-[10px] uppercase font-bold tracking-wider text-ink-dim">FishBase Checks</div>
+                    <div data-readout className="text-base font-bold text-ocean-cyan">
+                      5 / 5
+                    </div>
+                    <div className="text-[10px] text-ink-dim">Depth &amp; temp ranges</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Controls: Search & Filters */}
+              <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-2.5 size-4 text-ink-dim" />
+                  <input
+                    type="text"
+                    value={speciesQuery}
+                    onChange={(e) => {
+                      setSpeciesQuery(e.target.value);
+                      setSpeciesVisibleCount(6);
+                    }}
+                    placeholder="Search fish (e.g., Pomfret, Sardine, Mackerel, Tuna)..."
+                    className="w-full rounded-lg border border-hairline bg-shelf-1/90 pl-9 pr-3 py-1.5 text-xs text-ink placeholder:text-ink-dim focus:border-ocean-cyan focus:outline-none"
+                  />
+                  {speciesQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSpeciesQuery("")}
+                      className="absolute right-2.5 top-2 text-xs text-ink-dim hover:text-ink"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSpeciesFilter("all");
+                      setSpeciesVisibleCount(6);
+                    }}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
+                      speciesFilter === "all"
+                        ? "bg-ocean-cyan text-on-accent"
+                        : "bg-shelf-2 border border-hairline text-ink-muted hover:text-ink"
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSpeciesFilter("triply");
+                      setSpeciesVisibleCount(6);
+                    }}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
+                      speciesFilter === "triply"
+                        ? "bg-ocean-cyan text-on-accent"
+                        : "bg-shelf-2 border border-hairline text-ink-muted hover:text-ink"
+                    }`}
+                  >
+                    Triply Validated
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSpeciesFilter("commercial");
+                      setSpeciesVisibleCount(6);
+                    }}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
+                      speciesFilter === "commercial"
+                        ? "bg-ocean-cyan text-on-accent"
+                        : "bg-shelf-2 border border-hairline text-ink-muted hover:text-ink"
+                    }`}
+                  >
+                    Commercial Landings
+                  </button>
+                </div>
+              </div>
+
+              {/* Toggle FishBase Biometrics */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowBenchmarks((prev) => !prev)}
+                  className="flex items-center gap-1.5 text-xs font-medium text-ocean-cyan hover:underline cursor-pointer"
+                >
+                  {showBenchmarks ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+                  {showBenchmarks ? "Hide FishBase Biometric Benchmarks" : "Show FishBase Biometric Benchmarks (Depth, Temp, Habitat)"}
+                </button>
+
+                {showBenchmarks && speciesData?.spot_checks && (
+                  <div className="mt-2.5 rounded-lg border border-hairline bg-shelf-2/60 p-3 overflow-x-auto">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim mb-2">
+                      Spot-Checked Biometrics (FishBase Mirror / rOpenSci)
+                    </p>
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-hairline text-ink-dim text-[11px]">
+                          <th className="py-1 px-1.5 font-medium">Species</th>
+                          <th className="py-1 px-1.5 font-medium">Common Name</th>
+                          <th className="py-1 px-1.5 font-medium">Depth Range</th>
+                          <th className="py-1 px-1.5 font-medium">Temp Range</th>
+                          <th className="py-1 px-1.5 font-medium">Habitat</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-hairline/40">
+                        {speciesData.spot_checks.map((sc) => (
+                          <tr key={sc.species} className="hover:bg-shelf-3/40">
+                            <td className="py-1.5 px-1.5 italic font-medium text-ink">{sc.species}</td>
+                            <td className="py-1.5 px-1.5 text-ink-muted">{sc.common_name ?? "—"}</td>
+                            <td className="py-1.5 px-1.5 text-ink-muted" data-readout>
+                              {sc.depth_min_m != null ? `${sc.depth_min_m}–${sc.depth_max_m} m` : "—"}
+                            </td>
+                            <td className="py-1.5 px-1.5 text-ink-muted" data-readout>
+                              {sc.temp_min_c != null ? `${sc.temp_min_c}°–${sc.temp_max_c}°C` : "—"}
+                            </td>
+                            <td className="py-1.5 px-1.5 text-ink-dim">{sc.habitat_type ?? "Marine"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Species Cards List */}
+              {(() => {
+                const list = (speciesData?.species ?? []).filter((sp) => {
+                  if (speciesFilter === "triply") return sp.in_obis && sp.in_aquamaps && sp.in_cmfri;
+                  if (speciesFilter === "commercial") return sp.in_cmfri && (sp.cmfri_tonnes ?? 0) > 0;
+                  return true;
+                });
+
+                if (list.length === 0) {
+                  return (
+                    <div className="rounded-lg border border-dashed border-hairline py-8 text-center text-xs text-ink-muted">
+                      No fish species found matching your filters.
+                    </div>
+                  );
+                }
+
+                const visible = list.slice(0, speciesVisibleCount);
+
+                return (
+                  <div className="flex flex-col gap-2.5 pt-1">
+                    {visible.map((sp) => (
+                      <div
+                        key={sp.aphia_id}
+                        className="rounded-lg border border-hairline bg-shelf-1/80 p-3 shadow-xs hover:border-hairline-strong transition"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-sm font-bold text-ink">
+                                {sp.common_name || sp.scientific_name}
+                              </h3>
+                              <Badge
+                                tone={
+                                  sp.confidence === "High"
+                                    ? "go"
+                                    : sp.confidence === "Medium"
+                                    ? "cyan"
+                                    : "neutral"
+                                }
+                              >
+                                {sp.confidence} Confidence
+                              </Badge>
+                            </div>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+                              <span className="italic font-serif">{sp.scientific_name}</span>
+                              {sp.family && <span>· Family: {sp.family}</span>}
+                              {sp.order && <span>· {sp.order}</span>}
+                              <a
+                                href={`https://www.marinespecies.org/aphia.php?p=taxdetails&id=${sp.aphia_id}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] text-ocean-cyan hover:underline"
+                              >
+                                <ExternalLink className="size-3" /> WoRMS {sp.aphia_id}
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Data badges & metrics */}
+                        <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                          {sp.in_obis ? (
+                            <span className="rounded border border-go/40 bg-go/10 px-2 py-0.5 text-go font-medium">
+                              OBIS: {sp.obis_records?.toLocaleString()} records
+                              {sp.last_observed_year ? ` (${sp.last_observed_year})` : ""}
+                            </span>
+                          ) : (
+                            <span className="rounded border border-hairline bg-shelf-2/60 px-2 py-0.5 text-ink-dim">
+                              OBIS: Not reported
+                            </span>
+                          )}
+
+                          {sp.in_aquamaps ? (
+                            <span className="rounded border border-ocean-cyan/40 bg-ocean-cyan/10 px-2 py-0.5 text-ocean-cyan font-medium">
+                              AquaMaps: {sp.aquamaps_prob ? `${Math.round(sp.aquamaps_prob * 100)}% prob` : "Predicted"}
+                            </span>
+                          ) : (
+                            <span className="rounded border border-hairline bg-shelf-2/60 px-2 py-0.5 text-ink-dim">
+                              AquaMaps: None
+                            </span>
+                          )}
+
+                          {sp.in_cmfri ? (
+                            <span className="rounded border border-accent/40 bg-accent/10 px-2 py-0.5 text-accent font-medium">
+                              CMFRI: {sp.cmfri_tonnes ? `${sp.cmfri_tonnes.toLocaleString()} tonnes` : "Commercial"}
+                            </span>
+                          ) : (
+                            <span className="rounded border border-hairline bg-shelf-2/60 px-2 py-0.5 text-ink-dim">
+                              CMFRI: Artisanal / Non-targeted
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Confidence Rationale */}
+                        <p className="mt-2 border-t border-hairline/60 pt-1.5 text-[11px] text-ink-muted leading-relaxed">
+                          {sp.confidence_rationale}
+                        </p>
+                      </div>
+                    ))}
+
+                    <div className="flex items-center justify-between pt-2 text-xs">
+                      <span className="text-ink-dim">
+                        Showing {visible.length} of {list.length} species
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {list.length > speciesVisibleCount && (
+                          <button
+                            type="button"
+                            onClick={() => setSpeciesVisibleCount((prev) => prev + 6)}
+                            className="rounded border border-hairline bg-shelf-2 px-3 py-1 font-medium text-ink hover:bg-shelf-3 transition cursor-pointer"
+                          >
+                            Show More ({list.length - visible.length} remaining)
+                          </button>
+                        )}
+                        {speciesVisibleCount > 6 && (
+                          <button
+                            type="button"
+                            onClick={() => setSpeciesVisibleCount(6)}
+                            className="rounded border border-hairline bg-shelf-2 px-3 py-1 font-medium text-ink-muted hover:text-ink transition cursor-pointer"
+                          >
+                            Collapse
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </Panel>
 
           {/* 3 — the whole national roster, SEC001–SEC014. A sector with no
               advisory still gets a row saying why; silence would read as

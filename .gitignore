@@ -1,6 +1,6 @@
 # Large Data & Satellite Models (18+ GB)
-data/
-**/data/
+data/*
+!data/marine_species_output/*
 tts_cache/
 **/tts_cache/
 *.nc
@@ -27,6 +27,9 @@ env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.cache/
+**/.cache/
+*.log
 
 # Node / Next.js (Frontend)
 node_modules/
