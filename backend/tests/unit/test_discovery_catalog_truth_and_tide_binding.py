@@ -23,7 +23,7 @@ from orca.agents.discovery import (
 )
 from orca.data import analytics_loaders as al
 
-UNREADABLE = {"incois_erddap", "mosdac_nrt_sst", "mosdac_nrt_chl", "mosdac_nrt_wind", "bhuvan_wms", "nasa_ocean_color"}
+UNREADABLE = {"incois_erddap", "mosdac_nrt_sst", "mosdac_nrt_chl", "mosdac_nrt_wind", "bhuvan_wms", "nasa_ocean_color", "damini_lightning"}
 
 
 @pytest.fixture(autouse=True)
@@ -61,7 +61,7 @@ def test_a_type_with_only_unreadable_sources_has_no_decision_and_wind_skips_the_
 
 def test_the_real_last_resort_rung_is_in_the_catalog_and_the_cascade():
     assert any(s.id == "open_meteo_port_cache" for s in SOURCE_REGISTRY)
-    assert FALLBACK_CASCADES["open_meteo_marine"] == ("incois_osf_ww3", "open_meteo_port_cache")
+    assert FALLBACK_CASCADES["open_meteo_marine"] == ("open_meteo_port_cache",)   # weather has no reader for WW3 (A4)
     d = select_source_with_fallback("wave_height", down=("open_meteo_marine", "incois_osf_ww3"))
     assert d is not None and d.chosen.id == "open_meteo_port_cache" and d.chosen.authority_tier == "TIER1"
 

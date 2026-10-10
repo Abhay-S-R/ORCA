@@ -86,7 +86,13 @@ SOURCE_REGISTRY: tuple[DataSource, ...] = (
     # feeds the verdict — the alert level stays SACHET's.
     DataSource("gdacs_tc", "GDACS tropical cyclone track and cone (EU JRC; JTWC forecast)", "TIER2", 360,
                ("cyclone_track",)),
-    DataSource("damini_lightning", "IMD Damini Lightning Nowcast", "TIER1", 10, ("lightning",)),
+    # AUDIT 4 / A4 (2026-10-10): there is no Damini feed in ORCA (weather_intelligence.get_lightning_nowcast says so in its own
+    # docstring: "stands in for IMD Damini, which §1.2 flags as unverified"). Agent 3 chose "IMD Damini" for lightning and the
+    # answer used Open-Meteo's CAPE-derived proxy: the decision named a source that was never read.
+    DataSource("damini_lightning", "IMD Damini Lightning Nowcast", "TIER1", 10, ("lightning",),
+               readable=False, why_not_readable="no Damini feed is held (unverified endpoint); lightning comes from the Open-Meteo proxy"),
+    DataSource("open_meteo_lightning_proxy", "Open-Meteo lightning_potential (CAPE-derived proxy for IMD Damini)", "TIER1", 60,
+               ("lightning",)),
     DataSource("datagov_catch", "data.gov.in Marine Fish Landings & species trends", "TIER1", 0, ("catch_statistics",)),
     DataSource("gebco_bathymetry", "GEBCO 2026 15\" Bathymetry Grid", "TIER1", 0, ("bathymetry",)),
     DataSource("unep_wcmc_wdpa", "UNEP-WCMC WDPA / OSM (marine boundaries)", "TIER1", 0, ("boundary", "mpa")),
@@ -141,7 +147,9 @@ FALLBACK_CASCADES: dict[str, tuple[str, ...]] = {
     "mosdac_open_sst": ("copernicus_cmems", "noaa_coastwatch"),
     "mosdac_open_chl": ("nasa_ocean_color", "copernicus_cmems", "noaa_coastwatch"),
     "incois_pfz": ("bhuvan_wms",),  # then the local sector CSV — see load_pfz_advisories
-    "open_meteo_marine": ("incois_osf_ww3", "open_meteo_port_cache"),
+    # weather_intelligence reads Open-Meteo, then the cached port records; it has no reader that returns a weather frame from
+    # INCOIS WW3 (that model is read by ocean_analytics as an extra point forecast), so WW3 is not a rung of THIS cascade.
+    "open_meteo_marine": ("open_meteo_port_cache",),
     "soi_tide_tables": ("stormglass_tides", "incois_tide_gauge"),
     "incois_erddap": ("copernicus_cmems",),
     "incois_tide_gauge": ("copernicus_cmems",),  # altimetry sea-level anomaly when no gauge is near
@@ -458,6 +466,119 @@ def _check_open_meteo_port_cache(ctx: dict[str, Any]) -> Probe:
     return Probe(True, f"cached record for port {port}, {km:.0f} km away, {age_h:.0f} h old", stale)
 
 
+_GRID_STALE_DAYS = 3.0   # freshness.RECENCY_BANDS: the daily satellite products are "fresh" up to 3 days
+
+
+def _grid_probe(source_id: str):
+    """A probe for a satellite grid ORCA reads from disk (INSAT SST, EOS-06 chlorophyll, CMEMS): is there a cell within reach of
+    THIS position, and how old is the granule? Until 2026-10-10 these were "live source, validated on fetch" although they are
+    files, so Agent 3's pick said nothing about whether the place had any reading (A5)."""
+
+    def probe(ctx: dict[str, Any]) -> Probe | None:
+        dtype = ctx.get("data_type")
+        if dtype not in ("sst", "chlorophyll"):
+            return None
+        lat, lon = ctx.get("lat"), ctx.get("lon")
+        if lat is None or lon is None:
+            return None
+        from orca.agents import ocean_analytics as oa
+
+        reading = oa.grid_reading(source_id, dtype, float(lat), float(lon))
+        if reading is None:
+            return Probe(False, f"{source_id} holds no {dtype} cell within {oa._READING_MAX_KM:.0f} km of the position", systemic=False)
+        age = reading.get("age_days")
+        stale = isinstance(age, (int, float)) and age > _GRID_STALE_DAYS
+        age_txt = f"{age:g} d old" if isinstance(age, (int, float)) else "age unknown"
+        return Probe(True, f"{reading['source']}: cell {reading['cell_distance_km']} km away, observed {reading.get('observed')}, {age_txt}", bool(stale))
+
+    return probe
+
+
+def source_report_entry(decision: dict[str, Any] | None, used: str | list[str] | None) -> dict[str, Any]:
+    """{decided, used, obeyed} for one data type. obeyed: `used` is the decided rung, or a LATER rung of the declared cascade
+    (the decided one failed at fetch). `used` may be a list when an agent really reads several sources for one data type
+    (geospatial reads the treaty lines AND the protected-area file for "boundary"): the decision is obeyed when it is among them.
+    None, never True, when no decision was in state."""
+    if not decision:
+        return {"decided": None, "used": used, "obeyed": None}
+    decided = decision.get("chosen")
+    considered = decision.get("considered") or []
+    used_all = used if isinstance(used, list) else [used]
+    obeyed = decided in used_all or any(
+        u in considered and decided in considered and considered.index(u) > considered.index(decided) for u in used_all
+    )
+    return {"decided": decided, "used": used, "obeyed": bool(obeyed)}
+
+
+def source_check(reports: dict[str, dict[str, Any] | None]) -> dict[str, Any]:
+    """The run-level answer to "did every specialist use what marine_data_discovery decided?" (A6, 2026-10-10).
+    `reports` maps an agent name to its `source_report`. A difference is never hidden: it is listed, logged at WARNING, and the
+    line says so; an entry with no decision to compare against is `unknown`, not counted as obeyed."""
+    checked = obeyed = 0
+    unknown: list[str] = []
+    mismatches: list[dict[str, Any]] = []
+    for agent, report in reports.items():
+        for dtype, entry in (report or {}).items():
+            flag = entry.get("obeyed")
+            if flag is None:
+                unknown.append(f"{agent}:{dtype}")
+                continue
+            checked += 1
+            if flag:
+                obeyed += 1
+            else:
+                mismatches.append({"agent": agent, "data_type": dtype, "decided": entry.get("decided"), "used": entry.get("used")})
+    if mismatches:
+        logger.warning("source mismatch: %s", mismatches)
+        line = "; ".join(f"{m['agent']} used {m['used']} for {m['data_type']} but marine data discovery decided {m['decided']}" for m in mismatches)
+    elif checked:
+        line = f"Every source used matches what marine data discovery decided ({checked} checks)."
+    else:
+        line = "No source decisions were available to compare."
+    return {"checked": checked, "obeyed": obeyed, "mismatches": mismatches, "unknown": unknown, "line": line}
+
+
+_DATA_TYPE_LABEL = {
+    "wave_height": "wave height", "wind_speed": "wind speed", "lightning": "lightning", "cyclone": "cyclone alerts",
+    "boundary": "boundaries", "pfz": "fishing zones", "tide": "tides", "catch_statistics": "catch statistics",
+    "current_speed": "currents", "sst": "sea surface temperature", "chlorophyll": "chlorophyll", "bathymetry": "depth",
+    "eez": "the maritime boundary", "mpa": "protected areas", "hazard": "hazard alerts", "fishing_ban": "the fishing ban",
+}
+
+
+def _join(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def discovery_trace_line(selections: list[dict[str, Any]], unusable: list[str] | None = None) -> str:
+    """One plain sentence for the trace, built from the real decisions: "Chose data sources: wave height and wind speed from
+    Open-Meteo ...; tides from ... (Survey of India covers none of this: fell back); no usable source for: ..." Data types
+    that share a source are grouped. Stale data and a fall down the cascade are said, never left out."""
+    groups: dict[str, dict[str, Any]] = {}
+    for s in selections:
+        if not s.get("chosen"):
+            continue
+        g = groups.setdefault(s["chosen"], {"dataset": s.get("chosen_dataset") or s["chosen"], "labels": [], "stale": False, "fell": None})
+        g["labels"].append(_DATA_TYPE_LABEL.get(s["data_type"], str(s["data_type"]).replace("_", " ")))
+        if (s.get("arrival") or {}).get("stale"):
+            g["stale"] = True
+        if s.get("fell_through") and s.get("rejected"):
+            g["fell"] = s["rejected"][0]["reason"]
+    parts = []
+    for g in groups.values():
+        text = f"{_join(g['labels'])} from {g['dataset']}"
+        notes = []
+        if g["fell"]:
+            notes.append(f"fell back: {g['fell']}")
+        if g["stale"]:
+            notes.append("not current")
+        parts.append(text + (f" ({'; '.join(notes)})" if notes else ""))
+    line = "Chose data sources: " + "; ".join(parts) + "." if parts else "No data source was needed."
+    if unusable:
+        line += " No usable source for: " + ", ".join(_DATA_TYPE_LABEL.get(u, u.replace("_", " ")) for u in unusable) + "."
+    return line
+
+
 def _check_osf_points(product: str) -> Probe:
     from orca.data.analytics_loaders import load_osf_point_forecasts
 
@@ -490,6 +611,9 @@ _ARRIVAL_PROBES: dict[str, Any] = {
     "soi_tide_tables": _check_tide_tables,
     "stormglass_tides": _check_stormglass_tides,
     "open_meteo_port_cache": _check_open_meteo_port_cache,
+    "mosdac_open_sst": _grid_probe("mosdac_open_sst"),
+    "mosdac_open_chl": _grid_probe("mosdac_open_chl"),
+    "copernicus_cmems": _grid_probe("copernicus_cmems"),
     "incois_osf_ww3": lambda ctx: _check_osf_points("ww3"),
     "incois_osf_hycom": lambda ctx: _check_osf_points("hycom"),
     "marineregions_eez": _check_boundaries,
@@ -523,6 +647,8 @@ def validate_arrival(source_id: str, ctx: dict[str, Any] | None = None) -> Arriv
         result = probe(ctx or {})
     except Exception as exc:  # an unreadable file IS the failure being detected
         result = Probe(False, f"unreadable: {type(exc).__name__}: {exc}")
+    if result is None:   # the probe has nothing to say about this data type
+        return ArrivalCheck(source_id, checked=False, ok=True, detail="no probe for this data type: validated on fetch, not before it")
     if result.ok:
         resilience.record_success(source_id)
     elif result.systemic:
@@ -549,7 +675,7 @@ def select_validated_source(
         decision = select_source_with_fallback(data_type, down=tuple(unavailable))
         if decision is None:
             break
-        check = validate_arrival(decision.chosen.id, ctx)
+        check = validate_arrival(decision.chosen.id, {**(ctx or {}), "data_type": data_type})
         if check.ok:
             return {
                 "data_type": data_type,

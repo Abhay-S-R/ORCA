@@ -495,6 +495,31 @@ def _chl_grid(bbox: dict[str, float] | None) -> dict[str, Any] | None:
 _READING_MAX_KM = 60.0       # a cell further than this is not "at" the place
 _SST_SOURCES = (("INSAT-3DR SST", sl.load_insat_sst), ("CMEMS SST", sl.load_cmems_sst))
 _CHL_SOURCES = (("EOS-06 OCM-3 chlorophyll", sl.load_eos06_chl), ("CMEMS ocean-colour chlorophyll", sl.load_cmems_chl))
+# which catalog source (marine_data_discovery's ids) each reader is (A5, 2026-10-10)
+_ID_BY_NAME = {
+    "INSAT-3DR SST": "mosdac_open_sst", "CMEMS SST": "copernicus_cmems",
+    "EOS-06 OCM-3 chlorophyll": "mosdac_open_chl", "CMEMS ocean-colour chlorophyll": "copernicus_cmems",
+    "NOAA CoastWatch SST": "noaa_coastwatch", "NOAA CoastWatch chlorophyll": "noaa_coastwatch",
+}
+# The declared last rung of both cascades (a LIVE fetch, so Agent 3 cannot pre-probe it): read only when Agent 3 decided it, never
+# speculatively (it is a network call).
+_COASTWATCH = {
+    "sst": ("NOAA CoastWatch SST", sl.load_coastwatch_sst, "degC"),
+    "chlorophyll": ("NOAA CoastWatch chlorophyll", sl.load_coastwatch_chl, "mg/m3"),
+}
+
+
+def _COASTWATCH_NAME(dtype: str) -> tuple[str, Any]:
+    return (_COASTWATCH[dtype][0], _COASTWATCH[dtype][1])
+
+
+def grid_reading(source_id: str, data_type: str, lat: float, lon: float) -> dict[str, Any] | None:
+    """The nearest-cell reading of ONE catalog source for "sst" or "chlorophyll" at a position, or None when it holds no cell
+    within `_READING_MAX_KM`. Agent 3's arrival probe asks this, so its "valid" means "this source has a reading HERE"."""
+    table, unit = (_SST_SOURCES, "degC") if data_type == "sst" else (_CHL_SOURCES, "mg/m3")
+    mine = tuple((name, loader) for name, loader in table if _ID_BY_NAME.get(name) == source_id)
+    readings = _source_readings(mine, lat, lon, unit)
+    return readings[0] if readings else None
 
 
 def _nearest_cell(frame: list[dict[str, float]], lat: float, lon: float) -> tuple[dict[str, float], float] | None:
@@ -525,7 +550,7 @@ def _source_readings(sources: tuple[Any, ...], lat: float, lon: float, unit: str
         prov = grid.get("provenance") or {}
         age = prov.get("freshness_minutes")
         out.append({
-            "source": name, "value": round(float(near[0]["value"]), 2), "unit": unit,
+            "source": name, "source_id": _ID_BY_NAME.get(name), "value": round(float(near[0]["value"]), 2), "unit": unit,
             "cell_distance_km": round(near[1], 1), "observed": (prov.get("acquisition_timestamp") or "")[:10] or None,
             "age_days": round(age / 1440, 1) if isinstance(age, (int, float)) else None,
         })
@@ -572,9 +597,14 @@ def _chl_class(value: float) -> str:
     return _CHL_CLASS["low" if value < _CHL_LOW else "high" if value > _CHL_HIGH else "moderate"]
 
 
-def point_readings(lat: float, lon: float) -> dict[str, Any]:
+def point_readings(lat: float, lon: float, decided: dict[str, str | None] | None = None) -> dict[str, Any]:
     """The SST and chlorophyll at (lat, lon): one headline reading per quantity (with its source, date and cell), the other
-    sources as cross-checks, and an `unusual_gap` sentence ONLY when a cross-check is outside the normal offset."""
+    sources as cross-checks, and an `unusual_gap` sentence ONLY when a cross-check is outside the normal offset.
+
+    `decided` ({"sst": id, "chlorophyll": id}, from marine_data_discovery) names the HEADLINE source (A5, 2026-10-10): Agent 3
+    checked that the source has a cell at this position and how old it is, so this agent no longer picks the national product by
+    a constant. Without a decision the national product is still the default."""
+    decided = decided or {}
     sst = _source_readings(_SST_SOURCES, lat, lon, "degC")
     chl = _source_readings(_CHL_SOURCES, lat, lon, "mg/m3")
     # INCOIS's own ocean-state model is one more cross-check for the sea surface temperature (a 0.5 deg model grid).
@@ -587,8 +617,16 @@ def point_readings(lat: float, lon: float) -> dict[str, Any]:
             })
     except Exception:
         pass
-    sst_head, sst_checks = _headline(sst, _SST_HEADLINE)
-    chl_head, chl_checks = _headline(chl, _CHL_HEADLINE)
+    def _preferred(table, dtype, default):
+        want = decided.get(dtype)
+        return next((n for n, _ in table if want and _ID_BY_NAME.get(n) == want), default)
+
+    for dtype, readings in (("sst", sst), ("chlorophyll", chl)):
+        if decided.get(dtype) == "noaa_coastwatch":
+            name, loader, unit = _COASTWATCH[dtype]
+            readings.extend(_source_readings(((name, loader),), lat, lon, unit))
+    sst_head, sst_checks = _headline(sst, _preferred(_SST_SOURCES + (_COASTWATCH_NAME("sst"),), "sst", _SST_HEADLINE))
+    chl_head, chl_checks = _headline(chl, _preferred(_CHL_SOURCES + (_COASTWATCH_NAME("chlorophyll"),), "chlorophyll", _CHL_HEADLINE))
 
     sst_gap = None
     if sst_head:
@@ -1778,7 +1816,23 @@ def run(state: ORCAState) -> AgentResult:
     gauge = tide_gauge_observation(lat, lon)
     osf_point = nearest_osf_point_forecast(lat, lon)
 
+    # A5 (2026-10-10): SST / chlorophyll headline sources follow Agent 3; PFZ and tide are reported decided vs used.
+    colour = (
+        point_readings(lat, lon, {"sst": (decided.get("sst") or {}).get("chosen"), "chlorophyll": (decided.get("chlorophyll") or {}).get("chosen")})
+        if _asks_sea_colour(state, query) else None
+    )
+    from orca.agents.discovery import source_report_entry
+
+    source_report: dict[str, Any] = {
+        "tide": source_report_entry(decided.get("tide"), tide.source_used),
+        "pfz": source_report_entry(decided.get("pfz"), "incois_pfz" if near.found else None),
+    }
+    if colour is not None:
+        source_report["sst"] = source_report_entry(decided.get("sst"), (colour["sea_surface_temperature"]["headline"] or {}).get("source_id"))
+        source_report["chlorophyll"] = source_report_entry(decided.get("chlorophyll"), (colour["chlorophyll_a"]["headline"] or {}).get("source_id"))
+
     outputs: dict[str, Any] = {
+        "source_report": source_report,
         "tide": {
             "station_code": tide.station_code,
             "station_name": tide.station_name,
@@ -1821,7 +1875,7 @@ def run(state: ORCAState) -> AgentResult:
         "pfz_persistence": {k: v for k, v in persistence.items() if k != "confidence"},
         "sector_status": sec_status,
         "sst_chlorophyll_correlation": {k: v for k, v in correlation.items() if k != "confidence"},
-        **({"sea_colour_readings_at_the_place": point_readings(lat, lon)} if _asks_sea_colour(state, query) else {}),
+        **({"sea_colour_readings_at_the_place": colour} if colour is not None else {}),
         "wind_rose": {k: v for k, v in rose.items() if k != "confidence"},
         "wind_anomaly": {k: v for k, v in anomaly_wind.items() if k != "confidence"},
         "osf_point_forecast": {k: v for k, v in osf_point.items() if k != "confidence"},
