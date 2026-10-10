@@ -276,12 +276,12 @@ const AUDIENCE_OPTIONS: {
   icon: string;
   desc: string;
 }[] = [
-  { id: "all", label: "All User Types", icon: "🌐", desc: "All mariners, coastal vessels & subscribers" },
-  { id: "fisherman", label: "Fishermen", icon: "🎣", desc: "Artisanal, mechanized & traditional fishing craft" },
-  { id: "commercial_navigator", label: "Commercial Navigators", icon: "🚢", desc: "Cargo vessels, container ships & tugs" },
-  { id: "researcher", label: "Ocean Researchers", icon: "🔬", desc: "Research survey vessels & oceanographic teams" },
-  { id: "port_users", label: "Port Jurisdiction", icon: "⚓", desc: "Mariners registered in this port authority sector" },
-];
+    { id: "all", label: "All User Types", icon: "🌐", desc: "All mariners, coastal vessels & subscribers" },
+    { id: "fisherman", label: "Fishermen", icon: "🎣", desc: "Artisanal, mechanized & traditional fishing craft" },
+    { id: "commercial_navigator", label: "Commercial Navigators", icon: "🚢", desc: "Cargo vessels, container ships & tugs" },
+    { id: "researcher", label: "Ocean Researchers", icon: "🔬", desc: "Research survey vessels & oceanographic teams" },
+    { id: "port_users", label: "Port Jurisdiction", icon: "⚓", desc: "Mariners registered in this port authority sector" },
+  ];
 
 const SEVERITY_OPTIONS: { id: "danger" | "warning" | "advisory" | "info"; label: string; tone: BadgeTone }[] = [
   { id: "danger", label: "Danger (Critical)", tone: "no-go" },
@@ -300,6 +300,7 @@ const CHANNELS_LIST = [
 
 function BroadcastComposer({
   authorityPort,
+  authorityName,
 }: {
   authorityPort?: string | null;
   authorityName?: string | null;
@@ -410,7 +411,7 @@ function BroadcastComposer({
     <Panel title="Broadcast alert composer & issuer" className="mb-4">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-hairline pb-3">
         <p className="text-xs text-ink-muted">
-          Authoritative broadcast terminal. Select target audience, severity, and advisory directives to issue live alerts.
+          Authoritative broadcast terminal{authorityName ? ` for ${authorityName}` : ""}. Select target audience, severity, and advisory directives to issue live alerts.
         </p>
         <button
           type="button"
@@ -437,11 +438,10 @@ function BroadcastComposer({
               <button
                 key={opt.id}
                 type="button"
-                className={`flex flex-col rounded-sm border p-2.5 text-left transition-all ${
-                  isSelected
+                className={`flex flex-col rounded-sm border p-2.5 text-left transition-all ${isSelected
                     ? "border-ocean-cyan bg-ocean-cyan/15 shadow-sm"
                     : "border-hairline bg-shelf-1/60 hover:bg-shelf-1"
-                }`}
+                  }`}
                 onClick={() => setTargetAudience(opt.id)}
               >
                 <div className="flex items-center gap-2">
@@ -467,11 +467,10 @@ function BroadcastComposer({
               <button
                 key={sev.id}
                 type="button"
-                className={`flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-all ${
-                  isSelected
+                className={`flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-all ${isSelected
                     ? "ring-2 ring-offset-1 ring-ocean-cyan"
                     : "opacity-75 hover:opacity-100"
-                }`}
+                  }`}
                 onClick={() => setSeverity(sev.id)}
               >
                 <Badge tone={sev.tone}>{sev.label}</Badge>
@@ -575,11 +574,10 @@ function BroadcastComposer({
               <button
                 key={ch.id}
                 type="button"
-                className={`flex items-center gap-1.5 rounded-sm border px-2.5 py-1 text-xs transition-colors ${
-                  checked
+                className={`flex items-center gap-1.5 rounded-sm border px-2.5 py-1 text-xs transition-colors ${checked
                     ? "border-ocean-cyan bg-ocean-cyan/20 text-ink"
                     : "border-hairline bg-shelf-1 text-ink-dim hover:text-ink"
-                }`}
+                  }`}
                 onClick={() => toggleChannel(ch.id)}
               >
                 <span>{checked ? "✓" : "+"}</span>
@@ -837,18 +835,16 @@ function DistressQueue() {
             <div className="mb-3 flex gap-2 text-xs">
               <button
                 type="button"
-                className={`rounded px-2.5 py-1 font-medium transition-colors ${
-                  portFilter === "all" ? "bg-shelf-3 text-ink" : "text-ink-dim hover:text-ink"
-                }`}
+                className={`rounded px-2.5 py-1 font-medium transition-colors ${portFilter === "all" ? "bg-shelf-3 text-ink" : "text-ink-dim hover:text-ink"
+                  }`}
                 onClick={() => setPortFilter("all")}
               >
                 All sectors ({events.length})
               </button>
               <button
                 type="button"
-                className={`rounded px-2.5 py-1 font-medium transition-colors ${
-                  portFilter === "assigned" ? "bg-no-go/20 text-no-go border border-no-go/40" : "text-ink-dim hover:text-ink"
-                }`}
+                className={`rounded px-2.5 py-1 font-medium transition-colors ${portFilter === "assigned" ? "bg-no-go/20 text-no-go border border-no-go/40" : "text-ink-dim hover:text-ink"
+                  }`}
                 onClick={() => setPortFilter("assigned")}
               >
                 Assigned to your port ({events.filter((e) => e.is_assigned_to_reader).length})
