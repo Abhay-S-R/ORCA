@@ -936,6 +936,15 @@ def plan_voyage(
 
     corridor = _corridor_polygon([(lon, lat) for lat, lon in points], CORRIDOR_BUFFER_NM)
     total_nm = sum(s.distance_nm for s in segments)
+    if fuel_burn_lph is None and speed_kn > 0:
+        base_rates = {
+            "small_fishing": 4.5,
+            "mechanized_trawler": 22.0,
+            "cargo_vessel": 110.0,
+        }
+        base_rate = base_rates.get(vessel_class, 4.5)
+        # Power / consumption formula: scales quadratically with speed relative to 8 knots cruise
+        fuel_burn_lph = round(base_rate * ((speed_kn / 8.0) ** 2), 2)
     fuel_estimate_liters = round(total_nm / speed_kn * fuel_burn_lph, 1) if fuel_burn_lph is not None and speed_kn > 0 else None
 
     return VoyagePlan(

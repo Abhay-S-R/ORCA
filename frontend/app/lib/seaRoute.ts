@@ -49,9 +49,23 @@ export interface FishingZoneFeature {
   };
 }
 
+export interface StateFishingBoundary {
+  state: string;
+  max_fishing_nm: number;
+  traditional_zone_nm: number;
+  seasonal_ban: {
+    start_month: number; start_day: number;
+    end_month: number; end_day: number;
+    description: string;
+  } | null;
+  note: string;
+}
+
 export interface FishingZonesGeoJson {
   type: "FeatureCollection";
   features: FishingZoneFeature[];
+  /** Only present when filtered by state — MFRA boundary rules */
+  state_fishing_boundary?: StateFishingBoundary;
 }
 
 export async function computeSeaRoute(req: SeaRouteRequest): Promise<SeaRouteResult> {
@@ -75,8 +89,11 @@ export async function fetchSeaPorts(): Promise<SeaPort[]> {
   return data.ports;
 }
 
-export async function fetchFishingZones(): Promise<FishingZonesGeoJson> {
-  const res = await fetch(`${API_BASE}/api/sea-route/fishing-zones`);
+export async function fetchFishingZones(state?: string | null): Promise<FishingZonesGeoJson> {
+  const url = state
+    ? `${API_BASE}/api/sea-route/fishing-zones?state=${encodeURIComponent(state)}`
+    : `${API_BASE}/api/sea-route/fishing-zones`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`zones ${res.status}`);
   return res.json() as Promise<FishingZonesGeoJson>;
 }
