@@ -305,3 +305,81 @@ def test_cheap_check_never_yields_go_when_wind_reading_is_missing(monkeypatch):
 
     assert snap.go_no_go != "GO"
     assert "wind_speed_kmh" in snap.reason
+
+
+# --- Multi-parameter monitoring: watch_type == "all" --------------------------
+
+def test_evaluate_all_fires_on_weather_worsening():
+    prev = _snap(go_no_go="GO").as_payload()
+    decision = evaluate(
+        watch_id="w-all",
+        watch_type="all",
+        location={"lat": 8.8, "lon": 78.1},
+        location_name="your watch point",
+        thresholds={"wave_height_m": 2.5},
+        last_payload={"weather": prev},
+        check=lambda lat, lon, **kw: _snap(go_no_go="CAUTION", reason="rough seas"),
+    )
+    assert decision.fired is True
+    assert decision.severity == "warning"
+    assert "CAUTION" in decision.title
+    assert "weather" in decision.snapshot_payload
+    assert "geofence" in decision.snapshot_payload
+    assert "pfz" in decision.snapshot_payload
+
+
+def test_evaluate_all_fires_on_wave_threshold():
+    prev = _snap(go_no_go="GO", wave_height_m=1.5).as_payload()
+    decision = evaluate(
+        watch_id="w-all",
+        watch_type="all",
+        location={"lat": 8.8, "lon": 78.1},
+        location_name="your watch point",
+        thresholds={"wave_height_m": 2.5},
+        last_payload={"weather": prev},
+        check=lambda lat, lon, **kw: _snap(go_no_go="GO", wave_height_m=3.0),
+    )
+    assert decision.fired is True
+    assert "Wave height crossed 2.5 m" in decision.title
+
+
+def test_evaluate_all_fires_on_wind_threshold():
+    prev = _snap(go_no_go="GO", wind_speed_ms=8.0).as_payload()  # ~15.5 kt
+    decision = evaluate(
+        watch_id="w-all",
+        watch_type="all",
+        location={"lat": 8.8, "lon": 78.1},
+        location_name="your watch point",
+        thresholds={"wind_kt": 25.0},
+        last_payload={"weather": prev},
+        check=lambda lat, lon, **kw: _snap(go_no_go="GO", wind_speed_ms=15.0),  # ~29.2 kt
+    )
+    assert decision.fired is True
+    assert "Wind speed crossed 25 kt" in decision.title
+
+
+def test_evaluate_all_silent_when_unchanged():
+    current_snap = _snap(go_no_go="GO", wave_height_m=1.0)
+    decision = evaluate(
+        watch_id="w-all",
+        watch_type="all",
+        location={"lat": 8.8, "lon": 78.1},
+        location_name="your watch point",
+        thresholds={"wave_height_m": 2.5},
+        last_payload=None,
+        check=lambda lat, lon, **kw: current_snap,
+    )
+    # First calm poll
+    assert decision.fired is False
+
+    # Second poll with same payload
+    second = evaluate(
+        watch_id="w-all",
+        watch_type="all",
+        location={"lat": 8.8, "lon": 78.1},
+        location_name="your watch point",
+        thresholds={"wave_height_m": 2.5},
+        last_payload=decision.snapshot_payload,
+        check=lambda lat, lon, **kw: current_snap,
+    )
+    assert second.fired is False

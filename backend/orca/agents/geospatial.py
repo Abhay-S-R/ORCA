@@ -802,18 +802,16 @@ def distance_to_shore_nm(lat: float, lon: float) -> float | None:
             geom = rows[i]["geometry"]
             if geom.intersects(pt):
                 return 0.0
-            p1, p2 = nearest_points(pt, geom)
+            _, p2 = nearest_points(pt, geom)
             _, _, m = _GEOD.inv(pt.x, pt.y, p2.x, p2.y)
-            if m < min_m:
-                min_m = m
+            min_m = min(min_m, m)
 
     # Also check declared Indian Straight Baselines
     for geom, props in load_boundary_lines():
         if props.get("line_type") == "Straight baseline":
             nearest = geom.interpolate(geom.project(pt))
             _, _, m = _GEOD.inv(pt.x, pt.y, nearest.x, nearest.y)
-            if m < min_m:
-                min_m = m
+            min_m = min(min_m, m)
 
     if min_m < float("inf"):
         return round(min_m * NM_PER_METER, 3)

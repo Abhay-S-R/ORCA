@@ -23,7 +23,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 # ── State → [zone-sector strings that legally belong to this state] ───────────
 # Zone sector names must match `properties.sector` in the FishingZone dataset.
 STATE_ZONE_SECTORS: dict[str, list[str]] = {
@@ -163,8 +162,8 @@ def get_state_fishing_rule_text(state: str) -> str:
         f"  • Territorial waters: 0–{b.max_fishing_nm} NM from baseline (state jurisdiction, {state} MFRA).",
         f"  • Traditional craft reserved zone: 0–{b.traditional_zone_nm} NM — mechanised vessels prohibited.",
         f"  • Fishermen licensed in {state} must fish within {state}'s 0–12 NM waters only.",
-        f"  • Fishing in another state's territorial waters requires that state's licence.",
-        f"  • Beyond 12 NM: EEZ (12–200 NM) regulated by Central Government (DFHMAD).",
+        "  • Fishing in another state's territorial waters requires that state's licence.",
+        "  • Beyond 12 NM: EEZ (12–200 NM) regulated by Central Government (DFHMAD).",
     ]
     if b.seasonal_ban:
         ban = b.seasonal_ban

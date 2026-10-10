@@ -79,6 +79,255 @@ def broadcast_preview(
     return {"channels": four_channel_preview(verdict=verdict, hazard=hazard, location=location, issued_at=issued_at)}
 
 
+def _geom_latlon(geom: Any) -> dict[str, float] | None:
+    if geom is None:
+        return None
+    try:
+        from geoalchemy2.shape import to_shape
+        from shapely.geometry import Point
+
+        shp = to_shape(geom)
+        if isinstance(shp, Point):
+            return {"lat": shp.y, "lon": shp.x}
+    except Exception:
+        pass
+    return None
+
+
+def _haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    import math
+
+    r = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    )
+    return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+class BroadcastPublishRequest(BaseModel):
+    title: str
+    body: str
+    severity: Literal["info", "advisory", "warning", "danger"] = "warning"
+    target_audience: Literal["all", "fisherman", "commercial_navigator", "researcher", "port_users"] = "all"
+    location: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+    radius_km: float = 30.0
+    channels: list[str] = ["in_app"]
+
+
+@router.post("/broadcast/publish")
+def broadcast_publish(
+    body: BroadcastPublishRequest,
+    user: User = Depends(_authority),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Allows each coastal authority account to compose and issue alerts for every
+    other user type (all mariners, fishermen, commercial navigators, researchers, or port mariners).
+    
+    Creates in-app notifications for each target recipient, connects to matching active
+    watches in the sector (updating watch alert history), and records an audited security event.
+    """
+    from sqlalchemy import func, select
+
+    from orca.db.notifications_models import SentinelSubscription
+    from orca.db.notifications_repo import (
+        create_notification,
+        list_watches_for_user,
+        mark_watch_fired,
+        watch_location,
+    )
+    from orca.ops.port_authorities import resolve_port_authority_config
+
+    # Resolve target coordinates (explicit -> authority's home port geom -> authority port config)
+    target_lat = body.lat
+    target_lon = body.lon
+    if target_lat is None or target_lon is None:
+        if user.home_port is not None:
+            hl = _geom_latlon(user.home_port)
+            if hl:
+                target_lat = hl["lat"]
+                target_lon = hl["lon"]
+        if target_lat is None and user.home_port_name:
+            cfg = resolve_port_authority_config(user.home_port_name)
+            target_lat = cfg.get("lat")
+            target_lon = cfg.get("lon")
+
+    target_location = body.location or user.home_port_name or "Coastal Sector"
+
+    # Filter recipients: only active non-authority users
+    base_query = select(User).where(User.status == "active", User.role != "authority")
+
+    if body.target_audience == "all":
+        recipients = list(db.execute(base_query).scalars())
+    elif body.target_audience in ("fisherman", "commercial_navigator", "researcher"):
+        stmt = base_query.where(User.default_persona == body.target_audience)
+        recipients = list(db.execute(stmt).scalars())
+    elif body.target_audience == "port_users":
+        port_name = (user.home_port_name or target_location).strip()
+        if port_name:
+            stmt = base_query.where(func.lower(User.home_port_name) == port_name.lower())
+            recipients = list(db.execute(stmt).scalars())
+            if not recipients:
+                recipients = list(db.execute(base_query).scalars())
+        else:
+            recipients = list(db.execute(base_query).scalars())
+    else:
+        recipients = list(db.execute(base_query).scalars())
+
+    watches_updated = 0
+    query_id = uuid.uuid4()
+    breakdown = {"fisherman": 0, "commercial_navigator": 0, "researcher": 0, "unresolved": 0, "other": 0}
+
+    for r in recipients:
+        persona = r.default_persona
+        if persona in breakdown:
+            breakdown[persona] += 1
+        else:
+            breakdown["other"] += 1
+
+        # Check for active watches matching this sector or location
+        user_watches = list_watches_for_user(db, r.id)
+        matching_watch: SentinelSubscription | None = None
+
+        for w in user_watches:
+            if not w.enabled:
+                continue
+            if target_lat is not None and target_lon is not None:
+                w_loc = watch_location(w)
+                if w_loc is not None:
+                    dist = _haversine_distance_km(target_lat, target_lon, w_loc["lat"], w_loc["lon"])
+                    watch_rad = float(w.radius_km or 25.0)
+                    if dist <= (watch_rad + body.radius_km):
+                        matching_watch = w
+                        break
+            if matching_watch is None and w.watch_type in ("all", "weather", "cyclone", "wave_height"):
+                matching_watch = w
+                break
+
+        matching_watch_id = matching_watch.id if matching_watch is not None else None
+        if matching_watch is not None:
+            mark_watch_fired(db, matching_watch.id)
+            watches_updated += 1
+
+        create_notification(
+            db,
+            user_id=r.id,
+            watch_id=matching_watch_id,
+            query_id=query_id,
+            severity=body.severity,
+            title=body.title,
+            body=body.body,
+            channel="in_app",
+            status="sent",
+            rendered_payload={
+                "authority_id": str(user.id),
+                "authority_name": user.display_name or "Coastal Authority",
+                "authority_port": user.home_port_name or target_location,
+                "target_audience": body.target_audience,
+                "channels": body.channels,
+                "location": target_location,
+                "lat": target_lat,
+                "lon": target_lon,
+                "radius_km": body.radius_km,
+                "published_at": datetime.now(UTC).isoformat(),
+            },
+        )
+
+    # Persist security event for full audit traceability
+    persist_security_event(
+        db,
+        query_id=query_id,
+        event="coastal_authority_alert_broadcast",
+        status="ok",
+        outputs={
+            "authority_id": str(user.id),
+            "authority_name": user.display_name,
+            "authority_port": user.home_port_name or target_location,
+            "target_audience": body.target_audience,
+            "severity": body.severity,
+            "title": body.title,
+            "location": target_location,
+            "delivered_count": len(recipients),
+            "watches_updated": watches_updated,
+            "breakdown": breakdown,
+        },
+    )
+    db.commit()
+
+    return {
+        "status": "published",
+        "alert_id": str(query_id),
+        "title": body.title,
+        "severity": body.severity,
+        "target_audience": body.target_audience,
+        "authority_name": user.display_name or "Coastal Authority",
+        "authority_port": user.home_port_name or target_location,
+        "delivered_count": len(recipients),
+        "watches_updated": watches_updated,
+        "breakdown": breakdown,
+        "published_at": datetime.now(UTC).isoformat(),
+    }
+
+
+@router.get("/broadcast/history")
+def broadcast_history(
+    limit: int = 20,
+    user: User = Depends(_authority),
+    db: Session = Depends(get_db),
+) -> dict:
+    """List recent broadcast alerts issued by coastal authorities."""
+    rows = db.execute(
+        text(
+            "SELECT query_id, outputs, created_at FROM audit_trace_log "
+            "WHERE event = 'coastal_authority_alert_broadcast' "
+            "ORDER BY created_at DESC LIMIT :lim"
+        ),
+        {"lim": min(limit, 50)},
+    ).all()
+    history_items = []
+    for r in rows:
+        outputs = r[1] or {}
+        history_items.append({
+            "alert_id": str(r[0]),
+            "title": outputs.get("title", "Maritime Alert"),
+            "severity": outputs.get("severity", "warning"),
+            "target_audience": outputs.get("target_audience", "all"),
+            "authority_name": outputs.get("authority_name", "Coastal Authority"),
+            "authority_port": outputs.get("authority_port", "Unknown"),
+            "delivered_count": outputs.get("delivered_count", 0),
+            "watches_updated": outputs.get("watches_updated", 0),
+            "published_at": r[2].isoformat() if r[2] else None,
+        })
+    return {"history": history_items}
+
+
+@router.get("/authorities")
+def list_authorities(db: Session = Depends(get_db)) -> dict:
+    """Public roster of pre-configured coastal authorities for all major ports."""
+    from orca.ops.port_authorities import PORT_AUTHORITIES
+
+    return {
+        "authorities": [
+            {
+                "port_name": a["port_name"],
+                "slug": a["slug"],
+                "lat": a["lat"],
+                "lon": a["lon"],
+                "email": a["email"],
+                "display_name": a["display_name"],
+                "state": a["state"],
+                "phone": a["phone"],
+            }
+            for a in PORT_AUTHORITIES
+        ]
+    }
+
+
+
 
 # P6.10 — the pilot's two named languages beyond English (orca_final's Palk
 # Bay pilot is Tamil-coast; Hindi is the widest second language among the

@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Compass, Fish, History, Maximize2, MapPin, Minimize2, PanelLeftOpen, ShieldCheck, Waves, Wind } from "lucide-react";
+import { Compass, Fish, History, Maximize2, MapPin, Minimize2, PanelLeftOpen, Plus, ShieldCheck, Waves, Wind } from "lucide-react";
 import { Button } from "../components/Button";
 import { Greeting } from "../components/Greeting";
 import { SavedLocationChips } from "../components/SavedLocationChips";
@@ -75,7 +75,7 @@ export default function AskPage() {
   const store = auth.status === "loading" ? null : auth.status === "signed_in" ? accountStore : browserStore;
   const [query, setQuery] = useState("");
   const [mapCollapsed, setMapCollapsed] = useState(false);
-  const [mapWidth, setMapWidth] = useState(42);
+  const [mapWidth, setMapWidth] = useState(35);
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [railCollapsed, setRailCollapsed] = useState(false);
@@ -255,22 +255,21 @@ export default function AskPage() {
   }
 
   function submit(q: string, options?: { llm?: "off"; drop?: string[]; position?: { lat: number; lon: number }; vessel_class?: string | null }) {
+    collapseRail(true);
+    setMapWidth(35);
+    setMapCollapsed(false);
+    try {
+      localStorage.setItem(MAP_WIDTH_KEY, "35");
+    } catch {
+      /* storage disabled */
+    }
+    window.dispatchEvent(new Event("resize"));
     ask(q, {
       ...options,
       vessel_class: options?.vessel_class ?? activeVesselClass,
     });
     setQuery("");
   }
-
-  // P3.10 — the most recent answer's resolved position, offered as what a
-  // "+" tap on the saved-location chips bookmarks. A regional default isn't
-  // a place the user chose, so it doesn't qualify (same exclusion
-  // distressMarkers above already applies for the same reason).
-  const lastResolvedLocation = useMemo(() => {
-    const t = [...turns].reverse().find((x) => x.answer?.user_location && x.answer.user_location.place_source !== "regional_default");
-    const loc = t?.answer?.user_location;
-    return loc ? { lat: loc.lat, lon: loc.lon } : null;
-  }, [turns]);
 
   function askSavedLocation(loc: { name: string; lat: number; lon: number }) {
     submit(`Is it safe near ${loc.name}?`, { position: { lat: loc.lat, lon: loc.lon } });
@@ -394,7 +393,7 @@ export default function AskPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} />
+            <SavedLocationChips onSelect={askSavedLocation} addFrom={null} hideAdd={true} />
           </div>
           <Composer
             value={query}
@@ -433,43 +432,53 @@ export default function AskPage() {
             style={!mapCollapsed ? { flex: `0 0 calc(${100 - mapWidth}% - 0.75rem)` } : undefined}
             className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 lg:pr-2"
           >
-          <div className="flex items-center justify-between gap-3 border-b border-hairline/60 pb-3">
-            <div className="flex min-w-0 items-baseline gap-2">
-              {railCollapsed && (
+            <div className="flex items-center justify-between gap-3 border-b border-hairline/60 pb-3">
+              <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+                {railCollapsed && (
+                  <button
+                    type="button"
+                    onClick={() => collapseRail(false)}
+                    aria-label={t("common.chats")}
+                    title={t("common.chats")}
+                    className={`${iconButtonClass} hidden self-center lg:grid`}
+                  >
+                    <PanelLeftOpen className="size-4" aria-hidden="true" />
+                  </button>
+                )}
+                <h1 className="shrink-0 text-base sm:text-xl font-bold uppercase tracking-wide text-ink">{t("ask.title")}</h1>
+              </div>
+              <div className="flex shrink-0 items-center gap-2 sm:gap-2.5">
+                {saveFailed && (
+                  <span role="status" className="text-[11px] text-caution">
+                    {t(saveFailed === "rejected" ? "ask.saveRejected" : "ask.notSaved")}
+                  </span>
+                )}
                 <button
                   type="button"
-                  onClick={() => collapseRail(false)}
-                  aria-label={t("common.chats")}
-                  title={t("common.chats")}
-                  className={`${iconButtonClass} hidden self-center lg:grid`}
+                  onClick={newChat}
+                  aria-label={t("common.newChat")}
+                  title={t("common.newChat")}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-hairline/80 bg-shelf-1/90 px-3 py-1.5 text-sm font-semibold text-ink shadow-xs transition-colors hover:border-ocean-cyan/60 hover:text-ocean-cyan"
                 >
-                  <PanelLeftOpen className="size-3.5" aria-hidden="true" />
+                  <Plus className="size-4" aria-hidden="true" />
+                  <span>{t("common.newChat")}</span>
                 </button>
-              )}
-              <h1 className="shrink-0 text-xs font-bold uppercase tracking-wider text-ink-dim">{t("ask.title")}</h1>
+                {historyButton}
+                {mapCollapsed && (
+                  <button
+                    type="button"
+                    onClick={() => setMapCollapsed(false)}
+                    aria-label={t("ask.expandMap")}
+                    title={t("nav.map")}
+                    className={iconButtonClass}
+                  >
+                    <Maximize2 className="size-3.5" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {saveFailed && (
-                <span role="status" className="text-[11px] text-caution">
-                  {t(saveFailed === "rejected" ? "ask.saveRejected" : "ask.notSaved")}
-                </span>
-              )}
-              {historyButton}
-              {mapCollapsed && (
-                <button
-                  type="button"
-                  onClick={() => setMapCollapsed(false)}
-                  aria-label={t("ask.expandMap")}
-                  title={t("nav.map")}
-                  className={iconButtonClass}
-                >
-                  <Maximize2 className="size-3.5" aria-hidden="true" />
-                </button>
-              )}
-            </div>
-          </div>
 
-          {/* `relative` is load-bearing, not decoration: it makes this
+            {/* `relative` is load-bearing, not decoration: it makes this
               scroller the containing block for the absolutely positioned
               bits inside a turn (the agent pills' sr-only status spans).
               Without it those resolve against the panel wrapper below,
@@ -479,49 +488,49 @@ export default function AskPage() {
               thread ran past one screen. The scroller spans the full width
               (so its scrollbar sits at the edge); the column inside it is
               the same centred max-w-4xl the composer uses. */}
-          <div ref={threadRef} className="relative min-h-0 min-w-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 pr-2">
-              {turns.map((turn, i) => (
-                <div
-                  key={turn.id}
-                  ref={i === turns.length - 1 ? latestTurnRef : undefined}
-                  className="w-full"
-                >
-                  <ChatTurn
-                    turn={turn}
-                    persona={persona}
-                    hadEarlierAnswers={hadEarlierAnswers(turns, i)}
-                    onRetry={() => ask(turn.askedQuery)}
-                    onRerun={() => rerun(turn.id)}
-                    onShowVersion={(index) => showVersion(turn.id, index)}
-                    onFollowUp={submit}
-                    onOpenDistressOverlay={(data) => setDistressOverlay({ ...data, isOpen: true })}
-                  />
-                </div>
-              ))}
+            <div ref={threadRef} className="relative min-h-0 min-w-0 flex-1 overflow-y-auto">
+              <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 pr-2">
+                {turns.map((turn, i) => (
+                  <div
+                    key={turn.id}
+                    ref={i === turns.length - 1 ? latestTurnRef : undefined}
+                    className="w-full"
+                  >
+                    <ChatTurn
+                      turn={turn}
+                      persona={persona}
+                      hadEarlierAnswers={hadEarlierAnswers(turns, i)}
+                      onRetry={() => ask(turn.askedQuery)}
+                      onRerun={() => rerun(turn.id)}
+                      onShowVersion={(index) => showVersion(turn.id, index)}
+                      onFollowUp={submit}
+                      onOpenDistressOverlay={(data) => setDistressOverlay({ ...data, isOpen: true })}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center gap-2">
-            <SavedLocationChips onSelect={askSavedLocation} addFrom={lastResolvedLocation} />
-          </div>
-          <Composer
-            value={query}
-            onChange={setQuery}
-            onSubmit={submit}
-            disabled={streaming}
-            voice={voice}
-            isFisherman={persona === "fisherman"}
-            centered={false}
-            leading={
-              <VesselChip
-                auth={auth}
-                vesselClass={activeVesselClass}
-                onVesselChange={setSelectedVesselClass}
-                variant="icon"
-              />
-            }
-          />
+            <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center gap-2">
+              <SavedLocationChips onSelect={askSavedLocation} addFrom={null} hideAdd={true} />
+            </div>
+            <Composer
+              value={query}
+              onChange={setQuery}
+              onSubmit={submit}
+              disabled={streaming}
+              voice={voice}
+              isFisherman={persona === "fisherman"}
+              centered={false}
+              leading={
+                <VesselChip
+                  auth={auth}
+                  vesselClass={activeVesselClass}
+                  onVesselChange={setSelectedVesselClass}
+                  variant="icon"
+                />
+              }
+            />
           </div>
 
           {/* Resizer Splitter on Desktop (when map is expanded) */}
@@ -536,10 +545,10 @@ export default function AskPage() {
               tabIndex={0}
               onPointerDown={startResizing}
               onDoubleClick={() => {
-                setMapWidth(42);
+                setMapWidth(35);
                 try {
-                  localStorage.setItem(MAP_WIDTH_KEY, "42");
-                } catch {}
+                  localStorage.setItem(MAP_WIDTH_KEY, "35");
+                } catch { }
                 window.dispatchEvent(new Event("resize"));
               }}
               onKeyDown={(e) => {
@@ -548,7 +557,7 @@ export default function AskPage() {
                     const next = Math.min(w + 3, 75);
                     try {
                       localStorage.setItem(MAP_WIDTH_KEY, String(next));
-                    } catch {}
+                    } catch { }
                     window.dispatchEvent(new Event("resize"));
                     return next;
                   });
@@ -557,23 +566,21 @@ export default function AskPage() {
                     const next = Math.max(w - 3, 20);
                     try {
                       localStorage.setItem(MAP_WIDTH_KEY, String(next));
-                    } catch {}
+                    } catch { }
                     window.dispatchEvent(new Event("resize"));
                     return next;
                   });
                 }
               }}
-              title="Drag to resize map & chat · Double-click to reset (42%)"
-              className={`hidden lg:flex w-3 shrink-0 cursor-col-resize select-none items-center justify-center group relative z-20 transition-colors ${
-                isResizing ? "bg-ocean-cyan/20" : "hover:bg-shelf-2/60"
-              }`}
+              title="Drag to resize map & chat · Double-click to reset (35%)"
+              className={`hidden lg:flex w-3 shrink-0 cursor-col-resize select-none items-center justify-center group relative z-20 transition-colors ${isResizing ? "bg-ocean-cyan/20" : "hover:bg-shelf-2/60"
+                }`}
             >
               <div
-                className={`h-12 w-1 rounded-full transition-all flex flex-col items-center justify-center gap-1 ${
-                  isResizing
+                className={`h-12 w-1 rounded-full transition-all flex flex-col items-center justify-center gap-1 ${isResizing
                     ? "bg-ocean-cyan h-20 shadow-sm shadow-ocean-cyan/40"
                     : "bg-hairline group-hover:bg-ocean-cyan group-hover:h-16"
-                }`}
+                  }`}
               >
                 <span className="size-0.5 rounded-full bg-white/70" />
                 <span className="size-0.5 rounded-full bg-white/70" />
@@ -613,50 +620,47 @@ export default function AskPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      setMapWidth(30);
+                      setMapWidth(35);
                       try {
-                        localStorage.setItem(MAP_WIDTH_KEY, "30");
-                      } catch {}
+                        localStorage.setItem(MAP_WIDTH_KEY, "35");
+                      } catch { }
                       window.dispatchEvent(new Event("resize"));
                     }}
-                    title="Compact map (30%)"
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors ${
-                      mapWidth <= 35 ? "bg-ocean-cyan/20 text-ocean-cyan font-bold" : "text-ink-muted hover:text-ink"
-                    }`}
+                    title="Default 65:35 split (35% map)"
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors ${mapWidth <= 40 ? "bg-ocean-cyan/20 text-ocean-cyan font-bold" : "text-ink-muted hover:text-ink"
+                      }`}
                   >
-                    30%
+                    35%
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      setMapWidth(42);
+                      setMapWidth(50);
                       try {
-                        localStorage.setItem(MAP_WIDTH_KEY, "42");
-                      } catch {}
+                        localStorage.setItem(MAP_WIDTH_KEY, "50");
+                      } catch { }
                       window.dispatchEvent(new Event("resize"));
                     }}
-                    title="Default split (42%)"
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors ${
-                      mapWidth > 35 && mapWidth < 55 ? "bg-ocean-cyan/20 text-ocean-cyan font-bold" : "text-ink-muted hover:text-ink"
-                    }`}
+                    title="Equal split (50%)"
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors ${mapWidth > 40 && mapWidth < 60 ? "bg-ocean-cyan/20 text-ocean-cyan font-bold" : "text-ink-muted hover:text-ink"
+                      }`}
                   >
-                    42%
+                    50%
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      setMapWidth(60);
+                      setMapWidth(65);
                       try {
-                        localStorage.setItem(MAP_WIDTH_KEY, "60");
-                      } catch {}
+                        localStorage.setItem(MAP_WIDTH_KEY, "65");
+                      } catch { }
                       window.dispatchEvent(new Event("resize"));
                     }}
-                    title="Expanded map (60%)"
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors ${
-                      mapWidth >= 55 ? "bg-ocean-cyan/20 text-ocean-cyan font-bold" : "text-ink-muted hover:text-ink"
-                    }`}
+                    title="Expanded map (65%)"
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors ${mapWidth >= 60 ? "bg-ocean-cyan/20 text-ocean-cyan font-bold" : "text-ink-muted hover:text-ink"
+                      }`}
                   >
-                    60%
+                    65%
                   </button>
                 </div>
               </div>

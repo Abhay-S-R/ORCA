@@ -242,3 +242,23 @@ def test_sector_threat_matrix_never_returns_coordinates_or_vessel_ids(db: Sessio
             "is_data_gap", "vessel_count", "alert_severity",
         }
         assert isinstance(row["vessel_count"], int)  # a count, never a position
+
+
+def test_watch_all_parameters_db_lifecycle(db: Session):
+    u = _user(db)
+    watch = create_watch(
+        db,
+        user_id=u,
+        watch_type="all",
+        lat=8.8,
+        lon=78.1,
+        radius_km=10.0,
+        thresholds={"wave_height_m": 2.5, "wind_kt": 25.0},
+        channels=["in_app"],
+        enabled=True,
+    )
+    db.commit()
+    fetched = get_watch_for_user(db, watch.id, u)
+    assert fetched is not None
+    assert fetched.watch_type == "all"
+    assert fetched.thresholds == {"wave_height_m": 2.5, "wind_kt": 25.0}

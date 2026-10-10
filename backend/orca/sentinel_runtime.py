@@ -127,7 +127,7 @@ def _query_stream_shape(decision: sentinel.WatchDecision) -> dict[str, Any]:
     empty — every renderer already treats a missing key as "no active
     hazard" via `.get()`, never as a fabricated SAFE value."""
     snap = decision.snapshot_payload
-    if "band" in snap or "has_advisory" in snap:
+    if ("band" in snap or "has_advisory" in snap) and not snap.get("go_no_go"):
         # P5.18 — geofence_approach / pfz_shift snapshots carry no
         # go_no_go/hazard shape at all (they are not a wave/wind verdict);
         # `_verdict_and_hazard`'s `.get("go_no_go", "UNKNOWN")` would
@@ -231,6 +231,14 @@ def _is_near_threshold(watch_type: str, thresholds: dict[str, float], decision: 
         return threshold is not None and wave is not None and wave >= threshold * 0.8
     if watch_type in ("weather", "lightning", "cyclone"):
         return snap.get("go_no_go") == "CAUTION"
+    if watch_type == "all":
+        threshold, wave = thresholds.get("wave_height_m"), snap.get("wave_height_m")
+        wave_near = threshold is not None and wave is not None and wave >= threshold * 0.8
+        weather_near = snap.get("go_no_go") == "CAUTION"
+        geo = snap.get("geofence")
+        geo_band = geo.get("band") if isinstance(geo, dict) else snap.get("band")
+        geofence_near = geo_band in ("WATCH", "WARNING", "CRITICAL")
+        return wave_near or weather_near or geofence_near
     return False
 
 

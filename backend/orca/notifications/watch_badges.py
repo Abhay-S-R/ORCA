@@ -63,7 +63,7 @@ def badge_for_watch(db: Session, watch: SentinelSubscription) -> dict[str, Any]:
         "unread_count": len(unread),
         "last_fired_at": _iso(watch.last_fired_at),
         "updated_at": _iso(watch.updated_at),
-        "label": f"{watch.watch_type.replace('_', ' ').title()} watch",
+        "label": "All parameters watch" if watch.watch_type == "all" else f"{watch.watch_type.replace('_', ' ').title()} watch",
     }
 
 

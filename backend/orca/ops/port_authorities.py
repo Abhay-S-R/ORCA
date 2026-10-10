@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 import math
-import uuid
 from typing import Any
 
 from geoalchemy2.shape import from_shape
@@ -20,12 +19,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from orca.auth.security import hash_password
-from orca.db.models import User
+from orca.db.models import User, Vessel
 
 logger = logging.getLogger("orca.ops.port_authorities")
 
 # Default credentials for local dev / testing
 DEFAULT_AUTHORITY_PASSWORD = "orca-authority-local-dev"
+DEMO_USER_EMAIL = "demouser@orca.test"
+DEMO_USER_PASSWORD = "demouser123"
 
 # Roster of coastal authority configurations for all major ports
 PORT_AUTHORITIES: list[dict[str, Any]] = [
@@ -288,6 +289,44 @@ def ensure_port_authorities(db: Session) -> list[User]:
 
         created_or_found.append(user)
 
+    # Ensure single general demo account exists for mariner personas
+    demo = db.execute(select(User).where(User.email == DEMO_USER_EMAIL)).scalar_one_or_none()
+    if demo is None:
+        demo = User(
+            email=DEMO_USER_EMAIL,
+            password_hash=hash_password(DEMO_USER_PASSWORD),
+            display_name="Demo Mariner",
+            role="user",
+            default_persona="fisherman",
+            language="en",
+            home_port=_point_wkb(18.9446, 72.8347),
+            home_port_name="Mumbai",
+            status="active",
+        )
+        db.add(demo)
+        db.flush()
+
+    # Ensure demouser has active vessel (fibreglass boat)
+    vessel = db.execute(select(Vessel).where(Vessel.owner_user_id == demo.id)).scalar_one_or_none()
+    if vessel is None:
+        vessel = Vessel(
+            owner_user_id=demo.id,
+            name="Sagar Demo",
+            vessel_class="fibreglass",
+            length_m=9.5,
+            draft_m=1.2,
+            crew_size=4,
+            cruise_speed_kn=12.0,
+            fuel_burn_lph=14.0,
+            engine_count=1,
+            last_position=_point_wkb(18.9446, 72.8347),
+        )
+        db.add(vessel)
+        db.flush()
+    if demo.active_vessel_id != vessel.id:
+        demo.active_vessel_id = vessel.id
+        db.flush()
+
     db.commit()
     return created_or_found
 
@@ -322,3 +361,67 @@ def get_authority_user_for_port(
         db.refresh(user)
 
     return cfg, user
+
+
+def ensure_test_mariners(db: Session) -> list[User]:
+    """Ensures at least one active test user exists for each mariner persona
+    (fisherman, commercial_navigator, researcher) so broadcast targeting can be verified."""
+    mariners: list[dict[str, Any]] = [
+        {
+            "email": "fisherman@orca.test",
+            "display_name": "Kadal Meenavan (Fisherman)",
+            "persona": "fisherman",
+            "home_port_name": "Mumbai",
+            "lat": 18.9446,
+            "lon": 72.8347,
+        },
+        {
+            "email": "navigator@orca.test",
+            "display_name": "MV Sagar Deep (Commercial Navigator)",
+            "persona": "commercial_navigator",
+            "home_port_name": "Mumbai",
+            "lat": 18.9446,
+            "lon": 72.8347,
+        },
+        {
+            "email": "researcher@orca.test",
+            "display_name": "NIO Ocean Research (Researcher)",
+            "persona": "researcher",
+            "home_port_name": "Mumbai",
+            "lat": 18.9446,
+            "lon": 72.8347,
+        },
+    ]
+    created: list[User] = []
+    pw_hash = hash_password(DEFAULT_AUTHORITY_PASSWORD)
+    for m in mariners:
+        stmt = select(User).where(User.email == m["email"])
+        user = db.execute(stmt).scalar_one_or_none()
+        lat = float(m["lat"])
+        lon = float(m["lon"])
+        persona = str(m["persona"])
+        home_port_name = str(m["home_port_name"])
+        if user is None:
+            user = User(
+                email=str(m["email"]),
+                password_hash=pw_hash,
+                display_name=str(m["display_name"]),
+                role="user",
+                default_persona=persona,
+                language="en",
+                home_port=_point_wkb(lat, lon),
+                home_port_name=home_port_name,
+                status="active",
+            )
+            db.add(user)
+            db.flush()
+        else:
+            if user.default_persona != persona:
+                user.default_persona = persona
+            if not user.home_port_name:
+                user.home_port_name = home_port_name
+                user.home_port = _point_wkb(lat, lon)
+        created.append(user)
+    db.commit()
+    return created
+

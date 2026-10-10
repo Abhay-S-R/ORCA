@@ -47,6 +47,7 @@ def record_event(
     with the user's home port or incident location.
     """
     from datetime import UTC, datetime
+
     from orca.db.models import User
     from orca.db.notifications_repo import create_notification
     from orca.ops.port_authorities import get_authority_user_for_port

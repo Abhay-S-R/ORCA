@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from orca.agents.geospatial import _alert_level, _PROXIMITY_BANDS
+from orca.agents.geospatial import _PROXIMITY_BANDS, _alert_level
 from orca.agents.risk_assessment import evaluate_marine_safety
 
 

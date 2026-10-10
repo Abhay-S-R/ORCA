@@ -8,11 +8,9 @@ from the treaty-lines file (timestamp 2026-09-16). Agent 3 decides "boundary" = 
 would say "boundaries from UNEP-WCMC WDPA" for a Marine Regions number.
 """
 
-import pytest
 from orca.agents import geospatial
 from orca.agents.discovery import (
     select_source_with_fallback,
-    discovery_trace_line,
 )
 from orca.graph.graph import geospatial_run, marine_data_discovery_run
 
