@@ -26,8 +26,8 @@ class SeaRouteConfig:
     # edge are also blocked (keeps ships off rocks).
     land_buffer_nm: float = float(os.getenv("SEA_ROUTE_LAND_BUFFER_NM", "1.5"))
 
-    # Coastal standoff buffer: keep routes safely offshore when smoothing.
-    standoff_buffer_nm: float = float(os.getenv("SEA_ROUTE_STANDOFF_BUFFER_NM", "2.0"))
+    # Coastal standoff buffer: keep routes safely offshore when smoothing (1.5 NM ≈ 2.8 km).
+    standoff_buffer_nm: float = float(os.getenv("SEA_ROUTE_STANDOFF_BUFFER_NM", "1.5"))
 
 
     # Restricted-area buffer (nm around IMBL/boundary lines).

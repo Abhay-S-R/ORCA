@@ -31,7 +31,7 @@ from orca.sea_route.datasets import (
     load_restricted_areas,
 )
 from orca.sea_route.grid import build_grid
-from orca.sea_route.smoother import smooth_path
+from orca.sea_route.smoother import _build_blocker_tree, _segment_clear, smooth_path
 from orca.sea_route.warshall import path_distance_nm, warshall_route
 
 log = logging.getLogger("orca.sea_route.router")
@@ -212,18 +212,44 @@ def _compute_route(
             if _haversine_nm(end_lat, end_lng, snapped_lat, snapped_lng) > 25.0:
                 raise ValueError("Selected point is on land, please choose a point in the sea (end)")
 
-    # ── Floyd–Warshall (corridor; land and bbox are infinite-cost) ────────────
-    cell_path = warshall_route(start_cell[0], start_cell[1], end_cell[0], end_cell[1], grid)
-    if cell_path is None:
-        raise ValueError("No sea route found between these points")
+    # ── Check if direct line-of-sight from start to end is already clear ──────
+    # When navigable open water exists without intervening land, headlands,
+    # or shallows, avoid artificial corridor zigzagging and take the direct rhumb line.
+    direct_clear = False
+    if not (start_on_land or end_on_land):
+        raw_tree = _build_blocker_tree(land_polygons, restricted, buffer_deg=0.0)
+        standoff_deg = (standoff_buffer_nm or 1.5) / 60.0
+        st_tree = _build_blocker_tree(land_polygons, restricted, buffer_deg=standoff_deg)
+        if _segment_clear(start_lat, start_lng, end_lat, end_lng, raw_tree) and (
+            st_tree is None or _segment_clear(start_lat, start_lng, end_lat, end_lng, st_tree)
+        ):
+            from orca.agents.geospatial import depth_at_point
+            shallow = False
+            for frac in (0.1, 0.25, 0.5, 0.75, 0.9):
+                c_lat = start_lat + frac * (end_lat - start_lat)
+                c_lng = start_lng + frac * (end_lng - start_lng)
+                dp = depth_at_point(c_lat, c_lng)
+                if dp.on_land or (dp.depth_m is not None and dp.depth_m < 5.0):
+                    shallow = True
+                    break
+            if not shallow:
+                direct_clear = True
 
-    # Convert cell indices to lat/lng.
-    latlon_path: list[tuple[float, float]] = [
-        grid.cell_to_latlon(r, c) for r, c in cell_path
-    ]
+    if direct_clear:
+        smoothed = [(start_lat, start_lng), (end_lat, end_lng)]
+    else:
+        # ── Floyd–Warshall (corridor; land and bbox are infinite-cost) ────────────
+        cell_path = warshall_route(start_cell[0], start_cell[1], end_cell[0], end_cell[1], grid)
+        if cell_path is None:
+            raise ValueError("No sea route found between these points")
 
-    # ── Smooth ────────────────────────────────────────────────────────────────
-    smoothed = smooth_path(latlon_path, land_polygons, restricted, standoff_buffer_nm=standoff_buffer_nm)
+        # Convert cell indices to lat/lng.
+        latlon_path: list[tuple[float, float]] = [
+            grid.cell_to_latlon(r, c) for r, c in cell_path
+        ]
+
+        # ── Smooth ────────────────────────────────────────────────────────────────
+        smoothed = smooth_path(latlon_path, land_polygons, restricted, standoff_buffer_nm=standoff_buffer_nm)
 
     # ── Insert start/end coordinates safely without land or boundary crossing ──
     block_geoms = list(land_polygons)

@@ -6,7 +6,7 @@
 // single point, walked along the whole passage at each leg's own ETA.
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, Anchor, Bell, BellOff, Download, MapPin, Navigation, Printer, Route as RouteIcon, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, Anchor, Bell, BellOff, Droplets, Download, MapPin, Navigation, Printer, Route as RouteIcon, Save, Trash2 } from "lucide-react";
 import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
 import { Button } from "../components/Button";
 import { ConfidenceMeter } from "../components/ConfidenceMeter";
@@ -19,7 +19,7 @@ import { Readout, ReadoutGrid } from "../components/Readout";
 import { SourceChip } from "../components/SourceChip";
 import { ErrorState } from "../components/States";
 import { VerdictBadge } from "../components/VerdictBadge";
-import { getToken } from "../lib/auth";
+import { getToken, useAuth } from "../lib/auth";
 import { createVoyage, deleteVoyage, listVoyages, promoteVoyage, unpromoteVoyage, type Voyage } from "../lib/voyages";
 import {
   computeSeaRoute,
@@ -39,7 +39,7 @@ const VESSEL_LABELS: Record<VesselClass, string> = {
   cargo_vessel: "Cargo vessel",
 };
 
-type RoutePlanningMode = "port_to_zone" | "port_to_port" | "map_pick";
+type RoutePlanningMode = "port_to_zone" | "map_pick";
 type LatLon = { lat: number; lon: number };
 type PointCheck = { on_land: boolean; shallow_hazard: boolean; depth_m: number | null };
 type Segment = {
@@ -110,6 +110,19 @@ type Tide = {
 
 const STATUS_TONE = { CLEAR: "go", CAUTION: "caution", BLOCKED: "no-go" } as const;
 
+// Automatic maritime fuel burn rate formula based on vessel class and cruising speed.
+// Marine power and fuel burn scale approximately quadratically with speed relative to 8-knot reference.
+function calculateFuelBurnRate(vesselClass: VesselClass, speedKn: number): number {
+  const baseRates: Record<VesselClass, number> = {
+    small_fishing: 4.5,
+    mechanized_trawler: 22.0,
+    cargo_vessel: 110.0,
+  };
+  const base = baseRates[vesselClass] ?? 4.5;
+  const s = Math.max(speedKn, 1);
+  return Math.round(base * Math.pow(s / 8.0, 2) * 10) / 10;
+}
+
 // Short label for the same on-land/shallow check the route planner itself
 // runs per leg — surfaced at pin-drop time so a route never has to reach
 // "8 segments blocked" before the actual cause (a pin placed on land, not
@@ -172,6 +185,11 @@ function downloadText(filename: string, content: string, mime: string) {
 
 function VoyageContent() {
   const searchParams = useSearchParams();
+  const auth = useAuth();
+
+  // Home port from the user's profile — used to pre-fill port-to-zone mode
+  const homePort = auth.status === "signed_in" ? auth.profile?.home_port ?? null : null;
+  const homePortName = auth.status === "signed_in" ? auth.profile?.home_port_name ?? null : null;
 
   const [mode, setMode] = useState<"origin" | "destination">("origin");
   const [origin, setOrigin] = useState<LatLon | null>(null);
@@ -184,13 +202,18 @@ function VoyageContent() {
   const [destinationCheck, setDestinationCheck] = useState<PointCheck | null>(null);
   const [vesselClass, setVesselClass] = useState<VesselClass>("small_fishing");
   const [speedKn, setSpeedKn] = useState(8);
-  const [draftM, setDraftM] = useState("");
-  // P1.2 — the "correct it in one tap" target for the assumed-draft banner.
-  const draftRef = useRef<HTMLInputElement>(null);
+  // Draft removed from UI — server always uses assumed deepest-of-class (safer).
+  // The draft_disclosure banner in the results still shows the assumed value.
   const [departure, setDeparture] = useState("");
-  // P5.24 — fuel-burn rate is optional and per-vessel; left blank, the plan
-  // states the total is missing rather than guessing a rate.
-  const [fuelBurnLph, setFuelBurnLph] = useState("");
+  // Fuel onboard — compared against the calculated fuel required; warns the
+  // fisherman if they are taking insufficient fuel for the trip.
+  const [fuelOnboardL, setFuelOnboardL] = useState("");
+
+  // Automatic fuel burn rate derived from vessel class and speed
+  const calculatedBurnRate = useMemo(
+    () => calculateFuelBurnRate(vesselClass, speedKn),
+    [vesselClass, speedKn]
+  );
 
   // ── Route planning modes & coastal sea-route pickers ────────────────────
   const [routeMode, setRouteMode] = useState<RoutePlanningMode>("port_to_zone");
@@ -198,13 +221,11 @@ function VoyageContent() {
   const [zones, setZones] = useState<FishingZonesGeoJson | null>(null);
   const [fromPortId, setFromPortId] = useState("");
   const [toZoneId, setToZoneId] = useState("");
-  const [toPortId, setToPortId] = useState("");
   // Coastal Warshall result — computed alongside the hazard audit when points
   // are known, shows obstacle-avoiding distance + ETA as extra context.
   const [coastalResult, setCoastalResult] = useState<SeaRouteResult | null>(null);
 
   const [plan, setPlan] = useState<VoyagePlanResponse | null>(null);
-  const [tide, setTide] = useState<Tide | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -216,12 +237,75 @@ function VoyageContent() {
   const [savingVoyage, setSavingVoyage] = useState(false);
   const [voyageBusyId, setVoyageBusyId] = useState<string | null>(null);
 
-  // Fetch ports and fishing zones on mount. IMBL / restricted polygons are
-  // routing thresholds, not map layers — they must not draw on the voyage chart.
+  // Fetch ports; zones are re-fetched whenever the home port's state is known
+  // so we only load zones for the fisherman's own state (MFRA boundary rule).
   useEffect(() => {
     fetchSeaPorts().then(setPorts).catch(() => {});
-    fetchFishingZones().then(setZones).catch(() => {});
   }, []);
+
+  // Determine default home port:
+  // 1. Closest port to auth.profile.home_port if available
+  // 2. Port matching home_port_name or ID "IN_KOC" (Kochi, default captain home port)
+  // 3. First port in Kerala or first available port
+  const defaultHomePort = useMemo(() => {
+    if (ports.length === 0) return null;
+    if (homePort) {
+      let closest: SeaPort | null = null;
+      let minDist = Infinity;
+      for (const p of ports) {
+        const dlat = p.lat - homePort.lat;
+        const dlng = p.lng - homePort.lon;
+        const d = dlat * dlat + dlng * dlng;
+        if (d < minDist) { minDist = d; closest = p; }
+      }
+      if (closest) return closest;
+    }
+    if (homePortName) {
+      const q = homePortName.toLowerCase();
+      const matched = ports.find(
+        (p) => p.name.toLowerCase().includes(q) || q.includes(p.name.toLowerCase())
+      );
+      if (matched) return matched;
+    }
+    return ports.find((p) => p.id === "IN_KOC") || ports.find((p) => p.state === "Kerala") || ports[0];
+  }, [ports, homePort, homePortName]);
+
+  // Derive the active port's state from the selected port or default home port.
+  // Used to filter fishing zones strictly to the state's 0-12 NM territorial waters under MFRA.
+  const activePortState = useMemo(() => {
+    if (fromPortId) {
+      const p = ports.find((x) => x.id === fromPortId);
+      if (p?.state) return p.state;
+    }
+    if (defaultHomePort?.state) return defaultHomePort.state;
+    return "Kerala";
+  }, [fromPortId, ports, defaultHomePort]);
+
+  // Auto-set departure port to default home port when entering port_to_zone mode
+  useEffect(() => {
+    if (routeMode !== "port_to_zone" || ports.length === 0) return;
+    if (!fromPortId && defaultHomePort) {
+      setFromPortId(defaultHomePort.id);
+      setOrigin({ lat: defaultHomePort.lat, lon: defaultHomePort.lng });
+      setOriginCheck(null);
+    }
+  }, [routeMode, ports.length, fromPortId, defaultHomePort]);
+
+  // Reload zones when active state changes — ALWAYS pass the active state in port_to_zone mode
+  // so pan-India zones from other states are never loaded or shown.
+  useEffect(() => {
+    if (routeMode !== "port_to_zone") return;
+    let cancelled = false;
+    const targetState = activePortState || "Kerala";
+    fetchFishingZones(targetState)
+      .then((data) => {
+        if (!cancelled) setZones(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [routeMode, activePortState]);
 
   const loadSavedVoyages = useCallback(() => {
     if (!getToken()) return;
@@ -351,7 +435,6 @@ function VoyageContent() {
     setLoading(true);
     setError(null);
     setPlan(null);
-    setTide(null);
     try {
       const depIso = departure ? new Date(departure).toISOString() : null;
       let seaReq;
@@ -360,14 +443,6 @@ function VoyageContent() {
           mode: "port_to_zone" as const,
           port_from: fromPortId,
           zone_id: toZoneId,
-          speed_knots: speedKn,
-          departure: depIso,
-        };
-      } else if (routeMode === "port_to_port" && fromPortId && toPortId) {
-        seaReq = {
-          mode: "port_to_port" as const,
-          port_from: fromPortId,
-          port_to: toPortId,
           speed_knots: speedKn,
           departure: depIso,
         };
@@ -405,9 +480,9 @@ function VoyageContent() {
           origin_lat: o.lat, origin_lon: o.lon,
           destination_lat: d.lat, destination_lon: d.lon,
           vessel_class: vesselClass, speed_kn: speedKn,
-          draft_m: draftM ? Number(draftM) : null,
+          draft_m: null,  // server uses assumed deepest-of-class; shown in draft_disclosure
           departure_time: depIso,
-          fuel_burn_lph: fuelBurnLph ? Number(fuelBurnLph) : null,
+          fuel_burn_lph: calculatedBurnRate,
           waypoints: seaRes && seaRes.coords.length >= 2 ? seaRes.coords : null,
         }),
       });
@@ -434,13 +509,6 @@ function VoyageContent() {
           warnings: data.rerouted ? [data.verdict_reason] : (seaRes?.warnings ?? []),
         });
       }
-
-      // Berthing window at the destination — same tide predictor `/safety`'s
-      // sibling ocean-analytics surfaces already use, just pointed here.
-      fetch(`${API_BASE}/api/tides?lat=${d.lat}&lon=${d.lon}`)
-        .then((r) => r.json())
-        .then(setTide)
-        .catch(() => {});
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Load failed")) {
@@ -478,14 +546,6 @@ function VoyageContent() {
         speed_knots: speedKn,
         departure: depIso,
       };
-    } else if (routeMode === "port_to_port" && fromPortId && toPortId) {
-      seaReq = {
-        mode: "port_to_port" as const,
-        port_from: fromPortId,
-        port_to: toPortId,
-        speed_knots: speedKn,
-        departure: depIso,
-      };
     } else {
       seaReq = {
         mode: "map_pick" as const,
@@ -517,7 +577,7 @@ function VoyageContent() {
     return () => {
       cancelled = true;
     };
-  }, [routeMode, fromPortId, toZoneId, toPortId, origin, destination, speedKn, departure]);
+  }, [routeMode, fromPortId, toZoneId, origin, destination, speedKn, departure]);
 
   // P6.9 (orca_final §29.2) — `/demo`'s depth-blocked-detour scenario card
   // deep-links here with a pinned origin/destination rather than duplicating
@@ -546,8 +606,32 @@ function VoyageContent() {
   const majorPorts = ports.filter((p) => p.type === "major");
   const minorPorts = ports.filter((p) => p.type !== "major" && p.type !== "fishing_harbour");
   const fishingPorts = ports.filter((p) => p.type === "fishing_harbour");
-  const zoneList = useMemo(() => zones?.features ?? [], [zones]);
+  // Strictly filter zones to the active port's state boundary (0-12 NM MFRA rule)
+  const zoneList = useMemo(() => {
+    const all = zones?.features ?? [];
+    if (routeMode !== "port_to_zone" || !activePortState) return all;
+    const st = activePortState.toLowerCase().trim();
+    return all.filter((z) => {
+      const sec = String(z.properties?.sector || "").toLowerCase();
+      const name = String(z.properties?.name || "").toLowerCase();
+      const zState = String(z.properties?.state || "").toLowerCase();
+      return sec.includes(st) || name.includes(st) || zState === st;
+    });
+  }, [zones, routeMode, activePortState]);
+  const stateBoundary = zones?.state_fishing_boundary ?? null;
 
+  // Reset selected zone if it is outside the legally active state's waters
+  useEffect(() => {
+    if (routeMode !== "port_to_zone" || !toZoneId) return;
+    const exists = zoneList.some((z) => z.properties?.id === toZoneId);
+    if (!exists) {
+      setToZoneId("");
+      setDestination(null);
+      setDestinationCheck(null);
+    }
+  }, [routeMode, zoneList, toZoneId]);
+
+  // Zones grouped by sector (all within the active state)
   const zonesBySector = useMemo(() => {
     const groups: Record<string, typeof zoneList> = {};
     for (const z of zoneList) {
@@ -557,6 +641,14 @@ function VoyageContent() {
     }
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
   }, [zoneList]);
+
+  // Fuel warning: compare fuel onboard vs fuel required for the trip
+  const fuelRequired = plan?.fuel_estimate_liters ?? null;
+  const fuelOnboard = fuelOnboardL ? Number(fuelOnboardL) : null;
+  const fuelShortfall = fuelRequired != null && fuelOnboard != null && fuelOnboard < fuelRequired
+    ? fuelRequired - fuelOnboard
+    : null;
+  const fuelOk = fuelRequired != null && fuelOnboard != null && fuelOnboard >= fuelRequired;
 
   return (
     <PageBody className="mx-auto max-w-7xl">
@@ -571,7 +663,7 @@ function VoyageContent() {
             <form onSubmit={submit} className="flex flex-col gap-1">
               {/* ── Mode selector ── */}
               <div className="mb-3 flex rounded-lg border border-hairline overflow-hidden text-xs font-semibold">
-                {(["port_to_zone", "port_to_port", "map_pick"] as const).map((m) => (
+                {(["port_to_zone", "map_pick"] as const).map((m) => (
                   <button
                     key={m}
                     type="button"
@@ -585,11 +677,7 @@ function VoyageContent() {
                         : "bg-shelf-1/60 text-ink-muted hover:bg-shelf-2/80"
                     }`}
                   >
-                    {m === "port_to_zone"
-                      ? "Port → Zone"
-                      : m === "port_to_port"
-                      ? "Port → Port"
-                      : "Map Pick"}
+                    {m === "port_to_zone" ? "Port → Zone" : "Map Pick"}
                   </button>
                 ))}
               </div>
@@ -597,7 +685,15 @@ function VoyageContent() {
               {/* ── Mode 1: Port → Fishing Zone ── */}
               {routeMode === "port_to_zone" && (
                 <>
-                  <Field label="From port">
+                  {/* Home port lock notice */}
+                  {(defaultHomePort?.name || homePortName) && (
+                    <p className="mb-1.5 flex items-center gap-1.5 rounded-md border border-ocean-cyan/30 bg-ocean-cyan/10 px-2.5 py-1.5 text-[11px] text-ink">
+                      <Anchor className="size-3 shrink-0 text-ocean-cyan" />
+                      <span>Departing from your home port: <strong>{defaultHomePort?.name ?? homePortName} ({activePortState})</strong></span>
+                    </p>
+                  )}
+
+                  <Field label="Departure port">
                     {(id) => (
                       <select
                         id={id}
@@ -645,7 +741,18 @@ function VoyageContent() {
                     )}
                   </Field>
 
-                  <Field label="To fishing zone">
+                  {/* State fishing boundary info — shown when zone list is state-filtered */}
+                  {stateBoundary && (
+                    <p className="mb-1 flex items-start gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[10px] text-ink-dim">
+                      <AlertTriangle className="mt-0.5 size-3 shrink-0 text-amber-400" />
+                      <span>
+                        Showing zones within <strong>{stateBoundary.state}</strong> waters (0–{stateBoundary.max_fishing_nm} NM).
+                        Fishing in another state&apos;s waters requires that state&apos;s licence (MFRA).
+                      </span>
+                    </p>
+                  )}
+
+                  <Field label="Fishing zone">
                     {(id) => (
                       <select
                         id={id}
@@ -679,7 +786,7 @@ function VoyageContent() {
                         }}
                         className={inputClass}
                       >
-                        <option value="">Select a fishing zone…</option>
+                        <option value="">Select fishing zone…</option>
                         {zonesBySector.map(([sector, list]) => (
                           <optgroup key={sector} label={`${sector} (${list.length})`}>
                             {list.map((z) => (
@@ -693,109 +800,8 @@ function VoyageContent() {
                     )}
                   </Field>
                   <p className="mb-2 text-[11px] text-ink-dim">
-                    Route ends at the INCOIS Potential Fishing Zone (PFZ) advisory coordinates.
+                    Zones from INCOIS Potential Fishing Zone (PFZ) advisory, filtered to your state.
                   </p>
-                </>
-              )}
-
-              {/* ── Mode 2: Port → Port ── */}
-              {routeMode === "port_to_port" && (
-                <>
-                  <Field label="From port">
-                    {(id) => (
-                      <select
-                        id={id}
-                        value={fromPortId}
-                        onChange={(e) => {
-                          const pId = e.target.value;
-                          setFromPortId(pId);
-                          const p = ports.find((x) => x.id === pId);
-                          if (p) {
-                            setOrigin({ lat: p.lat, lon: p.lng });
-                            setOriginCheck(null);
-                          }
-                        }}
-                        className={inputClass}
-                      >
-                        <option value="">Select start port…</option>
-                        {majorPorts.length > 0 && (
-                          <optgroup label="Major Ports">
-                            {majorPorts.map((p) => (
-                              <option key={p.id} value={p.id} className="bg-shelf-2">
-                                {p.name} ({p.state})
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {minorPorts.length > 0 && (
-                          <optgroup label="Minor Ports">
-                            {minorPorts.map((p) => (
-                              <option key={p.id} value={p.id} className="bg-shelf-2">
-                                {p.name} ({p.state})
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {fishingPorts.length > 0 && (
-                          <optgroup label="Fishing Harbours">
-                            {fishingPorts.map((p) => (
-                              <option key={p.id} value={p.id} className="bg-shelf-2">
-                                {p.name} ({p.state})
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </select>
-                    )}
-                  </Field>
-
-                  <Field label="To port">
-                    {(id) => (
-                      <select
-                        id={id}
-                        value={toPortId}
-                        onChange={(e) => {
-                          const pId = e.target.value;
-                          setToPortId(pId);
-                          const p = ports.find((x) => x.id === pId);
-                          if (p) {
-                            setDestination({ lat: p.lat, lon: p.lng });
-                            setDestinationCheck(null);
-                          }
-                        }}
-                        className={inputClass}
-                      >
-                        <option value="">Select end port…</option>
-                        {majorPorts.length > 0 && (
-                          <optgroup label="Major Ports">
-                            {majorPorts.map((p) => (
-                              <option key={p.id} value={p.id} className="bg-shelf-2">
-                                {p.name} ({p.state})
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {minorPorts.length > 0 && (
-                          <optgroup label="Minor Ports">
-                            {minorPorts.map((p) => (
-                              <option key={p.id} value={p.id} className="bg-shelf-2">
-                                {p.name} ({p.state})
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {fishingPorts.length > 0 && (
-                          <optgroup label="Fishing Harbours">
-                            {fishingPorts.map((p) => (
-                              <option key={p.id} value={p.id} className="bg-shelf-2">
-                                {p.name} ({p.state})
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </select>
-                    )}
-                  </Field>
                 </>
               )}
 
@@ -840,8 +846,8 @@ function VoyageContent() {
                 </>
               )}
 
-              <div className="grid grid-cols-[1.3fr_1fr] gap-x-3">
-                <Field label="Vessel class">
+              <div className="grid grid-cols-[1.25fr_0.85fr_0.9fr] gap-x-2">
+                <Field label="Vessel">
                   {(id) => (
                     <select
                       id={id}
@@ -857,7 +863,7 @@ function VoyageContent() {
                     </select>
                   )}
                 </Field>
-                <Field label="Speed">
+                <Field label="Speed (kn)">
                   {(id) => (
                     <input
                       id={id} type="number" min={1} step={0.5} value={speedKn}
@@ -865,31 +871,20 @@ function VoyageContent() {
                     />
                   )}
                 </Field>
-              </div>
-              <div className="grid grid-cols-2 gap-x-3">
-                <Field label="Draft (optional)" hint="Deepest of class if blank">
+                <Field label="Fuel (L)">
                   {(id) => (
                     <input
-                      ref={draftRef}
-                      id={id} type="number" min={0.1} step={0.1} value={draftM} placeholder="m"
-                      onChange={(e) => setDraftM(e.target.value)} className={inputClass}
-                    />
-                  )}
-                </Field>
-                <Field label="Departure (optional)" hint="Defaults to now">
-                  {(id) => (
-                    <input
-                      id={id} type="datetime-local" value={departure}
-                      onChange={(e) => setDeparture(e.target.value)} className={inputClass}
+                      id={id} type="number" min={0} step={1} value={fuelOnboardL} placeholder="Onboard"
+                      onChange={(e) => setFuelOnboardL(e.target.value)} className={inputClass}
                     />
                   )}
                 </Field>
               </div>
-              <Field label="Fuel burn (optional)" hint="L/h — leave blank to skip the estimate">
+              <Field label="Departure time">
                 {(id) => (
                   <input
-                    id={id} type="number" min={0.1} step={0.1} value={fuelBurnLph} placeholder="L/h"
-                    onChange={(e) => setFuelBurnLph(e.target.value)} className={inputClass}
+                    id={id} type="datetime-local" value={departure}
+                    onChange={(e) => setDeparture(e.target.value)} className={inputClass}
                   />
                 )}
               </Field>
@@ -937,127 +932,6 @@ function VoyageContent() {
             </Panel>
           )}
 
-          {tide && (
-            <Panel title={`Berthing window — ${tide.station_name}`}>
-              {/* Which station answered matters now that the roster is
-                  national: the nearest one can be the destination port itself
-                  or a hundred miles up the coast, and only five of the fourteen
-                  quote chart datum — `tide.datum` is the hint on Range. */}
-              <ReadoutGrid cols={2}>
-                <Readout label="Tide" value={tide.tidal_state} hint={tide.spring_neap} />
-                <Readout
-                  label="Range"
-                  value={tide.range_m != null ? tide.range_m.toFixed(1) : "—"}
-                  unit={tide.range_m != null ? "m" : undefined}
-                  hint={tide.datum}
-                />
-                <Readout
-                  label="Next high"
-                  value={tide.next_high ? new Date(tide.next_high.when).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—"}
-                  unit="IST"
-                />
-                <Readout
-                  label="Next low"
-                  value={tide.next_low ? new Date(tide.next_low.when).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—"}
-                  unit="IST"
-                />
-              </ReadoutGrid>
-
-              {/* The SOI table needs no caveat — it's computed fresh every
-                  call. The Stormglass fallback is a dated external pull, so
-                  it gets the same "acquired when" chip route_layer already
-                  carries (docs/data/ORCA_Stale_Data_Policy.md §6). */}
-              {tide.fell_back && (
-                <div className="mt-2">
-                  <SourceChip
-                    dataset={tide.source_provenance.dataset}
-                    acquisitionTimestamp={tide.source_provenance.acquisition_timestamp}
-                    detail="Stormglass fallback — SOI has no chart-datum table here, or its published window has run out."
-                  />
-                </div>
-              )}
-
-              {/* Predicted vs observed. Shown only when a gauge is actually
-                  in range — INCOIS runs 6 nationally, so most of the coast
-                  legitimately has none, and an absent gauge says so. */}
-              <div className="mt-4 border-t border-hairline pt-3">
-                {tide.observed_cross_check.available &&
-                tide.observed_cross_check.source_kind === "satellite_altimetry" ? (
-                  <>
-                    <p className="mb-2 flex items-baseline justify-between gap-3 text-xs">
-                      <span className="text-ink-dim">
-                        Satellite altimetry — no gauge in range
-                      </span>
-                      <Badge tone="caution">not an in-situ reading</Badge>
-                    </p>
-                    <ReadoutGrid cols={2}>
-                      <Readout
-                        label="Sea-level anomaly"
-                        value={tide.observed_cross_check.sea_level_anomaly_m ?? "—"}
-                        unit="m"
-                        hint={tide.observed_cross_check.dataset}
-                      />
-                      <Readout
-                        label="Dynamic topography"
-                        value={tide.observed_cross_check.absolute_dynamic_topography_m ?? "—"}
-                        unit="m"
-                      />
-                    </ReadoutGrid>
-                    {tide.observed_cross_check.note && (
-                      <p className="mt-2 text-[11px] text-ink-dim">{tide.observed_cross_check.note}</p>
-                    )}
-                  </>
-                ) : tide.observed_cross_check.available ? (
-                  <>
-                    <p className="mb-2 flex items-baseline justify-between gap-3 text-xs">
-                      <span className="text-ink-dim">
-                        Observed at {tide.observed_cross_check.station_name}
-                        {tide.observed_cross_check.distance_km != null
-                          ? ` · ${tide.observed_cross_check.distance_km} km`
-                          : ""}
-                      </span>
-                      {tide.observed_cross_check.tsunami_trigger_state && (
-                        <Badge
-                          tone={
-                            tide.observed_cross_check.tsunami_trigger_state === "NORMAL"
-                              ? "neutral"
-                              : "no-go"
-                          }
-                        >
-                          {/* INCOIS's own state, carried verbatim. ORCA does
-                              not threshold or interpret it. */}
-                          tsunami: {tide.observed_cross_check.tsunami_trigger_state.toLowerCase()}
-                        </Badge>
-                      )}
-                    </p>
-                    <ReadoutGrid cols={3}>
-                      <Readout
-                        label="Observed"
-                        value={tide.observed_cross_check.observed_level_m ?? "—"}
-                        unit="m"
-                      />
-                      <Readout
-                        label="Predicted"
-                        value={tide.observed_cross_check.predicted_astronomical_m ?? "—"}
-                        unit="m"
-                      />
-                      <Readout
-                        label="Anomaly"
-                        value={tide.observed_cross_check.sea_level_anomaly_m ?? "—"}
-                        unit="m"
-                        hint={tide.observed_cross_check.observed_at_ist}
-                      />
-                    </ReadoutGrid>
-                  </>
-                ) : (
-                  <p className="text-[11px] text-ink-dim">
-                    {tide.observed_cross_check.note ??
-                      "No INCOIS tide gauge in range — these heights are predicted only."}
-                  </p>
-                )}
-              </div>
-            </Panel>
-          )}
         </div>
 
         <div className="flex flex-col gap-4">
@@ -1089,24 +963,6 @@ function VoyageContent() {
                   <ConfidenceMeter tier={plan.confidence.score} />
                 </div>
               </VerdictBadge>
-
-              {/* P1.2 — the assumed draft, above the waypoint table, with the
-                  correction one tap away. */}
-              {plan.draft_disclosure && (
-                <div className="flex items-start gap-2 rounded-lg border border-caution/35 bg-caution/5 px-3.5 py-2.5 text-xs text-ink-muted">
-                  <Navigation className="mt-0.5 size-3.5 shrink-0 text-caution" aria-hidden="true" />
-                  <span>
-                    <span className="font-semibold text-ink">Assumed draft.</span> {plan.draft_disclosure}{" "}
-                    <button
-                      type="button"
-                      onClick={() => draftRef.current?.focus()}
-                      className="underline underline-offset-2 transition-colors hover:text-ink"
-                    >
-                      Enter your draft
-                    </button>
-                  </span>
-                </div>
-              )}
 
               {/* Checklist P0 #2's own evidence: the direct line was blocked
                   and ORCA chose an alternate, not just reported the block. */}
@@ -1147,146 +1003,181 @@ function VoyageContent() {
                   body={`The map overlay for this route failed Sagar Sarathi's own validation and was dropped: ${plan.route_layer_dropped.join("; ")}. The waypoint table below is still the full, real result.`}
                 />
               )}
-
-              {/* P5.24 — nearest safe harbour (the closest ICG rescue
-                  station to the destination, same roster a distress call
-                  uses) and the fuel-burn estimate, which stays an honest
-                  MISSING rather than a guess when no burn rate was given. */}
-              <Panel title="Passage summary">
-                <ReadoutGrid cols={plan.nearest_safe_harbour ? 4 : 2}>
-                  <Readout label="Total distance" value={plan.segments.reduce((sum, s) => sum + s.distance_nm, 0).toFixed(1)} unit="nm" />
-                  <Readout
-                    label="Fuel estimate"
-                    value={plan.fuel_estimate_liters != null ? plan.fuel_estimate_liters.toFixed(0) : "MISSING"}
-                    unit={plan.fuel_estimate_liters != null ? "L" : undefined}
-                    hint={plan.fuel_estimate_liters == null ? "No burn rate supplied" : `at ${plan.fuel_burn_lph} L/h`}
-                  />
-                  {plan.nearest_safe_harbour && (
-                    <>
-                      <Readout
-                        label="Nearest safe harbour"
-                        value={plan.nearest_safe_harbour.name}
-                        hint={plan.nearest_safe_harbour.kind}
-                      />
-                      <Readout
-                        label="Bearing / distance"
-                        value={`${plan.nearest_safe_harbour.bearing_deg.toFixed(0)}° / ${plan.nearest_safe_harbour.distance_nm.toFixed(1)} nm`}
-                        hint={plan.nearest_safe_harbour.eta_hours != null ? `~${plan.nearest_safe_harbour.eta_hours.toFixed(1)} h at cruise speed` : undefined}
-                      />
-                    </>
-                  )}
-                </ReadoutGrid>
-
-                {/* Coastal A* — obstacle-avoiding distance and ETA run in
-                    parallel with the hazard audit, shown here as extra context. */}
-                {coastalResult && (
-                  <div className="mt-4 border-t border-hairline pt-3">
-                    <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
-                      <RouteIcon className="size-3" />
-                      Coastal route (obstacle-avoiding)
-                    </p>
-                    <ReadoutGrid cols={3}>
-                      <Readout
-                        label="Distance"
-                        value={coastalResult.distance_km.toFixed(0)}
-                        unit="km"
-                        hint={`${coastalResult.distance_nm.toFixed(1)} nm`}
-                      />
-                      <Readout
-                        label="Duration"
-                        value={coastalResult.hours < 24
-                          ? `${coastalResult.hours.toFixed(1)} h`
-                          : `${Math.floor(coastalResult.hours / 24)}d ${(coastalResult.hours % 24).toFixed(0)}h`}
-                      />
-                      <Readout
-                        label="ETA"
-                        value={new Date(coastalResult.eta).toLocaleString("en-IN", {
-                          timeZone: "Asia/Kolkata",
-                          hour: "2-digit", minute: "2-digit",
-                          day: "numeric", month: "short",
-                        })}
-                        hint="IST"
-                      />
-                    </ReadoutGrid>
-                    {coastalResult.warnings.filter((w) =>
-                      !w.startsWith("DISCLAIMER") && !w.startsWith("NOTE")
-                    ).map((w, i) => (
-                      <div key={i} className="mt-2 flex items-start gap-2 rounded-md border border-caution/40 bg-caution/8 px-2.5 py-1.5 text-[11px] text-ink-muted">
-                        <AlertTriangle className="mt-0.5 size-3 shrink-0" />
-                        <span>{w}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Panel>
-
-              <Panel
-                title="Waypoints"
-                action={
-                  <div className="flex items-center gap-2.5 print:hidden">
-                    {routeProvenance && <SourceChip dataset={routeProvenance.dataset} acquisitionTimestamp={routeProvenance.acquisition_timestamp || new Date().toISOString()} />}
-                    <Button
-                      type="button" variant="ghost" icon={<Download className="size-3.5" aria-hidden="true" />}
-                      onClick={() => downloadText(`orca-voyage-${plan.voyage_id}.gpx`, planToGpx(plan), "application/gpx+xml")}
-                    >
-                      GPX
-                    </Button>
-                    <Button
-                      type="button" variant="ghost" icon={<Download className="size-3.5" aria-hidden="true" />}
-                      onClick={() => downloadText(`orca-voyage-${plan.voyage_id}.csv`, planToCsv(plan), "text/csv")}
-                    >
-                      CSV
-                    </Button>
-                    <Button type="button" variant="ghost" icon={<Printer className="size-3.5" aria-hidden="true" />} onClick={() => window.print()}>
-                      Print
-                    </Button>
-                    {signedIn && (
-                      <Button type="button" variant="ghost" icon={<Save className="size-3.5" aria-hidden="true" />} onClick={saveVoyage} disabled={savingVoyage}>
-                        {savingVoyage ? "Saving" : "Save voyage"}
-                      </Button>
-                    )}
-                  </div>
-                }
-              >
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="text-ink-dim">
-                        <th className="pb-2 pr-3 font-medium">Leg</th>
-                        <th className="pb-2 pr-3 font-medium">Distance</th>
-                        <th className="pb-2 pr-3 font-medium">ETA (IST)</th>
-                        <th className="pb-2 pr-3 font-medium">UKC</th>
-                        <th className="pb-2 pr-3 font-medium">Hs</th>
-                        <th className="pb-2 pr-3 font-medium">Status</th>
-                        <th className="pb-2 font-medium">Detail</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {plan.segments.map((s) => (
-                        <tr key={s.segment_id} className="border-t border-hairline">
-                          <td className="py-1.5 pr-3 text-ink-muted">{s.segment_id}</td>
-                          <td className="py-1.5 pr-3" data-readout>{s.distance_nm.toFixed(1)} nm</td>
-                          <td className="py-1.5 pr-3" data-readout>
-                            {new Date(s.eta).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })}
-                          </td>
-                          <td className="py-1.5 pr-3" data-readout>
-                            {s.depth_m != null ? `${(s.depth_m - plan.draft_m).toFixed(1)}m` : "—"}
-                          </td>
-                          <td className="py-1.5 pr-3" data-readout>{s.wave_height_m != null ? `${s.wave_height_m.toFixed(1)}m` : "—"}</td>
-                          <td className="py-1.5 pr-3">
-                            <Badge tone={STATUS_TONE[s.status]}>{s.hazard_class}</Badge>
-                          </td>
-                          <td className="py-1.5 text-ink-muted">{s.detail}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Panel>
             </>
           )}
         </div>
       </div>
+
+      {/* ── Full-page width results: Passage Summary & Waypoints ── */}
+      {plan && (
+        <div className="mt-6 flex flex-col gap-6">
+          <Panel title="Passage summary">
+            {/* Single row of enlarged parameter boxes */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+              <div className="rounded-xl border border-hairline/80 bg-shelf-2/60 p-4 transition-colors hover:border-hairline-strong">
+                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">Distance</div>
+                <div className="mt-1.5 flex items-baseline gap-1.5">
+                  <span className="font-mono text-2xl font-extrabold tracking-tight text-ink" data-readout>
+                    {plan.segments.reduce((sum, s) => sum + s.distance_nm, 0).toFixed(1)}
+                  </span>
+                  <span className="font-mono text-sm font-semibold text-ink-dim">nm</span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-hairline/80 bg-shelf-2/60 p-4 transition-colors hover:border-hairline-strong">
+                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">Time at sea</div>
+                <div className="mt-1.5 flex items-baseline gap-1.5">
+                  <span className="font-mono text-2xl font-extrabold tracking-tight text-ink" data-readout>
+                    {coastalResult
+                      ? coastalResult.hours < 24
+                        ? `${coastalResult.hours.toFixed(1)} h`
+                        : `${Math.floor(coastalResult.hours / 24)}d ${(coastalResult.hours % 24).toFixed(0)}h`
+                      : "—"}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-ink-dim">{speedKn} kn cruise</p>
+              </div>
+
+              <div className="rounded-xl border border-hairline/80 bg-shelf-2/60 p-4 transition-colors hover:border-hairline-strong">
+                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">Arrive by (IST)</div>
+                <div className="mt-1.5 flex items-baseline gap-1.5">
+                  <span className="font-mono text-xl sm:text-2xl font-extrabold tracking-tight text-ink" data-readout>
+                    {coastalResult
+                      ? new Date(coastalResult.eta).toLocaleString("en-IN", {
+                          timeZone: "Asia/Kolkata",
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "—"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-hairline/80 bg-shelf-2/60 p-4 transition-colors hover:border-hairline-strong">
+                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">Fuel needed</div>
+                <div className="mt-1.5 flex items-baseline gap-1.5">
+                  <span className="font-mono text-2xl font-extrabold tracking-tight text-ink" data-readout>
+                    {fuelRequired != null ? `${fuelRequired.toFixed(0)}` : "—"}
+                  </span>
+                  <span className="font-mono text-sm font-semibold text-ink-dim">L</span>
+                </div>
+                <p className="mt-1 text-xs text-ink-dim">Rate ~{(plan.fuel_burn_lph ?? calculatedBurnRate).toFixed(1)} L/h</p>
+              </div>
+
+              <div className="rounded-xl border border-hairline/80 bg-shelf-2/60 p-4 transition-colors hover:border-hairline-strong">
+                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">Nearest rescue</div>
+                <div className="mt-1.5 flex items-baseline gap-1.5">
+                  <span className="font-mono text-2xl font-extrabold tracking-tight text-ink" data-readout>
+                    {plan.nearest_safe_harbour
+                      ? `${plan.nearest_safe_harbour.distance_nm.toFixed(1)}`
+                      : "—"}
+                  </span>
+                  {plan.nearest_safe_harbour && (
+                    <span className="font-mono text-sm font-semibold text-ink-dim">nm</span>
+                  )}
+                </div>
+                <p className="mt-1 truncate text-xs text-ink-dim" title={plan.nearest_safe_harbour?.name ?? "MRSC"}>
+                  {plan.nearest_safe_harbour?.name ?? "MRSC"}
+                </p>
+              </div>
+            </div>
+
+            {/* Fuel shortage warning */}
+            {fuelShortfall != null && fuelShortfall > 0 && (
+              <div className="mt-3.5 flex items-start gap-2.5 rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-3 text-sm">
+                <Droplets className="mt-0.5 size-4.5 shrink-0 text-red-400" aria-hidden="true" />
+                <span>
+                  <span className="font-bold text-red-400">⚠ NOT ENOUGH FUEL.</span>{" "}
+                  You have <strong>{fuelOnboard} L</strong> onboard but this trip needs
+                  {" "}<strong>{fuelRequired?.toFixed(0)} L</strong>.
+                  You are short by <strong className="text-red-400">{fuelShortfall.toFixed(0)} L</strong>.
+                  {" "}Do not sail until you have enough fuel for the full trip.
+                </span>
+              </div>
+            )}
+            {fuelOk && fuelRequired != null && (
+              <div className="mt-3.5 flex items-center gap-2.5 rounded-lg border border-green-500/30 bg-green-500/8 px-4 py-2.5 text-sm text-ink-muted">
+                <Droplets className="size-4 shrink-0 text-green-400" aria-hidden="true" />
+                <span>Fuel OK — you have {fuelOnboard} L, trip needs {fuelRequired?.toFixed(0)} L.</span>
+              </div>
+            )}
+
+            {/* Route warnings from coastal sea-route engine */}
+            {coastalResult && coastalResult.warnings.filter((w) =>
+              !w.startsWith("DISCLAIMER") && !w.startsWith("NOTE")
+            ).map((w, i) => (
+              <div key={i} className="mt-2.5 flex items-start gap-2 rounded-md border border-caution/40 bg-caution/8 px-3 py-2 text-xs text-ink-muted">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                <span>{w}</span>
+              </div>
+            ))}
+          </Panel>
+
+          <Panel
+            title="Waypoints"
+            action={
+              <div className="flex items-center gap-2.5 print:hidden">
+                {routeProvenance && <SourceChip dataset={routeProvenance.dataset} acquisitionTimestamp={routeProvenance.acquisition_timestamp || new Date().toISOString()} />}
+                <Button
+                  type="button" variant="ghost" icon={<Download className="size-3.5" aria-hidden="true" />}
+                  onClick={() => downloadText(`orca-voyage-${plan.voyage_id}.gpx`, planToGpx(plan), "application/gpx+xml")}
+                >
+                  GPX
+                </Button>
+                <Button
+                  type="button" variant="ghost" icon={<Download className="size-3.5" aria-hidden="true" />}
+                  onClick={() => downloadText(`orca-voyage-${plan.voyage_id}.csv`, planToCsv(plan), "text/csv")}
+                >
+                  CSV
+                </Button>
+                <Button type="button" variant="ghost" icon={<Printer className="size-3.5" aria-hidden="true" />} onClick={() => window.print()}>
+                  Print
+                </Button>
+                {signedIn && (
+                  <Button type="button" variant="ghost" icon={<Save className="size-3.5" aria-hidden="true" />} onClick={saveVoyage} disabled={savingVoyage}>
+                    {savingVoyage ? "Saving" : "Save voyage"}
+                  </Button>
+                )}
+              </div>
+            }
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm md:text-base">
+                <thead>
+                  <tr className="border-b border-hairline text-ink font-semibold">
+                    <th className="pb-3 pr-4 font-semibold">Leg #</th>
+                    <th className="pb-3 pr-4 font-semibold">Distance</th>
+                    <th className="pb-3 pr-4 font-semibold">Reach by (IST)</th>
+                    <th className="pb-3 pr-4 font-semibold">Water Depth</th>
+                    <th className="pb-3 pr-4 font-semibold">Safe?</th>
+                    <th className="pb-3 font-semibold">What to watch</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline">
+                  {plan.segments.map((s) => (
+                    <tr key={s.segment_id} className="hover:bg-shelf-1/40 transition-colors">
+                      <td className="py-2.5 pr-4 font-mono font-medium text-ink-muted text-sm">{s.segment_id}</td>
+                      <td className="py-2.5 pr-4 font-mono font-semibold text-ink text-sm md:text-base" data-readout>{s.distance_nm.toFixed(1)} nm</td>
+                      <td className="py-2.5 pr-4 font-mono font-medium text-ink text-sm md:text-base" data-readout>
+                        {new Date(s.eta).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })}
+                      </td>
+                      <td className="py-2.5 pr-4 font-mono font-medium text-ink text-sm md:text-base" data-readout>
+                        {s.depth_m != null ? `${(s.depth_m - plan.draft_m).toFixed(1)}m` : "—"}
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <Badge tone={STATUS_TONE[s.status]}>{s.hazard_class}</Badge>
+                      </td>
+                      <td className="py-2.5 text-sm md:text-[15px] text-ink-muted">{s.detail}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        </div>
+      )}
     </PageBody>
   );
 }

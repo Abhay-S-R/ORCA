@@ -249,7 +249,14 @@ def _reasoning_summary(
     if agent_name == "geospatial":
         imbl = outputs.get("imbl_distance_nm")
         imbl_str = f"{imbl:.1f}" if isinstance(imbl, (int, float)) else str(imbl or "?")
-        return f"IMBL {imbl_str} nm · MPA violation={outputs.get('mpa_violation', False)}"
+        mpa_names = outputs.get("mpa_names") or []
+        if outputs.get("mpa_violation"):
+            mpa_part = f"MPA violation ({', '.join(mpa_names)})" if mpa_names else "MPA violation"
+        elif mpa_names:
+            mpa_part = f"inside MPA ({', '.join(mpa_names)}, regulatory)"
+        else:
+            mpa_part = "MPA clear"
+        return f"IMBL {imbl_str} nm · {mpa_part}"
     if agent_name == "weather_intelligence":
         # weather_intelligence.run puts readings under hourly[0], never at the top level.
         hs = (outputs.get("hourly") or [{}])[0].get("wave_height")
