@@ -43,8 +43,8 @@ ETOPO_PILOT_FILE = DATA_ROOT / "tier1" / "bathymetry" / "etopo_south_india_bathy
 _GEOD = Geod(ellps="WGS84")
 NM_PER_METER = 1.0 / 1852.0
 
-# Geodesic nautical-mile bands for the proximity alert level (plan §4 S5 Day 4).
-_PROXIMITY_BANDS: tuple[tuple[float, str], ...] = ((1.0, "DANGER"), (5.0, "CAUTION"))
+# Geodesic nautical-mile bands for the proximity alert level (plan §4 S5 Day 4; G3: 3.0 NM matches risk_assessment's CAUTION threshold).
+_PROXIMITY_BANDS: tuple[tuple[float, str], ...] = ((1.0, "DANGER"), (3.0, "CAUTION"))
 
 # Static per pilot region for Phase 1; a per-vessel-draft threshold is Phase 2 scope.
 SHALLOW_HAZARD_THRESHOLD_M = 10.0
