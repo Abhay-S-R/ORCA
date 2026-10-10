@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from orca.auth.security import hash_password
-from orca.db.models import User
+from orca.db.models import User, Vessel
 
 logger = logging.getLogger("orca.ops.port_authorities")
 
@@ -304,6 +304,27 @@ def ensure_port_authorities(db: Session) -> list[User]:
             status="active",
         )
         db.add(demo)
+        db.flush()
+
+    # Ensure demouser has active vessel (fibreglass boat)
+    vessel = db.execute(select(Vessel).where(Vessel.owner_user_id == demo.id)).scalar_one_or_none()
+    if vessel is None:
+        vessel = Vessel(
+            owner_user_id=demo.id,
+            name="Sagar Demo",
+            vessel_class="fibreglass",
+            length_m=9.5,
+            draft_m=1.2,
+            crew_size=4,
+            cruise_speed_kn=12.0,
+            fuel_burn_lph=14.0,
+            engine_count=1,
+            last_position=_point_wkb(18.9446, 72.8347),
+        )
+        db.add(vessel)
+        db.flush()
+    if demo.active_vessel_id != vessel.id:
+        demo.active_vessel_id = vessel.id
         db.flush()
 
     db.commit()

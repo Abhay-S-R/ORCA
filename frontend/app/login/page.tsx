@@ -11,7 +11,7 @@
 // but prominently placed so a fisherman does not have to hunt for it later.
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Check, ShieldAlert, Sparkles, UserCheck } from "lucide-react";
+import { ArrowRight, ShieldAlert, UserCheck } from "lucide-react";
 import { Button } from "../components/Button";
 import { Field, inputClass } from "../components/Field";
 import { PasswordInput } from "../components/PasswordInput";
@@ -32,6 +32,8 @@ type DemoCredential = {
   username: string;
   password: string;
   homePort: string;
+  language: string;
+  vesselType: string;
   personaTarget: Persona;
   icon: typeof UserCheck;
 };
@@ -46,6 +48,8 @@ const DEMO_PRESETS: DemoCredential[] = [
     username: "demouser",
     password: "demouser123",
     homePort: "Mumbai",
+    language: "English",
+    vesselType: "Fibreglass boat",
     personaTarget: "fisherman",
     icon: UserCheck,
   },
@@ -53,11 +57,13 @@ const DEMO_PRESETS: DemoCredential[] = [
     id: "mumbai_authority",
     title: "Coastal Authority (Mumbai)",
     badge: "Port Authority",
-    badgeColor: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+    badgeColor: "bg-amber-600/20 text-amber-900 border-amber-600/50 font-bold",
     subtitle: "Authority account for District Ops (/ops), distress alerts & broadcasts",
     username: "authority.mumbai@orca.test",
     password: "orca-authority-local-dev",
     homePort: "Mumbai",
+    language: "English",
+    vesselType: "Patrol Craft",
     personaTarget: "coastal_authority",
     icon: ShieldAlert,
   },
@@ -153,11 +159,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-2xl flex-col items-center justify-center gap-6 p-4 py-8">
-      {/* Sign-in Form (Preserved compact max-w-sm as before) */}
-      <div className="flex w-full max-w-sm flex-col gap-5">
-        <div className="flex flex-col items-center gap-2 text-center">
-          <OrcaMark className="size-8" />
+    <div className="h-full w-full overflow-y-auto">
+      <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-start gap-6 p-4 py-8 sm:py-12">
+        {/* Sign-in Form (Preserved compact max-w-sm as before) */}
+        <div className="flex w-full max-w-sm flex-col gap-5">
+          <div className="flex flex-col items-center gap-2 text-center pt-2">
+            <OrcaMark className="size-8 shrink-0" />
           <h1 className="text-lg font-semibold tracking-tight text-ink">
             {registering ? t("login.createTitle") : t("login.signInTitle")}
           </h1>
@@ -253,8 +260,7 @@ export default function LoginPage() {
       <div className="flex w-full flex-col gap-2.5 rounded-xl border border-hairline bg-shelf-1/60 p-3.5 backdrop-blur-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <Sparkles className="size-3.5 text-ocean-cyan" />
-            <span className="text-xs font-semibold text-ink">Demo Accounts (1-Click Fill)</span>
+            <span className="text-xs font-semibold text-ink">Demo Accounts (1-Click Fill for the Judge Review)</span>
           </div>
           <span className="text-[10px] uppercase tracking-wider text-ink-muted">Quick Access</span>
         </div>
@@ -293,40 +299,43 @@ export default function LoginPage() {
                   </p>
                 </div>
 
-                <div className="flex flex-col gap-1 rounded bg-shelf-1/70 p-2 text-[10px] font-mono border border-hairline/60">
-                  <div className="flex items-center justify-between gap-1 overflow-hidden">
-                    <span className="text-ink-dim shrink-0">User:</span>
-                    <span className="text-ink font-semibold truncate select-all">{preset.username}</span>
+                {/* 2-row attribute boxes (Username, Home Port, Language, Vessel Type) */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="flex flex-col justify-center rounded-md bg-shelf-1/80 px-2 py-1.5 border border-hairline/60">
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-ink-muted">Username</span>
+                    <span className="text-[11px] font-mono font-medium text-ink truncate select-all" title={preset.username}>
+                      {preset.username}
+                    </span>
                   </div>
-                  <div className="flex items-center justify-between gap-1 overflow-hidden">
-                    <span className="text-ink-dim shrink-0">Pass:</span>
-                    <span className="text-ink font-semibold truncate select-all">{preset.password}</span>
+
+                  <div className="flex flex-col justify-center rounded-md bg-shelf-1/80 px-2 py-1.5 border border-hairline/60">
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-ink-muted">Home Port</span>
+                    <span className="text-[11px] font-medium text-ink truncate select-all" title={preset.homePort}>
+                      {preset.homePort}
+                    </span>
                   </div>
-                  <div className="flex items-center justify-between gap-1 overflow-hidden">
-                    <span className="text-ink-dim shrink-0">Home Port:</span>
-                    <span className="text-ink font-semibold truncate select-all">{preset.homePort}</span>
+
+                  <div className="flex flex-col justify-center rounded-md bg-shelf-1/80 px-2 py-1.5 border border-hairline/60">
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-ink-muted">Language</span>
+                    <span className="text-[11px] font-medium text-ink truncate select-all" title={preset.language}>
+                      {preset.language}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col justify-center rounded-md bg-shelf-1/80 px-2 py-1.5 border border-hairline/60">
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-ink-muted">Vessel Type</span>
+                    <span className="text-[11px] font-medium text-ink truncate select-all" title={preset.vesselType}>
+                      {preset.vesselType}
+                    </span>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-0.5">
-                  <button
-                    type="button"
-                    onClick={() => handlePickDemo(preset, false)}
-                    className="flex items-center justify-center gap-1 rounded border border-hairline bg-shelf-3 px-2 py-1.5 text-[11px] font-medium text-ink-dim transition-colors hover:border-ocean-cyan/50 hover:text-ink active:scale-95"
-                  >
-                    {isSelected ? (
-                      <span className="flex items-center gap-1 text-ocean-cyan font-semibold">
-                        <Check className="size-3" /> Filled
-                      </span>
-                    ) : (
-                      "Fill"
-                    )}
-                  </button>
+                <div className="pt-0.5">
                   <button
                     type="button"
                     disabled={pending}
                     onClick={() => handlePickDemo(preset, true)}
-                    className="flex items-center justify-center gap-1 rounded bg-ocean-cyan/15 px-2 py-1.5 text-[11px] font-medium text-ocean-cyan border border-ocean-cyan/30 transition-all hover:bg-ocean-cyan/25 active:scale-95 disabled:opacity-50"
+                    className="flex w-full items-center justify-center gap-1.5 rounded bg-ocean-cyan/15 px-2 py-1.5 text-[11px] font-semibold text-ocean-cyan border border-ocean-cyan/30 transition-all hover:bg-ocean-cyan/25 active:scale-95 disabled:opacity-50"
                   >
                     Sign In
                     <ArrowRight className="size-3" />
@@ -338,5 +347,6 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
-  );
+  </div>
+);
 }
