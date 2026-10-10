@@ -6,6 +6,8 @@ from orca.agents.critic import (
     _RUBRIC,
     MAX_ITERATIONS,
     _parse_judge_response,
+    _resolve_reinvoke_agent,
+    _revision_is_safe,
     _verdict_header,
     build_facts_block,
     run,
@@ -255,7 +257,7 @@ Please let me know if you need more details."""
     assert issues[0].rubric_item == "spatial_accuracy"
     assert issues[0].reinvoke_agent == "geospatial"
     assert issues[1].rubric_item == "factual_consistency"
-    assert issues[1].reinvoke_agent == "reporting"
+    assert issues[1].reinvoke_agent == "weather_intelligence"
 
 
 def test_standard_depth_skips_redundant_revise_when_specialist_reinvocation_targeted():
@@ -306,6 +308,51 @@ def test_run_clears_reinvoke_agent_when_critic_passes():
         result = run(_deep_state())
     assert result.outputs["critic_pass"] is True
     assert result.outputs["reinvoke_agent"] is None
+
+
+def test_semantic_reinvoke_agent_resolution_d4():
+    # Temporal issues mentioning ocean domains (tides, PFZ, ban) route to ocean_analytics
+    assert _resolve_reinvoke_agent("temporal_coherence", "Tidal high tide is yesterday") == "ocean_analytics"
+    assert _resolve_reinvoke_agent("temporal_coherence", "PFZ advisory window expired") == "ocean_analytics"
+    assert _resolve_reinvoke_agent("temporal_coherence", "Forecast mixed with current wind") == "weather_intelligence"
+
+    # Factual contradictions route to corresponding specialist
+    assert _resolve_reinvoke_agent("factual_consistency", "Wave height contradicts measured 0.8m") == "weather_intelligence"
+    assert _resolve_reinvoke_agent("factual_consistency", "High tide height contradicts 1.1m") == "ocean_analytics"
+    assert _resolve_reinvoke_agent("factual_consistency", "Distance to IMBL contradicts 16.3 nm") == "geospatial"
+    assert _resolve_reinvoke_agent("factual_consistency", "Prose says advisory is current but text notes expired") == "reporting"
+
+    # Explicit agent in issue is respected
+    assert _resolve_reinvoke_agent("factual_consistency", "err", explicit_agent="weather_intelligence") == "weather_intelligence"
+
+
+def test_figure_tolerance_in_revision_is_safe_d5():
+    facts = "next_high_tide_time: 15:00 IST; wave_height_m: 0.66; imbl_distance_nm: 16.27; duration_hours: 24"
+    original = "Wave height is 0.66 metres with tides at 15:00 IST. Distance to IMBL is 16.27 nm."
+
+    # 1. 12-hour clock conversion (15:00 -> 3:00 PM)
+    rev_clock = "Wave height is 0.66 metres with tides at 3:00 PM IST. Distance to IMBL is 16.27 nm."
+    assert _revision_is_safe(original, rev_clock, None, facts)
+
+    # 2. Decimal rounding (0.66 -> 0.7, 16.27 -> 16.3)
+    rev_round = "Wave height is 0.7 metres with tides at 15:00 IST. Distance to IMBL is 16.3 nm."
+    assert _revision_is_safe(original, rev_round, None, facts)
+
+    # 3. Time duration equivalence (24 hours -> 1 day)
+    rev_dur = "Wave height is 0.66 metres. Duration is 1 day. Distance to IMBL is 16.27 nm."
+    assert _revision_is_safe(original, rev_dur, None, facts)
+
+    # 4. Metric unit scale (0.5m -> 50cm)
+    facts_m = "depth_m: 0.5"
+    assert _revision_is_safe("Depth is 0.5m.", "Depth is 50 cm.", None, facts_m)
+
+    # 5. Numbered list prefixes (1. , 2. ) are not treated as physical figures
+    rev_list = "1. Wave height is 0.66 metres. 2. Distance to IMBL is 16.27 nm."
+    assert _revision_is_safe(original, rev_list, None, facts)
+
+    # 6. Novel fabricated number is strictly rejected
+    rev_fake = "Wave height is 0.66 metres with depth 31 m. Distance to IMBL is 16.27 nm."
+    assert not _revision_is_safe(original, rev_fake, None, facts)
 
 
 if __name__ == "__main__":

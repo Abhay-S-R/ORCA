@@ -160,6 +160,41 @@ def _normalize_rubric_item(name: Any) -> str | None:
     return None
 
 
+def _resolve_reinvoke_agent(
+    rubric_item: str, description: str = "", explicit_agent: str | None = None,
+) -> str:
+    """Determine the specialist to re-invoke deterministically.
+    Defaults to _REINVOKE_MAP[rubric_item], but refines temporal and factual issues
+    based on domain semantics in the critique description."""
+    if explicit_agent and (explicit_agent in REINVOCABLE_AGENTS or explicit_agent == "reporting"):
+        return explicit_agent
+
+    desc_lower = description.lower()
+
+    if rubric_item == "temporal_coherence":
+        # Ocean domains (tides, PFZ validity dates, seasonal bans) route to ocean_analytics
+        ocean_keywords = ("tide", "tidal", "pfz", "chlorophyll", "sst", "fishing ban", "ban window", "seasonal ban")
+        if any(kw in desc_lower for kw in ocean_keywords):
+            return "ocean_analytics"
+        return _REINVOKE_MAP.get("temporal_coherence", "weather_intelligence")
+
+    if rubric_item == "factual_consistency":
+        # If the factual contradiction specifically names a specialist's telemetry domain,
+        # route to that specialist so fresh measurements can be re-acquired:
+        ocean_keywords = ("tide", "pfz", "chlorophyll", "sst", "species", "fish", "fishing ban", "water temperature")
+        if any(kw in desc_lower for kw in ocean_keywords):
+            return "ocean_analytics"
+        weather_keywords = ("wave", "swell", "wind", "weather", "cyclone", "nowcast", "lightning", "incois", "rain", "gust")
+        if any(kw in desc_lower for kw in weather_keywords):
+            return "weather_intelligence"
+        geo_keywords = ("distance", "bearing", "boundary", "imbl", "depth", "bathymetry", "mpa", "zone", "coordinates")
+        if any(kw in desc_lower for kw in geo_keywords):
+            return "geospatial"
+        return _REINVOKE_MAP.get("factual_consistency", "reporting")
+
+    return _REINVOKE_MAP.get(rubric_item, "reporting")
+
+
 def _parse_judge_response(raw: str) -> list[CritiqueIssue]:
     """The judge is asked for strict JSON; a malformed response degrades to
     "no issues found" rather than crashing the pass — a Critic that cannot
@@ -184,10 +219,16 @@ def _parse_judge_response(raw: str) -> list[CritiqueIssue]:
         rubric_item = _normalize_rubric_item(item.get("rubric_item"))
         if not rubric_item:
             continue
+        explicit = item.get("agent") or item.get("reinvoke_agent")
+        target_agent = _resolve_reinvoke_agent(
+            rubric_item=rubric_item,
+            description=str(item.get("description", "")),
+            explicit_agent=explicit if isinstance(explicit, str) else None,
+        )
         issues.append(CritiqueIssue(
             rubric_item=rubric_item,
             description=str(item.get("description", "")),
-            reinvoke_agent=_REINVOKE_MAP[rubric_item],
+            reinvoke_agent=target_agent,
         ))
     return issues
 
@@ -276,6 +317,49 @@ def _opens_with_heading(text: str) -> bool:
     return len(bare) <= 90 and bare.endswith(":")
 
 
+def _extract_figures(text: str) -> set[float]:
+    """Extract numerical figures from text, filtering out markdown list numbering (e.g. '1. ', '2. ')
+    so structural enumeration indices are not confused with physical telemetry readings."""
+    cleaned = re.sub(r"(?:^|\n|\s+)(?:\d+\.|\(\d+\))\s+", " ", text)
+    return {float(n) for n in _FIGURE.findall(cleaned)}
+
+
+def _is_figure_known_or_derived(fig: float, known: set[float]) -> bool:
+    """Validates whether a figure in the revised text is identical to a known figure from
+    the original text / facts block, or is safely derived from it via standard rounding,
+    12/24-hour clock conversion, metric unit scaling, or time duration equivalence."""
+    if fig in known:
+        return True
+    for k in known:
+        # Rounding or integer truncation (e.g. 0.66 -> 0.7, 16.27 -> 16.3, 9.1 -> 9)
+        if round(k, 1) == fig or round(k, 2) == fig or round(k, 0) == fig or int(k) == fig:
+            return True
+        # 12-hour AM/PM vs 24-hour clock conversion (e.g. 15:00 -> 3:00, 14:30 -> 2:30, 00:00 -> 12:00)
+        if 13 <= k <= 23 and (k - 12) == fig:
+            return True
+        if 1 <= k <= 11 and (k + 12) == fig:
+            return True
+        if k == 0 and fig == 12:
+            return True
+        # Metric unit scaling (m <-> cm, km <-> m, mm <-> cm)
+        if abs(fig - k * 100) < 1e-4 or (k != 0 and abs(fig - k / 100) < 1e-4):
+            return True
+        if abs(fig - k * 1000) < 1e-4 or (k != 0 and abs(fig - k / 1000) < 1e-4):
+            return True
+        if abs(fig - k * 10) < 1e-4 or (k != 0 and abs(fig - k / 10) < 1e-4):
+            return True
+        # Duration scaling (24h -> 1d, 48h -> 2d, 72h -> 3d, 60m -> 1h)
+        if k == 24 and fig == 1:
+            return True
+        if k == 48 and fig == 2:
+            return True
+        if k == 72 and fig == 3:
+            return True
+        if k == 60 and fig == 1:
+            return True
+    return False
+
+
 def _revision_is_safe(current: str, revised: str, verdict_header: str | None, facts_block: str) -> bool:
     """Whether a revision may replace the text. The Critic fixes prose; it may not
     invent a header, and it may not introduce a figure that is in neither the text
@@ -283,11 +367,13 @@ def _revision_is_safe(current: str, revised: str, verdict_header: str | None, fa
     if not revised.strip():
         return False
     if verdict_header:
-        return revised.startswith(verdict_header)
+        if not revised.startswith(verdict_header):
+            return False
     if _opens_with_heading(revised) and not _opens_with_heading(current):
         return False
-    known = {float(n) for n in _FIGURE.findall(current)} | {float(n) for n in _FIGURE.findall(facts_block or "")}
-    return not ({float(n) for n in _FIGURE.findall(revised)} - known)
+    known = _extract_figures(current) | _extract_figures(facts_block or "")
+    revised_figures = _extract_figures(revised)
+    return all(_is_figure_known_or_derived(fig, known) for fig in revised_figures)
 
 
 def run_critic_pass(
@@ -778,4 +864,13 @@ if __name__ == "__main__":
     assert len(parsed_fenced) == 1
     assert parsed_fenced[0].rubric_item == "spatial_accuracy"
     assert parsed_fenced[0].reinvoke_agent == "geospatial"
+    # Test semantic re-invocation resolution (D4)
+    tide_issue = _parse_judge_response(json.dumps([{"rubric_item": "temporal_coherence", "description": "tide prediction is expired"}]))
+    assert len(tide_issue) == 1 and tide_issue[0].reinvoke_agent == "ocean_analytics"
+    wave_issue = _parse_judge_response(json.dumps([{"rubric_item": "factual_consistency", "description": "wave height contradicts measured 0.8m"}]))
+    assert len(wave_issue) == 1 and wave_issue[0].reinvoke_agent == "weather_intelligence"
+    # Test figure derivation tolerance: clock, metric scale, rounding (D5)
+    assert _revision_is_safe("At 15:00 IST waves are 0.5m.", "At 3:00 PM IST waves are 50 cm.", None, "facts")
+    assert _revision_is_safe("Wave height is 0.66 m.", "Wave height is 0.7 m.", None, "facts")
+    assert not _revision_is_safe("Wave height is 0.5m.", "Wave height is 4.5m.", None, "facts")
     print("critic self-check ok")
