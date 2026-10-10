@@ -99,12 +99,18 @@ All the numbers that drive cost and catch live in **one table**, so you can chan
 
 | Item | Small fishing boat | Mechanized trawler | Cargo vessel |
 |---|---|---|---|
-| Fuel use (litres per km) | 0.5 | 3.0 | 10.0 |
+| Base fuel burn rate at 8 knots cruise (`L/h`) | 4.5 | 22.0 | 110.0 |
 | Fixed cost per trip (crew, ice, food, port fees) | ₹6,000 | ₹25,000 | Not applicable |
 | Base catch per trip, all fish together | 250 kg | 750 kg (3× small boat) | None |
 | Fishing profit shown? | Yes | Yes | No |
 
-Global assumptions: **diesel price ₹95 per litre**, **profit range of plus or minus 15%**.
+Global assumptions: **diesel price ₹95 per litre**, **profit range of plus or minus 15%**, **reference speed 8.0 knots**.
+**Fuel Formula (identical to Sagar Sarathi Voyage Planner):**
+- Marine power and fuel burn scale quadratically with speed: `fuel_burn_lph = base_rate × (speed_kn / 8.0)²`.
+- Round-trip distance in nautical miles: `total_nm = (distance_km × 2) / 1.852`.
+- Steaming time in hours: `hours = total_nm / speed_kn`.
+- Fuel consumed in litres: `fuel_liters = hours × fuel_burn_lph`.
+- Fuel cost: `fuel_liters × diesel_price_inr`.
 
 These are starting values. My earlier suggestion of ₹4,000 fixed cost for a small boat is low if crew wages are included, which is why this plan uses ₹6,000. Replace every number here with figures you trust, for example from local fishermen or Kerala fisheries department sources.
 
@@ -132,7 +138,7 @@ Do these steps for every **home port, zone and vessel type** combination, in thi
 1. **Estimated kg of each fish** = vessel base catch × that fish's share (section 5).
 2. **Income of each fish** = estimated kg × price. Do this once with the low price and once with the high price.
 3. **Total income** = sum of the income of all fish in the zone.
-4. **Fuel cost** = distance from port to zone × 2 (round trip) × vessel litres per km × diesel price.
+4. **Fuel cost** = round trip distance in NM ÷ speed in knots × quadratic fuel burn rate (L/h) × diesel price.
 5. **Total cost** = fuel cost + the vessel's fixed cost.
 6. **Profit** = total income − total cost.
 7. **Margin** = profit ÷ total income, as a percentage.

@@ -8,6 +8,7 @@ of /ops."""
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from typing import Any
 
@@ -15,6 +16,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from orca.db.repositories import persist_security_event
+
+logger = logging.getLogger(__name__)
 
 # action -> (states it may be applied from, state it moves to)
 _NEXT_STATE = {"acknowledge": (["open"], "acknowledged"), "close": (["open", "acknowledged"], "closed")}
@@ -230,10 +233,11 @@ def list_events(db: Session, reader_id: uuid.UUID, hours: int = 24) -> list[dict
         auth_name = r.get("authority_name")
         suggs = r.get("survival_suggestions") or []
 
+        target_port_str = str(target_port).lower().strip() if target_port else ""
         is_assigned = (
             is_admin
-            or (bool(target_port) and target_port.lower().strip() in reader_port)
-            or (bool(reader_port) and reader_port in (target_port or "").lower().strip())
+            or (bool(target_port_str) and target_port_str in reader_port)
+            or (bool(reader_port) and bool(target_port_str) and reader_port in target_port_str)
         )
 
         item = {

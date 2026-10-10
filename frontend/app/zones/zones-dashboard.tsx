@@ -5,7 +5,7 @@
 // and useT, plus the shelf / ink / hairline / go / caution / no-go tokens.
 
 import { useEffect, useMemo, useState } from "react";
-import { Anchor, ChevronDown, Compass, Fish, Fuel, Layers, MapPin, Navigation, Sparkles, TrendingUp } from "lucide-react";
+import { Anchor, ChevronDown, Compass, Fish, Layers, Sparkles, TrendingUp } from "lucide-react";
 import { Badge } from "../components/Badge";
 import { Skeleton } from "../components/States";
 import { useT } from "../i18n/useT";
@@ -48,6 +48,9 @@ export type ZoneProfitResult = {
   profit_label: string;
   profit_color: "green" | "orange" | "red" | "neutral";
   fuel_cost: number;
+  fuel_liters?: number;
+  fuel_burn_lph?: number;
+  round_trip_nm?: number;
   fixed_cost: number;
   total_cost: number;
   sort_rank: number;
@@ -67,6 +70,8 @@ export type ProfitApiResponse = {
   show_profit: boolean;
   fallback_message: string | null;
   zones: ZoneProfitResult[];
+  speed_kn?: number;
+  fuel_burn_lph?: number;
   diesel_price_inr: number;
   disclaimer: string;
 };
@@ -129,16 +134,25 @@ const CARD = "rounded-xl border border-hairline bg-shelf-2/60 p-4";
 
 // ─── data hook ───────────────────────────────────────────────────────────────
 
-export function useFishingProfit(lat: number, lon: number, vessel: string): ProfitState {
+export function useFishingProfit(
+  lat: number,
+  lon: number,
+  vessel: string,
+  speedKn?: number | null
+): ProfitState {
   const [data, setData] = useState<ProfitApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting fetch state when parameters change
     setLoading(true);
     setError(false);
     const params = new URLSearchParams({ lat: String(lat), lon: String(lon), vessel });
+    if (speedKn != null && speedKn > 0) {
+      params.set("speed_kn", String(speedKn));
+    }
     fetch(`${API_BASE}/api/fishing-profit?${params.toString()}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((d: ProfitApiResponse) => {
@@ -156,7 +170,7 @@ export function useFishingProfit(lat: number, lon: number, vessel: string): Prof
     return () => {
       cancelled = true;
     };
-  }, [lat, lon, vessel]);
+  }, [lat, lon, vessel, speedKn]);
 
   return { data, loading, error };
 }
@@ -173,6 +187,8 @@ export function ZonesToolbar({
   registeredHomePortName,
   activeVessel,
   onSelectVessel,
+  profileVesselLabel,
+  isProfileVesselActive,
 }: {
   ports: PortLite[];
   currentPort: PortLite;
@@ -181,6 +197,8 @@ export function ZonesToolbar({
   registeredHomePortName: string | null;
   activeVessel: string;
   onSelectVessel: (key: string) => void;
+  profileVesselLabel?: string | null;
+  isProfileVesselActive?: boolean;
 }) {
   const byState = useMemo(() => {
     const m = new Map<string, PortLite[]>();
@@ -226,27 +244,36 @@ export function ZonesToolbar({
         </p>
       </div>
 
-      <div
-        role="group"
-        aria-label="Vessel profile"
-        className="inline-flex rounded-lg border border-hairline bg-shelf-1 p-0.5"
-      >
-        {VESSEL_OPTIONS.map((v) => {
-          const on = activeVessel === v.key;
-          return (
-            <button
-              key={v.key}
-              type="button"
-              aria-pressed={on}
-              onClick={() => onSelectVessel(v.key)}
-              className={`cursor-pointer rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
-                on ? "bg-ocean-cyan font-bold text-black" : "text-ink-muted hover:text-ink"
-              }`}
-            >
-              {v.label}
-            </button>
-          );
-        })}
+      <div className="flex items-center gap-2.5">
+        <div
+          role="group"
+          aria-label="Vessel profile"
+          className="inline-flex rounded-lg border border-hairline bg-shelf-1 p-0.5"
+        >
+          {VESSEL_OPTIONS.map((v) => {
+            const on = activeVessel === v.key;
+            return (
+              <button
+                key={v.key}
+                type="button"
+                aria-pressed={on}
+                onClick={() => onSelectVessel(v.key)}
+                className={`cursor-pointer rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
+                  on ? "bg-ocean-cyan font-bold text-black" : "text-ink-muted hover:text-ink"
+                }`}
+              >
+                {v.label}
+              </button>
+            );
+          })}
+        </div>
+        {profileVesselLabel && (
+          <p className="hidden text-[11px] text-ink-dim sm:block">
+            {isProfileVesselActive
+              ? `From your profile · ${profileVesselLabel}`
+              : "Changed for this page only"}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -859,17 +886,18 @@ function ZoneMap({
 
       {/* 10. Selected Ground Quick Telemetry HUD */}
       {activeZone && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-hairline/80 bg-shelf-1/90 px-3.5 py-2.5 shadow-2xs">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <span
-              className="flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white shadow-xs font-mono"
-              style={{ backgroundColor: PIN_HEX[activeZone.profit_color] ?? PIN_HEX.neutral }}
-            >
-              {zones.findIndex((z) => z.zone_id === activeZone.zone_id) + 1}
-            </span>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-bold text-ink truncate">{activeZone.zone_name}</span>
+        <div className="rounded-lg border border-hairline/80 bg-shelf-1/90 p-3 shadow-2xs space-y-2">
+          {/* Top row: pin number + zone title + indicators, right: status badge */}
+          <div className="flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <span
+                className="flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white shadow-xs font-mono"
+                style={{ backgroundColor: PIN_HEX[activeZone.profit_color] ?? PIN_HEX.neutral }}
+              >
+                {zones.findIndex((z) => z.zone_id === activeZone.zone_id) + 1}
+              </span>
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                <span className="text-xs sm:text-sm font-bold text-ink">{activeZone.zone_name}</span>
                 <span className="rounded bg-shelf-3 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-ocean-cyan border border-hairline/60">
                   {Math.round(activeZone.distance_km)} km ·{" "}
                   {calculateBearing(data.port_lat, data.port_lon, activeZone.lat, activeZone.lon).compass}
@@ -880,50 +908,36 @@ function ZoneMap({
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-ink-dim truncate mt-0.5">
-                {activeZone.zone_description} · Trip cost: {inr(activeZone.total_cost)} (fuel + fixed)
-              </p>
+            </div>
+
+            <div className="shrink-0">
+              <Badge tone={toneOf(activeZone.profit_color)}>{activeZone.profit_label}</Badge>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          {/* Bottom row: description and trip cost on left, net profit on right */}
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-t border-hairline/60 pt-2 text-xs">
+            <p className="min-w-0 flex-1 text-[11px] leading-normal text-ink-dim break-words">
+              {activeZone.zone_description} · Trip cost: <strong className="font-semibold text-ink">{inr(activeZone.total_cost)}</strong> (fuel + fixed)
+            </p>
+
             {activeZone.show_profit && activeZone.profit_mid != null && (
-              <div className="text-right">
-                <span className="block text-[10px] uppercase font-bold text-ink-dim">Est. Net Profit</span>
-                <span className="font-mono text-xs font-bold text-ink">
+              <div className="flex items-center gap-1.5 shrink-0 font-mono text-[11px]">
+                <span className="text-[10px] uppercase font-bold text-ink-dim">Est. Net Profit:</span>
+                <span className="font-bold text-ink">
                   {inrK(activeZone.profit_low ?? 0)} – {inrK(activeZone.profit_high ?? 0)}
-                  {activeZone.margin_pct != null && (
-                    <span className="ml-1 text-[11px] font-semibold text-go">({activeZone.margin_pct}%)</span>
-                  )}
                 </span>
+                {activeZone.margin_pct != null && (
+                  <span className="font-semibold text-go">({activeZone.margin_pct}%)</span>
+                )}
               </div>
             )}
-            <Badge tone={toneOf(activeZone.profit_color)}>{activeZone.profit_label}</Badge>
           </div>
         </div>
       )}
 
       {/* 11. Chart Legend & Radar Scale Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-hairline/60 pt-2 text-[10px] text-ink-dim font-mono">
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-go inline-block" /> High Profit (≥50%)
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-caution inline-block" /> Moderate (25–50%)
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-no-go inline-block" /> Low (&lt;25%)
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span>⚓</span> Departure Port
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span>Rings: 25 / 50 / 100 / 150 km</span>
-          <span className="text-ink-muted">· CMFRI 2024</span>
-        </div>
-      </div>
+      
     </div>
   );
 }
@@ -1137,9 +1151,11 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
                     −{inr(zone.total_cost)}
                   </div>
                   <div className="text-[10px] text-ink-muted mt-0.5">
-                    Diesel: {inr(zone.fuel_cost)} + Ice/Crew: {inr(zone.fixed_cost)}
+                    Diesel: {inr(zone.fuel_cost)}{zone.fuel_liters != null ? ` (~${zone.fuel_liters} L)` : ""} + Ice/Crew: {inr(zone.fixed_cost)}
                   </div>
-                  <div className="text-[10px] text-ink-dim mt-0.5 italic">{Math.round(zone.distance_km * 2)} km round trip</div>
+                  <div className="text-[10px] text-ink-dim mt-0.5 italic">
+                    {Math.round(zone.distance_km * 2)} km round trip{zone.round_trip_nm != null ? ` (${zone.round_trip_nm} NM)` : ""}{zone.fuel_burn_lph != null ? ` · ${zone.fuel_burn_lph} L/h` : ""}
+                  </div>
                 </div>
 
                 {/* Step 3: Take-Home Profit */}
@@ -1157,7 +1173,7 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
 
               <div className="text-[11px] text-ink-muted leading-relaxed mt-3 pt-2.5 border-t border-hairline/60">
                 <span className="font-bold text-ink">💡 Simple Formula:</span> <em>Fish Sales at Harbor − Total Trip Expenses = Money in Your Hand.</em><br />
-                Your boat spends <strong>{inr(zone.fuel_cost)}</strong> on diesel and <strong>{inr(zone.fixed_cost)}</strong> on crew, ice &amp; harbor fees (total <strong>{inr(zone.total_cost)}</strong>).
+                Your boat spends <strong>{inr(zone.fuel_cost)}</strong> on diesel{zone.fuel_liters != null ? ` (~${zone.fuel_liters} L at voyage burn rate)` : ""} and <strong>{inr(zone.fixed_cost)}</strong> on crew, ice &amp; harbor fees (total <strong>{inr(zone.total_cost)}</strong>). Fuel is calculated with Sagar Sarathi&apos;s voyage power-scaling formula based on vessel cruising speed and nautical distance.
                 <ul className="mt-1 list-disc pl-4 space-y-0.5 text-[10.5px]">
                   <li>
                     <strong>Low prices (Harbor glut / auction):</strong> {inr(zone.income_low)} sales − {inr(zone.total_cost)} costs = <strong>{inr(zone.profit_low)}</strong> take-home profit.
@@ -1239,7 +1255,7 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
                   2. Trip Costs (Diesel + Crew + Ice)
                 </p>
                 <LedgerRow
-                  label={`Diesel fuel (${Math.round(zone.distance_km * 2)} km round trip)`}
+                  label={`Diesel fuel (${zone.fuel_liters != null ? `${zone.fuel_liters} L · ` : ""}${Math.round(zone.distance_km * 2)} km round trip)`}
                   value={`−${inr(zone.fuel_cost)}`}
                 />
                 <LedgerRow label="Crew share, ice blocks, harbor fees" value={`−${inr(zone.fixed_cost)}`} />
@@ -1411,7 +1427,7 @@ export function ZoneDashboard({ profit }: { profit: ProfitState }) {
       )}
       {!data.show_profit && (
         <div className="rounded-lg border border-hairline bg-shelf-2/60 px-3 py-2 text-xs text-ink-muted">
-          Cargo vessels don't fish, so profit figures are hidden. Zones are shown for reference.
+          Cargo vessels don&apos;t fish, so profit figures are hidden. Zones are shown for reference.
         </div>
       )}
 

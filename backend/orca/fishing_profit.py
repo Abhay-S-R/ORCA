@@ -28,19 +28,72 @@ DIESEL_PRICE_INR_PER_LITRE = 95.0
 PROFIT_RANGE_FACTOR = 0.15  # ±15% for the low/high range band
 TOP_N_SPECIES_PER_ZONE = 8  # plan §5, keep top 8 by CMFRI tonnes
 
+# Base fuel burn rates in litres per hour (L/h) at 8-knot reference cruise speed.
+# Exactly matches backend/orca/agents/voyage.py and frontend/app/voyage/page.tsx.
+BASE_FUEL_BURN_LPH: dict[str, float] = {
+    "small_fishing": 4.5,
+    "mechanized_trawler": 22.0,
+    "cargo_vessel": 110.0,
+}
+
+DEFAULT_CRUISE_SPEED_KN = 8.0
+KM_PER_NM = 1.852
+
+
+def calculate_fuel_burn_rate(vessel_key: str, speed_kn: float = DEFAULT_CRUISE_SPEED_KN) -> float:
+    """Automatic maritime fuel burn rate formula based on vessel class and cruising speed.
+    Identical to the voyage planner formula in backend/orca/agents/voyage.py.
+    Power / consumption scales quadratically with speed relative to 8-knot cruise reference.
+    """
+    base_rate = BASE_FUEL_BURN_LPH.get(vessel_key, 4.5)
+    s = max(speed_kn, 1.0)
+    return round(base_rate * ((s / 8.0) ** 2), 2)
+
+
+def calculate_fuel_consumption(
+    distance_km: float,
+    vessel_key: str,
+    speed_kn: float = DEFAULT_CRUISE_SPEED_KN,
+    fuel_burn_lph: float | None = None,
+    round_trip: bool = True,
+) -> tuple[float, float, float]:
+    """Calculate fuel consumption using the Sagar Sarathi voyage formula.
+
+    Returns:
+        (fuel_liters, effective_fuel_burn_lph, round_trip_nm)
+
+    Formula (matches backend/orca/agents/voyage.py):
+        total_distance_nm = (distance_km * 2) / 1.852
+        steaming_hours = total_distance_nm / speed_kn
+        fuel_liters = steaming_hours * fuel_burn_lph
+    """
+    total_km = distance_km * (2.0 if round_trip else 1.0)
+    total_nm = total_km / KM_PER_NM
+    s = max(speed_kn, 0.1)
+    if fuel_burn_lph is None or fuel_burn_lph <= 0:
+        eff_burn_lph = calculate_fuel_burn_rate(vessel_key, s)
+    else:
+        eff_burn_lph = fuel_burn_lph
+
+    fuel_liters = round((total_nm / s) * eff_burn_lph, 1)
+    return fuel_liters, eff_burn_lph, round(total_nm, 1)
+
+
 # Vessel profiles (plan §4.6). Keys match the DB vessel_class enum values
 # PLUS the risk engine's canonical names.
 VESSEL_PROFILES: dict[str, dict] = {
     # DB enum: "mechanised" | "catamaran" | "fibreglass" — all treated as small
     "small_fishing": {
         "label": "Small fishing boat",
-        "fuel_lph": 0.5,          # litres per km
+        "base_fuel_burn_lph": 4.5,
+        "fuel_lph": 0.5,          # legacy fallback
         "fixed_cost_inr": 6_000,  # per trip (crew, ice, food, port fees)
         "base_catch_kg": 250,
         "show_profit": True,
     },
     "mechanized_trawler": {
         "label": "Mechanized trawler",
+        "base_fuel_burn_lph": 22.0,
         "fuel_lph": 3.0,
         "fixed_cost_inr": 25_000,
         "base_catch_kg": 750,
@@ -48,6 +101,7 @@ VESSEL_PROFILES: dict[str, dict] = {
     },
     "cargo_vessel": {
         "label": "Cargo vessel",
+        "base_fuel_burn_lph": 110.0,
         "fuel_lph": 10.0,
         "fixed_cost_inr": 0,
         "base_catch_kg": 0,
@@ -410,17 +464,26 @@ def calculate_profit(
     port: dict,
     zone: dict,
     vessel_key: str,
+    speed_kn: float = DEFAULT_CRUISE_SPEED_KN,
+    fuel_burn_lph: float | None = None,
 ) -> dict:
     """Calculate profit estimate for one port × zone × vessel combination.
 
     Returns a dict with all the data the front-end needs.
-    plan §6 steps 1–8.
+    plan §6 steps 1–8, using the Sagar Sarathi voyage fuel formula.
     """
     profile = VESSEL_PROFILES[vessel_key]
     distance_km = port_zone_distance_km(port, zone)
 
-    # Step 4: Fuel cost (round trip × 2)
-    fuel_cost = distance_km * 2 * profile["fuel_lph"] * DIESEL_PRICE_INR_PER_LITRE
+    # Step 4: Fuel cost using voyage formula (round trip)
+    fuel_liters, eff_burn_lph, round_trip_nm = calculate_fuel_consumption(
+        distance_km=distance_km,
+        vessel_key=vessel_key,
+        speed_kn=speed_kn,
+        fuel_burn_lph=fuel_burn_lph,
+        round_trip=True,
+    )
+    fuel_cost = fuel_liters * DIESEL_PRICE_INR_PER_LITRE
 
     # Step 5: Total cost
     total_cost = fuel_cost + profile["fixed_cost_inr"]
@@ -461,6 +524,9 @@ def calculate_profit(
             "profit_label":     "cargo",
             "profit_color":     "neutral",
             "fuel_cost":        round(fuel_cost),
+            "fuel_liters":      round(fuel_liters, 1),
+            "fuel_burn_lph":    round(eff_burn_lph, 2),
+            "round_trip_nm":    round_trip_nm,
             "total_cost":       round(total_cost),
             "sort_rank":        999,
             "limited_data":     False,
@@ -543,6 +609,9 @@ def calculate_profit(
         "profit_label":     profit_label,
         "profit_color":     profit_color,
         "fuel_cost":        round(fuel_cost),
+        "fuel_liters":      round(fuel_liters, 1),
+        "fuel_burn_lph":    round(eff_burn_lph, 2),
+        "round_trip_nm":    round_trip_nm,
         "fixed_cost":       profile["fixed_cost_inr"],
         "total_cost":       round(total_cost),
         "sort_rank":        round(-profit_mid),   # negative so highest profit = lowest rank
@@ -574,7 +643,7 @@ def _build_cache() -> None:
         state_zones = zones_by_state.get(port["state"], [])
         for vessel_key in VESSEL_PROFILES:
             results = [
-                calculate_profit(port, zone, vessel_key)
+                calculate_profit(port, zone, vessel_key, speed_kn=DEFAULT_CRUISE_SPEED_KN, fuel_burn_lph=None)
                 for zone in state_zones
             ]
             # Sort by profit descending (cargo: by distance ascending)
@@ -592,11 +661,14 @@ def get_zone_profits(
     port_lon: float,
     vessel_key: str,
     port_name: str | None = None,
+    speed_kn: float | None = None,
+    fuel_burn_lph: float | None = None,
 ) -> dict[str, Any]:
     """Main entry point for the API.
 
     Finds the nearest known port to the supplied lat/lon,
     returns zone profit data for that port and the supplied vessel_key.
+    Uses the voyage fuel consumption formula based on vessel class and cruise speed.
 
     Returns a dict ready to be serialised as JSON.
     """
@@ -620,7 +692,27 @@ def get_zone_profits(
     elif not vessel_key:
         fallback_message = "Vessel not set — showing estimates for the small fishing boat."
 
-    zones = _ZONE_CACHE.get((best_port["port_id"], normalised_vessel), [])
+    # Custom speed or fuel burn rate: compute dynamically
+    has_custom_speed = speed_kn is not None and abs(speed_kn - DEFAULT_CRUISE_SPEED_KN) > 0.01
+    has_custom_burn = fuel_burn_lph is not None and fuel_burn_lph > 0
+
+    if has_custom_speed or has_custom_burn:
+        eff_speed = speed_kn if speed_kn is not None else DEFAULT_CRUISE_SPEED_KN
+        zones_by_state: dict[str, list[dict]] = {}
+        for zone in ZONES:
+            zones_by_state.setdefault(zone["state"], []).append(zone)
+        state_zones = zones_by_state.get(best_port["state"], [])
+        zones = [
+            calculate_profit(best_port, z, normalised_vessel, speed_kn=eff_speed, fuel_burn_lph=fuel_burn_lph)
+            for z in state_zones
+        ]
+        if VESSEL_PROFILES[normalised_vessel]["show_profit"]:
+            zones.sort(key=lambda r: -(r.get("profit_mid") or 0))
+        else:
+            zones.sort(key=lambda r: r["distance_km"])
+    else:
+        cached = _ZONE_CACHE.get((best_port["port_id"], normalised_vessel), [])
+        zones = [dict(z) for z in cached]
 
     # Mark "Best zone" badge (plan §10.2)
     for i, z in enumerate(zones):
@@ -629,6 +721,8 @@ def get_zone_profits(
         zones[i] = z
 
     vessel_profile = VESSEL_PROFILES[normalised_vessel]
+    eff_speed = speed_kn if speed_kn is not None else DEFAULT_CRUISE_SPEED_KN
+    eff_burn = fuel_burn_lph if fuel_burn_lph is not None else calculate_fuel_burn_rate(normalised_vessel, eff_speed)
 
     return {
         "port_id":          best_port["port_id"],
@@ -644,11 +738,14 @@ def get_zone_profits(
         "show_profit":      vessel_profile["show_profit"],
         "fallback_message": fallback_message,
         "zones":            zones,
+        "speed_kn":         eff_speed,
+        "fuel_burn_lph":    round(eff_burn, 2),
         "diesel_price_inr": DIESEL_PRICE_INR_PER_LITRE,
         "disclaimer":       (
             "Approximate values. Prices are estimates cross-checked against CMFRI landings. "
             "Catch shares are modelled from national landings data, not measured per zone. "
-            "Actual catch and prices vary by season and market conditions."
+            "Actual catch and prices vary by season and market conditions. "
+            "Fuel consumption calculated using Sagar Sarathi voyage quadratic power formula."
         ),
     }
 

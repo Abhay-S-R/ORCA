@@ -288,6 +288,7 @@ function fmt(value: unknown): string {
 // FormattedResponse uses for its own section cards, so a stat grid and a
 // narrative section read as one system rather than two different UIs bolted
 // together.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function Group({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-2">

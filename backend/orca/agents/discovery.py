@@ -503,7 +503,7 @@ def source_report_entry(decision: dict[str, Any] | None, used: str | list[str] |
         return {"decided": None, "used": used, "obeyed": None}
     decided = decision.get("chosen")
     considered = decision.get("considered") or []
-    used_all = used if isinstance(used, list) else [used]
+    used_all: list[str] = [u for u in used if u is not None] if isinstance(used, list) else ([used] if used is not None else [])
     obeyed = decided in used_all or any(
         u in considered and decided in considered and considered.index(u) > considered.index(decided) for u in used_all
     )

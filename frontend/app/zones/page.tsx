@@ -13,11 +13,30 @@ import { Readout, ReadoutGrid } from "../components/Readout";
 import { SourceChip } from "../components/SourceChip";
 import { SourceNarration, type SourceSelection } from "../components/SourceNarration";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
-import { authFetch, useAuth } from "../lib/auth";
+import { authFetch, invalidateProfile, useAuth } from "../lib/auth";
 import { ageLabel, type Recency } from "../lib/recency";
 import { usePersona } from "../persona/context";
 import { useT } from "../i18n/useT";
 import { KpiStrip, ZoneDashboard, ZonesToolbar, useFishingProfit } from "./zones-dashboard";
+
+function dbVesselToZoneKey(rawClass: string | null | undefined): string {
+  if (!rawClass) return "small_fishing";
+  const c = rawClass.toLowerCase().trim();
+  if (c === "trawler" || c === "mechanized_trawler") return "mechanized_trawler";
+  if (c === "cargo" || c === "cargo_vessel") return "cargo_vessel";
+  return "small_fishing";
+}
+
+const VESSEL_DISPLAY_NAMES: Record<string, string> = {
+  small_fishing: "Small boat",
+  mechanized_trawler: "Trawler",
+  cargo_vessel: "Cargo",
+  catamaran: "Catamaran",
+  fibreglass: "Fibreglass boat",
+  mechanised: "Mechanised boat",
+  trawler: "Trawler",
+  cargo: "Cargo vessel",
+};
 
 // P4.4 (orca_final §9.1a) — the Small Vessel view's reach check, for the
 // fisherman persona only. A day trip's realistic outbound leg: enough of a
@@ -222,6 +241,11 @@ export default function ZonesPage() {
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [allSectorsOpen, setAllSectorsOpen] = useState(false);
   const [activeVessel, setActiveVessel] = useState<string>("small_fishing");
+  const [profileVessel, setProfileVessel] = useState<{
+    name: string | null;
+    vesselClass: string;
+    zoneKey: string;
+  } | null>(null);
   const [error, setError] = useState(false);
   const t = useT();
   const { persona } = usePersona();
@@ -229,18 +253,18 @@ export default function ZonesPage() {
   const auth = useAuth();
 
   // User's registered home port from home page / profile (or null if not logged in)
+  const userHomePort = auth.status === "signed_in" ? auth.profile?.home_port : null;
+  const userHomePortName = auth.status === "signed_in" ? auth.profile?.home_port_name : null;
   const registeredHomePort = useMemo(() => {
-    if (auth.status === "signed_in" && auth.profile?.home_port) {
-      return {
-        id: "default_home",
-        name: auth.profile.home_port_name ?? "Home Port",
-        state: "Home Port",
-        lat: auth.profile.home_port.lat,
-        lon: auth.profile.home_port.lon,
-      };
-    }
-    return null;
-  }, [auth.status, auth.profile?.home_port, auth.profile?.home_port_name]);
+    if (!userHomePort) return null;
+    return {
+      id: "default_home",
+      name: userHomePortName ?? "Home Port",
+      state: "Home Port",
+      lat: userHomePort.lat,
+      lon: userHomePort.lon,
+    };
+  }, [userHomePort, userHomePortName]);
 
   // Selected port state ONLY for the fishing zone page (defaults to 'default_home')
   const [selectedPortKey, setSelectedPortKey] = useState<string>("default_home");
@@ -258,18 +282,57 @@ export default function ZonesPage() {
 
   // Sync vessel class from profile if logged in
   useEffect(() => {
-    if (auth.status !== "signed_in" || !auth.profile?.active_vessel_id) {
+    if (auth.status !== "signed_in") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing from the external auth store
+      setProfileVessel(null);
       return;
     }
     let cancelled = false;
-    authFetch(`/api/vessels/${auth.profile.active_vessel_id}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((v) => {
-        if (!cancelled && v?.class) {
-          setActiveVessel(v.class);
+
+    async function syncVesselFromProfile() {
+      let vessel: { id: string; name?: string | null; vessel_class?: string; class?: string } | null = null;
+      if (auth.profile?.active_vessel_id) {
+        try {
+          const r = await authFetch(`/api/vessels/${auth.profile.active_vessel_id}`);
+          if (r.ok) vessel = await r.json();
+        } catch {
+          // ignore
         }
-      })
-      .catch(() => {});
+      } else {
+        try {
+          const r = await authFetch("/api/vessels");
+          if (r.ok) {
+            const list = await r.json();
+            if (Array.isArray(list) && list.length > 0) {
+              vessel = list[0];
+              // Persist as active in profile so other pages stay synced
+              authFetch("/api/profile/active-vessel", {
+                method: "PUT",
+                body: JSON.stringify({ vessel_id: list[0].id }),
+              })
+                .then(() => invalidateProfile())
+                .catch(() => {});
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!cancelled && vessel) {
+        const rawClass = vessel.vessel_class ?? vessel.class;
+        const key = dbVesselToZoneKey(rawClass);
+        setActiveVessel(key);
+        setProfileVessel({
+          name: vessel.name ?? null,
+          vesselClass: rawClass ?? key,
+          zoneKey: key,
+        });
+      }
+    }
+
+    syncVesselFromProfile();
+
     return () => {
       cancelled = true;
     };
@@ -298,7 +361,7 @@ export default function ZonesPage() {
       .catch(() => setSpeciesData(null));
   }, [speciesQuery]);
 
-  const profit = useFishingProfit(currentPort.lat, currentPort.lon, activeVessel);
+  const profit = useFishingProfit(currentPort.lat, currentPort.lon, activeVessel, reach.cruiseSpeedKn);
 
   const reachWithin =
     persona === "fisherman" && reach.reachKm != null && data?.nearest_pfz.distance_km != null
@@ -310,6 +373,13 @@ export default function ZonesPage() {
     data.sector_status.is_data_gap &&
     data.thermal_front_proxy.features.length > 0 &&
     !!data.thermal_front_proxy.orca_metadata;
+
+  const profileVesselLabel = useMemo(() => {
+    if (!profileVessel) return null;
+    return profileVessel.name || VESSEL_DISPLAY_NAMES[profileVessel.vesselClass] || "Vessel";
+  }, [profileVessel]);
+
+  const isProfileVesselActive = profileVessel?.zoneKey === activeVessel;
 
   return (
     <PageBody className="mx-auto max-w-4xl">
@@ -323,6 +393,8 @@ export default function ZonesPage() {
         registeredHomePortName={registeredHomePort?.name ?? null}
         activeVessel={activeVessel}
         onSelectVessel={setActiveVessel}
+        profileVesselLabel={profileVesselLabel}
+        isProfileVesselActive={isProfileVesselActive}
       />
 
       {error && <ErrorState title={t("zones.apiError")} body={t("zones.apiErrorBody")} />}

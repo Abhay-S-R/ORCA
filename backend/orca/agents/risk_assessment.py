@@ -47,6 +47,9 @@ DB_VESSEL_CLASS_TO_RISK_CLASS: dict[str, VesselClass] = {
     "mechanised": "mechanized_trawler",
     "trawler": "mechanized_trawler",
     "cargo": "cargo_vessel",
+    "small_fishing": "small_fishing",
+    "mechanized_trawler": "mechanized_trawler",
+    "cargo_vessel": "cargo_vessel",
 }
 
 

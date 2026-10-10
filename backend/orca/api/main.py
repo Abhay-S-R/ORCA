@@ -1317,7 +1317,8 @@ async def query(
     if vessel_class is None and user is not None and user.active_vessel_id is not None and "vessel_class" not in dropped:
         active_vessel = get_vessel_for_owner(db, user.active_vessel_id, user.id)
         if active_vessel is not None:
-            vessel_class = active_vessel.vessel_class
+            from orca.agents.risk_assessment import risk_vessel_class
+            vessel_class = risk_vessel_class(active_vessel.vessel_class)
 
     # None = follow the environment. Anything unrecognised is also None rather
     # than an error: a mistyped demo parameter must not fail a safety query.
