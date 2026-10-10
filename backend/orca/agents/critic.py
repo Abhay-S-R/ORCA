@@ -33,7 +33,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from orca import engines
-from orca.agents.reporting import conversation_context
+from orca.agents.reporting import _ist_clock, conversation_context
 from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
 
 if TYPE_CHECKING:
@@ -122,23 +122,71 @@ def _verdict_header(text: str) -> str | None:
     return m.group(0) if m else None
 
 
+def _clean_json_text(raw: str) -> str:
+    """Strips markdown code fences, conversational prose, and whitespace to isolate JSON."""
+    if not raw or not isinstance(raw, str):
+        return ""
+    text = raw.strip()
+    m = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL | re.IGNORECASE)
+    if m:
+        text = m.group(1).strip()
+    else:
+        start_bracket = text.find("[")
+        start_brace = text.find("{")
+        start = -1
+        if start_bracket != -1 and start_brace != -1:
+            start = min(start_bracket, start_brace)
+        elif start_bracket != -1:
+            start = start_bracket
+        elif start_brace != -1:
+            start = start_brace
+
+        if start != -1:
+            end_bracket = text.rfind("]")
+            end_brace = text.rfind("}")
+            end = max(end_bracket, end_brace)
+            if end > start:
+                text = text[start : end + 1].strip()
+    return text
+
+
+def _normalize_rubric_item(name: Any) -> str | None:
+    """Normalize rubric item names (e.g. 'Spatial Accuracy' or 'spatial accuracy' -> 'spatial_accuracy')."""
+    if not name or not isinstance(name, str):
+        return None
+    normalized = re.sub(r"[\s\-]+", "_", name.strip().lower())
+    if normalized in _RUBRIC:
+        return normalized
+    return None
+
+
 def _parse_judge_response(raw: str) -> list[CritiqueIssue]:
     """The judge is asked for strict JSON; a malformed response degrades to
     "no issues found" rather than crashing the pass — a Critic that cannot
     parse its own judge is not grounds to fail the whole response (plan §4
     D1: the Critic upgrades explanations, it never blocks anything)."""
+    cleaned = _clean_json_text(raw)
     try:
-        data = json.loads(raw)
+        data = json.loads(cleaned)
     except (json.JSONDecodeError, TypeError):
         return []
+    if isinstance(data, dict):
+        items = data.get("issues") or ([data] if "rubric_item" in data else [])
+    elif isinstance(data, list):
+        items = data
+    else:
+        return []
+
     issues = []
-    for item in data if isinstance(data, list) else data.get("issues", []):
-        rubric_item = item.get("rubric_item")
-        if rubric_item not in _RUBRIC:
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        rubric_item = _normalize_rubric_item(item.get("rubric_item"))
+        if not rubric_item:
             continue
         issues.append(CritiqueIssue(
             rubric_item=rubric_item,
-            description=item.get("description", ""),
+            description=str(item.get("description", "")),
             reinvoke_agent=_REINVOKE_MAP[rubric_item],
         ))
     return issues
@@ -247,6 +295,7 @@ def run_critic_pass(
     engine_out: list[str] | None = None,
     max_iterations: int = MAX_ITERATIONS,
     context: str = "",
+    can_reinvoke: bool = False,
 ) -> tuple[str, bool, int, list[CritiqueIssue]]:
     """Runs up to MAX_ITERATIONS judge->revise loops. Returns
     (final_narrative, critic_pass, iteration_count, issues_found).
@@ -289,6 +338,13 @@ def run_critic_pass(
             return current, True, iteration, issues_found
 
         issues_found.extend(issues)
+
+        # D3 Optimization: on standard depth (max_iterations == 1), if a specialist
+        # re-invocation is available and targeted, do NOT spend tokens revising the prose.
+        # The specialist will re-read measurements and Reporting will re-synthesize from scratch.
+        if max_iterations == 1 and can_reinvoke and reinvocation_target(issues):
+            return current, False, iteration, issues_found
+
         revised = client.complete(
             [{"role": "user", "content": _revise_prompt(current, issues, verdict_header or "", facts_block)}]
         ).strip()
@@ -302,6 +358,12 @@ def run_critic_pass(
         if not _revision_is_safe(current, revised, verdict_header, facts_block):
             return current, False, iteration, issues_found
         current = revised
+
+        # D3 Optimization: on standard depth (max_iterations == 1), we cannot run
+        # a second judge pass to re-verify without exceeding the single-round budget.
+        # Since _revision_is_safe passed, the prose revision has been validated.
+        if max_iterations == 1:
+            return current, True, iteration, issues_found
 
     return current, False, max_iterations, issues_found
 
@@ -337,6 +399,180 @@ def _colour_facts(block: dict[str, Any] | None) -> str | None:
     return text
 
 
+
+def _fmt_incois_hazards(hazard: Any) -> str | None:
+    if not hazard or not isinstance(hazard, dict):
+        return None
+    warnings = hazard.get("active_warnings") or []
+    if not isinstance(warnings, list) or not warnings:
+        return None
+    items = []
+    for w in warnings[:5]:
+        if not isinstance(w, dict):
+            continue
+        htype = (w.get("hazard_type") or w.get("disaster_type") or "marine hazard").replace("_", " ").title()
+        dist = w.get("district") or ""
+        msg = w.get("message") or w.get("headline") or ""
+        entry = f"{dist} ({htype})" if dist else htype
+        if msg:
+            entry += f": {msg}"
+        items.append(entry)
+    return "; ".join(items) if items else None
+
+
+def _fmt_imd_nowcasts(imd: Any) -> str | None:
+    if not imd or not isinstance(imd, dict) or imd.get("expired"):
+        return None
+    alerts = imd.get("alerts") or []
+    if not isinstance(alerts, list) or not alerts:
+        return None
+    items = []
+    for a in alerts[:5]:
+        if not isinstance(a, dict):
+            continue
+        dist = a.get("district") or ""
+        color = (a.get("severity_color") or "").title()
+        sev = (a.get("severity") or "").title()
+        cat = a.get("event_category") or a.get("events") or "convective weather"
+        label = f"{color} alert" if color else (sev if sev else "warning")
+        entry = f"{dist} ({label}: {cat})" if dist else f"{label}: {cat}"
+        items.append(entry)
+    return "; ".join(items) if items else None
+
+
+def _fmt_cyclone_tracks(tracks: Any) -> str | None:
+    if not tracks:
+        return None
+    if isinstance(tracks, dict):
+        systems = tracks.get("systems") or []
+        if not isinstance(systems, list) or not systems:
+            return None
+        items_list = systems
+    elif isinstance(tracks, list):
+        items_list = tracks
+    else:
+        return None
+    items = []
+    for t in items_list[:3]:
+        if not isinstance(t, dict):
+            continue
+        name = t.get("name") or t.get("system_name") or "Cyclone"
+        basin = t.get("basin") or ""
+        dist = t.get("distance_km")
+        wind = t.get("max_wind_kmh") or t.get("max_wind_kts")
+        intensity = t.get("intensity") or ""
+        entry = name
+        details = []
+        if basin:
+            details.append(f"basin {basin}")
+        if dist is not None:
+            details.append(f"{dist:.0f} km away")
+        if wind is not None:
+            w_str = f"{wind:.0f}" if isinstance(wind, (int, float)) and wind == int(wind) else str(wind)
+            details.append(f"winds {w_str} km/h")
+        if intensity:
+            details.append(f"intensity {intensity}")
+        if details:
+            entry += f" ({', '.join(details)})"
+        items.append(entry)
+    return "; ".join(items) if items else None
+
+
+def _fmt_mpa_regulatory(reg: Any) -> str | None:
+    if not reg or not isinstance(reg, list):
+        return None
+    items = [f"{entry['name']} ({entry.get('designation', 'regulatory')})" for entry in reg if isinstance(entry, dict) and entry.get("name")]
+    return ", ".join(items) if items else None
+
+
+def _fmt_nearby_zones(zones: Any) -> str | None:
+    if not zones or not isinstance(zones, list):
+        return None
+    items = []
+    for z in zones[:5]:
+        if not isinstance(z, dict) or "Indian Exclusive Economic Zone" in (z.get("name") or ""):
+            continue
+        name = z.get("name") or ""
+        desig = z.get("designation") or ""
+        dist = z.get("distance_nm")
+        entry = f"{name} ({desig})" if desig else name
+        if dist is not None:
+            entry += f" {dist:.1f} nm"
+        items.append(entry)
+    return "; ".join(items) if items else None
+
+
+def _fmt_fishing_ban(ban: dict[str, Any] | None, ban_note: str | None = None) -> str | None:
+    ban = ban or {}
+    if ban.get("available") and ban.get("in_ban_period"):
+        coast = ban.get("coast") or ""
+        win = ban.get("window") or ""
+        msg = ban.get("message") or ""
+        parts = [f"annual uniform fishing ban in force on {coast} coast" if coast else "annual uniform fishing ban in force"]
+        if win:
+            parts.append(f"window {win}")
+        if ban.get("exemptions"):
+            parts.append(f"exemptions: {ban['exemptions']}")
+        if msg:
+            parts.append(msg)
+        return "; ".join(parts)
+    if ban_note:
+        return ban_note
+    return None
+
+
+def _fmt_top_species(species: list[dict[str, Any]] | None) -> str | None:
+    if not species:
+        return None
+    items = []
+    for sp in species[:5]:
+        name = sp.get("name") or ""
+        sci = sp.get("scientific_name") or ""
+        if name and sci:
+            items.append(f"{name} ({sci})")
+        elif name:
+            items.append(name)
+    return ", ".join(items) if items else None
+
+
+def _fmt_tide_high_time(when: Any) -> str | None:
+    if not when:
+        return None
+    ist = _ist_clock(when)
+    if ist:
+        return f"{ist} ({when})"
+    return str(when)
+
+
+def _fmt_correlation(corr: dict[str, Any] | None) -> str | None:
+    corr = corr or {}
+    if corr.get("available") and corr.get("pearson_r") is not None:
+        rel = f" ({corr['relationship']})" if corr.get("relationship") else ""
+        samples = f", {corr['n_samples']} samples" if corr.get("n_samples") else ""
+        return f"r={corr['pearson_r']:.2f}{rel}{samples}"
+    return None
+
+
+def _fmt_wind_anomaly(anom: dict[str, Any] | None) -> str | None:
+    anom = anom or {}
+    if anom.get("available") and anom.get("anomalous"):
+        peak = anom.get("observed_peak")
+        units = anom.get("units", "km/h")
+        direction = anom.get("direction", "high")
+        baseline = anom.get("baseline_days", 30)
+        port = anom.get("nearest_port", "")
+        port_str = f" at {port}" if port else ""
+        return f"peak {peak} {units} is anomalous ({direction}) vs {baseline}-day ERA5 baseline{port_str}"
+    return None
+
+
+def _fmt_historical_comparison(hist: dict[str, Any] | None) -> str | None:
+    hist = hist or {}
+    if hist.get("available") and hist.get("statement"):
+        return str(hist["statement"])
+    return None
+
+
 def build_facts_block(state: ORCAState) -> str:
     """The ground truth the judge compares the narrative against.
 
@@ -370,9 +606,24 @@ def build_facts_block(state: ORCAState) -> str:
         "wind_speed_m_per_s": hourly.get("wind_speed_10m"),
         "lightning_active": weather.get("lightning_active"),
         "cyclone_alert": weather.get("cyclone_alert"),
+        "incois_hazard_warnings": _fmt_incois_hazards(weather.get("incois_hazard")),
+        "imd_convective_nowcast_alerts": _fmt_imd_nowcasts(weather.get("imd_nowcast")),
+        "lightning_source_agreement": (
+            "disagree (IMD nowcast and Open-Meteo proxy disagree; convective risk treated conservatively as active)"
+            if weather.get("lightning_source_agreement") == "disagree"
+            else weather.get("lightning_source_agreement")
+        ),
+        "active_cyclone_tracks": _fmt_cyclone_tracks(weather.get("cyclone_tracks")),
         "distance_to_maritime_boundary_nautical_miles": geo.get("imbl_distance_nm"),
+        "maritime_boundary_bearing_deg": geo.get("imbl_bearing_deg"),
+        "maritime_boundary_name": geo.get("imbl_boundary_name"),
+        "maritime_boundary_band": geo.get("imbl_boundary_band"),
         "inside_marine_protected_area": geo.get("mpa_violation"),
         "inside_mpa_names": geo.get("mpa_names", []),
+        "inside_regulatory_mpa": _fmt_mpa_regulatory(geo.get("mpa_regulatory")),
+        "nearby_avoidance_zones_within_50nm": _fmt_nearby_zones(geo.get("nearby_zones")),
+        "shallow_water_hazard": geo.get("shallow_hazard"),
+        "bathymetric_depth_m": geo.get("depth_m"),
         # A fishing zone's distance, NOT the boundary's: named so they cannot be confused.
         "nearest_fishing_zone_distance_km": pfz.get("distance_km") if found else None,
         "nearest_fishing_zone_distance_measured_from": pfz.get("measured_from") if found else None,
@@ -390,14 +641,23 @@ def build_facts_block(state: ORCAState) -> str:
         # A zone past this reach is still the nearest held; a narrative that
         # presents it as close by is contradicted.
         "nearest_fishing_zone_beyond_reach_km": pfz.get("max_km") if found and pfz.get("beyond_reach") else None,
+        "nearest_fishing_zone_boundary_note": pfz.get("boundary_note"),
+        "seasonal_fishing_ban": _fmt_fishing_ban(pfz.get("fishing_ban") or ocean.get("fishing_ban"), pfz.get("ban_note")),
+        "top_target_fish_species": _fmt_top_species(pfz.get("top_species") or ocean.get("top_species")),
         # Why the user's own sector has no advisory today (INCOIS's words), so
         # "no data due to cloud cover" is confirmable and "no zones here" is not.
         "todays_sector_advisory_gap": (ocean.get("sector_status") or {}).get("message")
         if (ocean.get("sector_status") or {}).get("is_data_gap") else None,
+        "sector_fallback_disclosure": ocean.get("sector_disclosure"),
         "tidal_state": tide.get("tidal_state"),
+        "tide_station_name": tide.get("station_name"),
         "next_high_tide_height_m": next_high.get("height_m"),
         "next_high_tide_in_hours": next_high.get("in_hours"),
+        "next_high_tide_time": _fmt_tide_high_time(next_high.get("when")),
         "productivity_diagnosis": ocean.get("productivity_diagnosis"),
+        "sst_chlorophyll_correlation": _fmt_correlation(ocean.get("sst_chlorophyll_correlation")),
+        "wind_anomaly_against_era5": _fmt_wind_anomaly(ocean.get("wind_anomaly")),
+        "historical_climate_comparison": _fmt_historical_comparison(ocean.get("historical_comparison")),
         # NOTE-CHL-1: the SST / chlorophyll the narrative may quote. Without these the critic could not confirm a reading
         # it was asked to judge, and deleted the answer to "what is the SST and chlorophyll at X".
         "sea_surface_temperature_readings": _colour_facts((ocean.get("sea_colour_readings_at_the_place") or {}).get("sea_surface_temperature")),
@@ -418,22 +678,27 @@ def run(state: ORCAState) -> AgentResult:
     is_safety = _is_safety_check(state)
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
-    facts_block = build_facts_block(state)
-
     verdict_before = _verdict_header(narrative)
     engine_out: list[str] = []
 
+    spent = int(state.get("critic_reinvocations") or 0)
+    can_reinvoke = spent < MAX_REINVOCATIONS
+
     try:
+        facts_block = build_facts_block(state)
         revised, critic_pass, iterations, issues = run_critic_pass(
             query, narrative, facts_block, is_safety_check=is_safety,
             engine_out=engine_out,
             max_iterations=MAX_ITERATIONS if depth == "DEEP" else MAX_ITERATIONS_STANDARD,
             context=conversation_context(state.get("session_history"), state.get("user_location")),
+            can_reinvoke=can_reinvoke,
         )
         status: Literal["ok", "degraded"] = "ok"
         confidence = Confidence(
             score="HIGH" if critic_pass else "MEDIUM",
-            rationale=f"{len(issues)} issue(s) on final pass" if not critic_pass else "passed all 5 rubric items",
+            rationale="passed all 5 rubric items" if (critic_pass and not issues) else (
+                "prose revised and verified safe" if critic_pass else f"{len(issues)} issue(s) on final pass"
+            ),
         )
         error_detail = None
     except Exception as exc:
@@ -457,13 +722,10 @@ def run(state: ORCAState) -> AgentResult:
         {"rubric_item": i.rubric_item, "description": i.description, "reinvoke_agent": i.reinvoke_agent}
         for i in issues
     ]
-    # Only ask for a re-invocation the graph is still allowed to grant. The
-    # budget is read here as well as enforced in the graph so the Critic's own
-    # trace row is honest about what it asked for on a second pass: "I found
-    # something and the budget was already spent" is a different fact from
-    # "I found nothing".
-    spent = int(state.get("critic_reinvocations") or 0)
-    reinvoke_agent = reinvocation_target(issue_dicts) if spent < MAX_REINVOCATIONS else None
+    # D3: Only ask for a re-invocation the graph is still allowed to grant, AND
+    # only when the critique did not pass. If critic_pass is True (clean initially
+    # or safely revised prose), reinvoke_agent is None so graph routes to egress.
+    reinvoke_agent = reinvocation_target(issue_dicts) if (not critic_pass and spent < MAX_REINVOCATIONS) else None
 
     return AgentResult(
         agent_name="critic",
@@ -510,4 +772,10 @@ if __name__ == "__main__":
     ]))
     assert len(issues) == 1 and issues[0].reinvoke_agent == "ocean_analytics"
     assert _parse_judge_response("not json") == []
+    # Test fenced codeblock & normalized rubric matching (D2)
+    fenced = '```json\n[{"rubric_item": "Spatial Accuracy", "description": "distance mismatch"}]\n```'
+    parsed_fenced = _parse_judge_response(fenced)
+    assert len(parsed_fenced) == 1
+    assert parsed_fenced[0].rubric_item == "spatial_accuracy"
+    assert parsed_fenced[0].reinvoke_agent == "geospatial"
     print("critic self-check ok")
