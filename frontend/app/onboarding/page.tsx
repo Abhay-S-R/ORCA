@@ -45,13 +45,6 @@ export default function OnboardingPage() {
     }
   }, [auth.status, auth.profile, router]);
 
-  useEffect(() => {
-    // Syncing local UI state from the external LanguageProvider store, not
-    // deriving it from props/state React already has.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setChosenLanguage(language);
-  }, [language]);
-
   function chooseLanguage(code: LangCode) {
     setChosenLanguage(code);
     setLanguage(code);

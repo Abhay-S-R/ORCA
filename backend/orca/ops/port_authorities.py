@@ -326,7 +326,7 @@ def get_authority_user_for_port(
 def ensure_test_mariners(db: Session) -> list[User]:
     """Ensures at least one active test user exists for each mariner persona
     (fisherman, commercial_navigator, researcher) so broadcast targeting can be verified."""
-    mariners = [
+    mariners: list[dict[str, Any]] = [
         {
             "email": "fisherman@orca.test",
             "display_name": "Kadal Meenavan (Fisherman)",
@@ -357,26 +357,30 @@ def ensure_test_mariners(db: Session) -> list[User]:
     for m in mariners:
         stmt = select(User).where(User.email == m["email"])
         user = db.execute(stmt).scalar_one_or_none()
+        lat = float(m["lat"])
+        lon = float(m["lon"])
+        persona = str(m["persona"])
+        home_port_name = str(m["home_port_name"])
         if user is None:
             user = User(
-                email=m["email"],
+                email=str(m["email"]),
                 password_hash=pw_hash,
-                display_name=m["display_name"],
+                display_name=str(m["display_name"]),
                 role="user",
-                default_persona=m["persona"],
+                default_persona=persona,
                 language="en",
-                home_port=_point_wkb(m["lat"], m["lon"]),
-                home_port_name=m["home_port_name"],
+                home_port=_point_wkb(lat, lon),
+                home_port_name=home_port_name,
                 status="active",
             )
             db.add(user)
             db.flush()
         else:
-            if user.default_persona != m["persona"]:
-                user.default_persona = m["persona"]
+            if user.default_persona != persona:
+                user.default_persona = persona
             if not user.home_port_name:
-                user.home_port_name = m["home_port_name"]
-                user.home_port = _point_wkb(m["lat"], m["lon"])
+                user.home_port_name = home_port_name
+                user.home_port = _point_wkb(lat, lon)
         created.append(user)
     db.commit()
     return created
