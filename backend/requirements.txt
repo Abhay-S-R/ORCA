@@ -36,6 +36,6 @@ argon2-cffi>=23.1
 pyjwt>=2.9                
 redis>=5.0                
 pytest>=8.3
-ruff>=0.7
+ruff==0.17.0
 mypy>=1.13
 pyrefly>=1.3

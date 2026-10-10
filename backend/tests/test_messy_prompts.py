@@ -140,6 +140,8 @@ def test_the_same_words_with_nothing_to_continue_are_not_a_sea_question():
 
 @pytest.mark.parametrize("text", [
     "my boat is sinking near thoothukudi", "mayday mayday", "man overboard", "எங்கள் படகு மூழ்குகிறது", "हमारी नाव डूब रही है",
+    # PC5.6-NOTE-2 (2026-10-10): a word for help AND the boat failing, romanized (this was a strict xfail until it was closed)
+    "meri naav ka engine kharab ho gaya hai pamban ke paas madad chahiye", "nanna boat engine halaaytu malpe hatra sahaya beku",
 ])
 def test_the_distress_phrase_list_escalates_with_no_model(text):
     assert distress.detect_distress_signal(text)["is_distress"] is True
@@ -186,8 +188,6 @@ KNOWN_GAPS = [
          "a plural 'pfzs' matches no routing keyword; it still gets the default answer path"),
     _gap("weather in bengaluru", lambda o: o["kind"] == "inland_place",
          "the fallback has no inland-place concept; the model reads it, the gazetteer validates it"),
-    _gap("meri naav ka engine kharab ho gaya hai pamban ke paas madad chahiye", lambda o: o["kind"] == "distress",
-         "romanized Hindi distress is outside the starter phrase list"),
     _gap("engine failed near pamban", lambda o: o["kind"] == "distress",
          "the phrase list has 'engine failure', not 'engine failed'"),
 ]
