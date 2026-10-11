@@ -23,6 +23,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import xarray as xr
 from pyproj import Geod
 from shapely import to_geojson
@@ -529,18 +530,15 @@ def hycom_nearest_step(when: datetime | None = None) -> tuple[int, str]:
 
 def current_vectors(
     bbox: tuple[float, float, float, float] = PILOT_BBOX_WSEN,
-    stride: int = 4,
+    stride: int = 2,
     step: int | None = None,
 ) -> list[dict[str, float]]:
     """Real HYCOM surface (DEPTH=0) current vectors at one forecast step
     (default: the step nearest now — `hycom_nearest_step`), cropped to the
-    bbox and downsampled. It used to take the *last* step, up to five days
-    ahead, while the map drew it as today's flow; the step's valid time now
-    travels with the points (P4.15). U/V are eastward/northward m/s;
-    `direction_deg` is the compass bearing the current flows TOWARD
-    (oceanographic convention — the opposite sense of a meteorological wind
-    direction).
+    bbox and downsampled.
     """
+    from scipy import ndimage
+
     ds = _hycom()
     if step is None:
         step = hycom_nearest_step()[0]
@@ -549,15 +547,34 @@ def current_vectors(
     v = ds["VVEL"].isel(TIME=step, DEPTH=0).sel(LON=slice(west, east), LAT=slice(south, north))
     lats = u["LAT"].values[::stride]
     lons = u["LON"].values[::stride]
-    u_vals = u.values[::stride, ::stride]
-    v_vals = v.values[::stride, ::stride]
+    u_vals = u.values[::stride, ::stride].copy()
+    v_vals = v.values[::stride, ::stride].copy()
+
+    # Fill nearshore missing ocean cells from adjacent ocean cells
+    nan_mask = np.isnan(u_vals) | np.isnan(v_vals)
+    if np.any(~nan_mask):
+        ind = ndimage.distance_transform_edt(nan_mask, return_distances=False, return_indices=True)
+        u_filled = u_vals[tuple(ind)]
+        v_filled = v_vals[tuple(ind)]
+    else:
+        u_filled, v_filled = u_vals, v_vals
+
+    # Vectorized land mask via GEBCO: elevation >= 0 is strictly land!
+    gebco = _bathymetry()["elevation"]
+    elev = gebco.sel(
+        lat=xr.DataArray(lats, dims="lat"),
+        lon=xr.DataArray(lons, dims="lon"),
+        method="nearest",
+    ).values
 
     points: list[dict[str, float]] = []
     for i, lat in enumerate(lats):
         for j, lon in enumerate(lons):
-            uu, vv = float(u_vals[i, j]), float(v_vals[i, j])
+            if elev[i, j] >= 0:
+                continue  # LAND cell: strictly excluded from showing in the land
+            uu, vv = float(u_filled[i, j]), float(v_filled[i, j])
             if not (math.isfinite(uu) and math.isfinite(vv)):
-                continue  # land / masked cell
+                continue
             speed = math.hypot(uu, vv)
             direction = math.degrees(math.atan2(uu, vv)) % 360.0
             points.append({
@@ -587,13 +604,15 @@ def _latest_wind_file() -> Path:
 
 def wind_vectors(
     bbox: tuple[float, float, float, float] = PILOT_BBOX_WSEN,
-    stride: int = 4,
+    stride: int = 1,
 ) -> dict[str, Any]:
     """Archived EOS-06 Scatterometer (ScatSat) 10m wind, most recent daily
     snapshot on disk, cropped to the specified bbox (defaults to pilot bbox).
     U/V m/s -> speed_ms/direction_deg, meteorological convention — the
     direction the wind blows FROM.
     """
+    from scipy import ndimage
+
     path = _latest_wind_file()
     ds = xr.open_dataset(path)
     west, south, east, north = bbox
@@ -601,15 +620,32 @@ def wind_vectors(
     v = ds["V"].isel(time=0, lev=0).sel(lat=slice(south, north), lon=slice(west, east))
     lats = u["lat"].values[::stride]
     lons = u["lon"].values[::stride]
-    u_vals = u.values[::stride, ::stride]
-    v_vals = v.values[::stride, ::stride]
+    u_vals = u.values[::stride, ::stride].copy()
+    v_vals = v.values[::stride, ::stride].copy()
+
+    nan_mask = np.isnan(u_vals) | np.isnan(v_vals)
+    if np.any(~nan_mask):
+        ind = ndimage.distance_transform_edt(nan_mask, return_distances=False, return_indices=True)
+        u_filled = u_vals[tuple(ind)]
+        v_filled = v_vals[tuple(ind)]
+    else:
+        u_filled, v_filled = u_vals, v_vals
+
+    gebco = _bathymetry()["elevation"]
+    elev = gebco.sel(
+        lat=xr.DataArray(lats, dims="lat"),
+        lon=xr.DataArray(lons, dims="lon"),
+        method="nearest",
+    ).values
 
     points: list[dict[str, float]] = []
     for i, lat in enumerate(lats):
         for j, lon in enumerate(lons):
-            uu, vv = float(u_vals[i, j]), float(v_vals[i, j])
+            if elev[i, j] >= 0:
+                continue  # LAND cell: strictly excluded
+            uu, vv = float(u_filled[i, j]), float(v_filled[i, j])
             if not (math.isfinite(uu) and math.isfinite(vv)):
-                continue  # land / masked cell
+                continue
             speed = math.hypot(uu, vv)
             # Meteorological convention: direction the wind blows FROM.
             direction = math.degrees(math.atan2(-uu, -vv)) % 360.0

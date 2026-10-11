@@ -578,8 +578,8 @@ export default function AskPage() {
             >
               <div
                 className={`h-12 w-1 rounded-full transition-all flex flex-col items-center justify-center gap-1 ${isResizing
-                    ? "bg-ocean-cyan h-20 shadow-sm shadow-ocean-cyan/40"
-                    : "bg-hairline group-hover:bg-ocean-cyan group-hover:h-16"
+                  ? "bg-ocean-cyan h-20 shadow-sm shadow-ocean-cyan/40"
+                  : "bg-hairline group-hover:bg-ocean-cyan group-hover:h-16"
                   }`}
               >
                 <span className="size-0.5 rounded-full bg-white/70" />
@@ -670,13 +670,15 @@ export default function AskPage() {
             <div className="h-full w-full">
               <MapView
                 className="h-full w-full"
-                initialLayers={{ wind: false, currents: false, pfz: false, seamarks: false, watchBadges: false, cyclone: false }}
+                initialLayers={{ wind: false, currents: false, pfz: false, seamarks: false, watchBadges: false, cyclone: false, boundaryLines: false, boundaries: false }}
                 queryFocus={activeFocus}
                 distressMarkers={distressMarkers}
                 showLayerPanel={false}
                 showRegionSwitcher={false}
                 showLegends={false}
                 showSoundingHud={false}
+                maxZoom={6.5}
+                showCoastalBoundary={false}
               />
             </div>
           </motion.div>

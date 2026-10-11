@@ -92,7 +92,7 @@ def current_vectors_route(pan_india: bool = True) -> dict:
         if cached is not None and cached.get("valid_time") == valid_time:
             return cached
     if pan_india:
-        pts = current_vectors(bbox=PAN_INDIA_BBOX_WSEN, stride=3, step=step)
+        pts = current_vectors(bbox=PAN_INDIA_BBOX_WSEN, stride=2, step=step)
         result = {"points": pts, "bounds": list(PAN_INDIA_BBOX_WSEN), "valid_time": valid_time, "step_hours": 3}
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -123,7 +123,7 @@ def wind_vectors_route(pan_india: bool = True) -> dict:
         if cached is not None and "valid_time" in cached:
             return cached
     if pan_india:
-        res = wind_vectors(bbox=PAN_INDIA_BBOX_WSEN, stride=4)
+        res = wind_vectors(bbox=PAN_INDIA_BBOX_WSEN, stride=1)
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             with open(cache_path, "w", encoding="utf-8") as f:

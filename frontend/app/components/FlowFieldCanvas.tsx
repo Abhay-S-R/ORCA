@@ -114,25 +114,27 @@ class VectorGrid {
     const p01 = this.grid[r1][c0];
     const p11 = this.grid[r1][c1];
 
-    // Require the nearest cell to have ocean data — if it's land/missing,
-    // bilinear averaging with 0s would produce phantom vectors right at the
-    // coast, drawing streamlines over land. Also require at least 2 of the
-    // 4 neighbors to be valid so we never "invent" flow from a single point.
-    const nearestCell = p00; // c0,r0 is always the floor-nearest cell
-    if (!nearestCell) return null;
-    const validCount = [p00, p10, p01, p11].filter(Boolean).length;
-    if (validCount < 2) return null;
-
     const fx = c - c0;
     const fy = r - r0;
 
-    const u0 = (p00?.u ?? 0) * (1 - fx) + (p10?.u ?? 0) * fx;
-    const u1 = (p01?.u ?? 0) * (1 - fx) + (p11?.u ?? 0) * fx;
-    const u = u0 * (1 - fy) + u1 * fy;
+    // Nearest grid vertex among the 4 corners
+    const nearestCell = (fy < 0.5)
+      ? (fx < 0.5 ? p00 : p10)
+      : (fx < 0.5 ? p01 : p11);
 
-    const v0 = (p00?.v ?? 0) * (1 - fx) + (p10?.v ?? 0) * fx;
-    const v1 = (p01?.v ?? 0) * (1 - fx) + (p11?.v ?? 0) * fx;
-    const v = v0 * (1 - fy) + v1 * fy;
+    // If the closest cell is land/null, strictly do not show on land
+    if (!nearestCell) return null;
+
+    // Bilinear weighting over available ocean cells
+    const w00 = p00 ? (1 - fx) * (1 - fy) : 0;
+    const w10 = p10 ? fx * (1 - fy) : 0;
+    const w01 = p01 ? (1 - fx) * fy : 0;
+    const w11 = p11 ? fx * fy : 0;
+    const totalW = w00 + w10 + w01 + w11;
+    if (totalW < 0.0001) return null;
+
+    const u = (w00 * (p00?.u ?? 0) + w10 * (p10?.u ?? 0) + w01 * (p01?.u ?? 0) + w11 * (p11?.u ?? 0)) / totalW;
+    const v = (w00 * (p00?.v ?? 0) + w10 * (p10?.v ?? 0) + w01 * (p01?.v ?? 0) + w11 * (p11?.v ?? 0)) / totalW;
 
     const speed = Math.hypot(u, v);
     if (speed < 0.01) return null;
@@ -220,7 +222,7 @@ export function FlowFieldCanvas({
       let attempts = 0;
       let lon = b.west + Math.random() * (b.east - b.west);
       let lat = b.south + Math.random() * (b.north - b.south);
-      while (grid && !grid.lookup(lon, lat) && attempts < 10) {
+      while (grid && !grid.lookup(lon, lat) && attempts < 40) {
         lon = b.west + Math.random() * (b.east - b.west);
         lat = b.south + Math.random() * (b.north - b.south);
         attempts++;
@@ -264,9 +266,7 @@ export function FlowFieldCanvas({
 
     const step = () => {
       if (!isMoving) {
-        // Subtle trail fade: dark tint over previous frame. A lower alpha
-        // than the original 0.1 keeps trails longer and softer, reading as
-        // a steady drift instead of a flickering scatter of short streaks.
+        // Subtle trail fade: dark tint over previous frame.
         ctx.globalCompositeOperation = "destination-out";
         ctx.fillStyle = "rgba(0, 0, 0, 0.06)";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -277,14 +277,6 @@ export function FlowFieldCanvas({
         const height = container.clientHeight;
         const b = getBounds();
 
-        // Shared stepper for both fields: moves each particle a fixed PIXEL
-        // distance per frame (scaled to local Mercator scale) rather than a
-        // fixed degree delta, so the field reads as flowing streamlines at
-        // any zoom instead of a near-static dust cloud at ocean-basin zooms
-        // and a wild streak at harbour zooms. Particles are bucketed into
-        // three speed tiers so faster water/wind draws visibly bolder and
-        // brighter than slack water — "meaningful intensity variation" —
-        // for the cost of 3 stroke() calls instead of 1, not per-particle.
         const drawField = (
           grid: VectorGrid,
           particles: Particle[],
@@ -324,8 +316,18 @@ export function FlowFieldCanvas({
             const dLon = (ux * pxPerFrame * mpp) / (111320 * Math.max(Math.cos((p.lat * Math.PI) / 180), 0.01));
             const dLat = (uy * pxPerFrame * mpp) / 111320;
 
-            p.lon += dLon;
-            p.lat += dLat;
+            const nextLon = p.lon + dLon;
+            const nextLat = p.lat + dLat;
+
+            // Strict boundary check: ensure destination point is still in ocean and not over land
+            const nextVec = grid.lookup(nextLon, nextLat);
+            if (!nextVec) {
+              particles[i] = spawnParticle(grid);
+              continue;
+            }
+
+            p.lon = nextLon;
+            p.lat = nextLat;
             p.age++;
 
             const p2 = map.project([p.lon, p.lat]);
@@ -340,16 +342,6 @@ export function FlowFieldCanvas({
               ctx.moveTo(seg.lon, seg.lat);
               ctx.lineTo(seg.lon2, seg.lat2);
             }
-            // Two halo passes of opposite luminance, then the colour pass.
-            // A dark halo alone only buys contrast over the pale shelf end
-            // of the depth ramp — over its dark abyssal end (or any other
-            // dark layer stacked underneath) a dark halo disappears into the
-            // background and the particle reads as invisible, which is
-            // exactly what made currents vanish under depth shading. Adding
-            // a light halo first guarantees one of the two always contrasts,
-            // regardless of what's rendered underneath. Both stay narrow: a
-            // wide outline under every particle read as "harsh scratches"
-            // rather than water.
             ctx.strokeStyle = opts.lightHaloRgb;
             ctx.lineWidth = opts.widths[t] + 0.9;
             ctx.stroke();
@@ -363,48 +355,8 @@ export function FlowFieldCanvas({
           }
         };
 
-        // Build a water-only clip region from MapLibre's rendered water features.
-        // This prevents any particle line from appearing over land — the canvas
-        // only draws inside the projected polygon geometry of the ocean/sea layer.
-        const buildWaterClip = () => {
-          try {
-            const features = map.queryRenderedFeatures(undefined, {
-              layers: ["water"],
-            });
-            if (!features.length) return false;
-            ctx.beginPath();
-            for (const f of features) {
-              const geom = f.geometry as { type: string; coordinates: unknown[] };
-              if (geom.type !== "Polygon" && geom.type !== "MultiPolygon") continue;
-              const rings: number[][][] =
-                geom.type === "Polygon"
-                  ? (geom.coordinates as number[][][])
-                  : (geom.coordinates as number[][][][]).flat();
-              for (const ring of rings) {
-                if (!ring.length) continue;
-                const first = map.project([ring[0][0], ring[0][1]]);
-                ctx.moveTo(first.x, first.y);
-                for (let ri = 1; ri < ring.length; ri++) {
-                  const pt = map.project([ring[ri][0], ring[ri][1]]);
-                  ctx.lineTo(pt.x, pt.y);
-                }
-                ctx.closePath();
-              }
-            }
-            ctx.clip();
-            return true;
-          } catch {
-            return false;
-          }
-        };
-
-        // 1. Currents — a clean water-blue, thin enough to read as threads
-        // of flow rather than a bold overlay competing with the depth ramp.
-        // pxPerFrame tuned down from the original [0.7,1.4,2.2] to read as a
-        // steady, professional drift rather than a fast/chaotic sprint.
+        // 1. Currents — water-blue streamlines filling all Indian ocean domain
         if (currentGrid) {
-          ctx.save();
-          buildWaterClip();
           drawField(currentGrid, currentParticles, {
             maxSpeed: 1.2,
             haloRgb: "rgba(4, 20, 28, 0.28)",
@@ -413,14 +365,10 @@ export function FlowFieldCanvas({
             widths: [0.55, 0.8, 1.15],
             pxPerFrame: [0.28, 0.55, 0.85],
           });
-          ctx.restore();
         }
 
-        // 2. Wind — archived ScatSat, kept visually distinct (amber) from
-        // live currents so the two are never mistaken for one field.
+        // 2. Wind — archived ScatSat, visually distinct amber
         if (windGrid) {
-          ctx.save();
-          buildWaterClip();
           drawField(windGrid, windParticles, {
             maxSpeed: 12,
             haloRgb: "rgba(4, 20, 28, 0.24)",
@@ -429,7 +377,6 @@ export function FlowFieldCanvas({
             widths: [0.5, 0.7, 1.0],
             pxPerFrame: [0.25, 0.48, 0.75],
           });
-          ctx.restore();
         }
       }
 
