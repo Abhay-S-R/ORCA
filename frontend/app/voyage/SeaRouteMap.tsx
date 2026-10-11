@@ -5,9 +5,14 @@
 // polygons are routing thresholds only and are not drawn.
 import { useEffect, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
+import * as maplibregl from "maplibre-gl";
+import { setWorkerUrl } from "maplibre-gl";
 import { Layers } from "lucide-react";
-import { BASEMAP_RASTERS } from "../map/basemap";
+import { BASEMAP_RASTERS, BASEMAP_STYLE } from "../map/basemap";
 import type { FishingZonesGeoJson, SeaRouteResult } from "../lib/seaRoute";
+import { useVoyageT } from "./translations";
+
+setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 type GeoJSONData = Parameters<typeof import("maplibre-gl").GeoJSONSource.prototype.setData>[0];
 
@@ -28,13 +33,14 @@ export function SeaRouteMap({
   onMapClick: (lat: number, lng: number) => void;
   zones: FishingZonesGeoJson | null;
 }) {
+  const { t } = useVoyageT();
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<import("maplibre-gl").Map | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
   const [satellite, setSatellite] = useState(true);
   const satelliteRef = useRef(satellite);
-  const startMarkerRef = useRef<import("maplibre-gl").Marker | null>(null);
-  const endMarkerRef = useRef<import("maplibre-gl").Marker | null>(null);
+  const startMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const endMarkerRef = useRef<maplibregl.Marker | null>(null);
   // Always hold the latest onMapClick so the map click handler (registered
   // once on mount) never has a stale closure over the prop.
   const onMapClickRef = useRef(onMapClick);
@@ -47,17 +53,16 @@ export function SeaRouteMap({
   // Bootstrap map once.
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
-    import("maplibre-gl").then(({ Map, NavigationControl }) => {
-      const map = new Map({
-        container: containerRef.current!,
-        style: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-        center: [80, 15],
-        zoom: 4.5,
-        minZoom: 4.5,
-        maxZoom: 22,
-        maxBounds: [[64.0, 3.0], [96.0, 27.0]],
-      });
-      map.addControl(new NavigationControl({ showCompass: false }), "top-right");
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: BASEMAP_STYLE,
+      center: [80, 15],
+      zoom: 4.5,
+      minZoom: 4.5,
+      maxZoom: 22,
+      maxBounds: [[64.0, 3.0], [96.0, 27.0]],
+    });
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
 
       map.on("load", () => {
         // ── Satellite raster basemap layer ──────────────────────────────────
@@ -157,7 +162,6 @@ export function SeaRouteMap({
       });
 
       mapRef.current = map;
-    });
 
     let ro: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined" && containerRef.current) {
@@ -247,50 +251,44 @@ export function SeaRouteMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    import("maplibre-gl").then(({ Marker }) => {
-      if (!mapRef.current) return;
-      if (startPin) {
-        if (!startMarkerRef.current) {
-          const el = document.createElement("div");
-          el.className =
-            "flex items-center justify-center w-6 h-6 rounded-full bg-emerald-600 text-white font-bold text-[10px] shadow-lg border-2 border-white pointer-events-none";
-          el.innerText = "A";
-          startMarkerRef.current = new Marker({ element: el })
-            .setLngLat([startPin[1], startPin[0]])
-            .addTo(mapRef.current);
-        } else {
-          startMarkerRef.current.setLngLat([startPin[1], startPin[0]]);
-        }
+    if (startPin) {
+      if (!startMarkerRef.current) {
+        const el = document.createElement("div");
+        el.className =
+          "flex items-center justify-center w-6 h-6 rounded-full bg-emerald-600 text-white font-bold text-[10px] shadow-lg border-2 border-white pointer-events-none";
+        el.innerText = "A";
+        startMarkerRef.current = new maplibregl.Marker({ element: el })
+          .setLngLat([startPin[1], startPin[0]])
+          .addTo(map);
       } else {
-        startMarkerRef.current?.remove();
-        startMarkerRef.current = null;
+        startMarkerRef.current.setLngLat([startPin[1], startPin[0]]);
       }
-    });
+    } else {
+      startMarkerRef.current?.remove();
+      startMarkerRef.current = null;
+    }
   }, [ready, startPin]);
 
   // End pin marker for Map Pick mode or selected endpoints.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
-    import("maplibre-gl").then(({ Marker }) => {
-      if (!mapRef.current) return;
-      if (endPin) {
-        if (!endMarkerRef.current) {
-          const el = document.createElement("div");
-          el.className =
-            "flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white font-bold text-[10px] shadow-lg border-2 border-white pointer-events-none";
-          el.innerText = "B";
-          endMarkerRef.current = new Marker({ element: el })
-            .setLngLat([endPin[1], endPin[0]])
-            .addTo(mapRef.current);
-        } else {
-          endMarkerRef.current.setLngLat([endPin[1], endPin[0]]);
-        }
+    if (endPin) {
+      if (!endMarkerRef.current) {
+        const el = document.createElement("div");
+        el.className =
+          "flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white font-bold text-[10px] shadow-lg border-2 border-white pointer-events-none";
+        el.innerText = "B";
+        endMarkerRef.current = new maplibregl.Marker({ element: el })
+          .setLngLat([endPin[1], endPin[0]])
+          .addTo(map);
       } else {
-        endMarkerRef.current?.remove();
-        endMarkerRef.current = null;
+        endMarkerRef.current.setLngLat([endPin[1], endPin[0]]);
       }
-    });
+    } else {
+      endMarkerRef.current?.remove();
+      endMarkerRef.current = null;
+    }
   }, [ready, endPin]);
 
   // Map-pick cursor.
@@ -407,7 +405,7 @@ export function SeaRouteMap({
           }`}
           aria-pressed={!satellite}
         >
-          Chart
+          {t("Chart")}
         </button>
         <button
           type="button"
@@ -420,7 +418,7 @@ export function SeaRouteMap({
           aria-pressed={satellite}
         >
           <Layers className="h-3.5 w-3.5" />
-          Satellite
+          {t("Satellite")}
         </button>
       </div>
 
@@ -428,14 +426,13 @@ export function SeaRouteMap({
       {mapPickMode && (
         <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1 text-[11px] font-medium text-white/90 shadow backdrop-blur-sm ring-1 ring-white/10">
           <kbd
-            onClick={undefined}
             className={`rounded px-1 py-px font-mono text-[10px] border ${
               pickTarget !== "destination"
                 ? "bg-emerald-500/30 border-emerald-400/50 text-emerald-300"
                 : "bg-white/10 border-white/20 text-white/50"
             }`}
-          >S</kbd>
-          <span className={pickTarget !== "destination" ? "text-emerald-300" : "text-white/40"}>Src</span>
+          >{t("S")}</kbd>
+          <span className={pickTarget !== "destination" ? "text-emerald-300" : "text-white/40"}>{t("Src")}</span>
           <span className="text-white/20">|</span>
           <kbd
             className={`rounded px-1 py-px font-mono text-[10px] border ${
@@ -443,8 +440,8 @@ export function SeaRouteMap({
                 ? "bg-rose-500/30 border-rose-400/50 text-rose-300"
                 : "bg-white/10 border-white/20 text-white/50"
             }`}
-          >D</kbd>
-          <span className={pickTarget === "destination" ? "text-rose-300" : "text-white/40"}>Dst</span>
+          >{t("D")}</kbd>
+          <span className={pickTarget === "destination" ? "text-rose-300" : "text-white/40"}>{t("Dst")}</span>
         </div>
       )}
 
@@ -456,7 +453,7 @@ export function SeaRouteMap({
               satellite ? "bg-[#ff3366]" : "bg-[#8a3b52]"
             }`}
           />
-          Route
+          {t("Route")}
         </span>
         <span className="flex items-center gap-1.5">
           <span
@@ -464,7 +461,7 @@ export function SeaRouteMap({
               satellite ? "bg-[#06b6d4]/70" : "bg-[#2f6f74]/50"
             }`}
           />
-          Fishing zones
+          {t("Fishing zones")}
         </span>
       </div>
     </div>

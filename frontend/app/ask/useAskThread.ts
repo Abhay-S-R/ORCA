@@ -458,7 +458,7 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     // Put the reopened chat's earlier turns back into the backend's context
     // window (it lapses after 30 minutes), so a follow-up continues it. ask()
     // waits on this before opening its stream.
-    restoring.current = id ? restoreContext(id, ready).catch(() => {}) : Promise.resolve();
+    restoring.current = id ? restoreContext(id, ready).catch(() => { }) : Promise.resolve();
   }
 
   // Load the active chat once the store is known. A later store change is a
@@ -801,7 +801,7 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
           // is already in the window with the answer this one replaces. Push the
           // whole window again so it carries the new answer instead.
           const updated = turnsRef.current.map((t) => (t.id === id ? { ...t, answer: data } : t));
-          void restoreContext(sessionId, updated).catch(() => {});
+          void restoreContext(sessionId, updated).catch(() => { });
         }
       };
       es.onerror = () => {

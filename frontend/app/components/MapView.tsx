@@ -457,6 +457,9 @@ export function MapView({
   distressMarkers,
   homePortCoords,
   suppressGpsZoom = false,
+  minZoom,
+  maxZoom,
+  showCoastalBoundary = true,
 }: {
   className?: string;
   showPanels?: boolean;
@@ -506,6 +509,11 @@ export function MapView({
    *  Set on the Ask page so generic questions like "is it safe tomorrow?" don't
    *  snap the map to the user's physical location. */
   suppressGpsZoom?: boolean;
+  /** Custom zoom limits. When omitted, defaults to minZoom: 4.5, maxZoom: 22 */
+  minZoom?: number;
+  maxZoom?: number;
+  /** Whether to show the coastal boundary highlight. Defaults to true. */
+  showCoastalBoundary?: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -623,9 +631,9 @@ export function MapView({
   const greyWind = sliderIso !== null && layers.wind && !inSync(sliderIso, windTiming);
   const sliderNotes = sliderIso
     ? [
-        ...(layers.currents && currentVectors?.length ? [syncNote("Currents (HYCOM)", sliderIso, currentsTiming)] : []),
-        ...(layers.wind && windVectors?.length ? [syncNote("Wind (ScatSat)", sliderIso, windTiming)] : []),
-      ]
+      ...(layers.currents && currentVectors?.length ? [syncNote("Currents (HYCOM)", sliderIso, currentsTiming)] : []),
+      ...(layers.wind && windVectors?.length ? [syncNote("Wind (ScatSat)", sliderIso, windTiming)] : []),
+    ]
     : [];
 
   // §4.7 layer lifecycle: heavy-layer LRU + eviction notice.
@@ -818,8 +826,8 @@ export function MapView({
       // surfaces (§4.7) but is not the default — a tilted chart is harder to
       // take a bearing off, and bearings are the fisherman's job.
       maxPitch: 60,
-      minZoom: 4.5,
-      maxZoom: 22,
+      minZoom: minZoom ?? 4.5,
+      maxZoom: maxZoom ?? 22,
       maxBounds: [[64.0, 3.0], [96.0, 27.0]],
     });
     map.current = m;
@@ -1881,8 +1889,8 @@ export function MapView({
       // sector, an unplaced question fits the full field extent.
       const bounds =
         queryFocus.intent === "current" ? currentBounds :
-        queryFocus.intent === "wind" ? windBounds :
-        forecastLayer?.bounds;
+          queryFocus.intent === "wind" ? windBounds :
+            forecastLayer?.bounds;
       if (region) {
         fallback(8.2);
       } else if (bounds) {
@@ -1973,7 +1981,7 @@ export function MapView({
     vis("boundaries-fill", layers.boundaries);
     vis("boundaries-line", layers.boundaries);
     vis("boundary-lines-line", layers.boundaryLines);
-    const showCoast = layers.boundaries || layers.srvBathymetry || layers.waveForecast;
+    const showCoast = showCoastalBoundary; // India coastline boundary demarcation, controllable per page
     vis("coastal-boundary-casing", showCoast);
     vis("coastal-boundary-highlight", showCoast);
     vis("pfz-circles", layers.pfz);
@@ -2140,11 +2148,10 @@ export function MapView({
               clipped. Positioned at arrowY along the card edge, pointing directly
               at the fishing zone marker it describes. */}
           <div
-            className={`absolute z-10 size-3.5 -translate-y-1/2 rotate-45 bg-shelf-3 ${
-              selectedPfzPos.side === "right"
+            className={`absolute z-10 size-3.5 -translate-y-1/2 rotate-45 bg-shelf-3 ${selectedPfzPos.side === "right"
                 ? "-left-[7px] border-b border-l border-go/40"
                 : "-right-[7px] border-t border-r border-go/40"
-            }`}
+              }`}
             style={{ top: selectedPfzPos.arrowY }}
           />
           <div className="relative overflow-hidden rounded-xl border border-go/30 bg-shelf-3/95 backdrop-blur-xl shadow-xl transition-all max-h-[72vh] overflow-y-auto">
@@ -2337,196 +2344,195 @@ export function MapView({
                       className={`size-3.5 text-ink-dim transition-transform ${layersOpen ? "rotate-180" : ""}`}
                     />
                   </button>
-                {layersOpen && (
-                  <div className="-mx-2 mt-3">
-                    <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-dim">
-                      Base map
-                    </p>
-                    <div
-                      role="group"
-                      aria-label="Base map"
-                      className="mx-2 mb-2 grid grid-cols-2 gap-1"
-                    >
-                      {(Object.keys(BASEMAP_LABELS) as BasemapId[]).map((id) => (
-                        <button
-                          key={id}
-                          type="button"
-                          aria-pressed={basemap === id}
-                          onClick={() => setBasemap(id)}
-                          className={`rounded-sm border px-2 py-1 text-[11px] transition-colors ${
-                            basemap === id
-                              ? "border-accent bg-accent/10 font-semibold text-ink"
-                              : "border-hairline text-ink-muted hover:bg-shelf-2/70"
-                          }`}
-                        >
-                          {BASEMAP_LABELS[id]}
-                        </button>
-                      ))}
+                  {layersOpen && (
+                    <div className="-mx-2 mt-3">
+                      <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-dim">
+                        Base map
+                      </p>
+                      <div
+                        role="group"
+                        aria-label="Base map"
+                        className="mx-2 mb-2 grid grid-cols-2 gap-1"
+                      >
+                        {(Object.keys(BASEMAP_LABELS) as BasemapId[]).map((id) => (
+                          <button
+                            key={id}
+                            type="button"
+                            aria-pressed={basemap === id}
+                            onClick={() => setBasemap(id)}
+                            className={`rounded-sm border px-2 py-1 text-[11px] transition-colors ${basemap === id
+                                ? "border-accent bg-accent/10 font-semibold text-ink"
+                                : "border-hairline text-ink-muted hover:bg-shelf-2/70"
+                              }`}
+                          >
+                            {BASEMAP_LABELS[id]}
+                          </button>
+                        ))}
+                      </div>
+                      <LayerToggle
+                        label="Boundaries"
+                        checked={layers.boundaries}
+                        onChange={(v) => setLayers((s) => ({ ...s, boundaries: v }))}
+                      />
+                      <LayerToggle
+                        label="Treaty boundary lines (IMBL)"
+                        checked={layers.boundaryLines}
+                        onChange={(v) => setLayers((s) => ({ ...s, boundaryLines: v }))}
+                      />
+                      <LayerToggle
+                        label="Fishing zones (PFZ)"
+                        checked={layers.pfz}
+                        onChange={(v) => setLayers((s) => ({ ...s, pfz: v }))}
+                      />
+                      {getToken() && (
+                        <LayerToggle
+                          label="My watch badges"
+                          checked={layers.watchBadges}
+                          onChange={(v) => setLayers((s) => ({ ...s, watchBadges: v }))}
+                        />
+                      )}
+                      <LayerToggle
+                        label="Cyclone track & cone (GDACS)"
+                        checked={layers.cyclone}
+                        disabled={cyclone !== null && !cyclone.available}
+                        disabledReason={cyclone?.note}
+                        onChange={(v) => setLayers((s) => ({ ...s, cyclone: v }))}
+                      />
+                      <LayerToggle
+                        label="Seamarks (Port Buoys & Lights)"
+                        checked={layers.seamarks}
+                        onChange={(v) => setLayers((s) => ({ ...s, seamarks: v }))}
+                      />
+                      {rasterLayers.some((l) => !l.forecast_frames?.length) && (
+                        <LayerToggle
+                          label="Depth shading (India Coast)"
+                          heavy
+                          checked={layers.srvBathymetry}
+                          onChange={(v) => toggleHeavy("srvBathymetry", v)}
+                        />
+                      )}
+                      {forecastLayer && (
+                        <LayerToggle
+                          label="Wave height forecast"
+                          heavy
+                          checked={layers.waveForecast}
+                          onChange={(v) => toggleHeavy("waveForecast", v)}
+                        />
+                      )}
+                      {currentVectors && currentVectors.length > 0 && (
+                        <LayerToggle
+                          label="Surface currents"
+                          heavy
+                          checked={layers.currents}
+                          onChange={(v) => toggleHeavy("currents", v)}
+                        />
+                      )}
+                      {windVectors && windVectors.length > 0 && (
+                        <LayerToggle
+                          label={
+                            windAcquisitionDate
+                              ? `Wind (${windAcquisitionDate})`
+                              : "Wind (ScatSat)"
+                          }
+                          heavy
+                          checked={layers.wind}
+                          onChange={(v) => toggleHeavy("wind", v)}
+                        />
+                      )}
                     </div>
-                    <LayerToggle
-                      label="Boundaries"
-                      checked={layers.boundaries}
-                      onChange={(v) => setLayers((s) => ({ ...s, boundaries: v }))}
-                    />
-                    <LayerToggle
-                      label="Treaty boundary lines (IMBL)"
-                      checked={layers.boundaryLines}
-                      onChange={(v) => setLayers((s) => ({ ...s, boundaryLines: v }))}
-                    />
-                    <LayerToggle
-                      label="Fishing zones (PFZ)"
-                      checked={layers.pfz}
-                      onChange={(v) => setLayers((s) => ({ ...s, pfz: v }))}
-                    />
-                    {getToken() && (
-                      <LayerToggle
-                        label="My watch badges"
-                        checked={layers.watchBadges}
-                        onChange={(v) => setLayers((s) => ({ ...s, watchBadges: v }))}
-                      />
-                    )}
-                    <LayerToggle
-                      label="Cyclone track & cone (GDACS)"
-                      checked={layers.cyclone}
-                      disabled={cyclone !== null && !cyclone.available}
-                      disabledReason={cyclone?.note}
-                      onChange={(v) => setLayers((s) => ({ ...s, cyclone: v }))}
-                    />
-                    <LayerToggle
-                      label="Seamarks (Port Buoys & Lights)"
-                      checked={layers.seamarks}
-                      onChange={(v) => setLayers((s) => ({ ...s, seamarks: v }))}
-                    />
-                    {rasterLayers.some((l) => !l.forecast_frames?.length) && (
-                      <LayerToggle
-                        label="Depth shading (India Coast)"
-                        heavy
-                        checked={layers.srvBathymetry}
-                        onChange={(v) => toggleHeavy("srvBathymetry", v)}
-                      />
-                    )}
-                    {forecastLayer && (
-                      <LayerToggle
-                        label="Wave height forecast"
-                        heavy
-                        checked={layers.waveForecast}
-                        onChange={(v) => toggleHeavy("waveForecast", v)}
-                      />
-                    )}
-                    {currentVectors && currentVectors.length > 0 && (
-                      <LayerToggle
-                        label="Surface currents"
-                        heavy
-                        checked={layers.currents}
-                        onChange={(v) => toggleHeavy("currents", v)}
-                      />
-                    )}
-                    {windVectors && windVectors.length > 0 && (
-                      <LayerToggle
-                        label={
-                          windAcquisitionDate
-                            ? `Wind (${windAcquisitionDate})`
-                            : "Wind (ScatSat)"
-                        }
-                        heavy
-                        checked={layers.wind}
-                        onChange={(v) => toggleHeavy("wind", v)}
-                      />
-                    )}
-                  </div>
-                )}
-                {layersOpen && nearNames.length > 0 && (
-                  <p className="mt-2 border-t border-hairline pt-2 text-[11px] text-ink-dim">
-                    {nearNames.length} within 25 nm, drawn brighter
+                  )}
+                  {layersOpen && nearNames.length > 0 && (
+                    <p className="mt-2 border-t border-hairline pt-2 text-[11px] text-ink-dim">
+                      {nearNames.length} within 25 nm, drawn brighter
+                    </p>
+                  )}
+                </Panel>
+                {evictionNotice && (
+                  <p
+                    role="status"
+                    className="mt-2 rounded-sm border border-hairline bg-shelf-2/90 px-2 py-1.5 text-[11px] text-ink-muted"
+                  >
+                    {evictionNotice}
                   </p>
                 )}
-              </Panel>
-              {evictionNotice && (
-                <p
-                  role="status"
-                  className="mt-2 rounded-sm border border-hairline bg-shelf-2/90 px-2 py-1.5 text-[11px] text-ink-muted"
-                >
-                  {evictionNotice}
-                </p>
-              )}
-              {showRegionSwitcher && regionStats && (
-                <div className="w-72 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl p-3 shadow-lg">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="truncate text-xs font-semibold text-ink">{regionStats.region.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRegion("all")}
-                      aria-label="Close region dashboard"
-                      className="shrink-0 text-ink-dim hover:text-ink"
-                    >
-                      <X className="size-3.5" />
-                    </button>
+                {showRegionSwitcher && regionStats && (
+                  <div className="w-72 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl p-3 shadow-lg">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-semibold text-ink">{regionStats.region.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRegion("all")}
+                        aria-label="Close region dashboard"
+                        className="shrink-0 text-ink-dim hover:text-ink"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                    <ReadoutGrid cols={3}>
+                      <Readout compact label="Zones" value={regionStats.zoneCount} />
+                      <Readout
+                        compact
+                        label="Wind"
+                        value={regionStats.avgWindMs != null ? regionStats.avgWindMs.toFixed(1) : "—"}
+                        unit={regionStats.avgWindMs != null ? "m/s" : undefined}
+                      />
+                      <Readout compact label="Hazards" value={regionStats.hazardCount} />
+                    </ReadoutGrid>
                   </div>
-                  <ReadoutGrid cols={3}>
-                    <Readout compact label="Zones" value={regionStats.zoneCount} />
-                    <Readout
-                      compact
-                      label="Wind"
-                      value={regionStats.avgWindMs != null ? regionStats.avgWindMs.toFixed(1) : "—"}
-                      unit={regionStats.avgWindMs != null ? "m/s" : undefined}
-                    />
-                    <Readout compact label="Hazards" value={regionStats.hazardCount} />
-                  </ReadoutGrid>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
 
-          {/* Coastal Region Quick Switcher */}
-          {showRegionSwitcher && (
-            <div ref={regionDropdownRef} className="pointer-events-auto shrink-0 relative">
-              <button
-                type="button"
-                onClick={() => setRegionDropdownOpen(!regionDropdownOpen)}
-                className="flex items-center gap-1.5 sm:gap-2 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl px-2.5 sm:px-3 py-1.5 text-xs font-medium text-ink shadow-lg transition-all hover:bg-shelf-2 hover:border-hairline-strong focus:outline-none"
-                aria-label="Select coastal sector"
-              >
-                <Compass className="size-3.5 text-ocean-cyan shrink-0" />
-                <span className="max-w-[110px] sm:max-w-[170px] md:max-w-none truncate font-medium">
-                  {COASTAL_REGIONS.find((r) => r.id === selectedRegion)?.name ?? "Select Sector"}
-                </span>
-                <ChevronDown
-                  className={`size-3 text-ink-dim transition-transform duration-200 shrink-0 ${regionDropdownOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-              {regionDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-64 max-h-80 overflow-y-auto rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-2xl p-1.5 shadow-2xl z-30">
-                  <div className="px-2.5 py-1.5 text-[10px] font-semibold tracking-wider text-ink-dim uppercase border-b border-hairline/50 mb-1">
-                    Coastal Navigation Regions
+            {/* Coastal Region Quick Switcher */}
+            {showRegionSwitcher && (
+              <div ref={regionDropdownRef} className="pointer-events-auto shrink-0 relative">
+                <button
+                  type="button"
+                  onClick={() => setRegionDropdownOpen(!regionDropdownOpen)}
+                  className="flex items-center gap-1.5 sm:gap-2 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl px-2.5 sm:px-3 py-1.5 text-xs font-medium text-ink shadow-lg transition-all hover:bg-shelf-2 hover:border-hairline-strong focus:outline-none"
+                  aria-label="Select coastal sector"
+                >
+                  <Compass className="size-3.5 text-ocean-cyan shrink-0" />
+                  <span className="max-w-[110px] sm:max-w-[170px] md:max-w-none truncate font-medium">
+                    {COASTAL_REGIONS.find((r) => r.id === selectedRegion)?.name ?? "Select Sector"}
+                  </span>
+                  <ChevronDown
+                    className={`size-3 text-ink-dim transition-transform duration-200 shrink-0 ${regionDropdownOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+                {regionDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-64 max-h-80 overflow-y-auto rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-2xl p-1.5 shadow-2xl z-30">
+                    <div className="px-2.5 py-1.5 text-[10px] font-semibold tracking-wider text-ink-dim uppercase border-b border-hairline/50 mb-1">
+                      Coastal Navigation Regions
+                    </div>
+                    {COASTAL_REGIONS.map((region) => (
+                      <button
+                        key={region.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedRegion(region.id);
+                          setRegionDropdownOpen(false);
+                          map.current?.flyTo({
+                            center: region.center,
+                            zoom: region.zoom,
+                            duration: 1200,
+                            essential: true,
+                          });
+                        }}
+                        className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${selectedRegion === region.id
+                          ? "bg-accent/15 text-accent font-semibold"
+                          : "text-ink hover:bg-shelf-2"
+                          }`}
+                      >
+                        <span className="truncate">{region.name}</span>
+                        <span className="ml-2 text-[10px] text-ink-dim shrink-0">{region.sub}</span>
+                      </button>
+                    ))}
                   </div>
-                  {COASTAL_REGIONS.map((region) => (
-                    <button
-                      key={region.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedRegion(region.id);
-                        setRegionDropdownOpen(false);
-                        map.current?.flyTo({
-                          center: region.center,
-                          zoom: region.zoom,
-                          duration: 1200,
-                          essential: true,
-                        });
-                      }}
-                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${selectedRegion === region.id
-                        ? "bg-accent/15 text-accent font-semibold"
-                        : "text-ink hover:bg-shelf-2"
-                        }`}
-                    >
-                      <span className="truncate">{region.name}</span>
-                      <span className="ml-2 text-[10px] text-ink-dim shrink-0">{region.sub}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {showLegends && layers.srvBathymetry && (
             // Depth legend: to the left of the zoom controls column and
@@ -2910,27 +2916,27 @@ function pfzIconTheme(basemap: BasemapId, busyWater: boolean, old = false): PfzI
   const dark = basemap === "satellite";
   const theme = dark
     ? {
-        // Deep water: the line work goes PALE and the halo near-black. Dark
-        // strokes on dark imagery lose the fins and tail entirely — the body
-        // survives as a green blob and the fish stops being a fish.
-        halo: "rgba(3, 17, 26, 0.92)",
-        haloWidth: busyWater ? 3.1 : 2.6,
-        bodyTop: "#37dd97",
-        bodyBottom: "#059a56",
-        line: "#eafff5",
-        lineWidth: 1.5,
-      }
+      // Deep water: the line work goes PALE and the halo near-black. Dark
+      // strokes on dark imagery lose the fins and tail entirely — the body
+      // survives as a green blob and the fish stops being a fish.
+      halo: "rgba(3, 17, 26, 0.92)",
+      haloWidth: busyWater ? 3.1 : 2.6,
+      bodyTop: "#37dd97",
+      bodyBottom: "#059a56",
+      line: "#eafff5",
+      lineWidth: 1.5,
+    }
     : {
-        // Pale chart paper: the exact inverse. A deep saturated body and dark
-        // ink lines, carried on a white halo — the cartographic way to keep a
-        // dark symbol legible over light fill.
-        halo: "rgba(255, 255, 255, 0.98)",
-        haloWidth: busyWater ? 2.6 : 2.0,
-        bodyTop: "#19c47c",
-        bodyBottom: "#035c33",
-        line: "#032a1a",
-        lineWidth: 1.6,
-      };
+      // Pale chart paper: the exact inverse. A deep saturated body and dark
+      // ink lines, carried on a white halo — the cartographic way to keep a
+      // dark symbol legible over light fill.
+      halo: "rgba(255, 255, 255, 0.98)",
+      haloWidth: busyWater ? 2.6 : 2.0,
+      bodyTop: "#19c47c",
+      bodyBottom: "#035c33",
+      line: "#032a1a",
+      lineWidth: 1.6,
+    };
   // "history" band — same silhouette and halo, the colour drained out, so it
   // reads as the same kind of thing, no longer current.
   return old ? { ...theme, bodyTop: "#b7c0c6", bodyBottom: "#6b767d" } : theme;

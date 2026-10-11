@@ -21,6 +21,8 @@ export function VerdictBadge({
   verdict,
   summary,
   confidenceTier,
+  label: customLabel,
+  headerText,
   children,
 }: {
   verdict: Verdict;
@@ -30,9 +32,15 @@ export function VerdictBadge({
   // distinct amber "data limited" band underneath it. Identical for every
   // persona because this prop is the only thing that turns it on.
   confidenceTier?: ConfidenceTier;
+  label?: string;
+  headerText?: string;
   children?: ReactNode;
 }) {
-  const { label, cls, rule, Icon } = VERDICT[verdict];
+  const v = VERDICT[verdict];
+  const label = customLabel ?? v.label;
+  const cls = v.cls;
+  const rule = v.rule;
+  const Icon = v.Icon;
   const reduce = useReducedMotion();
   const lowData = confidenceTier === "LOW_DATA";
 
@@ -60,7 +68,7 @@ export function VerdictBadge({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-mono tracking-widest text-ink-dim uppercase">
-                SAFETY TELEGRAPH
+                {headerText ?? "SAFETY TELEGRAPH"}
               </span>
             </div>
             <p className={`text-3xl leading-tight font-extrabold tracking-tight sm:text-4xl ${cls}`}>

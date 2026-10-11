@@ -10,7 +10,7 @@
 // radio because that is how you ask a question at sea.
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   Bell,
@@ -71,6 +71,9 @@ export function NavRail() {
   const { persona } = usePersona();
   const t = useT();
 
+  const mobileNavRef = useRef<HTMLElement>(null);
+  const activeMobileTabRef = useRef<HTMLAnchorElement>(null);
+
   // Hydration-safe: render with "unresolved" on both the server pass and the
   // first client render so the HTML matches, then swap in the real persona
   // once the component has mounted (localStorage has been read by then).
@@ -87,6 +90,17 @@ export function NavRail() {
   const visible = NAV_ROUTES.map((href) => ({ href, visibility: visibilityFor(href, effectivePersona) })).filter(
     (r) => r.visibility !== "hidden",
   );
+
+  // Auto-scroll active item into view on mobile
+  useEffect(() => {
+    if (activeMobileTabRef.current) {
+      activeMobileTabRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "center",
+      });
+    }
+  }, [pathname, effectivePersona]);
 
   return (
     <>
@@ -133,25 +147,35 @@ export function NavRail() {
         })}
       </nav>
 
-      {/* Mobile tab bar — five primary, the rest reachable from More. */}
+      {/* Mobile tab bar — horizontally scrollable so all persona routes (Trends, Data, Watches, Reasoning) are accessible */}
       <nav
+        ref={mobileNavRef}
         aria-label="Primary"
-        className="fixed inset-x-0 bottom-0 z-40 flex border-t border-hairline bg-shelf-1/95 backdrop-blur-xl sm:hidden shadow-2xl pb-[env(safe-area-inset-bottom)]"
+        onWheel={(e) => {
+          if (e.deltaY !== 0 && mobileNavRef.current) {
+            mobileNavRef.current.scrollLeft += e.deltaY;
+          }
+        }}
+        className="fixed inset-x-0 bottom-0 z-40 flex overflow-x-auto no-scrollbar scroll-smooth overscroll-x-contain touch-pan-x border-t border-hairline bg-shelf-1/95 backdrop-blur-xl sm:hidden shadow-2xl pb-[env(safe-area-inset-bottom)]"
       >
-        {visible.slice(0, 5).map(({ href }) => {
+        {visible.map(({ href, visibility }) => {
           const { Icon } = NAV[href];
           const label = t(navKey(href));
           const active = pathname === href;
           return (
             <Link
               key={href}
+              ref={active ? activeMobileTabRef : undefined}
               href={href}
               aria-current={active ? "page" : undefined}
-              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium tracking-wide transition-colors ${active ? "text-ocean-cyan border-t-2 border-ocean-cyan -mt-px bg-shelf-2/40" : "text-ink-dim hover:text-ink"
-                }`}
+              className={`flex shrink-0 min-w-[70px] flex-1 flex-col items-center justify-center gap-0.5 py-1.5 px-1.5 text-[10px] font-medium tracking-wide transition-colors ${
+                active
+                  ? "text-ocean-cyan border-t-2 border-ocean-cyan -mt-px bg-shelf-2/40"
+                  : "text-ink-dim hover:text-ink"
+              } ${visibility === "secondary" && !active ? "opacity-75" : ""}`}
             >
               <Icon className="size-4.5" strokeWidth={active ? 2.2 : 1.75} aria-hidden="true" />
-              <span className="truncate max-w-[56px] text-center leading-tight">{label}</span>
+              <span className="truncate max-w-[62px] text-center leading-tight">{label}</span>
             </Link>
           );
         })}
