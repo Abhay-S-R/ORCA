@@ -63,7 +63,7 @@ const LANGUAGE_TAG: Record<string, string> = {
   ta: "தமிழ்", hi: "हिंदी", te: "తెలుగు", ml: "മലയാളം", kn: "ಕನ್ನಡ", bn: "বাংলা", mr: "मराठी", gu: "ગુજરાતી", or: "ଓଡ଼ିଆ",
 };
 
-const labelClass = "text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim";
+const labelClass = "text-xs font-mono font-semibold uppercase tracking-wider text-ink-dim";
 export const iconButtonClass =
   "grid size-7 shrink-0 place-items-center rounded-lg border border-hairline/80 bg-shelf-1/90 text-ink-dim shadow-sm transition-colors hover:border-ocean-cyan/60 hover:text-ocean-cyan";
 
@@ -226,21 +226,21 @@ export function ChatHistoryRail({
           onNew();
           onClose?.();
         }}
-        className="inline-flex items-center justify-center gap-2 rounded-lg border border-hairline bg-shelf-2/70 px-3 py-2 text-xs font-semibold tracking-wide text-ink-muted transition-all hover:border-ocean-cyan/50 hover:bg-shelf-3/80 hover:text-ink"
+        className="inline-flex items-center justify-center gap-2 rounded-lg border border-hairline bg-shelf-2/70 px-3 py-2 text-sm font-semibold tracking-wide text-ink-muted transition-all hover:border-ocean-cyan/50 hover:bg-shelf-3/80 hover:text-ink"
       >
-        <Plus className="size-3.5" aria-hidden="true" />
+        <Plus className="size-4" aria-hidden="true" />
         New chat
       </button>
 
       <label className="relative block">
         <span className="sr-only">Search chats</span>
-        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-ink-dim" aria-hidden="true" />
+        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-dim" aria-hidden="true" />
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search chats"
-          className="w-full rounded-lg border border-hairline bg-shelf-1/90 py-1.5 pr-2 pl-8 text-xs text-ink shadow-inner placeholder:text-ink-dim/60 transition-all hover:border-hairline-strong focus:border-ocean-cyan/70"
+          className="w-full rounded-lg border border-hairline bg-shelf-1/90 py-1.5 pr-2 pl-8 text-sm text-ink shadow-inner placeholder:text-ink-dim/60 transition-all hover:border-hairline-strong focus:border-ocean-cyan/70"
         />
       </label>
 
@@ -449,17 +449,17 @@ function ChatRow({
       >
         {active && <span aria-hidden="true" className="absolute top-2 bottom-2 -left-px w-0.5 rounded-r bg-ocean-cyan" />}
         <span className="flex min-w-0 items-center gap-1.5">
-          {chat.pinned && <Pin className="size-3 shrink-0 text-accent" aria-label="Pinned" />}
-          <span className={`truncate text-xs ${active ? "font-semibold text-ink" : "text-ink"}`}>{title}</span>
+          {chat.pinned && <Pin className="size-3.5 shrink-0 text-accent" aria-label="Pinned" />}
+          <span className={`truncate text-sm sm:text-[15px] ${active ? "font-semibold text-ink" : "text-ink"}`}>{title}</span>
         </span>
-        <span className="flex items-center gap-1.5 text-[10px] text-ink-dim">
+        <span className="flex items-center gap-1.5 text-xs text-ink-dim">
           <span data-readout>{whenLabel(chat.last_seen_at, group)}</span>
           <span aria-hidden="true">·</span>
           <span>
             {chat.turn_count} {chat.turn_count === 1 ? "question" : "questions"}
           </span>
           {language && (
-            <span lang={chat.language} className="truncate rounded border border-hairline px-1 font-tamil text-[9px] text-ink-muted">
+            <span lang={chat.language} className="truncate rounded border border-hairline px-1 font-tamil text-[10px] text-ink-muted">
               {language}
             </span>
           )}

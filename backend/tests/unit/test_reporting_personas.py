@@ -143,3 +143,69 @@ def test_the_prompt_carries_the_location_and_forbids_naming_another():
     assert "Never name a place the location line does not name" in prompt
     # No agent-identity leak into user-facing text.
     assert "Agent 9" not in prompt and "ORCA Reporting Agent" not in prompt
+
+
+def test_personas_mandate_points_format_and_forbid_recheck():
+    """Verify all 4 personas explicitly require points format and forbid telling users to recheck."""
+    from orca.agents.reporting import _PERSONA_RENDERING_INSTRUCTIONS
+
+    for persona, instructions in _PERSONA_RENDERING_INSTRUCTIONS.items():
+        assert "points" in instructions.lower() or "bullet" in instructions.lower(), f"{persona} lacks points format guidance"
+        assert "recheck" in instructions.lower() or "verify" in instructions.lower(), f"{persona} lacks strict no-recheck rule"
+
+
+def test_scrub_recheck_phrases_removes_hedging():
+    """Verify _scrub_recheck_phrases removes hedging, advisory recency lines, scientific names, and bold fish names."""
+    from orca.agents.reporting import _scrub_recheck_phrases
+
+    raw = (
+        "GO: Conditions are safe for operations.\n\n"
+        "• **Wave Height**: **0.8 m**\n"
+        "• **Advisory Recency**: **2026-09-23** (expired)\n"
+        "• **Target Pelagic Species**: **Indian mackerel (Rastrelliger kanagurta)**, **Bombayduck (Harpadon nehereus)**\n"
+        "• **Wind Speed**: **12 km/h**\n\n"
+        "Please recheck conditions before departure. Safe to venture."
+    )
+    cleaned = _scrub_recheck_phrases(raw)
+    assert "recheck" not in cleaned.lower()
+    assert "Advisory Recency" not in cleaned
+    assert "Rastrelliger kanagurta" not in cleaned
+    assert "Harpadon nehereus" not in cleaned
+    assert "Indian mackerel" in cleaned
+    assert "**Indian mackerel" not in cleaned
+    assert "Conditions are safe" in cleaned
+    assert "Safe to venture" in cleaned
+
+
+def test_persona_query_guides_are_differentiated():
+    """Verify that each persona receives unique parameters and structures tailored to their domain."""
+    from orca.agents.reporting import _get_persona_query_guide
+
+    fish_guide = _get_persona_query_guide("fisherman", ["SAFETY_CHECK"], "is it safe to go out tomorrow")
+    nav_guide = _get_persona_query_guide("commercial_navigator", ["SAFETY_CHECK"], "is it safe to go out tomorrow")
+    res_guide = _get_persona_query_guide("researcher", ["SAFETY_CHECK"], "is it safe to go out tomorrow")
+    auth_guide = _get_persona_query_guide("coastal_authority", ["SAFETY_CHECK"], "is it safe to go out tomorrow")
+
+    # Fisherman is concise, metric, simple rules
+    assert "3 to 4 points max" in fish_guide
+    assert "Fishing Rules & Limits" in fish_guide
+    assert "Metric units only" in fish_guide
+
+    # Commercial Navigator has nautical units, UKC, IMBL
+    assert "True Wind & Barometrics" in nav_guide
+    assert "Under-Keel Clearance" in nav_guide
+    assert "knots" in nav_guide and "NM" in nav_guide
+
+    # Researcher has SST anomaly, Chlorophyll biomass, wave spectral Tp/Hs, bathymetry
+    assert "Sea Surface Temperature" in res_guide
+    assert "Chlorophyll-a Biomass" in res_guide
+    assert "Hydrodynamic Wave Spectrum" in res_guide
+    assert "Dataset Provenance" in res_guide
+
+    # Coastal Authority has official directive, alert classification, fleet operational mandate
+    assert "Official Directive" in auth_guide
+    assert "Fleet Operational Mandate" in auth_guide
+    assert "Jurisdictional & Spatial Scope" in auth_guide
+
+
+

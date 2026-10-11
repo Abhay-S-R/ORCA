@@ -84,60 +84,112 @@ def _format_outputs(outputs: dict[str, Any]) -> str:
     return ", ".join(f"{k}={v}" for k, v in outputs.items() if k != "hourly")
 
 
-# Architecture §2.6 output rendering matrix — deep persona-aware rendering.
-# Each persona gets rich, Claude-quality instructions that describe WHO they are,
-# WHAT they care about, and HOW to structure the response for them.
-# The verdict (*what* to say) is fixed upstream; only presentation is decided here.
+# Architecture §2.6 output rendering matrix — Claude-inspired persona-aware rendering.
+# Each persona receives guidance describing WHO they are, WHAT they need, and HOW to communicate.
+# These instructions create natural, conversational responses tailored to each user's context.
 _PERSONA_RENDERING_INSTRUCTIONS: dict[str, str] = {
     "fisherman": (
-        "You are speaking to a working fisherman at sea or on the dock — someone who reads "
-        "on a phone in bright sunlight, possibly in a regional language, who needs to make "
-        "a fast, confident decision. Write in plain, direct English that a native speaker "
-        "with a basic education can read without re-reading. "
-        "Lead with the single most important fact (the verdict if safety is at stake, "
-        "the nearest zone distance if PFZ was asked, the tide state if conditions were asked). "
-        "Follow with 1–2 supporting sentences that explain WHY in plain terms — no acronyms "
-        "(spell out PFZ, IMBL, EEZ the first time). Bold (**...**) any number that changes "
-        "the decision: distance, height, speed. Use a bullet list only when there are 3 or "
-        "more parallel items (e.g. multiple zone distances). Maximum 4 sentences total unless "
-        "a safety warning requires more. No jargon, no dataset names, no sensor IDs."
+        "You are advising a working fisherman at sea or dock. They rely on mobile "
+        "in bright sunlight, limited connectivity, possibly regional language. They "
+        "need clear, actionable information for confident decisions.\n\n"
+        "Length & Conciseness:\n"
+        "Shortest and most concise of all personas (~90–120 words total). Do NOT write long paragraphs. "
+        "Keep total bullet points to strictly 3 to 4 points max. Never overwhelm the user.\n\n"
+        "Communication Style & Vocabulary:\n"
+        "Clear, conversational English with high visual clarity. Front-load the answer directly. "
+        "Present core operational parameters in clean points/bullet format with simple headings easily understood by any common man.\n"
+        "Use simple everyday words (never 'Target Pelagic Species', 'Hydrodynamics', 'Spectral Period', or complex oceanographic jargon).\n\n"
+        "Structure & Priorities:\n"
+        "1. Direct Answer / Verdict: Lead immediately with the clear decision in 1-2 simple sentences. Always bold the heading `**Safety Verdict**:` or `**Summary**:`.\n"
+        "2. Key Reasoning Parameters in Points Format (STRICTLY 3 to 4 points max):\n"
+        "   • **Wave Height & Sea State**: **[Height] m** — affirmative condition (e.g., **Calm, safe, and favorable**)\n"
+        "   • **Wind Speed & Direction**: **[Speed] km/h** from **[Direction]** — affirmative condition (e.g., **Gentle and safe breeze**)\n"
+        "   • **Weather & Storm Hazards**: **All Clear** — No active storms, rain, or lightning threat\n"
+        "   • **Target Fish Species**: [Species 1], [Species 2]; catch depth **[Range] m** (Common names ONLY, never Latin scientific names, unbolded)\n"
+        "   • **Fishing Rules & Limits**: Extremely short and simple (under 12 words, e.g., 'Clear within state waters (0–12 NM). No active ban.').\n"
+        "3. Safe Operating Window (1 single line): Put on the same line as bullet: `• **Safe Operating Window**: **[Start] to [End] IST** (Optimal departure window)`.\n\n"
+        "Units:\n"
+        "Metric only: **km**, **km/h**, **m**, and **IST** time. Do NOT use knots, nautical miles, or degrees True (°T).\n\n"
+        "STRICT OPERATIONAL RULES:\n"
+        "• NEVER tell the user to recheck, double-check, verify with local authorities, confirm forecasts, or check weather updates. "
+        "You are Sagar Sarathi, the authoritative source delivering complete, validated intelligence. Give definitive answers.\n"
+        "• Tone: Direct, respectful, practical, confident. A trusted marine intelligence partner."
     ),
     "commercial_navigator": (
-        "You are speaking to a licensed commercial vessel navigator or captain who expects "
-        "precise, operational information. They are planning a route, not a yes/no decision. "
-        "Structure the response with clear sections using ### headings when there are 2 or more "
-        "topics (e.g. ### Sea Conditions, ### Tidal Window, ### Boundary Clearance). "
-        "Use bullet points (* item) within each section for distinct readings. "
-        "Lead with the operational verdict, then give exact measured values with units "
-        "(**wave height: 1.8 m**, **wind: 34 km/h NE**, tide state, boundary distances). "
-        "Reference bathymetry depth where given. State time windows in IST. "
-        "Mention tidal ebb/flood direction when relevant to route planning. "
-        "Close with a one-line operational recommendation. 4–8 sentences or 2–3 structured sections."
+        "You are advising a licensed vessel captain planning commercial operations, tug maneuvering, or coastal transit. "
+        "They need precise, structured passage planning telemetry for bridge evaluation, regulatory compliance, crew "
+        "safety, and operational efficiency.\n\n"
+        "Length & Register:\n"
+        "Medium length (~180–220 words). Professional maritime bridge log register. Structured, rigorous, and scannable.\n\n"
+        "Communication Style & Vocabulary:\n"
+        "Bridge officer terminology: True Course (°T), True Wind (knots), dominant swell period (s), under-keel clearance (m), "
+        "IMBL standoff (NM), and Marine Protected Area (MPA) buffer clearances. Lead with an executive bridge operational assessment.\n\n"
+        "Structure & Priorities:\n"
+        "1. **Operational Verdict**: Immediate clear status on feasibility, route viability, or alert tier. Always bold the heading `**Operational Verdict**:` or `**Safety Verdict**:`.\n"
+        "2. Navigational & Marine Parameters in Points Format (4 to 5 structured bridge points):\n"
+        "   • **True Wind & Barometrics**: True wind **[Speed] knots** from **[Direction]°T**, gusts to **[Gust] knots**; barometric pressure **[Pressure] hPa** (**Steady**)\n"
+        "   • **Sea State & Dominant Swell**: Significant wave height **[Height] m**, swell **[Swell] m** from **[Direction]** at **[Period]s** dominant period\n"
+        "   • **Hydrography & Under-Keel Clearance**: Tidal state **[State]**; depth **[Depth] m**; next high/low water in IST\n"
+        "   • **Passage Waypoint & Heading**: Steer **[Heading]°T**, distance **[Dist] NM**; surface drift **[Current] knots**\n"
+        "   • **Boundary & Standoff Compliance**: Standoff **[Dist] NM** from International Boundary (IMBL); **[Buffer] NM** clearance from nearest MPA\n"
+        "3. **Safe Operating Window**: Put on the SAME line as bullet: `• **Safe Operating Window**: **[Start] to [End] IST**` (NEVER break onto the next line).\n\n"
+        "Units:\n"
+        "Nautical standards: **NM** (nautical miles), **knots**, **m**, **hPa**, and degrees True (°T).\n\n"
+        "STRICT OPERATIONAL RULES:\n"
+        "• NEVER tell the user to recheck, double-check, verify with local port authorities, or check forecasts. "
+        "Provide authoritative, complete, quantified passage intelligence.\n"
+        "• NEVER break operational window time onto a new line below its label.\n"
+        "• Tone: Professional, authoritative, peer-to-peer maritime intelligence."
     ),
     "researcher": (
-        "You are writing for a marine scientist or oceanographer who needs reproducible, "
-        "citable information. They read slowly and critically and will spot if you round a "
-        "number or omit a source. Structure the response with ### headings for each data "
-        "domain (### Sea Surface Temperature, ### Chlorophyll-a, ### Sea State, etc.). "
-        "Under each heading, bullet each measured value with: the exact value and unit, "
-        "the sensor/dataset name, the observation date, and the age in days. "
-        "State uncertainty explicitly: note cross-source deltas, cloud cover gaps, and "
-        "data recency issues in plain terms. Use scientific terminology correctly "
-        "(e.g. 'chlorophyll-a concentration', 'sea surface temperature', 'significant wave height'). "
-        "Do not round values beyond the telemetry precision. If a reading is unavailable, "
-        "say so and name the gap. Close with a one-line synthesis statement connecting the data."
+        "You are supporting a marine scientist requiring reproducible, citable data "
+        "for oceanographic research, environmental monitoring, or ecological modeling. They need precision, "
+        "provenance, and scientific rigor.\n\n"
+        "Length & Register:\n"
+        "Detailed, data-dense, and analytical (~230–260 words). Academic oceanographic register.\n\n"
+        "Communication Style & Vocabulary:\n"
+        "Lead with an analytical research summary, followed by granular parameter readouts in structured points with "
+        "physical, biogeochemical, bathymetric, and sensor provenance disclosure.\n\n"
+        "Structure & Priorities:\n"
+        "1. **Research Summary**: Concise statement of measured oceanographic phenomenon, productivity trend, or anomaly. Always bold the heading `**Research Summary**:` or `**Oceanographic Summary**:`.\n"
+        "2. Physical & Biological Parameters in Points Format (5 to 6 granular scientific points):\n"
+        "   • **Sea Surface Temperature (SST)**: **[SST]°C** with thermal gradient **[Gradient]°C/km**; anomaly vs climatological baseline **[Anomaly]°C**\n"
+        "   • **Chlorophyll-a Biomass**: **[Value] mg/m³** (**[Productivity class: Oligotrophic / Mesotrophic / Eutrophic]** water column)\n"
+        "   • **Wave Spectral Dynamics**: Significant wave height **Hs [Hs] m**, peak spectral period **Tp [Tp]s**, mean wave direction **[Dir]°**\n"
+        "   • **Bathymetric Depth Profile**: Seafloor contour **[Depth] m** along continental shelf margin\n"
+        "   • **Taxonomic Biomass Distribution**: Pelagic community dominated by [Species 1], [Species 2] (epipelagic horizon **[Range] m**, common names only, unbolded)\n"
+        "   • **Dataset Provenance & Observation Timestamps**: Observation timestamp in UTC/IST (INCOIS OSF / ECMWF / Survey of India)\n"
+        "3. **Sampling Window**: Put on the SAME line as bullet: `• **Safe Sampling Window**: **[Start] to [End] IST**`.\n\n"
+        "Units:\n"
+        "Scientific standard: **°C**, **°C/km**, **mg/m³**, **m/s**, **m**, **s**, and **UTC/IST** timestamps.\n\n"
+        "STRICT OPERATIONAL RULES:\n"
+        "• NEVER instruct the researcher to recheck, verify, or confirm findings elsewhere. State validated observations directly.\n"
+        "• Common fish names only, unbolded. Do NOT include scientific names or Latin binomials in parentheses.\n"
+        "• Tone: Objective, academic, rigorous, transparent."
     ),
     "coastal_authority": (
-        "You are writing an advisory that a district fisheries officer, coast guard, or "
-        "harbour master will relay to fishing communities — possibly by SMS, VHF radio, or "
-        "printed notice board. The tone must be authoritative, terse, and broadcast-ready. "
-        "Lead with the threat level and affected area in bold. Use ### headings for each "
-        "hazard type (### Wave & Wind, ### Lightning & Cyclone, ### Boundary Violations, etc.). "
-        "Each section should be one to two sentences, enough for a radio operator to read aloud. "
-        "State the effective time window (today 06:00–18:00 IST, or 'until further notice'). "
-        "End with the recommended action for vessels (e.g. 'All mechanised craft advised to "
-        "remain in harbour' or 'Vessels beyond 12 NM advised to return before 14:00 IST'). "
-        "No dataset names or sensor IDs — only the facts and the action."
+        "You are supporting a government official, Port Conservator, or State Fisheries Disaster Manager "
+        "broadcasting safety advisories, regulatory notices, and maritime alerts to coastal districts and fishing communities. "
+        "They need authoritative, clear, broadcast-ready public safety directives.\n\n"
+        "Length & Register:\n"
+        "Authoritative broadcast dispatch format (~150–180 words). Ready for VHF radio broadcast, public bulletin, or SMS alert.\n\n"
+        "Communication Style & Vocabulary:\n"
+        "Administrative, imperative, protective. Lead with the official directive, followed by public risk assessment, "
+        "fleet tier mandates, and jurisdictional scope.\n\n"
+        "Structure & Priorities:\n"
+        "1. **Official Directive**: Direct administrative mandate (**Normal maritime operations permitted**, **Caution advised**, or **Harbor stay ordered**). Always bold the heading `**Official Directive**:` or `**Safety Verdict**:`.\n"
+        "2. Threat Assessment & Parameters in Points Format (3 to 4 administrative points):\n"
+        "   • **Alert Classification**: **[Alert Tier]** (e.g. **All Clear / Green Tier** — Zero active cyclonic depressions, squall warnings, or convective lightning threats)\n"
+        "   • **Marine Environmental Thresholds**: Significant wave height capped at **[Height] m**; sustained surface winds **[Speed] km/h** (**[Knots] knots**), squall gusts under **[Gust] km/h**\n"
+        "   • **Fleet Operational Mandate**: Artisanal skiffs (<10m) **permitted with standard vigilance**; mechanized commercial craft (>15m) **fully cleared**\n"
+        "   • **Jurisdictional & Spatial Scope**: [District] coastal waters out to 12 NM territorial limit; port limits of [Port]\n"
+        "   • **Statutory Advisory Reference**: INCOIS Ocean State Bulletin & IMD Coastal Nowcast\n"
+        "3. **Safe Operating Window**: Put on the SAME line as bullet: `• **Safe Operating Window**: **[Start] to [End] IST**` (Advisory validity timeframe).\n\n"
+        "Units:\n"
+        "Administrative metrics: **km/h** (with knots in parens), **m**, and **IST** time.\n\n"
+        "STRICT OPERATIONAL RULES:\n"
+        "• NEVER tell the user or coastal communities to recheck or verify with port authorities. You are issuing the official, authoritative advisory directly.\n"
+        "• Tone: Authoritative, protective, clear, reassuring."
     ),
 }
 
@@ -304,7 +356,11 @@ def facts_paragraph(
     )
     lines: list[str] = []
     if lead_with_verdict and verdict.get("go_no_go"):
-        lines.append(_sentence(f"{verdict['go_no_go']}: {verdict.get('reason') or ''}".rstrip(": ")))
+        v_reason = verdict.get("reason") or ""
+        if re.search(r"all parameters within safe operational limits", v_reason, re.IGNORECASE):
+            v_reason = ""
+        head = f"{verdict['go_no_go']}: {v_reason}".rstrip(": ") if v_reason else verdict['go_no_go']
+        lines.append(_sentence(head))
 
     readings = verdict.get("readings") or {}
     sea = []
@@ -400,13 +456,10 @@ def facts_paragraph(
             sp_strs = []
             for sp in species_list[:3]:
                 name = sp.get("name")
-                sc_name = sp.get("scientific_name")
-                if name and sc_name:
-                    sp_strs.append(f"{name} ({sc_name})")
-                elif name:
+                if name:
                     sp_strs.append(name)
             if sp_strs:
-                lines.append(_sentence(f"Top target fish species for this zone (CMFRI landings & OBIS depth records): {', '.join(sp_strs)}"))
+                lines.append(_sentence(f"Top target fish species for this zone: {', '.join(sp_strs)}"))
         if pfz.get("boundary_note"):
             lines.append(_sentence(pfz["boundary_note"]))
         # O7: Seasonal fishing ban alert
@@ -456,7 +509,7 @@ def facts_paragraph(
             lines.append("This position is inside a marine protected area.")
     # G1: informational disclosure for non-NO_GO MPAs.
     for entry in geo.get("mpa_regulatory") or []:
-        lines.append(f"Note: this position is inside {entry['name']} ({entry['designation']}). Check local regulations before fishing or anchoring.")
+        lines.append(f"Note: this position is inside {entry['name']} ({entry['designation']}) under statutory conservation management.")
     # G6: nearby avoidance zones
     nearby = geo.get("nearby_zones") or []
     avoid = [z for z in nearby if "Indian Exclusive Economic Zone" not in z.get("name", "")]
@@ -875,143 +928,439 @@ def strip_unrequested_verdict(narrative: str, verdict_str: str, reason_str: str)
     return stripped[:1].upper() + stripped[1:] if stripped else ""
 
 
-# Per-query-type formatting guidance — appended to the synthesis prompt when
-# the matched intents include one of the 8 canonical question types.
-# This guides the LLM to format each question type correctly regardless of persona.
-_QUERY_TYPE_FORMAT_GUIDE: dict[str, str] = {
-    "PFZ_NEAREST": (
-        "This is a NEAREST POTENTIAL FISHING ZONE (PFZ) query. "
-        "Structure the response clearly: "
-        "- Lead with the nearest zone's distance (km) and compass direction in **bold** (e.g. **32 km WSW of Mangalore**).\n"
-        "- State the INCOIS advisory date, freshness tier, and whether it is today's live advisory or latest held.\n"
-        "- List the top 3 target fish species: **Common name (Scientific name)** and advised fishing depth range.\n"
-        "- Confirm whether the zone lies within state territorial waters (0–12 NM) or the Central EEZ.\n"
-        "- If a seasonal monsoon fishing ban is active, state the alert prominently first.\n"
-        "- If the zone is beyond day-trip range (>50 km), explicitly caution the fisherman."
-    ),
-    "SAFETY_CHECK": (
-        "This is a SEA SAFETY / VENTURE DECISION query (e.g. 'Is it safe to venture into the sea tomorrow morning?'). "
-        "The deterministic safety verdict header (GO, CAUTION, or NO_GO) is mandatory and MUST appear first in bold with its reason. "
-        "Then clearly highlight the driving physical parameters: "
-        "- **Significant wave height & swell direction** (with vessel hazard threshold context).\n"
-        "- **Wind speed & gusts** (in km/h and knots).\n"
-        "- **Lightning & convective storm risk** (active alerts or all-clear).\n"
-        "- State the safe operating window in IST (e.g. safe for early morning departure, cautionary after 14:00 IST).\n"
-        "- For CAUTION: explicitly distinguish risk for artisanal non-motorized craft vs mechanised trawlers.\n"
-        "- For NO_GO: state the exact hazard forcing the stay-in-harbour advisory and expected clearing trend."
-    ),
-    "CONDITIONS": (
-        "This is a SEA CONDITIONS / TIDES / WEATHER query near the user's fishing grounds. "
-        "Group into clean, bolded operational readings: "
-        "- **Wave & Swell**: Significant wave height, peak swell period, and direction.\n"
-        "- **Wind & Weather**: Wind speed, gust speed, and prevailing direction.\n"
-        "- **Tide Outlook**: Current tidal state (flood/ebb), height, and next high/low turning time in IST.\n"
-        "- **Sea Surface Temperature (SST)**: Current temperature in °C.\n"
-        "Bold every numerical value so it is instantly scannable. State observation time and data freshness in IST."
-    ),
-    "HAZARD_ALERTS": (
-        "This is a LIGHTNING, CYCLONE, OR SEVERE WEATHER ALERT query. "
-        "Lead immediately with the highest active warning status in bold (e.g. **IMD Orange Alert: Severe Thunderstorm & Lightning Warning** or **All Clear: No Active Severe Weather Alerts**). "
-        "- Detail the specific hazards: convective lightning probability, cyclone position/track/intensity if active, or INCOIS High Wave / Swell Surge alert.\n"
-        "- State the direct fleet safety directive: remain in harbour, return to landing centre before a specific hour, or maintain radio watch.\n"
-        "- State alert validity time window in IST."
-    ),
-    "FISH_AGGREGATION": (
-        "This is a REGIONAL FISH AGGREGATION & HIGH BIOMASS query (e.g. 'Which region has the highest fish aggregation right now?'). "
-        "Lead with the specific coastal sector or maritime zone exhibiting the highest fish aggregation indicators in bold: "
-        "- State distance, compass direction, and bathymetry depth from the reference port or caller position.\n"
-        "- Cite the oceanographic drivers: elevated chlorophyll-a concentration (mg/m³) and sea surface temperature (SST) thermal front gradients.\n"
-        "- List the dominant commercial pelagic or demersal fish species congregating there: **Common name (Scientific name)**.\n"
-        "- Note state licensing jurisdiction (0–12 NM) and verify that no marine sanctuary or seasonal ban restricts fishing there."
-    ),
-    "OPTIMAL_ROUTE": (
-        "This is an OPTIMAL ROUTE WITH MINIMUM FUEL query (e.g. 'What is the optimal route to the fishing zone with minimum fuel?'). "
-        "Structure the response with sections: ### Recommended Course & Heading, ### Fuel Consumption & Economics, ### Navigational Safety & Timing. "
-        "- State the departure port, destination coordinates, course heading, and total distance in nautical miles (NM) and km.\n"
-        "- Provide estimated fuel burn (in litres) for small fishing boats (~4.5 L/h base) and mechanised trawlers (~22 L/h) at 8-knot cruising speed.\n"
-        "- Recommend fuel-saving strategies: riding favourable tidal flood/ebb currents, avoiding head seas/adverse swell, and direct compass tracking.\n"
-        "- Confirm complete passage clearance from marine protected areas (MPAs), shallow bathymetric reefs, and international maritime boundaries (IMBL).\n"
-        "- State the best departure time window in IST to align with tidal currents."
-    ),
-    "MARKET_PRICES": (
-        "This is a MARKET PRICES FOR KEY FISH SPECIES query (e.g. 'What are the market prices for key fish species today?'). "
-        "Present official indicative coastal landing centre benchmark prices in a clean, high-visibility list: "
-        "* **Indian Mackerel (Rastrelliger kanagurta)**: ₹120–250/kg (indicative avg ₹185/kg)\n"
-        "* **Oil Sardine (Sardinella longiceps)**: ₹50–120/kg (indicative avg ₹85/kg)\n"
-        "* **Yellowfin Tuna (Thunnus albacares)**: ₹150–300/kg (indicative avg ₹225/kg)\n"
-        "* **Silver Pomfret (Pampus argenteus)**: ₹400–750/kg (indicative avg ₹575/kg)\n"
-        "* **Seer Fish / King Mackerel (Scomberomorus commerson)**: ₹350–650/kg (indicative avg ₹500/kg)\n"
-        "* **Ribbonfish (Trichiurus lepturus)**: ₹80–180/kg (indicative avg ₹130/kg)\n"
-        "* **Bombay Duck (Harpadon nehereus)**: ₹60–150/kg (indicative avg ₹105/kg)\n"
-        "* **Squid / Cuttlefish**: ₹180–320/kg (indicative avg ₹250/kg)\n"
-        "Cite the data benchmark source: CMFRI coastal landing centre economic surveys. "
-        "Explain that morning harbour auction rates fluctuate with fresh landing volumes, ice availability, and quality grade. "
-        "Highlight high-value target species that optimize trip profitability."
-    ),
-    "WEATHER_3DAY_TRIP": (
-        "This is a 3-DAY WEATHER OUTLOOK FOR A PLANNED FISHING TRIP query (e.g. 'How will changing weather affect my planned fishing trip over the next 3 days?'). "
-        "Structure the response clearly across the 72-hour forecast window: "
-        "- **Day 1 (Today)**: Wave height, wind speed/direction, and sea conditions rating (Safe / Caution / Rough).\n"
-        "- **Day 2 (Tomorrow)**: Expected sea conditions, swell trend, and convective squall risk.\n"
-        "- **Day 3 (Day After)**: Extended outlook, wind buildup, and operational feasibility.\n"
-        "- Identify the optimal departure and return window in IST to maximise safe fishing hours.\n"
-        "- Alert to any deteriorating weather trends (e.g. increasing swell, squally wind gusts) across the 3 days."
-    ),
-    "CHLOROPHYLL_SST": (
-        "This is a CHLOROPHYLL / SEA SURFACE TEMPERATURE query. "
-        "Report the headline SST reading with unit (°C), satellite sensor name, and observation date. "
-        "Report the chlorophyll-a concentration level (low/moderate/high) with the mg/m³ value. "
-        "Explain what the reading implies for marine primary productivity and pelagic fish schools. "
-        "Note if near-shore values are indicative only due to satellite turbidity limitations. "
-        "State the SST–chlorophyll correlation and any thermal anomalies against the seasonal baseline."
-    ),
-    "ROUTE": (
-        "This is a SAFE ROUTE / VOYAGE PLANNING query. "
-        "Structure the response with sections: ### Route Overview, ### Hazards En Route, ### Recommended Timing. "
-        "Use bullet points within each section. State the departure and destination clearly. "
-        "List sea conditions along the route (wave height, wind speed/direction). "
-        "Highlight any zones to avoid (MPAs, restricted areas, shallow shoals, international boundaries). "
-        "Give best departure time window in IST. End with the single safest recommended passage in one sentence."
-    ),
-    "DIAGNOSTIC": (
-        "This is a FISH PRODUCTIVITY DECLINE diagnostic query. "
-        "Lead with whether decline is detected (yes/no) and the most impacted district. "
-        "Explain the primary environmental factors (SST thermal anomaly, chlorophyll depletion, absence of coastal upwelling) in clear terms. "
-        "Give the measured values for each factor. "
-        "State whether the decline is seasonal/temporary or anomalous. "
-        "Close with practical guidance: alternate fishing grounds or expected environmental recovery timeframe."
-    ),
-    "ZONES_TO_AVOID": (
-        "This is a ZONES TO AVOID / MARITIME BOUNDARY STANDOFF query. "
-        "List each boundary zone: International Maritime Boundary Line (IMBL), Marine Protected Areas (MPAs), and state fishing limits (0–12 NM). "
-        "State the exact standoff distance and compass bearing from the user's position in nautical miles (NM). "
-        "For the IMBL: emphasize zero-tolerance crossing warnings and consequences. "
-        "For MPAs: state fishing prohibition regulations. Use **bold** for immediate proximity warnings."
-    ),
+_RECHECK_PATTERNS = (
+    re.compile(r"(?i)\b(?:please\s+)?(?:recheck|double-check|re-check|verify|confirm)\s+(?:with\s+local\s+(?:port\s+)?authorities|conditions|forecasts?|weather|before\s+(?:sailing|venturing|departure|setting\s+sail))[^.!?]*[.!?]"),
+    re.compile(r"(?i)\b(?:always\s+)?check\s+(?:with\s+local\s+(?:port\s+)?authorities|official\s+forecasts?|before\s+(?:sailing|venturing|departure))[^.!?]*[.!?]"),
+    re.compile(r"(?i)\bconsult\s+(?:local\s+port\s+authorities|harbor\s+officials)[^.!?]*[.!?]"),
+)
+
+_ADVISORY_RECENCY_LINE = re.compile(r"(?m)^\s*(?:[•*\-]|\d+\.)\s+\**Advisory\s+Recency\**:[^\n]*\n?")
+_SCIENTIFIC_NAME_PATTERN = re.compile(r"\s*\([A-Z][a-z]+(?:\s+[a-z]+)?\)")
+_BOLD_FISH_PATTERN = re.compile(
+    r"\*\*(Indian\s+mackerel|Bombay\s*duck|Silver\s*pomfret|Sardine[s]?|Tuna|Mackerel|Ribbonfish|Seer\s*fish|Anchov(?:y|ies)|Squid|Cuttlefish|Shrimp|Prawn[s]?|Carangid[s]?)\*\*",
+    re.IGNORECASE,
+)
+_SAFE_LIMITS_PATTERN = re.compile(
+    r"(?i)\bAll Parameters Within Safe Operational Limits\b\s*[.:]?",
+)
+
+
+def _scrub_recheck_phrases(text: str) -> str:
+    """Strip out accidental model hedging, advisory recency lines, scientific fish names, bold fish names, and generic safe limits phrases."""
+    cleaned = text
+    for pattern in _RECHECK_PATTERNS:
+        cleaned = pattern.sub("", cleaned)
+    cleaned = _ADVISORY_RECENCY_LINE.sub("", cleaned)
+    cleaned = _SCIENTIFIC_NAME_PATTERN.sub("", cleaned)
+    cleaned = _BOLD_FISH_PATTERN.sub(r"\1", cleaned)
+    cleaned = _SAFE_LIMITS_PATTERN.sub("", cleaned)
+    # Split accidental combined headers like "Hazard Parameters: Alert Classification: ..."
+    cleaned = re.sub(
+        r"(?i)(?:^|\n)\s*(?:\*\*)?([A-Za-z\s&/—–-]+?\s+Parameters)(?:\*\*)?:\s*(?:\*\*)?([A-Za-z\s&/—–-]+?)(?:\*\*)?:\s*",
+        r"\n\n**\1**:\n• **\2**: ",
+        cleaned,
+    )
+    # Join split parameter labels where the value was placed on the next line
+    cleaned = re.sub(
+        r"(?mi)^(?:[•*\-]|\d+\.)?\s*(?:\*\*)?([A-Za-z\s&/—–-]+?)(?:\*\*)?:\s*\n+([0-9A-Za-z][^\n]*)",
+        lambda m: f"\n**{m.group(1).strip()}**:\n• {m.group(2).strip().lstrip('•*- ')}"
+        if re.search(r"parameters|points|findings|assessment|directives|details|overview|summary", m.group(1), re.I)
+        else f"• **{m.group(1).strip()}**: {m.group(2).strip()}",
+        cleaned,
+    )
+    # Convert technical/complex side headings to simple common-man terms
+    cleaned = re.sub(r"(?i)\bTarget Pelagic Species\b", "Target Fish Species", cleaned)
+    cleaned = re.sub(r"(?i)\bOcean Depth & Conditions\b", "Sea Depth & Conditions", cleaned)
+    cleaned = re.sub(r"(?i)\bWeather & Convective Hazards\b", "Weather & Storm Hazards", cleaned)
+    cleaned = re.sub(r"(?i)\bAlert Classification:\s*INCOIS Multi-Hazard Bulletin\s*\(([^)]+)\)", r"Active Weather Alerts: INCOIS Ocean Watch (\1)", cleaned)
+    # Ensure Verdicts and Alert Status headers are clean standalone headers, NEVER bullet points
+    cleaned = re.sub(
+        r"(?mi)^[•*\-]?\s*(?:\*\*)?(Safety Verdict|Operational Verdict|Passage Verdict|Route Verdict|Diagnostic Verdict|Official Directive|Headline Alert Status|Alert Status|Summary|Research Summary|Oceanographic Summary)(?:\*\*)?:\s*",
+        r"\n**\1**: ",
+        cleaned,
+    )
+    # Ensure Safe Operating Window is bolded with bullet
+    cleaned = re.sub(
+        r"(?i)(?:^|\n)\s*(?:[•*\-]|\d+\.)?\s*(?:\*\*)?(Safe Operating Window|Operating Window|Passage Window|Departure Window|Safe Sampling Window|Sampling Window|Advisory Validity Window|Validity Window)(?:\*\*)?:\s*",
+        r"\n• **\1**: ",
+        cleaned,
+    )
+    cleaned = re.sub(r"^(GO|CAUTION|NO_GO):\s*", r"\1: ", cleaned.strip(), flags=re.IGNORECASE)
+    cleaned = re.sub(r" {2,}", " ", cleaned)
+    return cleaned.strip()
+
+
+
+# Persona-differentiated formatting guides — each persona receives custom parameters,
+# length constraints, vocabulary, and structural layout tailored to their real operational needs.
+_PERSONA_QUERY_GUIDES: dict[str, dict[str, str]] = {
+    "fisherman": {
+        "PFZ_NEAREST": (
+            "Present Potential Fishing Zone intelligence clearly for a working fisherman. Keep total response short (~90–120 words):\n\n"
+            "1. Summary (1 sentence, plain text, NEVER a bullet point):\n"
+            "   Lead directly: '**Summary**: The nearest Potential Fishing Zone is **X km [Direction]** off [Port/Coast].'\n\n"
+            "2. Key Reasoning Parameters (Points Format — strictly 3 to 4 core points max):\n"
+            "   • **Distance & Travel Time**: **[Distance] km** (**[Direction]**); travel time **[Hours] hours**\n"
+            "   • **Sea Depth & Conditions**: Water depth **[Depth] m**; sea conditions calm and favorable\n"
+            "   • **Target Fish Species**: [Species 1], [Species 2]; catch depth **[Range] m** (Common names ONLY, never Latin scientific names, unbolded)\n"
+            "   • **Fishing Rules & Limits**: Within state waters (0–12 NM). No active ban. (Keep under 12 words)\n\n"
+            "3. Safe Operating Window (1 single line):\n"
+            "   • **Safe Operating Window**: **[Start] to [End] IST** (Optimal departure window)\n\n"
+            "Rule: Highlight all numbers and units in bold. Metric units only (km, km/h, m, IST). NEVER include scientific fish names. NEVER bold fish names. NEVER tell the user to recheck or verify with port authorities."
+        ),
+        "SAFETY_CHECK": (
+            "Present marine safety assessment clearly for a working fisherman. Keep response concise and reassuring (~90–120 words):\n\n"
+            "1. Safety Verdict (1-2 sentences, plain text, NEVER a bullet point):\n"
+            "   Lead with an affirmative, reassuring operational verdict when conditions are safe: "
+            "'**Safety Verdict**: **Yes, sea conditions are safe and favorable** for fishing operations off [Location] tomorrow morning.' "
+            "(If caution or dangerous: '**Safety Verdict**: **Caution advised**...' or '**Safety Verdict**: **Unsafe — remain in harbor**...').\n\n"
+            "2. Key Reasoning Parameters (Points Format — strictly 3 to 4 points max):\n"
+            "   • **Wave Height & Sea State**: **[Height] m** — **Calm, safe, and favorable** (low chop)\n"
+            "   • **Wind Speed & Direction**: **[Speed] km/h** from **[Direction]** — **Gentle and safe breeze**, well within limits\n"
+            "   • **Weather & Storm Hazards**: **All Clear** — No active storms, rain, or lightning threat\n"
+            "   • **Fishing Rules & Limits**: Clear within state waters (0–12 NM). No active ban. (Keep under 12 words)\n\n"
+            "3. Safe Operating Window (1 single line):\n"
+            "   • **Safe Operating Window**: **[Start] to [End] IST** (Optimal departure window)\n\n"
+            "CRITICAL RULES: Highlight all numbers, units, and status verdicts in bold. Metric units only (km, km/h, m, IST). Convey a clear 'yes, safe' feeling when conditions are calm. NEVER tell the user to recheck or verify with port authorities."
+        ),
+        "CONDITIONS": (
+            "Present coastal conditions clearly for a fisherman (~90–120 words):\n\n"
+            "1. Sea Overview (1 sentence, plain text, NEVER a bullet point):\n"
+            "   Brief overview of coastal conditions at the specified location.\n\n"
+            "2. Key Measured Parameters (Points Format — strictly 3 to 4 points max):\n"
+            "   • **Wave Height & Sea State**: **[Height] m** significant wave height; swell **[Swell] m** from **[Direction]**\n"
+            "   • **Wind Speed & Direction**: **[Speed] km/h** from **[Direction]**; gusts up to **[Gust] km/h**\n"
+            "   • **Tide & Water Level**: **[Tidal State]**; water level at **[Height] m**; next turn at **[Time] IST**\n"
+            "   • **Sea Depth**: Water depth **[Depth] m**\n\n"
+            "3. Safe Operating Window (1 single line):\n"
+            "   • **Safe Operating Window**: **[Start] to [End] IST**\n\n"
+            "Rule: Metric units only (km, km/h, m). Highlight all numbers and units in bold. NEVER tell the user to recheck or verify with port authorities."
+        ),
+        "HAZARD_ALERTS": (
+            "Present weather alert status clearly and simply for a working fisherman (~80–110 words):\n\n"
+            "1. Alert Status (1-2 sentences, plain text, NEVER a bullet point):\n"
+            "   - If NO lightning and NO cyclone: '**Alert Status**: **No active lightning, cyclone, or severe storm alerts** in your area. Conditions remain calm and safe for fishing operations.'\n"
+            "   - If active storm or cyclone exists: '**Alert Status**: **Active [Alert Type] Alert** in effect...'\n\n"
+            "2. Key Reasoning Parameters (Points Format — strictly 2 to 3 points max):\n"
+            "   • **Lightning Threat**: **All Clear** (or **Active**) — No lightning strikes detected within safe range\n"
+            "   • **Cyclone & Wind Threat**: **All Clear** (or **Active**) — No cyclonic disturbances or depression alerts in the region\n"
+            "   • **Sea Condition Status**: Calm and safe; minor waves of **[Height] m**\n\n"
+            "3. Safe Operating Window (1 single line):\n"
+            "   • **Safe Operating Window**: **[Start] to [End] IST**\n\n"
+            "Rule: Highlight all numbers and units in bold. Never label calm ocean watches as 'ACTIVE WEATHER WARNING'. NEVER tell the user to recheck or verify with port authorities."
+        ),
+        "FISH_AGGREGATION": (
+            "Present fish aggregation grounds simply for a fisherman (~90–120 words):\n\n"
+            "1. Aggregation Finding (1 sentence): High-biomass zone location and distance.\n"
+            "2. Key Parameters (Points Format — 3 to 4 points max):\n"
+            "   • **Location & Distance**: **[Distance] km [Direction]** off [Port]\n"
+            "   • **Sea Depth & Conditions**: Water depth **[Depth] m**; calm sea state\n"
+            "   • **Target Fish Species**: [Species 1], [Species 2]; catch depth **[Depth] m** (Common names only, unbolded)\n"
+            "   • **Fishing Rules & Limits**: Within state waters (0–12 NM). No active ban. (Under 12 words)\n"
+            "3. Gear Advice (1 sentence): Recommended gear type (gillnet / ring seine / handline).\n"
+            "Rule: Metric units only. Highlight numbers in bold. Common fish names only, unbolded. NEVER tell the user to recheck."
+        ),
+        "OPTIMAL_ROUTE": (
+            "Present safe travel corridor simply for a fisherman (~90–120 words):\n\n"
+            "1. Route Overview (1 sentence): Recommended route from harbor to fishing zone.\n"
+            "2. Passage Parameters (Points Format — 3 to 4 points max):\n"
+            "   • **Heading & Distance**: Steer **[Heading]° [Compass]**; total distance **[Distance] km**\n"
+            "   • **Estimated Travel Time**: **[Hours] hours** economical cruise\n"
+            "   • **Sea State En Route**: Significant waves **[Height] m**; calm passage\n"
+            "   • **Reef & Border Clearance**: Clear of shallow reefs; within state waters (0–12 NM)\n"
+            "3. Safe Operating Window (1 single line): `• **Safe Operating Window**: **[Start] to [End] IST**`\n"
+            "Rule: Metric units only. Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+        "ZONES_TO_AVOID": (
+            "Present restricted areas clearly for a fisherman (~90–120 words):\n\n"
+            "1. Boundary Summary (1 sentence): Status of maritime limits in this sector.\n"
+            "2. Key Boundaries (Points Format — 3 to 4 points max):\n"
+            "   • **International Border (IMBL)**: Standoff **[Distance] km** (**[Distance] NM**) — Zero tolerance border; do not cross\n"
+            "   • **Marine Sanctuary Buffer**: **[MPA Name]** buffer at **[Distance] km**; strictly no fishing\n"
+            "   • **State Territorial Waters (0–12 NM)**: Within state waters; valid fishing license required\n"
+            "   • **Seasonal Monsoon Ban**: Status: **[Active / Inactive]** (Window: **[Dates]**)\n"
+            "3. Safe Operating Window (1 single line): `• **Safe Operating Window**: **[Start] to [End] IST**`\n"
+            "Rule: Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+        "DIAGNOSTIC": (
+            "Present catch diagnosis simply for a fisherman (~90–120 words):\n\n"
+            "1. Diagnostic Summary (1 sentence): Reason for recent fish catch movement.\n"
+            "2. Key Factors (Points Format — 3 points max):\n"
+            "   • **Water Temperature**: SST at **[SST]°C** ([Normal/Warm])\n"
+            "   • **Fish Movement**: Fish schools temporarily dispersed to deeper waters (**>[Depth] m**)\n"
+            "   • **Recommended Fishing Grounds**: Shift operations to **[Distance] km [Direction]** off [Port]\n"
+            "3. Strategy Advice (1 sentence): Practical advice for current trip.\n"
+            "Rule: Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+        "MARKET_PRICES": (
+            "Present dockside fish market rates for a fisherman (~90–120 words):\n\n"
+            "1. Market Overview (1 sentence): Dockside auction benchmark rates from CMFRI surveys.\n"
+            "2. Key Commercial Species Rates (Points Format — 3 to 4 points max):\n"
+            "   • **[Common Name]**: **₹[Low]–[High]/kg** (mid **₹[Mid]/kg**) — [Demand trend] (Common names ONLY, never Latin binomials in parens, unbolded)\n"
+            "3. Dockside Advice (1 sentence): High-demand species at landing centers.\n"
+            "Rule: Highlight rates in bold. Never bold fish names. NEVER tell the user to recheck."
+        ),
+        "WEATHER_3DAY_TRIP": (
+            "Present 3-day voyage forecast for a fisherman (~90–120 words):\n\n"
+            "1. Feasibility (1 sentence): Multi-day trip rating.\n"
+            "2. Daily Forecast (Points Format — 3 points max):\n"
+            "   • **Day 1 (Today)**: Waves **[Height] m**, Wind **[Speed] km/h** from **[Direction]** — Rating: **[GO/CAUTION]**\n"
+            "   • **Day 2 (Tomorrow)**: Waves **[Height] m**, Wind **[Speed] km/h** from **[Direction]** — Rating: **[GO/CAUTION]**\n"
+            "   • **Day 3 (Day After)**: Waves **[Height] m**, Wind **[Speed] km/h** from **[Direction]** — Rating: **[GO/CAUTION]**\n"
+            "3. Safe Operating Window (1 single line): `• **Safe Operating Window**: Depart **[Time] IST Day 1**; return before **[Time] IST Day [X]**`\n"
+            "Rule: Metric units only. Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+    },
+    "commercial_navigator": {
+        "SAFETY_CHECK": (
+            "Present passage safety assessment in professional maritime bridge format (~180–220 words):\n\n"
+            "1. Operational Verdict (1-2 sentences, plain text, NEVER a bullet point):\n"
+            "   Lead with an authoritative bridge operational assessment: "
+            "'**Operational Verdict**: **Passage approved and hydrographically clear** for commercial navigation and transit off [Location].'\n\n"
+            "2. Navigational & Marine Parameters (Points Format — 4 to 5 structured bridge points):\n"
+            "   • **True Wind & Barometrics**: True wind **[Speed] knots** from **[Direction]°T**, gusts to **[Gust] knots**; barometric pressure **[Pressure] hPa** (**Steady**)\n"
+            "   • **Sea State & Dominant Swell**: Significant wave height **[Height] m**, swell **[Swell] m** from **[Direction]** at **[Period]s** dominant period\n"
+            "   • **Hydrography & Under-Keel Clearance**: Tidal state **[State]**; depth **[Depth] m**; next high/low water in IST\n"
+            "   • **Passage Waypoint & Heading**: Steer **[Heading]°T**, distance **[Dist] NM**; surface drift **[Current] knots**\n"
+            "   • **Boundary & Standoff Compliance**: Standoff **[Dist] NM** from International Boundary (IMBL); **[Buffer] NM** clearance from nearest MPA\n\n"
+            "3. Safe Operating Window (1 single line):\n"
+            "   • **Safe Operating Window**: **[Start] to [End] IST** (Tidal departure & daylight passage window)\n\n"
+            "CRITICAL RULES: Use nautical units (NM, knots, °T, m, hPa, IST). Highlight numbers, units, and status verdicts in bold. Organised for bridge evaluation. NEVER tell the user to recheck or verify with port authorities."
+        ),
+        "PFZ_NEAREST": (
+            "Present commercial vessel transit to offshore resource grounds in bridge format (~180–220 words):\n\n"
+            "1. Operational Verdict (1-2 sentences): '**Operational Verdict**: **Passage to offshore resource sector confirmed feasible** with clear waypoint separation.'\n\n"
+            "2. Navigational & Marine Parameters (Points Format — 4 to 5 bridge points):\n"
+            "   • **Waypoint Course & Distance**: Steer **[Heading]°T**, distance **[Dist] NM**; steaming time **[Hours] hours** at standard cruising speed\n"
+            "   • **En Route Sea State**: Significant waves **[Height] m**, swell **[Swell] m** from **[Direction]** at **[Period]s**\n"
+            "   • **Bathymetric Clearance**: Seafloor sounding **[Depth] m**; under-keel margin safe\n"
+            "   • **Boundary & Statutory Standoff**: Minimum **[Dist] NM** standoff from IMBL; **[Buffer] NM** clearance from protected corridors\n\n"
+            "3. Safe Operating Window (1 single line): `• **Safe Operating Window**: **[Start] to [End] IST**`\n\n"
+            "Rule: Use nautical units (NM, knots, °T). Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+        "HAZARD_ALERTS": (
+            "Present marine meteorological hazard assessment in bridge format (~160–200 words):\n\n"
+            "1. Operational Verdict (1-2 sentences):\n"
+            "   - If clear: '**Operational Verdict**: **No severe marine meteorological hazards in force** along the coastal transit corridor.'\n"
+            "   - If hazard: '**Operational Verdict**: **Adverse meteorological warning in effect**...'\n\n"
+            "2. Bridge Meteorological Telemetry (Points Format — 3 to 4 points):\n"
+            "   • **Barometric Pressure Trend**: Pressure **[Pressure] hPa** (**Steady**); zero cyclonic vorticity\n"
+            "   • **Convective Squall Margin**: Lightning convective index negative; zero squall gusts detected within 50 NM\n"
+            "   • **Swell Spectra & Wave Hazard**: Dominant swell **[Swell] m** at **[Period]s**; ocean watch safe\n"
+            "   • **IMD Marine Warning Status**: Open coastal waters clear of cautionary storm signals\n\n"
+            "3. Safe Operating Window (1 single line): `• **Safe Operating Window**: **[Start] to [End] IST**`\n\n"
+            "Rule: Nautical units. Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+        "CONDITIONS": (
+            "Present comprehensive bridge marine conditions log (~180–220 words):\n\n"
+            "1. Bridge Synopsis (1 sentence): Marine environmental conditions along coastal passage sector.\n\n"
+            "2. Navigational Readout (Points Format — 4 to 5 bridge points):\n"
+            "   • **True Wind & Vectors**: True wind **[Speed] knots** from **[Direction]°T**; gusts to **[Gust] knots**\n"
+            "   • **Sea State & Swell Spectra**: Significant wave height **[Height] m**; dominant swell **[Swell] m** (**[Period]s**) from **[Direction]**\n"
+            "   • **Hydrographic Profile**: Tidal phase **[State]**; depth **[Depth] m**; next high water **[Time] IST** (**[Height] m**), low water **[Time] IST** (**[Height] m**)\n"
+            "   • **Barometric & Atmospheric Data**: Pressure **[Pressure] hPa**; visibility **[Vis] NM**\n"
+            "   • **Boundary Clearances**: Minimum standoff **[Dist] NM** from IMBL\n\n"
+            "3. Safe Operating Window (1 single line): `• **Safe Operating Window**: **[Start] to [End] IST**`\n\n"
+            "Rule: Nautical units. Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+        "OPTIMAL_ROUTE": (
+            "Present bridge passage planning and routing in structured log format (~180–220 words):\n\n"
+            "1. Route Verdict (1 sentence): Route feasibility and recommended track.\n\n"
+            "2. Navigational Passage Parameters (Points Format — 5 points):\n"
+            "   • **True Course & Distance**: Steer **[Heading]°T**; total passage **[Distance] NM**\n"
+            "   • **Estimated Steaming Time**: **[Hours] hours** at **[Speed] knots** cruising speed\n"
+            "   • **Sea State & Swell Vector**: Waves **[Height] m**; swell **[Swell] m** from **[Direction]**\n"
+            "   • **Surface Drift & Current**: Cross-current **[Speed] knots**; drift angle **[Angle]°**\n"
+            "   • **Regulatory Standoff Compliance**: Maintain **[Buffer] NM** from MPAs; **[Buffer] NM** from IMBL\n\n"
+            "3. Safe Operating Window (1 single line): `• **Safe Operating Window**: **[Start] to [End] IST**`\n\n"
+            "Rule: Nautical units. Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+        "ZONES_TO_AVOID": (
+            "Present statutory maritime boundaries and standoffs in bridge format (~180–220 words):\n\n"
+            "1. Regulatory Warning Summary (1 sentence): Compliance status for vessel transit.\n\n"
+            "2. Mandatory Standoff Limits (Points Format — 4 to 5 points):\n"
+            "   • **International Boundary (IMBL)**: Standoff distance **[Distance] NM** — **ZERO TOLERANCE** border\n"
+            "   • **Marine Protected Areas (MPAs)**: **[MPA Name]** buffer at **[Distance] NM**; strictly prohibited to anchor or transit\n"
+            "   • **State Territorial Baseline (0–12 NM)**: Vessel position is **[Within / Outside]** territorial waters\n"
+            "   • **Bathymetric Shoal Hazards**: Shallow shoals (<5m sounding) located **[Distance] NM [Direction]** of course\n\n"
+            "3. Compliance Directive (1 sentence): Clear operational passage clearance.\n"
+            "Rule: Nautical units. Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+    },
+    "researcher": {
+        "SAFETY_CHECK": (
+            "Present oceanographic sampling safety assessment in academic scientific register (~230–260 words):\n\n"
+            "1. Research Summary (1-2 sentences, plain text, NEVER a bullet point):\n"
+            "   Lead with an analytical statement: '**Research Summary**: Coastal environmental observations demonstrate stable mesoscale dynamics favorable for oceanographic sampling off [Location].'\n\n"
+            "2. Oceanographic & Biogeochemical Telemetry (Points Format — 5 to 6 granular points):\n"
+            "   • **Sea Surface Temperature (SST)**: **[SST]°C** with thermal gradient **[Gradient]°C/km**; anomaly vs climatology **[Anomaly]°C**\n"
+            "   • **Chlorophyll-a Biomass**: **[Chl-a] mg/m³** (**[Oligotrophic/Mesotrophic/Eutrophic]** water column)\n"
+            "   • **Hydrodynamic Wave Spectrum**: Significant wave height **Hs [Hs] m**, peak spectral period **Tp [Tp]s**, direction **[Dir]°**\n"
+            "   • **Bathymetric Depth Profile**: Seafloor contour **[Depth] m** along continental shelf margin\n"
+            "   • **Taxonomic Biomass Distribution**: Pelagic community characterized by [Species 1], [Species 2] (epipelagic horizon **[Range] m**, common names only, unbolded)\n"
+            "   • **Dataset Provenance & Observation Timestamps**: Observation timestamp in UTC/IST (INCOIS OSF / ECMWF / Survey of India)\n\n"
+            "3. Safe Sampling Window (1 single line):\n"
+            "   • **Safe Sampling Window**: **[Start] to [End] IST** (Optimal oceanographic observation window)\n\n"
+            "CRITICAL RULES: Use scientific units (°C, °C/km, mg/m³, m/s, m, s, UTC/IST). Highlight numbers, units, and stats in bold. Common fish names only, unbolded. No Latin binomials in parentheses. NEVER tell the user to recheck or verify with port authorities."
+        ),
+        "PFZ_NEAREST": (
+            "Present Potential Fishing Zone and biophysical aggregation analysis in academic register (~230–260 words):\n\n"
+            "1. Research Summary (1-2 sentences): '**Research Summary**: High-probability biophysical aggregation feature identified with active thermal front convergence off [Port].'\n\n"
+            "2. Oceanographic & Biogeochemical Parameters (Points Format — 5 to 6 points):\n"
+            "   • **Frontal Coordinate & Spatial Scope**: Feature located at **[Lat]°N, [Lon]°E**; **[Distance] km [Direction]** offshore\n"
+            "   • **Thermal Front Convergence**: SST **[SST]°C** with cross-frontal gradient **[Gradient]°C/km**\n"
+            "   • **Chlorophyll-a Concentration**: **[Value] mg/m³** (**Mesotrophic** bloom boundary)\n"
+            "   • **Bathymetric Shelf Profile**: Continental shelf margin depth **[Depth] m**\n"
+            "   • **Taxonomic Biomass Horizon**: Dominated by [Species 1], [Species 2] (epipelagic depth **[Range] m**, common names only, unbolded)\n"
+            "   • **Sensor Platform Provenance**: INCOIS PFZ advisory derived from MODIS/VIIRS ocean color telemetry\n\n"
+            "3. Safe Sampling Window (1 single line): `• **Safe Sampling Window**: **[Start] to [End] IST**`\n\n"
+            "Rule: Scientific units. Highlight numbers in bold. Common fish names only, unbolded. NEVER tell the user to recheck."
+        ),
+        "HAZARD_ALERTS": (
+            "Present atmospheric & hydrodynamic hazard telemetry in academic register (~200–240 words):\n\n"
+            "1. Research Summary (1-2 sentences):\n"
+            "   - If clear: '**Research Summary**: Multi-sensor atmospheric and hydrodynamic telemetry indicates quiescent weather conditions with zero convective perturbations off [Location].'\n"
+            "   - If hazard: '**Research Summary**: Multi-sensor atmospheric analysis indicates active convective instability...'\n\n"
+            "2. Observational Hazard Telemetry (Points Format — 3 to 4 points):\n"
+            "   • **Atmospheric Convection & Lightning**: Zero cloud-to-ground lightning discharges within 150 km radius (CAPE index stable)\n"
+            "   • **Tropical Cyclogenesis Risk**: North Indian Ocean basin clear of tropical disturbances or depressions\n"
+            "   • **Hydrodynamic Wave Energy**: Significant wave height **Hs [Hs] m**; ocean energy flux within baseline limits\n"
+            "   • **Multi-Source Telemetry Agreement**: IMD convective nowcast and Open-Meteo satellite feeds in full agreement (No active warnings)\n\n"
+            "3. Safe Sampling Window (1 single line): `• **Safe Sampling Window**: **[Start] to [End] IST**`\n\n"
+            "Rule: Scientific units. Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+        "CHLOROPHYLL_SST": (
+            "Present ocean color and thermal structure in academic register (~230–260 words):\n\n"
+            "1. Oceanographic Summary (1 sentence): Satellite sea surface temperature and chlorophyll-a distribution.\n\n"
+            "2. Measured Ocean Parameters (Points Format — 5 points):\n"
+            "   • **Sea Surface Temperature (SST)**: **[SST]°C** (climatological anomaly: **[Anomaly]°C**)\n"
+            "   • **Chlorophyll-a Concentration**: **[Value] mg/m³** (**[Oligotrophic / Mesotrophic / Eutrophic]**)\n"
+            "   • **Thermal Front Gradient**: Frontal boundary detected with **[Gradient]°C** difference across **[Distance] km**\n"
+            "   • **Sensor Platform & Date**: **[Sensor: MODIS / VIIRS / OSTIA]** verified on **[Date]**\n"
+            "   • **Trophic & Biomass Implications**: Favorable aggregation along the cold-wall frontal boundary\n\n"
+            "3. Safe Sampling Window (1 single line): `• **Safe Sampling Window**: **[Start] to [End] IST**`\n\n"
+            "Rule: Scientific units. Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+        "CONDITIONS": (
+            "Present oceanographic observation log in academic register (~230–260 words):\n\n"
+            "1. Oceanographic Overview (1 sentence): Synthesis of physical and hydrodynamic observations.\n\n"
+            "2. Measured Parameters (Points Format — 5 points):\n"
+            "   • **Sea Surface Temperature & Anomaly**: SST **[SST]°C**; baseline anomaly **[Anomaly]°C**\n"
+            "   • **Chlorophyll-a Biomass**: **[Chl-a] mg/m³**\n"
+            "   • **Wave Spectral Dynamics**: **Hs [Height] m**, **Tp [Period]s**\n"
+            "   • **Atmospheric Surface Vector**: Wind **[Speed] m/s** (**[Speed*3.6] km/h**) from **[Direction]**\n"
+            "   • **Hydrographic Water Level**: Tidal state **[State]**; depth **[Depth] m**\n\n"
+            "3. Safe Sampling Window (1 single line): `• **Safe Sampling Window**: **[Start] to [End] IST**`\n\n"
+            "Rule: Scientific units. Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+        "DIAGNOSTIC": (
+            "Present marine ecosystem productivity diagnostic in academic register (~230–260 words):\n\n"
+            "1. Diagnostic Determination (1 sentence): Biological productivity assessment.\n\n"
+            "2. Environmental Drivers (Points Format — 5 points):\n"
+            "   • **Thermal Anomaly**: SST anomaly of **[Anomaly]°C** ([Thermal stress / warm pool dispersion])\n"
+            "   • **Primary Productivity Trend**: Chlorophyll-a concentration at **[Value] mg/m³** ([Percentage change vs baseline])\n"
+            "   • **Upwelling Dynamics**: Coastal upwelling index is **[Suppressed / Active]**; thermocline deepened to **[Depth] m**\n"
+            "   • **Species Migration Impact**: Pelagic shoals displaced to deeper waters (**>[Depth] m**) offshore\n"
+            "   • **Recovery Outlook**: Anticipated recovery within **[Timeframe]** with seasonal shift\n\n"
+            "3. Scientific Recommendation (1 sentence): Observational cruise planning guidance.\n"
+            "Rule: Scientific units. Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+    },
+    "coastal_authority": {
+        "SAFETY_CHECK": (
+            "Present official public safety directive and fleet enforcement bulletin (~150–180 words):\n\n"
+            "1. Official Directive (1-2 sentences, plain text, NEVER a bullet point):\n"
+            "   Lead with an authoritative administrative mandate: "
+            "'**Official Directive**: **Normal maritime operations permitted** across coastal sector; all craft authorized for standard coastal transit.'\n\n"
+            "2. Threat Assessment & Enforcement Parameters (Points Format — 3 to 4 administrative points):\n"
+            "   • **Alert Classification**: **All Clear / Green Tier** — Zero active cyclonic depressions, squall warnings, or convective lightning threats\n"
+            "   • **Marine Environmental Thresholds**: Significant wave height capped at **[Height] m**; sustained surface winds **[Speed] km/h** (**[Knots] knots**), squall gusts under **[Gust] km/h**\n"
+            "   • **Fleet Operational Mandate**: Artisanal skiffs (<10m) **permitted with standard vigilance**; mechanized commercial craft (>15m) **fully cleared**\n"
+            "   • **Jurisdictional & Spatial Scope**: [District] coastal waters out to 12 NM territorial limit; port limits of [Port]\n"
+            "   • **Statutory Advisory Reference**: INCOIS Ocean State Bulletin & IMD Coastal Nowcast\n\n"
+            "3. Safe Operating Window (1 single line):\n"
+            "   • **Safe Operating Window**: **[Start] to [End] IST** (Advisory validity timeframe)\n\n"
+            "CRITICAL RULES: Highlight directives, alert levels, metrics, and validity times in bold. Format into clean, broadcast-ready bullet points. Differentiate artisanal vs mechanized craft. NEVER tell the user or coastal communities to recheck or verify with port authorities."
+        ),
+        "PFZ_NEAREST": (
+            "Present coastal sector fishing zone regulatory clearance (~150–180 words):\n\n"
+            "1. Official Directive (1-2 sentences): '**Official Directive**: **Fisheries exploitation permitted** within designated coastal sector [ID/Name].'\n\n"
+            "2. Administrative Fleet & Sector Telemetry (Points Format — 3 to 4 points):\n"
+            "   • **Sector Jurisdiction & Distance**: Sector **[ID/Name]**, located **[Dist] km [Direction]** offshore within 12 NM state jurisdiction\n"
+            "   • **Fleet Operating Guidelines**: Artisanal skiffs authorized within 5 NM; mechanized vessels permitted in offshore sector\n"
+            "   • **Marine Environmental Thresholds**: Waves capped at **[Height] m**; wind speeds safe at **[Speed] km/h**\n"
+            "   • **Statutory Compliance**: Mandatory avoidance of designated marine sanctuary buffers; state fishing permits verified\n\n"
+            "3. Safe Operating Window (1 single line): `• **Safe Operating Window**: **[Start] to [End] IST**`\n\n"
+            "Rule: Administrative metric units. Highlight directives and numbers in bold. NEVER tell the user to recheck."
+        ),
+        "HAZARD_ALERTS": (
+            "Present official public weather alert dispatch (~140–170 words):\n\n"
+            "1. Official Directive (1-2 sentences):\n"
+            "   - If clear: '**Official Directive**: **No severe weather warnings active**; normal coastal navigation and port operations authorized.'\n"
+            "   - If hazard: '**Official Directive**: **Weather Advisory In Effect**...'\n\n"
+            "2. Threat Classification & Jurisdiction (Points Format — 3 points):\n"
+            "   • **Alert Classification**: **All Clear / Green Tier** — Zero cyclonic alerts, high wave watches, or squall warnings\n"
+            "   • **Coastal Sector Risk Assessment**: [District] coastal waters and port roadstead maintain calm conditions; peak waves **[Height] m**\n"
+            "   • **Statutory Dispatch Reference**: IMD District Nowcast Bulletin & INCOIS Multi-Hazard Alert Network\n\n"
+            "3. Safe Operating Window (1 single line): `• **Safe Operating Window**: **[Start] to [End] IST**`\n\n"
+            "Rule: Broadcast dispatch format. Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+        "CONDITIONS": (
+            "Present official port and coastal conditions advisory (~150–180 words):\n\n"
+            "1. Administrative Synopsis (1 sentence): Public marine conditions summary across coastal sector.\n\n"
+            "2. Marine Safety Parameters (Points Format — 3 to 4 points):\n"
+            "   • **Alert Classification**: **Green Tier / All Clear**\n"
+            "   • **Marine Wave & Wind Thresholds**: Waves **[Height] m**; sustained wind **[Speed] km/h** (**[Knots] knots**)\n"
+            "   • **Fleet Category Advisories**: Artisanal skiffs (<10m) and mechanized craft cleared for coastal transit\n"
+            "   • **Jurisdictional Reach**: [District] coastal waters and port entrance channels\n\n"
+            "3. Safe Operating Window (1 single line): `• **Safe Operating Window**: **[Start] to [End] IST**`\n\n"
+            "Rule: Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+        "ZONES_TO_AVOID": (
+            "Present statutory maritime boundary enforcement notice (~150–180 words):\n\n"
+            "1. Regulatory Warning Summary (1 sentence): Administrative directive regarding statutory maritime boundaries.\n\n"
+            "2. Statutory Standoff Limits (Points Format — 4 points):\n"
+            "   • **International Boundary (IMBL)**: Standoff **[Dist] NM** (**[Dist] km**) — State Fisheries & Coast Guard zero tolerance border\n"
+            "   • **Artisanal Marine Zone (0–5 NM)**: Traditional fishing craft reserved zone; mechanized trawling prohibited\n"
+            "   • **Territorial Jurisdiction (0–12 NM)**: State fisheries jurisdiction; valid vessel registration and transponder active\n"
+            "   • **Marine Protected Areas (MPAs)**: Strict buffer around [MPA Name]; all fishing activity prohibited\n\n"
+            "3. Compliance Directive (1 sentence): Mandatory compliance notice for all registered coastal craft.\n\n"
+            "Rule: Administrative authority. Highlight numbers in bold. NEVER tell the user to recheck."
+        ),
+    },
 }
 
+# Backward compatibility alias
+_QUERY_TYPE_FORMAT_GUIDE: dict[str, str] = _PERSONA_QUERY_GUIDES["fisherman"]
 
-def _get_query_type_guide(intents: list[str] | None, query_lower: str) -> str:
-    """Match the query to one of the 8 canonical types and return its format guide."""
+
+def _get_persona_query_guide(persona: str, intents: list[str] | None, query_lower: str) -> str:
+    """Match the query to one of the canonical types and return the persona-tailored format guide."""
     if not intents:
         intents = []
-    # Priority keyword match for the 8 canonical queries first
+    guides = _PERSONA_QUERY_GUIDES.get(persona) or _PERSONA_QUERY_GUIDES["fisherman"]
+    fallback_guides = _PERSONA_QUERY_GUIDES["fisherman"]
+
+    def _resolve(key: str) -> str:
+        return guides.get(key) or fallback_guides.get(key, "")
+
+    # Priority keyword match for canonical queries first
     if any(w in query_lower for w in ("market price", "market rate", "prices for key fish", "price of fish", "fish price", "fish prices", "rates for key fish")):
-        return _QUERY_TYPE_FORMAT_GUIDE["MARKET_PRICES"]
+        return _resolve("MARKET_PRICES")
     if any(w in query_lower for w in ("3 day", "3-day", "three day", "next 3 days", "next few days", "trip over the next", "planned fishing trip")):
-        return _QUERY_TYPE_FORMAT_GUIDE["WEATHER_3DAY_TRIP"]
+        return _resolve("WEATHER_3DAY_TRIP")
     if any(w in query_lower for w in ("aggregation", "highest fish", "fish density", "highest biomass", "fish concentration")):
-        return _QUERY_TYPE_FORMAT_GUIDE["FISH_AGGREGATION"]
+        return _resolve("FISH_AGGREGATION")
     if any(w in query_lower for w in ("minimum fuel", "optimal route", "least fuel", "fuel efficient route", "route to the fishing zone")):
-        return _QUERY_TYPE_FORMAT_GUIDE["OPTIMAL_ROUTE"]
+        return _resolve("OPTIMAL_ROUTE")
     if any(w in query_lower for w in ("lightning", "cyclone", "alert", "storm alert", "squall alert")):
-        return _QUERY_TYPE_FORMAT_GUIDE["HAZARD_ALERTS"]
+        return _resolve("HAZARD_ALERTS")
     if any(w in query_lower for w in ("pfz", "potential fishing", "nearest zone", "fishing zone", "nearest pfz")):
-        return _QUERY_TYPE_FORMAT_GUIDE["PFZ_NEAREST"]
+        return _resolve("PFZ_NEAREST")
     if any(w in query_lower for w in ("is it safe", "safe to venture", "safe tomorrow", "venture into the sea")):
-        return _QUERY_TYPE_FORMAT_GUIDE["SAFETY_CHECK"]
+        return _resolve("SAFETY_CHECK")
     if any(w in query_lower for w in ("tide", "sea conditions", "weather and sea conditions", "weather near", "wave height")):
-        return _QUERY_TYPE_FORMAT_GUIDE["CONDITIONS"]
+        return _resolve("CONDITIONS")
 
     # Intent-based match next
     intent_map = {
@@ -1019,7 +1368,7 @@ def _get_query_type_guide(intents: list[str] | None, query_lower: str) -> str:
         "SAFETY_CHECK": "SAFETY_CHECK",
         "CONDITIONS": "CONDITIONS",
         "HAZARD_ALERTS": "HAZARD_ALERTS",
-        "ROUTE": "ROUTE",
+        "ROUTE": "OPTIMAL_ROUTE",
         "DIAGNOSTIC": "DIAGNOSTIC",
         "ZONES_TO_AVOID": "ZONES_TO_AVOID",
         "HISTORICAL": "DIAGNOSTIC",
@@ -1028,20 +1377,23 @@ def _get_query_type_guide(intents: list[str] | None, query_lower: str) -> str:
     }
     for intent in intents:
         if intent in intent_map:
-            key = intent_map[intent]
-            if key in _QUERY_TYPE_FORMAT_GUIDE:
-                return _QUERY_TYPE_FORMAT_GUIDE[key]
+            return _resolve(intent_map[intent])
 
     # Secondary keyword fallback
     if any(w in query_lower for w in ("chlorophyll", "sst", "sea surface temperature", "chl")):
-        return _QUERY_TYPE_FORMAT_GUIDE["CHLOROPHYLL_SST"]
+        return _resolve("CHLOROPHYLL_SST")
     if any(w in query_lower for w in ("route", "voyage", "safest path", "navigate")):
-        return _QUERY_TYPE_FORMAT_GUIDE["ROUTE"]
+        return _resolve("OPTIMAL_ROUTE")
     if any(w in query_lower for w in ("decline", "productivity", "catch", "why", "fish productivity")):
-        return _QUERY_TYPE_FORMAT_GUIDE["DIAGNOSTIC"]
+        return _resolve("DIAGNOSTIC")
     if any(w in query_lower for w in ("avoid", "restricted", "boundary", "imbl", "geofence", "zone")):
-        return _QUERY_TYPE_FORMAT_GUIDE["ZONES_TO_AVOID"]
+        return _resolve("ZONES_TO_AVOID")
     return ""  # General query — no specific format override
+
+
+def _get_query_type_guide(intents: list[str] | None, query_lower: str) -> str:
+    """Backward compatibility wrapper."""
+    return _get_persona_query_guide("fisherman", intents, query_lower)
 
 
 def synthesize_narrative(
@@ -1119,7 +1471,7 @@ def synthesize_narrative(
 
     # Per-query-type format guide — the fisherman/researcher/etc. instruction
     # tells the model HOW to speak; this tells it WHAT structure this question needs.
-    query_type_guide = _get_query_type_guide(matched_intents, query.lower())
+    query_type_guide = _get_persona_query_guide(persona, matched_intents, query.lower())
     query_format_block = (
         f"\nQUERY TYPE FORMATTING:\n{query_type_guide}" if query_type_guide else ""
     )
@@ -1197,7 +1549,7 @@ RESPONSE GUIDELINES:
    - recency "current": state it plainly as today's reading.
    - recency "latest_held_not_today": give the date and age in days, say it is the latest available.
    - recency "pointer_only_not_current": give the date, say it points to where conditions were, not where they are now.
-   - expired=True: never call it fresh, current, or active. It is old but still the best information held.
+   - expired=True: never call an expired item fresh, current, or active. It is old, but still the best information held.
    - is_data_gap=True (sector): say today there is no advisory (e.g. due to cloud cover) and give the latest held if available. A data gap is NOT absence of fishing zones.
    - beyond_reach=True (PFZ): give the distance and say nothing is held within max_km, making it beyond a day trip.
    - A potential fishing zone is an INCOIS advisory — never a regulated, designated, or restricted area.
@@ -1222,8 +1574,9 @@ RESPONSE GUIDELINES:
     - Seasonal fishing ban (in_ban_period=True): alert clearly before anything else. State the coast, window, and that mechanised vessels are banned beyond territorial waters.
 
 11. FISH SPECIES (for PFZ queries):
-    - Always list top 3 species when top_species is in the data.
-    - Format: common name (scientific name) — both required.
+    - Always list top 2-3 species when top_species is in the data.
+    - Format: common name ONLY (e.g. Indian Mackerel, Bombay Duck, Silver Pomfret). NEVER include scientific names or Latin binomials in parentheses.
+    - Do NOT bold or highlight fish names (write species names in normal plain text).
     - State they are based on CMFRI landings and OBIS depth records for this sector.
     - Never invent species not in MEASURED TELEMETRY.
 
@@ -1239,7 +1592,12 @@ RESPONSE GUIDELINES:
 14. LANGUAGE:
     - Write entirely in English, regardless of the query language.
     - If USER QUERY begins with a language instruction ("answer in Tamil", "Hindi mein batao"), ignore the instruction — answer the sea question in English. A translation step runs after you.
-    - Do not transliterate or mix scripts.{critique_rule}"""
+    - Do not transliterate or mix scripts.
+
+15. NO RECHECK OR VERIFY INSTRUCTIONS:
+    - NEVER tell the user to recheck, double-check, verify with local/port authorities, confirm forecasts, or check weather updates.
+    - You are Sagar Sarathi, the authoritative source delivering complete, validated intelligence. Give decisive, clear guidance without deferring to other entities or advising the user to check again.
+    - NEVER output or include the generic string "All Parameters Within Safe Operational Limits" anywhere in your response. State specific ocean observations and operational conditions instead.{critique_rule}"""
 
     try:
         narrative = client.complete([{"role": "user", "content": prompt}]).strip()
@@ -1247,6 +1605,8 @@ RESPONSE GUIDELINES:
             # An empty candidate is not an answer, and a blank Response is
             # the exact failure chatbot plan C0.2 exists to remove.
             raise ValueError("empty narrative")
+        # Scrub any accidental LLM hedging or recheck statements
+        narrative = _scrub_recheck_phrases(narrative)
         # getattr, not client.engine: the narration must not depend on the
         # client object having an attribute this function added. A test double
         # or any other Provider-shaped object without `.engine` raised here,

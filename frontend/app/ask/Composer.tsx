@@ -69,7 +69,7 @@ export function Composer({
           // P4.4 — "≥18px body, maximum sunlight contrast" on the fisherman surface: the question box is the one piece
           // of text every fisherman query starts from.
           className={`min-w-0 flex-1 bg-transparent px-2 py-2.5 text-ink outline-none placeholder:text-ink-dim/60 ${
-            isFisherman ? "text-lg" : "text-sm sm:text-base"
+            isFisherman ? "text-xl sm:text-2xl" : "text-base sm:text-lg"
           } ${leading ? "" : "pl-3"}`}
         />
         {/* Voice ingress (plan §6 D1 Day 16-17): the mic sits beside send since both feed the same query pipeline: voice
@@ -100,9 +100,9 @@ export function Composer({
               type="button"
               onClick={() => onSubmit(label)}
               disabled={disabled}
-              className="flex items-center gap-2 rounded-2xl border border-hairline/60 bg-shelf-2/40 px-3.5 py-2.5 text-left text-xs text-ink-muted transition-all hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink disabled:opacity-50"
+              className="flex items-center gap-2 rounded-2xl border border-hairline/60 bg-shelf-2/40 px-3.5 py-2.5 text-left text-sm text-ink-muted transition-all hover:border-ocean-cyan/60 hover:bg-shelf-2 hover:text-ink disabled:opacity-50"
             >
-              <Icon className="size-3.5 shrink-0 text-ocean-cyan/80" aria-hidden="true" />
+              <Icon className="size-4 shrink-0 text-ocean-cyan/80" aria-hidden="true" />
               <span className="truncate">{label}</span>
             </button>
           ))}

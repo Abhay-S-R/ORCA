@@ -382,7 +382,7 @@ export default function AskPage() {
                 SAGAR SARATHI INTELLIGENCE CONSOLE // VHF &amp; SATELLITE
               </span>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">{t("ask.heading")}</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">{t("ask.heading")}</h1>
             <div className="mt-1.5">
               <Greeting
                 homePort={auth.status === "signed_in" ? auth.profile?.home_port : null}
@@ -445,7 +445,7 @@ export default function AskPage() {
                     <PanelLeftOpen className="size-4" aria-hidden="true" />
                   </button>
                 )}
-                <h1 className="shrink-0 text-base sm:text-xl font-bold uppercase tracking-wide text-ink">{t("ask.title")}</h1>
+                <h1 className="shrink-0 text-lg sm:text-2xl font-bold uppercase tracking-wide text-ink">{t("ask.title")}</h1>
               </div>
               <div className="flex shrink-0 items-center gap-2 sm:gap-2.5">
                 {saveFailed && (

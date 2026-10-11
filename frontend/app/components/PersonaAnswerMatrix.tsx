@@ -372,48 +372,93 @@ function windHint(value: number | null, t?: SafetyThresholds | null): string | u
   return `limit ${(t.caution_wind_kmh / 3.6).toFixed(1)} m/s caution · ${(t.danger_wind_kmh / 3.6).toFixed(1)} m/s danger`;
 }
 
+// Dynamic heading generation based on context — adapted from Claude response patterns
 function resolveHeaderMeta(
   intent: QueryIntent,
-  rawAnswer?: unknown
+  rawAnswer?: unknown,
+  verdict?: Verdict,
+  hazard?: HazardBreakdown,
+  weather?: WeatherSummary,
+  pfzData?: { found?: boolean; distance_km?: number | null },
 ): { title: string; icon: typeof ShieldCheck } {
   const ans = typeof rawAnswer === "object" && rawAnswer !== null ? (rawAnswer as Record<string, unknown>) : null;
   const query = String(ans?.asked_query || ans?.raw_user_query || "").toLowerCase();
   const routing = ans?.routing as { matched_intent_rows?: string[] } | undefined;
   const matched = routing?.matched_intent_rows || [];
 
+  // Priority 1: Safety verdicts with context-aware titles
+  if (query.includes("safe") || query.includes("venture") || matched.includes("SAFETY_CHECK")) {
+    if (verdict === "GO") {
+      return { title: "Safe Conditions for Operations", icon: CheckCircle2 };
+    }
+    if (verdict === "CAUTION") {
+      return { title: "Cautionary Conditions Detected", icon: AlertTriangle };
+    }
+    if (verdict === "NO_GO") {
+      return { title: "Unsafe – Harbor Advisory", icon: OctagonX };
+    }
+    return { title: "Sea Safety Assessment", icon: ShieldCheck };
+  }
+
+  // Priority 2: Active hazards with status
+  if (query.includes("lightning") || query.includes("cyclone") || matched.includes("HAZARD_ALERTS")) {
+    const hasHighHazard = weather?.lightning_active || weather?.cyclone_alert;
+    if (hasHighHazard) {
+      return { title: "Active Weather Alert", icon: AlertTriangle };
+    }
+    return { title: "No Active Alerts", icon: ShieldCheck };
+  }
+
+  // Priority 3: PFZ queries with found/notfound context
+  if (query.includes("potential fishing") || query.includes("nearest pfz") || query.includes("fishing zone") || matched.includes("PFZ_NEAREST")) {
+    if (pfzData?.found === false) {
+      return { title: "No Fishing Zones in Range", icon: Crosshair };
+    }
+    const distance = typeof pfzData?.distance_km === "number" ? pfzData.distance_km : null;
+    if (distance != null && distance < 20) {
+      return { title: "Nearby Fishing Zone Found", icon: Crosshair };
+    }
+    return { title: "Nearest Fishing Zone", icon: Crosshair };
+  }
+
+  // Priority 4: Market prices
   if (query.includes("market price") || query.includes("price of fish") || query.includes("fish price") || query.includes("rates for key fish") || query.includes("rates of fish") || query.includes("market rate")) {
-    return { title: "Fish Market Rates & Economic Outlook", icon: ShieldCheck };
+    return { title: "Fish Market Rates & Economic Outlook", icon: Crosshair };
   }
+
+  // Priority 5: Fish aggregation/biomass
   if (query.includes("aggregation") || query.includes("highest fish") || query.includes("biomass") || query.includes("fish concentration")) {
-    return { title: "Fish Aggregation & Biomass Analysis", icon: Crosshair };
+    return { title: "High Productivity Zones", icon: Crosshair };
   }
+
+  // Priority 6: 3-day weather outlook
   if (query.includes("3 day") || query.includes("3-day") || query.includes("three day") || query.includes("next 3 days") || query.includes("trip over the next") || query.includes("planned fishing trip")) {
     return { title: "3-Day Weather & Voyage Outlook", icon: Cloud };
   }
+
+  // Priority 7: Optimal route/fuel
   if (query.includes("minimum fuel") || query.includes("optimal route") || (query.includes("route") && query.includes("fuel"))) {
     return { title: "Optimal Route & Fuel Efficiency", icon: Compass };
   }
-  if (query.includes("lightning") || query.includes("cyclone") || matched.includes("HAZARD_ALERTS")) {
-    return { title: "Severe Weather & Hazard Alerts", icon: AlertTriangle };
-  }
-  if (query.includes("potential fishing") || query.includes("nearest pfz") || query.includes("fishing zone") || matched.includes("PFZ_NEAREST")) {
-    return { title: "Potential Fishing Zone (PFZ) Advisory", icon: Crosshair };
-  }
-  if (query.includes("safe") || query.includes("venture") || matched.includes("SAFETY_CHECK")) {
-    return { title: "Sea Safety & Venture Assessment", icon: ShieldCheck };
-  }
+
+  // Priority 8: Environmental conditions
   if (query.includes("tide") || query.includes("sea condition") || matched.includes("CONDITIONS")) {
-    return { title: "Marine Conditions & Tide Outlook", icon: Waves };
-  }
-  if (matched.includes("ZONES_TO_AVOID") || query.includes("avoid") || query.includes("boundary")) {
-    return { title: "Maritime Boundary Standoff", icon: Compass };
-  }
-  if (matched.includes("DIAGNOSTIC") || query.includes("decline") || query.includes("productivity")) {
-    return { title: "Fisheries Productivity Diagnostic", icon: Waves };
+    return { title: "Current Marine Conditions", icon: Waves };
   }
 
+  // Priority 9: Productivity decline/diagnostic
+  if (matched.includes("DIAGNOSTIC") || query.includes("decline") || query.includes("productivity")) {
+    return { title: "Productivity Analysis", icon: Waves };
+  }
+
+  // Priority 10: Restricted zones
+  if (matched.includes("ZONES_TO_AVOID") || query.includes("avoid") || query.includes("boundary")) {
+    return { title: "Boundary & Restriction Information", icon: Compass };
+  }
+
+  // Fallback: Use intent-based defaults
   return {
-    title: INTENT_TITLE[intent] ?? "Marine Intelligence Advisory",
+    title: INTENT_TITLE[intent] ?? "Marine Intelligence Response",
     icon: INTENT_ICON[intent] ?? ShieldCheck,
   };
 }
@@ -470,9 +515,17 @@ export function PersonaAnswerMatrix({
   const [showTechnical, setShowTechnical] = useState(false);
   const tide = formatTideData(ocean.tide);
   const pfz = formatPfzData(ocean.nearest_pfz);
+  const pfzDataRaw = parseData<PfzData>(ocean.nearest_pfz);
   const sector = formatSectorStatusData(ocean.sector_status);
   const productivity = formatProductivityData(ocean.productivity_diagnosis);
-  const headerMeta = resolveHeaderMeta(intent, rawAnswer);
+  // Extract PFZ data for dynamic heading, handling distance as either string or number
+  const pfzForHeading = pfzDataRaw ? {
+    found: pfzDataRaw.found,
+    distance_km: typeof pfzDataRaw.distance_km === 'string' 
+      ? parseFloat(pfzDataRaw.distance_km) 
+      : pfzDataRaw.distance_km ?? null
+  } : undefined;
+  const headerMeta = resolveHeaderMeta(intent, rawAnswer, verdict, hazard, weather, pfzForHeading);
   const HeaderIcon = headerMeta.icon;
   const headerTitle = headerMeta.title;
   // Falls back rather than indexing with a verdict the table has never heard of.
@@ -488,27 +541,11 @@ export function PersonaAnswerMatrix({
           <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-hairline bg-shelf-2/60 text-accent">
             <HeaderIcon className="size-4" aria-hidden="true" />
           </span>
-          <p className="truncate text-base font-bold tracking-tight text-ink">{headerTitle}</p>
+          <p className="truncate text-lg sm:text-xl font-bold tracking-tight text-ink">{headerTitle}</p>
         </div>
       </div>
 
-      {/* Status row — verdict badge and reason */}
-      <div className="flex items-start gap-3.5">
-        <div className="min-w-0 flex-1">
-          {leadWithVerdict ? (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={verdictTone(verdict)} icon={<VerdictIcon className="size-3" aria-hidden="true" />}>
-                  {VERDICT_LABEL[verdict]}
-                </Badge>
-              </div>
-              {reason && <p className="mt-1.5 text-sm leading-relaxed text-ink/90">{reason}</p>}
-            </>
-          ) : (
-            reason ? <p className="text-sm leading-relaxed text-ink/90">{reason}</p> : null
-          )}
-        </div>
-      </div>
+      {/* Status row — completely removed Go/No-Go/Caution banner and box as per user request across all personas */}
 
       {persona === "unresolved" && (
         <>

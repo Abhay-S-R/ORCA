@@ -28,8 +28,8 @@ export function Panel({
       {title && (
         <header className="mb-3.5 flex items-center justify-between gap-3 border-b border-hairline/50 pb-2.5">
           <div className="flex items-center gap-2">
-            <span className="size-1.5 rounded-full bg-ocean-cyan/70" aria-hidden="true" />
-            <h2 className="text-xs font-bold uppercase tracking-wider text-ink">{title}</h2>
+            <span className="size-2 rounded-full bg-ocean-cyan/70" aria-hidden="true" />
+            <h2 className="text-sm font-bold uppercase tracking-wider text-ink">{title}</h2>
           </div>
           {action}
         </header>
@@ -59,8 +59,8 @@ export function Card({
       {title && (
         <header className="mb-3.5 flex items-center justify-between gap-3 border-b border-hairline/50 pb-2.5">
           <div className="flex items-center gap-2">
-            <span className="size-1.5 rounded-full bg-ocean-cyan/70" aria-hidden="true" />
-            <h2 className="text-xs font-bold uppercase tracking-wider text-ink">{title}</h2>
+            <span className="size-2 rounded-full bg-ocean-cyan/70" aria-hidden="true" />
+            <h2 className="text-sm font-bold uppercase tracking-wider text-ink">{title}</h2>
           </div>
           {action}
         </header>

@@ -129,8 +129,8 @@ export function ChatTurn({
       transition={{ duration: 0.25, ease: "easeOut" }}
       className="flex flex-col gap-3"
     >
-      <p className="flex items-start gap-2 self-end rounded-2xl rounded-tr-sm border border-hairline-strong bg-shelf-3 px-4 py-2 text-sm text-ink shadow-sm">
-        <span className="font-mono text-[10px] font-semibold tracking-wider text-ink-dim uppercase">{t("chatTurn.you")}</span>
+      <p className="flex items-start gap-2.5 self-end rounded-2xl rounded-tr-sm border border-hairline-strong bg-shelf-3 px-4 py-2.5 text-base sm:text-[17px] text-ink shadow-sm">
+        <span className="font-mono text-xs font-semibold tracking-wider text-ink-dim uppercase">{t("chatTurn.you")}</span>
         <span className="min-w-0 break-words">{askedQuery}</span>
       </p>
 
