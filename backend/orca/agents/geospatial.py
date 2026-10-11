@@ -554,8 +554,11 @@ def current_vectors(
     nan_mask = np.isnan(u_vals) | np.isnan(v_vals)
     if np.any(~nan_mask):
         ind = ndimage.distance_transform_edt(nan_mask, return_distances=False, return_indices=True)
-        u_filled = u_vals[tuple(ind)]
-        v_filled = v_vals[tuple(ind)]
+        if isinstance(ind, np.ndarray):
+            u_filled = u_vals[ind[0], ind[1]]
+            v_filled = v_vals[ind[0], ind[1]]
+        else:
+            u_filled, v_filled = u_vals, v_vals
     else:
         u_filled, v_filled = u_vals, v_vals
 
@@ -626,8 +629,11 @@ def wind_vectors(
     nan_mask = np.isnan(u_vals) | np.isnan(v_vals)
     if np.any(~nan_mask):
         ind = ndimage.distance_transform_edt(nan_mask, return_distances=False, return_indices=True)
-        u_filled = u_vals[tuple(ind)]
-        v_filled = v_vals[tuple(ind)]
+        if isinstance(ind, np.ndarray):
+            u_filled = u_vals[ind[0], ind[1]]
+            v_filled = v_vals[ind[0], ind[1]]
+        else:
+            u_filled, v_filled = u_vals, v_vals
     else:
         u_filled, v_filled = u_vals, v_vals
 
