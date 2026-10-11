@@ -41,16 +41,21 @@ export type ApiTraceGraph = {
 
 // The backend records one agent_name per run_traced_node call — human labels
 // live only in the frontend, same as AgentNode's own ICON map.
-const AGENT_LABEL: Record<string, string> = {
+export const AGENT_LABEL: Record<string, string> = {
   distress: "Distress Check",
+  distress_check: "Distress Check",
   language_ingress: "Language Ingress",
   planning: "Planning",
   // Agent 3, promoted to a real node before the fan-out (P2.6).
   marine_data_discovery: "Marine Data Discovery",
+  discovery: "Marine Data Discovery",
   weather_intelligence: "Weather Intelligence",
+  weather: "Weather Intelligence",
   geospatial: "Geospatial",
   ocean_analytics: "Ocean Analytics",
+  ocean: "Ocean Analytics",
   risk_assessment: "Risk Assessment",
+  risk: "Risk Assessment",
   visualization: "Visualization",
   reporting: "Reporting",
   critic: "Critic",
