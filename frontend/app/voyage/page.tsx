@@ -13,6 +13,7 @@ import { ConfidenceMeter } from "../components/ConfidenceMeter";
 import { Field, inputClass } from "../components/Field";
 import { type RouteGeoJson } from "../components/MapView";
 import { SeaRouteMap } from "./SeaRouteMap";
+import { useVoyageT } from "./translations";
 import { PageHeader, PageBody } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { SourceChip } from "../components/SourceChip";
@@ -155,6 +156,7 @@ function downloadText(filename: string, content: string, mime: string) {
 }
 
 function VoyageContent() {
+  const { t } = useVoyageT();
   const searchParams = useSearchParams();
   const auth = useAuth();
 
@@ -626,13 +628,13 @@ function VoyageContent() {
   return (
     <PageBody className="mx-auto max-w-7xl">
       <PageHeader
-        title="Plan a voyage"
-        lede="Tap the chart to drop an origin and destination, or type coordinates. Sagar Sarathi classifies every leg — shallows, boundaries, protected areas, rough sea and lightning — at that leg's own arrival time, not just conditions right now."
+        title={t("Plan a voyage")}
+        lede={t("Tap the chart to drop an origin and destination, or type coordinates. Sagar Sarathi classifies every leg — shallows, boundaries, protected areas, rough sea and lightning — at that leg's own arrival time, not just conditions right now.")}
       />
 
       <div className="grid gap-6 lg:grid-cols-[380px_1fr] print:block">
         <div className="flex flex-col gap-4">
-          <Panel title="Route" dense className="print:hidden">
+          <Panel title={t("Route")} dense className="print:hidden">
             <form onSubmit={submit} className="flex flex-col gap-1">
               {/* ── Mode selector ── */}
               <div className="mb-3 flex rounded-lg border border-hairline overflow-hidden text-xs font-semibold">
@@ -650,7 +652,7 @@ function VoyageContent() {
                         : "bg-shelf-1/60 text-ink-muted hover:bg-shelf-2/80"
                     }`}
                   >
-                    {m === "port_to_zone" ? "Port → Zone" : "Map Pick"}
+                    {m === "port_to_zone" ? t("Port → Zone") : t("Map Pick")}
                   </button>
                 ))}
               </div>
@@ -662,11 +664,11 @@ function VoyageContent() {
                   {(defaultHomePort?.name || homePortName) && (
                     <p className="mb-1.5 flex items-center gap-1.5 rounded-md border border-ocean-cyan/30 bg-ocean-cyan/10 px-2.5 py-1.5 text-[11px] text-ink">
                       <Anchor className="size-3 shrink-0 text-ocean-cyan" />
-                      <span>Departing from your home port: <strong>{defaultHomePort?.name ?? homePortName} ({activePortState})</strong></span>
+                      <span>{t("Departing from your home port:")} <strong>{defaultHomePort?.name ?? homePortName} ({activePortState})</strong></span>
                     </p>
                   )}
 
-                  <Field label="Departure port">
+                  <Field label={t("Departure port")}>
                     {(id) => (
                       <select
                         id={id}
@@ -682,9 +684,9 @@ function VoyageContent() {
                         }}
                         className={inputClass}
                       >
-                        <option value="">Select a port…</option>
+                        <option value="">{t("Select a port…")}</option>
                         {majorPorts.length > 0 && (
-                          <optgroup label="Major Ports">
+                          <optgroup label={t("Major Ports")}>
                             {majorPorts.map((p) => (
                               <option key={p.id} value={p.id} className="bg-shelf-2">
                                 {p.name} ({p.state})
@@ -693,7 +695,7 @@ function VoyageContent() {
                           </optgroup>
                         )}
                         {minorPorts.length > 0 && (
-                          <optgroup label="Minor Ports">
+                          <optgroup label={t("Minor Ports")}>
                             {minorPorts.map((p) => (
                               <option key={p.id} value={p.id} className="bg-shelf-2">
                                 {p.name} ({p.state})
@@ -702,7 +704,7 @@ function VoyageContent() {
                           </optgroup>
                         )}
                         {fishingPorts.length > 0 && (
-                          <optgroup label="Fishing Harbours">
+                          <optgroup label={t("Fishing Harbours")}>
                             {fishingPorts.map((p) => (
                               <option key={p.id} value={p.id} className="bg-shelf-2">
                                 {p.name} ({p.state})
@@ -725,7 +727,7 @@ function VoyageContent() {
                     </p>
                   )}
 
-                  <Field label="Fishing zone">
+                  <Field label={t("Fishing zone")}>
                     {(id) => (
                       <select
                         id={id}
@@ -759,7 +761,7 @@ function VoyageContent() {
                         }}
                         className={inputClass}
                       >
-                        <option value="">Select fishing zone…</option>
+                        <option value="">{t("Select fishing zone…")}</option>
                         {zonesBySector.map(([sector, list]) => (
                           <optgroup key={sector} label={`${sector} (${list.length})`}>
                             {list.map((z) => (
@@ -773,7 +775,7 @@ function VoyageContent() {
                     )}
                   </Field>
                   <p className="mb-2 text-[11px] text-ink-dim">
-                    Zones from INCOIS Potential Fishing Zone (PFZ) advisory, filtered to your state.
+                    {t("Zones from INCOIS Potential Fishing Zone (PFZ) advisory, filtered to your state.")}
                   </p>
                 </>
               )}
@@ -789,7 +791,7 @@ function VoyageContent() {
                       onClick={() => setMode("origin")}
                       className="flex-1"
                     >
-                      {origin ? `${origin.lat.toFixed(2)}, ${origin.lon.toFixed(2)}` : "Set origin"}
+                      {origin ? `${origin.lat.toFixed(2)}, ${origin.lon.toFixed(2)}` : t("Set origin")}
                     </Button>
                     <Button
                       type="button"
@@ -798,29 +800,31 @@ function VoyageContent() {
                       onClick={() => setMode("destination")}
                       className="flex-1"
                     >
-                      {destination ? `${destination.lat.toFixed(2)}, ${destination.lon.toFixed(2)}` : "Set destination"}
+                      {destination ? `${destination.lat.toFixed(2)}, ${destination.lon.toFixed(2)}` : t("Set destination")}
                     </Button>
                   </div>
                   {pointWarning(originCheck) && (
                     <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-caution">
                       <AlertTriangle className="size-3 shrink-0" />
-                      Origin {pointWarning(originCheck)} — pick a point further offshore.
+                      {originCheck?.on_land ? t("Origin is on land — pick a point further offshore.") : t("Origin is in shallow water — pick a point further offshore.")}
                     </p>
                   )}
                   {pointWarning(destinationCheck) && (
                     <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-caution">
                       <AlertTriangle className="size-3 shrink-0" />
-                      Destination {pointWarning(destinationCheck)} — pick a point further offshore.
+                      {destinationCheck?.on_land ? t("Destination is on land — pick a point further offshore.") : t("Destination is in shallow water — pick a point further offshore.")}
                     </p>
                   )}
                   <p className="mb-2.5 text-[11px] text-ink-dim">
-                    Chart clicks set the {mode === "origin" ? "origin" : "destination"} pin — click the other button to switch.
+                    {mode === "origin"
+                      ? t("Chart clicks set the origin pin — click the other button to switch.")
+                      : t("Chart clicks set the destination pin — click the other button to switch.")}
                   </p>
                 </>
               )}
 
               <div className="grid grid-cols-[1.25fr_0.85fr_0.9fr] gap-x-2">
-                <Field label="Vessel">
+                <Field label={t("Vessel")}>
                   {(id) => (
                     <select
                       id={id}
@@ -830,13 +834,13 @@ function VoyageContent() {
                     >
                       {(Object.keys(VESSEL_LABELS) as VesselClass[]).map((v) => (
                         <option key={v} value={v} className="bg-shelf-2">
-                          {VESSEL_LABELS[v]}
+                          {t(VESSEL_LABELS[v])}
                         </option>
                       ))}
                     </select>
                   )}
                 </Field>
-                <Field label="Speed (kn)">
+                <Field label={t("Speed (kn)")}>
                   {(id) => (
                     <input
                       id={id} type="number" min={1} step={0.5} value={speedKn}
@@ -844,16 +848,16 @@ function VoyageContent() {
                     />
                   )}
                 </Field>
-                <Field label="Fuel (L)">
+                <Field label={t("Fuel (L)")}>
                   {(id) => (
                     <input
-                      id={id} type="number" min={0} step={1} value={fuelOnboardL} placeholder="Onboard"
+                      id={id} type="number" min={0} step={1} value={fuelOnboardL} placeholder={t("Onboard")}
                       onChange={(e) => setFuelOnboardL(e.target.value)} className={inputClass}
                     />
                   )}
                 </Field>
               </div>
-              <Field label="Departure time">
+              <Field label={t("Departure time")}>
                 {(id) => (
                   <input
                     id={id} type="datetime-local" value={departure}
@@ -867,13 +871,13 @@ function VoyageContent() {
                 disabled={!origin || !destination || loading}
                 icon={<Navigation className="size-4" />}
               >
-                {loading ? "Charting" : "Plan voyage"}
+                {loading ? t("Charting") : t("Plan voyage")}
               </Button>
             </form>
           </Panel>
 
           {signedIn && savedVoyages && savedVoyages.length > 0 && (
-            <Panel title="Saved voyages" dense>
+            <Panel title={t("Saved voyages")} dense>
               <ul className="flex flex-col gap-2">
                 {savedVoyages.map((v) => (
                   <li key={v.id} className="flex items-center justify-between gap-2 rounded-lg border border-hairline/70 px-2.5 py-2 text-xs">
@@ -886,17 +890,17 @@ function VoyageContent() {
                         type="button" variant="ghost" disabled={voyageBusyId === v.id}
                         icon={v.watch_id ? <BellOff className="size-3.5" aria-hidden="true" /> : <Bell className="size-3.5" aria-hidden="true" />}
                         onClick={() => togglePromote(v)}
-                        title={v.watch_id ? "Stop watching this voyage" : "Watch this voyage for hazards"}
+                        title={v.watch_id ? t("Stop watching this voyage") : t("Watch this voyage for hazards")}
                       >
-                        {v.watch_id ? "Watched" : "Watch"}
+                        {v.watch_id ? t("Watched") : t("Watch")}
                       </Button>
                       <Button
                         type="button" variant="ghost" disabled={voyageBusyId === v.id}
                         icon={<Trash2 className="size-3.5" aria-hidden="true" />}
                         onClick={() => removeSavedVoyage(v.id)}
-                        aria-label="Delete saved voyage"
+                        aria-label={t("Delete")}
                       >
-                        <span className="sr-only">Delete</span>
+                        <span className="sr-only">{t("Delete")}</span>
                       </Button>
                     </div>
                   </li>
@@ -920,18 +924,23 @@ function VoyageContent() {
             />
           </div>
 
-          {error && <ErrorState title="Voyage plan failed" body={error} />}
+          {error && <ErrorState title={t("Voyage plan failed")} body={t(error)} />}
 
           {!plan && !error && (
             <p className="flex items-center gap-2 rounded-lg border border-dashed border-hairline px-3.5 py-2.5 text-xs text-ink-dim">
               <Navigation className="size-3.5 shrink-0" />
-              Every leg is classified on real bathymetry, boundary, MPA, sea-state and lightning data — never a straight-line guess.
+              {t("Every leg is classified on real bathymetry, boundary, MPA, sea-state and lightning data — never a straight-line guess.")}
             </p>
           )}
 
           {plan && (
             <>
-              <VerdictBadge verdict={plan.verdict} summary={plan.verdict_reason}>
+              <VerdictBadge
+                verdict={plan.verdict}
+                headerText={t("SAFETY TELEGRAPH")}
+                label={t(plan.verdict === "GO" ? "Go" : plan.verdict === "CAUTION" ? "Caution" : "No go")}
+                summary={plan.verdict_reason}
+              >
                 <div className="mt-3">
                   <ConfidenceMeter tier={plan.confidence.score} />
                 </div>
@@ -943,7 +952,7 @@ function VoyageContent() {
                 <div className="flex items-start gap-2 rounded-lg border border-ocean-cyan/30 bg-ocean-cyan/10 px-3.5 py-2.5 text-xs text-ink-muted">
                   <Navigation className="mt-0.5 size-3.5 shrink-0 text-ocean-cyan" aria-hidden="true" />
                   <span>
-                    <span className="font-semibold text-ink">Rerouted ({plan.verdict}).</span>{" "}
+                    <span className="font-semibold text-ink">{t("Rerouted")} ({t(plan.verdict === "GO" ? "Go" : plan.verdict === "CAUTION" ? "Caution" : "No go")}).</span>{" "}
                     {plan.verdict_reason}
                   </span>
                 </div>
@@ -952,7 +961,7 @@ function VoyageContent() {
               {plan.alternatives_tried.length > 0 && (
                 <details className="rounded-lg border border-hairline/70 bg-shelf-1/30 px-3.5 py-2.5 text-xs text-ink-dim">
                   <summary className="cursor-pointer font-medium text-ink-muted">
-                    {plan.alternatives_tried.length} alternate route{plan.alternatives_tried.length === 1 ? "" : "s"} checked
+                    {plan.alternatives_tried.length} {t(plan.alternatives_tried.length === 1 ? "alternate route checked" : "alternate routes checked")}
                   </summary>
                   <ul className="mt-2 space-y-1">
                     {plan.alternatives_tried.map((a) => (
@@ -984,11 +993,11 @@ function VoyageContent() {
       {/* ── Full-page width results: Passage Summary & Waypoints ── */}
       {plan && (
         <div className="mt-6 flex flex-col gap-6">
-          <Panel title="Passage summary">
+          <Panel title={t("Passage summary")}>
             {/* Single row of enlarged parameter boxes */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
               <div className="rounded-xl border border-hairline/80 bg-shelf-2/60 p-4 transition-colors hover:border-hairline-strong">
-                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">Distance</div>
+                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">{t("Distance")}</div>
                 <div className="mt-1.5 flex items-baseline gap-1.5">
                   <span className="font-mono text-2xl font-extrabold tracking-tight text-ink" data-readout>
                     {plan.segments.reduce((sum, s) => sum + s.distance_nm, 0).toFixed(1)}
@@ -998,7 +1007,7 @@ function VoyageContent() {
               </div>
 
               <div className="rounded-xl border border-hairline/80 bg-shelf-2/60 p-4 transition-colors hover:border-hairline-strong">
-                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">Time at sea</div>
+                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">{t("Time at sea")}</div>
                 <div className="mt-1.5 flex items-baseline gap-1.5">
                   <span className="font-mono text-2xl font-extrabold tracking-tight text-ink" data-readout>
                     {coastalResult
@@ -1008,11 +1017,11 @@ function VoyageContent() {
                       : "—"}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-ink-dim">{speedKn} kn cruise</p>
+                <p className="mt-1 text-xs text-ink-dim">{speedKn} {t("kn cruise")}</p>
               </div>
 
               <div className="rounded-xl border border-hairline/80 bg-shelf-2/60 p-4 transition-colors hover:border-hairline-strong">
-                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">Arrive by (IST)</div>
+                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">{t("Arrive by (IST)")}</div>
                 <div className="mt-1.5 flex items-baseline gap-1.5">
                   <span className="font-mono text-xl sm:text-2xl font-extrabold tracking-tight text-ink" data-readout>
                     {coastalResult
@@ -1029,18 +1038,18 @@ function VoyageContent() {
               </div>
 
               <div className="rounded-xl border border-hairline/80 bg-shelf-2/60 p-4 transition-colors hover:border-hairline-strong">
-                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">Fuel needed</div>
+                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">{t("Fuel needed")}</div>
                 <div className="mt-1.5 flex items-baseline gap-1.5">
                   <span className="font-mono text-2xl font-extrabold tracking-tight text-ink" data-readout>
                     {fuelRequired != null ? `${fuelRequired.toFixed(0)}` : "—"}
                   </span>
                   <span className="font-mono text-sm font-semibold text-ink-dim">L</span>
                 </div>
-                <p className="mt-1 text-xs text-ink-dim">Rate ~{(plan.fuel_burn_lph ?? calculatedBurnRate).toFixed(1)} L/h</p>
+                <p className="mt-1 text-xs text-ink-dim">{t("Rate ~")}{(plan.fuel_burn_lph ?? calculatedBurnRate).toFixed(1)} L/h</p>
               </div>
 
               <div className="rounded-xl border border-hairline/80 bg-shelf-2/60 p-4 transition-colors hover:border-hairline-strong">
-                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">Nearest rescue</div>
+                <div className="font-mono text-xs font-bold uppercase tracking-wider text-ink-dim">{t("Nearest rescue")}</div>
                 <div className="mt-1.5 flex items-baseline gap-1.5">
                   <span className="font-mono text-2xl font-extrabold tracking-tight text-ink" data-readout>
                     {plan.nearest_safe_harbour
@@ -1062,18 +1071,18 @@ function VoyageContent() {
               <div className="mt-3.5 flex items-start gap-2.5 rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-3 text-sm">
                 <Droplets className="mt-0.5 size-4.5 shrink-0 text-red-400" aria-hidden="true" />
                 <span>
-                  <span className="font-bold text-red-400">⚠ NOT ENOUGH FUEL.</span>{" "}
-                  You have <strong>{fuelOnboard} L</strong> onboard but this trip needs
+                  <span className="font-bold text-red-400">{t("⚠ NOT ENOUGH FUEL.")}</span>{" "}
+                  {t("You have")} <strong>{fuelOnboard} L</strong> {t("onboard but this trip needs")}
                   {" "}<strong>{fuelRequired?.toFixed(0)} L</strong>.
-                  You are short by <strong className="text-red-400">{fuelShortfall.toFixed(0)} L</strong>.
-                  {" "}Do not sail until you have enough fuel for the full trip.
+                  {" "}{t("You are short by")} <strong className="text-red-400">{fuelShortfall.toFixed(0)} L</strong>.
+                  {" "}{t("Do not sail until you have enough fuel for the full trip.")}
                 </span>
               </div>
             )}
             {fuelOk && fuelRequired != null && (
               <div className="mt-3.5 flex items-center gap-2.5 rounded-lg border border-green-500/30 bg-green-500/8 px-4 py-2.5 text-sm text-ink-muted">
                 <Droplets className="size-4 shrink-0 text-green-400" aria-hidden="true" />
-                <span>Fuel OK — you have {fuelOnboard} L, trip needs {fuelRequired?.toFixed(0)} L.</span>
+                <span>{t("Fuel OK")} — {t("You have")} {fuelOnboard} L, {t("trip needs")} {fuelRequired?.toFixed(0)} L.</span>
               </div>
             )}
 
@@ -1089,7 +1098,7 @@ function VoyageContent() {
           </Panel>
 
           <Panel
-            title="Waypoints"
+            title={t("Waypoints")}
             action={
               <div className="flex items-center gap-2.5 print:hidden">
                 {routeProvenance && <SourceChip dataset={routeProvenance.dataset} acquisitionTimestamp={routeProvenance.acquisition_timestamp || new Date().toISOString()} />}
@@ -1106,11 +1115,11 @@ function VoyageContent() {
                   CSV
                 </Button>
                 <Button type="button" variant="ghost" icon={<Printer className="size-3.5" aria-hidden="true" />} onClick={() => window.print()}>
-                  Print
+                  {t("Print")}
                 </Button>
                 {signedIn && (
                   <Button type="button" variant="ghost" icon={<Save className="size-3.5" aria-hidden="true" />} onClick={saveVoyage} disabled={savingVoyage}>
-                    {savingVoyage ? "Saving" : "Save voyage"}
+                    {savingVoyage ? t("Saving") : t("Save voyage")}
                   </Button>
                 )}
               </div>
@@ -1120,12 +1129,12 @@ function VoyageContent() {
               <table className="w-full text-left text-sm md:text-base">
                 <thead>
                   <tr className="border-b border-hairline text-ink font-semibold">
-                    <th className="pb-3 pr-4 font-semibold">Leg #</th>
-                    <th className="pb-3 pr-4 font-semibold">Distance</th>
-                    <th className="pb-3 pr-4 font-semibold">Reach by (IST)</th>
-                    <th className="pb-3 pr-4 font-semibold">Water Depth</th>
-                    <th className="pb-3 pr-4 font-semibold">Safe?</th>
-                    <th className="pb-3 font-semibold">What to watch</th>
+                    <th className="pb-3 pr-4 font-semibold">{t("Leg #")}</th>
+                    <th className="pb-3 pr-4 font-semibold">{t("Distance")}</th>
+                    <th className="pb-3 pr-4 font-semibold">{t("Reach by (IST)")}</th>
+                    <th className="pb-3 pr-4 font-semibold">{t("Water Depth")}</th>
+                    <th className="pb-3 pr-4 font-semibold">{t("Safe?")}</th>
+                    <th className="pb-3 font-semibold">{t("What to watch")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-hairline">
@@ -1140,9 +1149,9 @@ function VoyageContent() {
                         {s.depth_m != null ? `${(s.depth_m - plan.draft_m).toFixed(1)}m` : "—"}
                       </td>
                       <td className="py-2.5 pr-4">
-                        <Badge tone={STATUS_TONE[s.status]}>{s.hazard_class}</Badge>
+                        <Badge tone={STATUS_TONE[s.status]}>{t(s.hazard_class)}</Badge>
                       </td>
-                      <td className="py-2.5 text-sm md:text-[15px] text-ink-muted">{s.detail}</td>
+                      <td className="py-2.5 text-sm md:text-[15px] text-ink-muted">{t(s.detail)}</td>
                     </tr>
                   ))}
                 </tbody>
