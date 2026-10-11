@@ -378,8 +378,6 @@ export function PersonaAnswerMatrix({
   verdict,
   reason,
   leadWithVerdict = true,
-  confidenceTier,
-  confidenceReason,
   showBoundary = false,
   weather,
   hazard,

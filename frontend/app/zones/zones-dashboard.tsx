@@ -96,7 +96,7 @@ const PIN_HEX: Record<string, string> = {
   neutral: "#2f6f74",
 };
 
-function calculateBearing(lat1: number, lon1: number, lat2: number, lon2: number): { deg: number; compass: string } {
+export function calculateBearing(lat1: number, lon1: number, lat2: number, lon2: number): { deg: number; compass: string } {
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const y = Math.sin(dLon) * Math.cos((lat2 * Math.PI) / 180);
   const x =
@@ -119,12 +119,12 @@ const TONE_TEXT: Record<Tone, string> = {
   neutral: "text-ink-dim",
 };
 
-const inr = (v: number | null | undefined) => {
+export const inr = (v: number | null | undefined) => {
   if (v == null) return "—";
   return v < 0 ? `−₹${Math.abs(v).toLocaleString("en-IN")}` : `₹${v.toLocaleString("en-IN")}`;
 };
 
-const inrK = (v: number | null | undefined) => {
+export const inrK = (v: number | null | undefined) => {
   if (v == null) return "—";
   const a = Math.abs(v);
   const s = a >= 1000 ? `${(a / 1000).toFixed(1).replace(/\.0$/, "")}k` : String(a);
@@ -182,7 +182,6 @@ type PortLite = { id: string; name: string; state: string };
 
 export function ZonesToolbar({
   ports,
-  currentPort,
   selectedPortKey,
   onSelectPortKey,
   registeredHomePortName,
@@ -192,7 +191,7 @@ export function ZonesToolbar({
   isProfileVesselActive,
 }: {
   ports: PortLite[];
-  currentPort: PortLite;
+  currentPort?: PortLite;
   selectedPortKey: string;
   onSelectPortKey: (key: string) => void;
   registeredHomePortName: string | null;
@@ -238,11 +237,6 @@ export function ZonesToolbar({
           </select>
           <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-dim" />
         </div>
-        <p className="hidden text-[11px] text-ink-dim sm:block">
-          {selectedPortKey === "default_home"
-            ? `From your profile · ${currentPort.name}`
-            : "Changed for this page only"}
-        </p>
       </div>
 
       <div className="flex items-center gap-2.5">
@@ -317,41 +311,64 @@ export function KpiStrip({
   sector,
   nearest,
   bestZone,
-  ban,
 }: {
   sector: { gap: boolean; name: string; message: string };
-  nearest: { found: boolean; label: string | null; within: boolean | null; beyondReach: boolean };
+  nearest: {
+    found: boolean;
+    label: string | null;
+    within: boolean | null;
+    beyondReach: boolean;
+    zoneName?: string | null;
+  };
   bestZone: ZoneProfitResult | null;
-  ban: { applies_here?: boolean; in_ban_period?: boolean; window?: string; next_window?: string } | null;
+  ban?: unknown;
 }) {
   const t = useT();
 
   const nearestBadge = !nearest.found
-    ? { text: "None found", tone: "neutral" as Tone }
-    : nearest.beyondReach || nearest.within === false
-    ? { text: "Beyond day trip", tone: "caution" as Tone }
+    ? { text: "None charted", tone: "neutral" as Tone }
     : nearest.within
     ? { text: "Within reach", tone: "go" as Tone }
-    : { text: "Advisory zone", tone: "neutral" as Tone };
+    : { text: "Beyond day trip", tone: "caution" as Tone };
 
-  const banValue = !ban ? "No data" : ban.applies_here ? "In force" : ban.in_ban_period ? "Offshore only" : "Open";
-  const banTone: Tone = !ban ? "neutral" : ban.applies_here ? "no-go" : ban.in_ban_period ? "caution" : "neutral";
-  const banBadge = ban ? (ban.in_ban_period ? ban.window : ban.next_window) ?? t("zones.openSeason") : "—";
+  // Box 4: Estimated Trip Profit / Net Return (Understandable to fisherman)
+  let profitLabel = "Est. Trip Profit";
+  let profitValue = "—";
+  let profitBadge = "Net return";
+  let profitTone: Tone = "neutral";
+  let profitNote: string | undefined = undefined;
+
+  if (bestZone) {
+    if (bestZone.show_profit) {
+      profitValue = `${inrK(bestZone.profit_low)} – ${inrK(bestZone.profit_high)}`;
+      const isPositive = bestZone.profit_mid != null && bestZone.profit_mid > 0;
+      profitBadge = isPositive ? "High return" : "Low margin";
+      profitTone = isPositive ? "go" : "caution";
+      profitNote = `Net return after ₹${Math.round(bestZone.fuel_cost / 1000)}k fuel & crew`;
+    } else {
+      profitLabel = "Est. Fuel Burn";
+      profitValue = `${bestZone.fuel_liters ?? "—"} L`;
+      profitBadge = "Round trip";
+      profitTone = "neutral";
+      profitNote = "Estimated voyage consumption";
+    }
+  }
 
   return (
     <div className="mb-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
       <Kpi
         label={t("zones.yourSector")}
         value={sector.name}
-        badge={sector.gap ? t("zones.noAdvisory") : t("zones.advisoryPublished")}
+        badge={sector.gap ? t("zones.noAdvisory") : "Active coverage"}
         tone={sector.gap ? "caution" : "go"}
         note={sector.message}
       />
       <Kpi
         label={t("zones.nearestZone")}
         value={nearest.label ?? "—"}
-        badge={nearestBadge.text}
+        badge={nearest.zoneName ? nearest.zoneName : nearestBadge.text}
         tone={nearestBadge.tone}
+        note={nearest.within ? "Within safe day steaming reach" : "Extended offshore voyage required"}
       />
       <Kpi
         label="Best margin"
@@ -359,7 +376,13 @@ export function KpiStrip({
         badge={bestZone ? bestZone.zone_name : "No priced zone"}
         tone={bestZone ? toneOf(bestZone.profit_color) : "neutral"}
       />
-      <Kpi label={t("zones.seasonalBan")} value={banValue} badge={banBadge} tone={banTone} />
+      <Kpi
+        label={profitLabel}
+        value={profitValue}
+        badge={profitBadge}
+        tone={profitTone}
+        note={profitNote}
+      />
     </div>
   );
 }
@@ -371,11 +394,13 @@ function ZoneMap({
   zones,
   selectedId,
   onSelect,
+  onSelectPort,
 }: {
   data: ProfitApiResponse;
   zones: ZoneProfitResult[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onSelectPort?: (portId: string) => void;
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [mapViewMode, setMapViewMode] = useState<"satellite" | "chart">("satellite");
@@ -545,6 +570,7 @@ function ZoneMap({
           zones={zones}
           selectedId={selectedId}
           onSelect={onSelect}
+          onSelectPort={onSelectPort}
         />
       ) : (
         /* SVG Nautical Chart Frame */
@@ -770,36 +796,25 @@ function ZoneMap({
               transform={`translate(${px + (isWestCoast ? 14 : -14)}, ${py})`}
               className="pointer-events-none select-none"
             >
-              <rect
-                x={isWestCoast ? 0 : -118}
-                y="-15"
-                width="118"
-                height="30"
-                rx="6"
-                fill="#ffffff"
-                fillOpacity="0.96"
-                stroke="#2f6f74"
-                strokeWidth="1.2"
-                filter="url(#pin-shadow)"
-              />
               <text
-                x={isWestCoast ? 8 : -8}
+                x={isWestCoast ? 2 : -2}
                 y="-1"
                 textAnchor={isWestCoast ? "start" : "end"}
                 fontSize="11"
                 fontWeight="bold"
-                fill="#1c2939"
+                fill="#0f172a"
               >
                 ⚓ {data.port_name}
               </text>
               <text
-                x={isWestCoast ? 8 : -8}
-                y="10"
+                x={isWestCoast ? 2 : -2}
+                y="11"
                 textAnchor={isWestCoast ? "start" : "end"}
-                fontSize="8.5"
-                fontWeight="600"
+                fontSize="8"
+                fontWeight="700"
                 fontFamily="monospace"
-                fill="#8c8672"
+                fill="#0284c7"
+                letterSpacing="0.05em"
               >
                 DEPARTURE PORT
               </text>
@@ -861,29 +876,28 @@ function ZoneMap({
                     {i + 1}
                   </text>
 
-                  {/* Best Port / Best Zone Badge */}
+                  {/* Best Zone Badge - Small & Subtle */}
                   {z.is_best_zone && (
-                    <g transform="translate(0, -18)">
+                    <g transform="translate(0, -17)">
                       <rect
-                        x="-22"
-                        y="-6.5"
-                        width="44"
-                        height="14"
-                        rx="4"
-                        fill="#b8862e"
-                        stroke="#ffffff"
-                        strokeWidth="1.2"
-                        filter="url(#pin-shadow)"
+                        x="-14"
+                        y="-5"
+                        width="28"
+                        height="10"
+                        rx="2.5"
+                        fill="#92400e"
+                        stroke="#fef3c7"
+                        strokeWidth="0.6"
                       />
                       <text
-                        y="3.5"
+                        y="2.5"
                         textAnchor="middle"
-                        fontSize="8"
+                        fontSize="6.5"
                         fontWeight="bold"
-                        fill="#ffffff"
-                        letterSpacing="0.05em"
+                        fill="#fef3c7"
+                        letterSpacing="0.02em"
                       >
-                        ★ BEST
+                        ★ Best
                       </text>
                     </g>
                   )}
@@ -913,8 +927,8 @@ function ZoneMap({
                   {calculateBearing(data.port_lat, data.port_lon, activeZone.lat, activeZone.lon).compass}
                 </span>
                 {activeZone.is_best_zone && (
-                  <span className="rounded bg-go/15 px-1.5 py-0.5 text-[10px] font-bold text-go">
-                    ★ Best Zone
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
+                    <span className="text-amber-500">★</span> Best Zone
                   </span>
                 )}
               </div>
@@ -1005,8 +1019,8 @@ function RankedZoneList({
                         {z.zone_name}
                       </span>
                       {z.is_best_zone && (
-                        <span className="shrink-0 rounded bg-go/15 px-1.5 py-0.5 text-[9px] font-bold text-go">
-                          ★ Best
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
+                          <span className="text-amber-500">★</span> Best Choice
                         </span>
                       )}
                     </div>
@@ -1137,67 +1151,91 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
             </div>
           )}
 
-          {/* 3-Step Simple Calculation Banner for Fishermen */}
+          {/* Trip Economics Ledger */}
           {zone.income_low != null && zone.income_high != null && (
-            <div className="mb-4 rounded-xl border border-ocean-cyan/30 bg-ocean-cyan/5 p-3.5">
-              <p className="text-xs font-bold text-ink flex items-center gap-1.5 mb-2.5">
-                <TrendingUp className="size-4 text-ocean-cyan" />
-                How your take-home profit is calculated (Simple 3 steps):
-              </p>
+            <div className="mb-4 rounded-xl border border-hairline/80 bg-shelf-1/80 p-3.5 shadow-xs">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <p className="text-xs font-bold text-ink flex items-center gap-1.5">
+                  <TrendingUp className="size-4 text-ocean-cyan" />
+                  Estimated Trip Economics
+                </p>
+                <span className="text-[11px] font-mono text-ink-dim">
+                  {Math.round(zone.distance_km * 2)} km round trip
+                </span>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
-                {/* Step 1: Fish Sales */}
-                <div className="rounded-lg border border-hairline/80 bg-shelf-1/90 p-2.5">
-                  <div className="text-[10px] text-ink-dim font-bold uppercase tracking-wider">Step 1: Fish Sales (Gross)</div>
+                {/* 1. Catch Value */}
+                <div className="rounded-lg border border-hairline bg-shelf-2/60 p-2.5">
+                  <div className="text-[10px] text-ink-dim font-bold uppercase tracking-wider">
+                    Expected Catch Value
+                  </div>
                   <div className="text-sm font-bold font-mono text-ink mt-1">
                     {inr(zone.income_low)} – {inr(zone.income_high)}
                   </div>
                   <div className="text-[10px] text-ink-muted mt-0.5">
-                    Normal day: <strong className="font-mono text-ink">{zone.income_mid != null ? inr(zone.income_mid) : "—"}</strong>
+                    Typical day: <strong className="font-mono text-ink">{zone.income_mid != null ? inr(zone.income_mid) : "—"}</strong>
                   </div>
-                  <div className="text-[10px] text-ink-dim mt-0.5 italic">Harbor auction vs retail</div>
+                  <div className="text-[10px] text-ink-dim mt-0.5">Auction landing value</div>
                 </div>
 
-                {/* Step 2: Boat Expenses */}
-                <div className="rounded-lg border border-hairline/80 bg-shelf-1/90 p-2.5">
-                  <div className="text-[10px] text-ink-dim font-bold uppercase tracking-wider">Step 2: Boat Expenses</div>
+                {/* 2. Boat Expenses */}
+                <div className="rounded-lg border border-hairline bg-shelf-2/60 p-2.5">
+                  <div className="text-[10px] text-ink-dim font-bold uppercase tracking-wider">
+                    Trip Operating Costs
+                  </div>
                   <div className="text-sm font-bold font-mono text-no-go mt-1">
                     −{inr(zone.total_cost)}
                   </div>
                   <div className="text-[10px] text-ink-muted mt-0.5">
-                    Diesel: {inr(zone.fuel_cost)}{zone.fuel_liters != null ? ` (~${zone.fuel_liters} L)` : ""} + Ice/Crew: {inr(zone.fixed_cost)}
+                    Diesel: <strong className="font-mono text-ink">{inr(zone.fuel_cost)}</strong>{zone.fuel_liters != null ? ` (~${zone.fuel_liters} L)` : ""}
                   </div>
-                  <div className="text-[10px] text-ink-dim mt-0.5 italic">
-                    {Math.round(zone.distance_km * 2)} km round trip{zone.round_trip_nm != null ? ` (${zone.round_trip_nm} NM)` : ""}{zone.fuel_burn_lph != null ? ` · ${zone.fuel_burn_lph} L/h` : ""}
+                  <div className="text-[10px] text-ink-dim mt-0.5">
+                    Ice &amp; Crew provision: <strong className="font-mono text-ink">{inr(zone.fixed_cost)}</strong>
                   </div>
                 </div>
 
-                {/* Step 3: Take-Home Profit */}
-                <div className="rounded-lg border border-hairline/80 bg-shelf-1/90 p-2.5">
-                  <div className="text-[10px] text-ink-dim font-bold uppercase tracking-wider">Step 3: Profit In Hand</div>
+                {/* 3. Take-Home Profit */}
+                <div className="rounded-lg border border-hairline bg-shelf-2/60 p-2.5">
+                  <div className="text-[10px] text-ink-dim font-bold uppercase tracking-wider">
+                    Net Return to Boat
+                  </div>
                   <div className={`text-sm font-bold font-mono mt-1 ${TONE_TEXT[tone]}`}>
                     {inr(zone.profit_low)} – {inr(zone.profit_high)}
                   </div>
                   <div className="text-[10px] text-ink-muted mt-0.5">
-                    Normal day: <strong className="font-mono text-ink">{zone.profit_mid != null ? inr(zone.profit_mid) : "—"}</strong>
+                    Expected net: <strong className="font-mono text-ink">{zone.profit_mid != null ? inr(zone.profit_mid) : "—"}</strong>
                   </div>
-                  <div className="text-[10px] text-ink-dim mt-0.5 italic">{zone.margin_pct}% kept after costs</div>
+                  <div className="text-[10px] text-ink-dim mt-0.5">
+                    {zone.margin_pct != null ? `${zone.margin_pct}% kept after trip costs` : "Clear profit after costs"}
+                  </div>
                 </div>
               </div>
 
-              <div className="text-[11px] text-ink-muted leading-relaxed mt-3 pt-2.5 border-t border-hairline/60">
-                <span className="font-bold text-ink">💡 Simple Formula:</span> <em>Fish Sales at Harbor − Total Trip Expenses = Money in Your Hand.</em><br />
-                Your boat spends <strong>{inr(zone.fuel_cost)}</strong> on diesel{zone.fuel_liters != null ? ` (~${zone.fuel_liters} L at voyage burn rate)` : ""} and <strong>{inr(zone.fixed_cost)}</strong> on crew, ice &amp; harbor fees (total <strong>{inr(zone.total_cost)}</strong>). Fuel is calculated with Sagar Sarathi&apos;s voyage power-scaling formula based on vessel cruising speed and nautical distance.
-                <ul className="mt-1 list-disc pl-4 space-y-0.5 text-[10.5px]">
-                  <li>
-                    <strong>Low prices (Harbor glut / auction):</strong> {inr(zone.income_low)} sales − {inr(zone.total_cost)} costs = <strong>{inr(zone.profit_low)}</strong> take-home profit.
-                  </li>
-                  <li>
-                    <strong>Normal market prices:</strong> {inr(zone.income_mid ?? 0)} sales − {inr(zone.total_cost)} costs = <strong>{inr(zone.profit_mid ?? 0)}</strong> take-home profit ({zone.margin_pct}% margin).
-                  </li>
-                  <li>
-                    <strong>Peak prices (High retail demand):</strong> {inr(zone.income_high)} sales − {inr(zone.total_cost)} costs = <strong>{inr(zone.profit_high)}</strong> take-home profit.
-                  </li>
-                </ul>
+              <div className="text-[11px] text-ink-muted mt-2.5 pt-2 border-t border-hairline/60">
+                Net return is what you take home after paying <strong>{inr(zone.fuel_cost)}</strong> for diesel and <strong>{inr(zone.fixed_cost)}</strong> for crew, ice and landing fees.
+              </div>
+
+              {/* Formula: How Trip Economics is Calculated */}
+              <div className="mt-3 rounded-lg border border-hairline/80 bg-shelf-2/50 p-3 text-xs">
+                <div className="flex items-center gap-1.5 font-semibold text-ink mb-2">
+                  <span className="text-ocean-cyan">📐</span>
+                  <span>Calculation Formula:</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                  <div className="rounded border border-hairline/60 bg-shelf-1/80 p-2">
+                    <span className="text-[10px] font-bold uppercase text-ink-dim block">Expected Catch Value</span>
+                    <span className="font-mono text-ink text-[11px] mt-0.5 block">Catch Weight (kg) × Auction Price (₹/kg)</span>
+                  </div>
+                  <div className="rounded border border-hairline/60 bg-shelf-1/80 p-2">
+                    <span className="text-[10px] font-bold uppercase text-ink-dim block">Trip Operating Costs</span>
+                    <span className="font-mono text-ink text-[11px] mt-0.5 block">Diesel (L × ₹/L) + Ice, Crew &amp; Port Fees</span>
+                  </div>
+                  <div className="rounded border border-hairline/60 bg-shelf-1/80 p-2">
+                    <span className="text-[10px] font-bold uppercase text-go block">Net Return to Boat</span>
+                    <span className="font-mono text-go font-semibold text-[11px] mt-0.5 block">Expected Catch Value − Operating Costs</span>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -1402,7 +1440,13 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
 
 // ─── 6. dashboard: map + list + breakdown ────────────────────────────────────
 
-export function ZoneDashboard({ profit }: { profit: ProfitState }) {
+export function ZoneDashboard({
+  profit,
+  onSelectPort,
+}: {
+  profit: ProfitState;
+  onSelectPort?: (portId: string) => void;
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { data, loading, error } = profit;
   const zones = data?.zones ?? [];
@@ -1451,7 +1495,13 @@ export function ZoneDashboard({ profit }: { profit: ProfitState }) {
       ) : (
         <>
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-            <ZoneMap data={data} zones={zones} selectedId={selected?.zone_id ?? null} onSelect={setSelectedId} />
+            <ZoneMap
+              data={data}
+              zones={zones}
+              selectedId={selected?.zone_id ?? null}
+              onSelect={setSelectedId}
+              onSelectPort={onSelectPort}
+            />
             <RankedZoneList
               zones={zones}
               selectedId={selected?.zone_id ?? null}
@@ -1462,11 +1512,6 @@ export function ZoneDashboard({ profit }: { profit: ProfitState }) {
           {selected && <ZoneBreakdown zone={selected} />}
         </>
       )}
-
-      <p className="text-[11px] leading-relaxed text-ink-dim">
-        <strong className="font-semibold">Approximate values only.</strong> {data.disclaimer} Diesel assumed at ₹
-        {data.diesel_price_inr}/litre. Prices cross-referenced with CMFRI 2024 national landings data.
-      </p>
     </section>
   );
 }

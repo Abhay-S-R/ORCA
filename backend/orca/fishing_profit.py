@@ -138,17 +138,64 @@ SPECIES_PRICES_CSV = os.path.join(DATA_DIR, "fish_price", "final_species_with_pr
 # ---------------------------------------------------------------------------
 
 PORTS: list[dict] = [
-    {"port_id": "kochi",       "port_name": "Kochi",       "state": "Kerala",     "lat": 9.9312,  "lon": 76.2673},
-    {"port_id": "kozhikode",   "port_name": "Kozhikode",   "state": "Kerala",     "lat": 11.2588, "lon": 75.7804},
+    # Kerala
+    {"port_id": "kochi", "port_name": "Kochi", "state": "Kerala", "lat": 9.9312, "lon": 76.2673},
+    {"port_id": "kozhikode", "port_name": "Kozhikode", "state": "Kerala", "lat": 11.2588, "lon": 75.7804},
     {"port_id": "thiruvananthapuram", "port_name": "Thiruvananthapuram", "state": "Kerala", "lat": 8.5241, "lon": 76.9366},
-    {"port_id": "mangaluru",   "port_name": "Mangaluru",   "state": "Karnataka",  "lat": 12.8698, "lon": 74.8430},
-    {"port_id": "karwar",      "port_name": "Karwar",      "state": "Karnataka",  "lat": 14.8137, "lon": 74.1303},
-    {"port_id": "chennai",     "port_name": "Chennai",     "state": "Tamil Nadu", "lat": 13.0827, "lon": 80.2707},
-    {"port_id": "tuticorin",   "port_name": "Tuticorin",   "state": "Tamil Nadu", "lat": 8.7642,  "lon": 78.1348},
-    {"port_id": "mumbai",      "port_name": "Mumbai",      "state": "Maharashtra","lat": 18.9388, "lon": 72.8354},
-    {"port_id": "veraval",     "port_name": "Veraval",     "state": "Gujarat",    "lat": 20.9072, "lon": 70.3673},
-    {"port_id": "paradip",     "port_name": "Paradip",     "state": "Odisha",     "lat": 20.3170, "lon": 86.6093},
-    {"port_id": "visakhapatnam","port_name":"Visakhapatnam","state": "Andhra Pradesh","lat": 17.6868,"lon": 83.2185},
+    {"port_id": "kollam", "port_name": "Kollam", "state": "Kerala", "lat": 8.8800, "lon": 76.5900},
+    {"port_id": "beypore", "port_name": "Beypore", "state": "Kerala", "lat": 11.1600, "lon": 75.8000},
+
+    # Karnataka
+    {"port_id": "mangaluru", "port_name": "Mangaluru", "state": "Karnataka", "lat": 12.8698, "lon": 74.8430},
+    {"port_id": "karwar", "port_name": "Karwar", "state": "Karnataka", "lat": 14.8137, "lon": 74.1303},
+    {"port_id": "malpe", "port_name": "Malpe", "state": "Karnataka", "lat": 13.3510, "lon": 74.7040},
+
+    # Goa
+    {"port_id": "mormugao", "port_name": "Mormugao", "state": "Goa", "lat": 15.4100, "lon": 73.8000},
+
+    # Maharashtra
+    {"port_id": "mumbai", "port_name": "Mumbai", "state": "Maharashtra", "lat": 18.9388, "lon": 72.8354},
+    {"port_id": "ratnagiri", "port_name": "Ratnagiri", "state": "Maharashtra", "lat": 16.9900, "lon": 73.2900},
+    {"port_id": "jnpt", "port_name": "JNPT", "state": "Maharashtra", "lat": 18.9500, "lon": 72.9500},
+
+    # Gujarat
+    {"port_id": "veraval", "port_name": "Veraval", "state": "Gujarat", "lat": 20.9072, "lon": 70.3673},
+    {"port_id": "porbandar", "port_name": "Porbandar", "state": "Gujarat", "lat": 21.6420, "lon": 69.6090},
+    {"port_id": "okha", "port_name": "Okha", "state": "Gujarat", "lat": 22.4670, "lon": 69.0710},
+    {"port_id": "kandla", "port_name": "Kandla", "state": "Gujarat", "lat": 22.9800, "lon": 70.2200},
+    {"port_id": "mundra", "port_name": "Mundra", "state": "Gujarat", "lat": 22.8400, "lon": 69.7000},
+
+    # Tamil Nadu
+    {"port_id": "chennai", "port_name": "Chennai", "state": "Tamil Nadu", "lat": 13.0827, "lon": 80.2707},
+    {"port_id": "tuticorin", "port_name": "Tuticorin", "state": "Tamil Nadu", "lat": 8.7642, "lon": 78.1348},
+    {"port_id": "rameswaram", "port_name": "Rameswaram", "state": "Tamil Nadu", "lat": 9.2876, "lon": 79.3129},
+    {"port_id": "kanyakumari", "port_name": "Kanyakumari", "state": "Tamil Nadu", "lat": 8.0883, "lon": 77.5385},
+    {"port_id": "nagapattinam", "port_name": "Nagapattinam", "state": "Tamil Nadu", "lat": 10.7600, "lon": 79.8400},
+    {"port_id": "cuddalore", "port_name": "Cuddalore", "state": "Tamil Nadu", "lat": 11.7500, "lon": 79.7700},
+
+    # Puducherry
+    {"port_id": "puducherry", "port_name": "Puducherry", "state": "Puducherry", "lat": 11.9330, "lon": 79.8300},
+
+    # Andhra Pradesh
+    {"port_id": "visakhapatnam", "port_name": "Visakhapatnam", "state": "Andhra Pradesh", "lat": 17.6868, "lon": 83.2185},
+    {"port_id": "kakinada", "port_name": "Kakinada", "state": "Andhra Pradesh", "lat": 16.9891, "lon": 82.2475},
+    {"port_id": "machilipatnam", "port_name": "Machilipatnam", "state": "Andhra Pradesh", "lat": 16.1800, "lon": 81.1400},
+    {"port_id": "krishnapatnam", "port_name": "Krishnapatnam", "state": "Andhra Pradesh", "lat": 14.2500, "lon": 80.1200},
+
+    # Odisha
+    {"port_id": "paradip", "port_name": "Paradip", "state": "Odisha", "lat": 20.3170, "lon": 86.6093},
+    {"port_id": "gopalpur", "port_name": "Gopalpur", "state": "Odisha", "lat": 19.2600, "lon": 84.9100},
+    {"port_id": "dhamra", "port_name": "Dhamra", "state": "Odisha", "lat": 20.8000, "lon": 86.9700},
+
+    # West Bengal
+    {"port_id": "kolkata", "port_name": "Kolkata", "state": "West Bengal", "lat": 22.5726, "lon": 88.3639},
+    {"port_id": "haldia", "port_name": "Haldia", "state": "West Bengal", "lat": 22.0500, "lon": 88.0700},
+
+    # Lakshadweep
+    {"port_id": "kavaratti", "port_name": "Kavaratti", "state": "Lakshadweep", "lat": 10.5700, "lon": 72.6400},
+
+    # Andaman & Nicobar
+    {"port_id": "port_blair", "port_name": "Port Blair", "state": "Andaman & Nicobar", "lat": 11.6700, "lon": 92.7300},
 ]
 
 # ---------------------------------------------------------------------------
@@ -361,6 +408,79 @@ ZONES: list[dict] = [
         # Hilsa shad, Mullets, Setipinna, Thryssa, Eels,
         # Catfishes, Croakers, Silverbellies
         "species_aphia_ids": [278568, 126983, 282768, 275559, 217456, 275569, 276103, 398536],
+    },
+
+    # ----- GOA -----
+    {
+        "zone_id": "goa-z1",
+        "zone_name": "Mormugao Offshore",
+        "state": "Goa",
+        "zone_type": "offshore",
+        "lat": 15.35, "lon": 73.50,
+        "description": "Productive central Konkan banks; king mackerel and pomfret",
+        "species_aphia_ids": [127024, 127075, 127020, 127089, 218427, 212269, 276103, 126057],
+    },
+    {
+        "zone_id": "goa-z2",
+        "zone_name": "Panaji Coastal Trench",
+        "state": "Goa",
+        "zone_type": "nearshore",
+        "lat": 15.60, "lon": 73.65,
+        "description": "Rich nearshore sardine, squid and croaker grounds",
+        "species_aphia_ids": [212269, 127020, 276103, 218515, 217663, 275569, 127089, 398536],
+    },
+
+    # ----- WEST BENGAL -----
+    {
+        "zone_id": "westbengal-z1",
+        "zone_name": "Digha Offshore",
+        "state": "West Bengal",
+        "zone_type": "nearshore",
+        "lat": 21.50, "lon": 87.70,
+        "description": "Northern Bay of Bengal hilsa, pomfret and ribbonfish grounds",
+        "species_aphia_ids": [278568, 127075, 127089, 127020, 217661, 276103, 275569, 398536],
+    },
+    {
+        "zone_id": "westbengal-z2",
+        "zone_name": "Sandheads Approach",
+        "state": "West Bengal",
+        "zone_type": "offshore",
+        "lat": 21.05, "lon": 88.25,
+        "description": "Deep estuarine convergence zone; rich mixed demersal catch",
+        "species_aphia_ids": [278568, 127089, 218515, 276103, 217661, 127027, 275569, 126983],
+    },
+
+    # ----- PUDUCHERRY -----
+    {
+        "zone_id": "puducherry-z1",
+        "zone_name": "Coromandel Offshore",
+        "state": "Puducherry",
+        "zone_type": "offshore",
+        "lat": 11.85, "lon": 80.10,
+        "description": "Coromandel shelf waters; seer fish, barracuda and tuna",
+        "species_aphia_ids": [127024, 127027, 218200, 345843, 218515, 276103, 127089, 126057],
+    },
+
+    # ----- LAKSHADWEEP -----
+    {
+        "zone_id": "lakshadweep-z1",
+        "zone_name": "Kavaratti Oceanic Ridge",
+        "state": "Lakshadweep",
+        "zone_type": "deep_sea",
+        "lat": 10.60, "lon": 72.40,
+        "description": "Oceanic coral atoll waters; yellowfin and skipjack tuna dominant",
+        "species_aphia_ids": [127027, 127018, 126057, 127024, 158812, 127014, 219708, 218200],
+    },
+
+    # ----- ANDAMAN & NICOBAR -----
+    {
+        "zone_id": "andaman-z1",
+        "zone_name": "South Andaman Trench",
+        "state": "Andaman & Nicobar",
+        "zone_type": "deep_sea",
+        "lat": 11.55, "lon": 92.90,
+        "description": "Deep oceanic trench; yellowfin tuna, billfish and snappers",
+        "species_aphia_ids": [127027, 158812, 218496, 218200, 127024, 127018, 345843, 126057],
     },
 ]
 
@@ -637,7 +757,13 @@ def _build_cache() -> None:
         zones_by_state.setdefault(zone["state"], []).append(zone)
 
     for port in PORTS:
-        state_zones = zones_by_state.get(port["state"], [])
+        state_zones = list(zones_by_state.get(port["state"], []))
+        if len(state_zones) < 5:
+            remaining = sorted(
+                [z for z in ZONES if z not in state_zones],
+                key=lambda z: _haversine_km(port["lat"], port["lon"], z["lat"], z["lon"])
+            )
+            state_zones.extend(remaining[: (5 - len(state_zones))])
         for vessel_key in VESSEL_PROFILES:
             results = [
                 calculate_profit(port, zone, vessel_key, speed_kn=DEFAULT_CRUISE_SPEED_KN, fuel_burn_lph=None)
@@ -698,7 +824,13 @@ def get_zone_profits(
         zones_by_state: dict[str, list[dict]] = {}
         for zone in ZONES:
             zones_by_state.setdefault(zone["state"], []).append(zone)
-        state_zones = zones_by_state.get(best_port["state"], [])
+        state_zones = list(zones_by_state.get(best_port["state"], []))
+        if len(state_zones) < 5:
+            remaining = sorted(
+                [z for z in ZONES if z not in state_zones],
+                key=lambda z: _haversine_km(best_port["lat"], best_port["lon"], z["lat"], z["lon"])
+            )
+            state_zones.extend(remaining[: (5 - len(state_zones))])
         zones = [
             calculate_profit(best_port, z, normalised_vessel, speed_kn=eff_speed, fuel_burn_lph=fuel_burn_lph)
             for z in state_zones
