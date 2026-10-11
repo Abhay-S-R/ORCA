@@ -28,7 +28,6 @@ import type { AgentStatus } from "./AgentPill";
 import { AgentTraceCollapsed } from "./AgentTraceCollapsed";
 import {
   AgentTraceExpanded,
-  getNarrativeLines,
   formatDuration,
 } from "./AgentTraceExpanded";
 
@@ -142,19 +141,6 @@ interface AgentTraceUIState {
 // Utility Functions
 // ============================================================================
 
-const PARALLEL_SPECIALISTS = new Set([
-  "discovery",
-  "marine_data_discovery",
-  "weather_intelligence",
-  "geospatial",
-  "ocean_analytics",
-  "risk_assessment",
-  "visualization",
-]);
-
-/**
- * Convert AgentSpan array to a simplified TraceGraph for streaming updates
- */
 /**
  * Convert AgentSpan array to a simplified TraceGraph for streaming updates
  */
@@ -164,7 +150,7 @@ function spansToTraceGraph(spans: AgentSpan[]): TraceGraph {
     agent_name: AGENT_LABEL[span.agent_name] ?? span.agent_name,
     depth: index,
     status: span.status,
-    confidence_tier: span.confidence_tier as any,
+    confidence_tier: (span.confidence_tier as import("../components/Badge").ConfidenceTier) ?? "HIGH",
     latency_ms: span.latency_ms ?? 0,
     reasoning_summary: span.reasoning_summary ?? "",
     source_count: 0,
@@ -453,10 +439,6 @@ export function AgentTraceUI({
   }, [debouncedSpans]);
 
   const activeGraph = state.traceGraph ?? streamingTraceGraph;
-
-  const narrativeLines = useMemo(() => {
-    return getNarrativeLines(activeGraph, streaming);
-  }, [activeGraph, streaming]);
 
   const currentText = useMemo(() => {
     if (!streaming) {

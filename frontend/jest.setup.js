@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 // Jest setup file for configuring test environment
 require("@testing-library/jest-dom");
 

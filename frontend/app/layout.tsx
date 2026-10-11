@@ -102,6 +102,9 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
   themeColor: "#f2ead4",
   // The chart is edge-to-edge; let it run under the notch.
   viewportFit: "cover",
@@ -111,9 +114,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`${barlow.variable} ${fraunces.variable} ${plexMono.variable} ${notoTamil.variable} ${notoDevanagari.variable} ${notoTelugu.variable} ${notoMalayalam.variable} ${notoKannada.variable} ${notoBengali.variable} ${notoGujarati.variable} ${notoOriya.variable} h-full antialiased`}
+      className={`${barlow.variable} ${fraunces.variable} ${plexMono.variable} ${notoTamil.variable} ${notoDevanagari.variable} ${notoTelugu.variable} ${notoMalayalam.variable} ${notoKannada.variable} ${notoBengali.variable} ${notoGujarati.variable} ${notoOriya.variable} h-full h-dvh antialiased`}
     >
-      <body className="h-full overflow-hidden">
+      <body className="h-full h-dvh overflow-hidden">
         {/* §4.11 — keyboard users reach content without tabbing the rail. */}
         <a
           href="#main-content"

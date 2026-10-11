@@ -69,7 +69,7 @@ describe("ChatTurn - AgentTraceUI Integration", () => {
     );
 
     // AgentTraceUI renders collapsed view showing total time (1200ms + 800ms = 2.0s)
-    expect(screen.getByText("Worked for 2.0s")).toBeInTheDocument();
+    expect(screen.getByText("Thought for 2.0s")).toBeInTheDocument();
     expect(screen.getByText("Can I sail to Mumbai today?")).toBeInTheDocument();
     expect(screen.getByText("Winds are 14 knots with wave heights around 1.2m.")).toBeInTheDocument();
   });
@@ -100,8 +100,7 @@ describe("ChatTurn - AgentTraceUI Integration", () => {
     );
 
     // Progress indicator displayed
-    expect(screen.getByLabelText("Still working")).toBeInTheDocument();
-    expect(screen.getByText("Worked for 450ms")).toBeInTheDocument();
+    expect(screen.getByText("Scanning for distress signals…")).toBeInTheDocument();
   });
 
   it("positions AgentTraceUI above the answer content", () => {
@@ -171,10 +170,10 @@ describe("ChatTurn - AgentTraceUI Integration", () => {
       />
     );
 
-    const expandButton = screen.getByRole("button", { name: /worked for 2\.0s/i });
+    const expandButton = screen.getByRole("button", { name: /thought for 2\.0s/i });
     fireEvent.click(expandButton);
 
-    // Expanded heading should appear
-    expect(await screen.findByText("▾ Agent Reasoning Trace")).toBeInTheDocument();
+    // Expanded region should appear
+    expect(await screen.findByRole("region", { name: "Agent execution trace" })).toBeInTheDocument();
   });
 });

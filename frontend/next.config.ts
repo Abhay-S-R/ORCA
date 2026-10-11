@@ -23,6 +23,7 @@ if (apiBase && !apiBase.startsWith("https://")) {
 }
 
 const nextConfig: NextConfig = {
+  devIndicators: false,
   ...(apiBase && { env: { NEXT_PUBLIC_API_BASE_URL: apiBase } }),
   async redirects() {
     return [

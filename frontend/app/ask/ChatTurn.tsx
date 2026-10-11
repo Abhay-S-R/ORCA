@@ -18,7 +18,6 @@ import { FormattedResponse } from "../components/FormattedResponse";
 import { SourceChip } from "../components/SourceChip";
 import { SourceNarration } from "../components/SourceNarration";
 import { ErrorState, Skeleton } from "../components/States";
-import { type QueryIntent } from "../lib/queryIntent";
 import { type Persona } from "../persona/config";
 import type { AgentSpan, Turn } from "./useAskThread";
 import { turnVersions } from "./useAskThread";
