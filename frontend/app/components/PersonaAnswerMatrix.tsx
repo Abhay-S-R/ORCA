@@ -253,7 +253,7 @@ export function formatProductivityData(raw: unknown): { value: string; unit?: st
     if (typeof raw === "string" && raw.trim() && !raw.includes("{")) {
       return { value: raw };
     }
-    return { value: "Stable", hint: "District baseline within ±2σ" };
+    return { value: "Stable", hint: "Fish catch in normal range" };
   }
 
   if (data.declined) {
@@ -265,9 +265,10 @@ export function formatProductivityData(raw: unknown): { value: string; unit?: st
     };
   }
 
+  const district = data.district ? data.district.split("(")[0].trim() : "";
   return {
     value: "Stable",
-    hint: "District baseline normal",
+    hint: district ? `${district} catch in normal range` : "Fish catch in normal range",
   };
 }
 
@@ -472,7 +473,12 @@ export function PersonaAnswerMatrix({
                 <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" hint={waveHint(weather.wave_height_m, thresholds)} />
                 <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" hint={windHint(weather.wind_speed_ms, thresholds)} />
                 {showBoundary && <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} />}
-                <Readout label="MPA status" value={hazard.mpa_violation ? "Inside" : "Clear"} />
+                <Readout
+                  label="Protected Area (MPA)"
+                  value={hazard.mpa_violation ? "Restricted" : "Clear"}
+                  hint={hazard.mpa_violation ? "Inside restricted zone" : "Outside protected waters"}
+                  wrap
+                />
               </ReadoutGrid>
             </div>
           )}
@@ -486,9 +492,22 @@ export function PersonaAnswerMatrix({
             <ReadoutGrid cols={5}>
               <Readout label="Wave height" value={fmt(weather.wave_height_m)} unit="m" hint={waveHint(weather.wave_height_m, thresholds)} wrap />
               <Readout label="Wind speed" value={fmt(weather.wind_speed_ms)} unit="m/s" hint={windHint(weather.wind_speed_ms, thresholds)} wrap />
-              <Readout label="Lightning" value={weather.lightning_active ? "Active" : "None"} />
-              <Readout label="MPA violation" value={hazard.mpa_violation ? "Yes" : "No"} hint={hazard.mpa_alert_level ?? undefined} />
-              <Readout label="Productivity" value={productivity.value} unit={productivity.unit} hint={productivity.hint} wrap />
+              <Readout
+                label="Lightning"
+                value={weather.lightning_active ? "Active" : "Clear"}
+                hint={weather.lightning_active ? "Thunderstorm risk" : "Safe · No risk"}
+              />
+              <Readout
+                label="Protected Area (MPA)"
+                value={hazard.mpa_violation ? "Restricted" : "Clear"}
+                hint={
+                  hazard.mpa_violation
+                    ? (hazard.mpa_alert_level === "REGULATORY" ? "Near restricted buffer zone" : "Inside sanctuary (No fishing)")
+                    : "Outside protected waters"
+                }
+                wrap
+              />
+              <Readout label="Fish Productivity" value={productivity.value} unit={productivity.unit} hint={productivity.hint} wrap />
 
               {showBoundary && (
                 <Readout label="IMBL distance" value={fmt(hazard.imbl_distance_nm)} unit="nm" hint={hazard.imbl_alert_level ?? undefined} wrap />

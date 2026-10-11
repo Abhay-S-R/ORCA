@@ -30,11 +30,16 @@ export function Readout({
   return (
     <div
       className={`min-w-0 rounded-lg border border-hairline/60 bg-shelf-2/40 p-3 transition-colors hover:border-hairline-strong ${
-        row ? "flex items-center justify-between gap-3" : ""
+        row ? "flex items-center justify-between gap-3" : "flex flex-col justify-between"
       } ${className}`}
     >
       <div className="min-w-0">
-        <dt className="truncate font-mono text-[10px] font-semibold uppercase tracking-wider text-ink-dim" title={label}>
+        <dt
+          className={`font-mono text-[10px] font-semibold uppercase tracking-wider text-ink-dim ${
+            wrap ? "whitespace-normal break-words leading-tight" : "truncate"
+          }`}
+          title={label}
+        >
           {label}
         </dt>
         <dd className={compact ? "mt-1 flex min-w-0 flex-col" : "mt-1 flex min-w-0 items-baseline gap-1.5"}>
