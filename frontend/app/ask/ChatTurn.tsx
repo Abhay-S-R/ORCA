@@ -4,9 +4,11 @@
 // streams, and the full answer card once it lands. Split out of page.tsx
 // because that file renders one of these per turn now instead of exactly
 // one ever — keeping it here is what keeps the thread's map() call readable.
+import React from "react";
 import { motion } from "framer-motion";
 import { ChevronDown, History, PowerOff, Radio } from "lucide-react";
 import { AgentPill, AgentStrip, AGENT_ORDER, nextRunningAgent, type AgentStatus } from "../components/AgentPill";
+import { AgentTraceUI } from "../components/AgentTraceUI";
 import { Button } from "../components/Button";
 import { Panel } from "../components/Panel";
 import { PersonaAnswerMatrix } from "../components/PersonaAnswerMatrix";
@@ -61,6 +63,7 @@ export function ChatTurn({
   onShowVersion,
   onFollowUp,
   onOpenDistressOverlay,
+  useAgentTraceUI = true,
 }: {
   turn: Turn;
   persona: Persona;
@@ -70,6 +73,8 @@ export function ChatTurn({
   onShowVersion: (index: number) => void;
   onFollowUp: (q: string, options?: { llm?: "off"; position?: { lat: number; lon: number } }) => void;
   onOpenDistressOverlay?: (data: DistressOverlayData) => void;
+  /** Feature flag: toggle between new AgentTraceUI and legacy AgentStrip */
+  useAgentTraceUI?: boolean;
 }) {
   const t = useT();
   const { askedQuery, spans, answer, streaming, failed, renderedAs, focus } = turn;
@@ -130,34 +135,41 @@ export function ChatTurn({
 
       {/* Differentiator 1 (§4.5): up to twelve agents run per query. Inline
           while it thinks, staying permanently inspectable once the answer
-          lands — with tick marks on all completed agents. */}
+          lands — with tick marks on all completed agents.
+          Requirement 13.1, 13.3, 13.4: Replaces AgentStrip with AgentTraceUI
+          behind a feature flag, preserving position above answer content. */}
       {(displaySpans.length > 0 || runningAgent) && (
-        <div className="flex min-w-0 max-w-full flex-col gap-1.5">
-          {streaming && (
-            <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
-              <Radio className="size-3" aria-hidden="true" />
-              {t("chatTurn.agentTrace")}
-            </span>
-          )}
-          <AgentStrip>
-            {groupRuns(displaySpans).map(({ span: s, runs, latency }, i) => (
-              <AgentPill
-                key={`${s.agent_name}-${i}`}
-                name={s.agent_name}
-                status={s.status}
-                runs={runs}
-                confidence={s.confidence_tier}
-                // P2.1 — every pill names its engine; the safety pill reads
-                // "Deterministic". P2.10 — the latency was already on the
-                // wire and the pill already had a slot for it.
-                engine={s.engine}
-                latencyMs={latency}
-                skipReason={s.skip_reason}
-              />
-            ))}
-            {runningAgent && <AgentPill name={runningAgent} status="running" />}
-          </AgentStrip>
-        </div>
+        useAgentTraceUI ? (
+          <AgentTraceUI
+            spans={displaySpans}
+            streaming={streaming}
+            queryId={answer?.query_id}
+          />
+        ) : (
+          <div className="flex min-w-0 max-w-full flex-col gap-1.5">
+            {streaming && (
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
+                <Radio className="size-3" aria-hidden="true" />
+                {t("chatTurn.agentTrace")}
+              </span>
+            )}
+            <AgentStrip>
+              {groupRuns(displaySpans).map(({ span: s, runs, latency }, i) => (
+                <AgentPill
+                  key={`${s.agent_name}-${i}`}
+                  name={s.agent_name}
+                  status={s.status}
+                  runs={runs}
+                  confidence={s.confidence_tier}
+                  engine={s.engine}
+                  latencyMs={latency}
+                  skipReason={s.skip_reason}
+                />
+              ))}
+              {runningAgent && <AgentPill name={runningAgent} status="running" />}
+            </AgentStrip>
+          </div>
+        )
       )}
 
       {failed && (

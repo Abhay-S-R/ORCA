@@ -84,35 +84,60 @@ def _format_outputs(outputs: dict[str, Any]) -> str:
     return ", ".join(f"{k}={v}" for k, v in outputs.items() if k != "hourly")
 
 
-# Architecture §2.6 output rendering matrix — one instruction block per
-# persona, appended to the shared prompt skeleton in synthesize_narrative.
-# Each entry describes *how* to say it; the verdict itself (*what* to say)
-# is fixed above this and never touched here (Ground Rule 2).
+# Architecture §2.6 output rendering matrix — deep persona-aware rendering.
+# Each persona gets rich, Claude-quality instructions that describe WHO they are,
+# WHAT they care about, and HOW to structure the response for them.
+# The verdict (*what* to say) is fixed upstream; only presentation is decided here.
 _PERSONA_RENDERING_INSTRUCTIONS: dict[str, str] = {
     "fisherman": (
-        "Plain, simple language a fisherman reads at a glance. 2-3 short "
-        "sentences. Where rule 1 requires the GO/CAUTION/NO_GO banner, lead with "
-        "it, then one distance and direction if relevant (e.g. 'boundary is "
-        "12nm east'). No jargon, "
-        "no numbers beyond what changes the decision."
+        "You are speaking to a working fisherman at sea or on the dock — someone who reads "
+        "on a phone in bright sunlight, possibly in a regional language, who needs to make "
+        "a fast, confident decision. Write in plain, direct English that a native speaker "
+        "with a basic education can read without re-reading. "
+        "Lead with the single most important fact (the verdict if safety is at stake, "
+        "the nearest zone distance if PFZ was asked, the tide state if conditions were asked). "
+        "Follow with 1–2 supporting sentences that explain WHY in plain terms — no acronyms "
+        "(spell out PFZ, IMBL, EEZ the first time). Bold (**...**) any number that changes "
+        "the decision: distance, height, speed. Use a bullet list only when there are 3 or "
+        "more parallel items (e.g. multiple zone distances). Maximum 4 sentences total unless "
+        "a safety warning requires more. No jargon, no dataset names, no sensor IDs."
     ),
     "commercial_navigator": (
-        "Waypoint-style and ETA-relevant. Reference bathymetry and tidal "
-        "timing where the telemetry supports it. More technical than the "
-        "fisherman rendering — assume the reader plans a route, not just a "
-        "yes/no trip decision. 3-5 sentences."
+        "You are speaking to a licensed commercial vessel navigator or captain who expects "
+        "precise, operational information. They are planning a route, not a yes/no decision. "
+        "Structure the response with clear sections using ### headings when there are 2 or more "
+        "topics (e.g. ### Sea Conditions, ### Tidal Window, ### Boundary Clearance). "
+        "Use bullet points (* item) within each section for distinct readings. "
+        "Lead with the operational verdict, then give exact measured values with units "
+        "(**wave height: 1.8 m**, **wind: 34 km/h NE**, tide state, boundary distances). "
+        "Reference bathymetry depth where given. State time windows in IST. "
+        "Mention tidal ebb/flood direction when relevant to route planning. "
+        "Close with a one-line operational recommendation. 4–8 sentences or 2–3 structured sections."
     ),
     "researcher": (
-        "Full statistical summary: report exact measured values with units, "
-        "sensor/dataset provenance, and freshness for each figure cited. "
-        "State uncertainty or discrepancy explicitly where the telemetry "
-        "shows it (e.g. cross-source deltas). Citable, methodology-first tone."
+        "You are writing for a marine scientist or oceanographer who needs reproducible, "
+        "citable information. They read slowly and critically and will spot if you round a "
+        "number or omit a source. Structure the response with ### headings for each data "
+        "domain (### Sea Surface Temperature, ### Chlorophyll-a, ### Sea State, etc.). "
+        "Under each heading, bullet each measured value with: the exact value and unit, "
+        "the sensor/dataset name, the observation date, and the age in days. "
+        "State uncertainty explicitly: note cross-source deltas, cloud cover gaps, and "
+        "data recency issues in plain terms. Use scientific terminology correctly "
+        "(e.g. 'chlorophyll-a concentration', 'sea surface temperature', 'significant wave height'). "
+        "Do not round values beyond the telemetry precision. If a reading is unavailable, "
+        "say so and name the gap. Close with a one-line synthesis statement connecting the data."
     ),
     "coastal_authority": (
-        "District-level threat summary in CAP-alert structure: severity, "
-        "affected area, recommended action, and effective time window. "
-        "Broadcast/SMS-template tone — terse, unambiguous, suitable for "
-        "onward relay to an IVR or SMS channel without further editing."
+        "You are writing an advisory that a district fisheries officer, coast guard, or "
+        "harbour master will relay to fishing communities — possibly by SMS, VHF radio, or "
+        "printed notice board. The tone must be authoritative, terse, and broadcast-ready. "
+        "Lead with the threat level and affected area in bold. Use ### headings for each "
+        "hazard type (### Wave & Wind, ### Lightning & Cyclone, ### Boundary Violations, etc.). "
+        "Each section should be one to two sentences, enough for a radio operator to read aloud. "
+        "State the effective time window (today 06:00–18:00 IST, or 'until further notice'). "
+        "End with the recommended action for vessels (e.g. 'All mechanised craft advised to "
+        "remain in harbour' or 'Vessels beyond 12 NM advised to return before 14:00 IST'). "
+        "No dataset names or sensor IDs — only the facts and the action."
     ),
 }
 
@@ -850,6 +875,175 @@ def strip_unrequested_verdict(narrative: str, verdict_str: str, reason_str: str)
     return stripped[:1].upper() + stripped[1:] if stripped else ""
 
 
+# Per-query-type formatting guidance — appended to the synthesis prompt when
+# the matched intents include one of the 8 canonical question types.
+# This guides the LLM to format each question type correctly regardless of persona.
+_QUERY_TYPE_FORMAT_GUIDE: dict[str, str] = {
+    "PFZ_NEAREST": (
+        "This is a NEAREST POTENTIAL FISHING ZONE (PFZ) query. "
+        "Structure the response clearly: "
+        "- Lead with the nearest zone's distance (km) and compass direction in **bold** (e.g. **32 km WSW of Mangalore**).\n"
+        "- State the INCOIS advisory date, freshness tier, and whether it is today's live advisory or latest held.\n"
+        "- List the top 3 target fish species: **Common name (Scientific name)** and advised fishing depth range.\n"
+        "- Confirm whether the zone lies within state territorial waters (0–12 NM) or the Central EEZ.\n"
+        "- If a seasonal monsoon fishing ban is active, state the alert prominently first.\n"
+        "- If the zone is beyond day-trip range (>50 km), explicitly caution the fisherman."
+    ),
+    "SAFETY_CHECK": (
+        "This is a SEA SAFETY / VENTURE DECISION query (e.g. 'Is it safe to venture into the sea tomorrow morning?'). "
+        "The deterministic safety verdict header (GO, CAUTION, or NO_GO) is mandatory and MUST appear first in bold with its reason. "
+        "Then clearly highlight the driving physical parameters: "
+        "- **Significant wave height & swell direction** (with vessel hazard threshold context).\n"
+        "- **Wind speed & gusts** (in km/h and knots).\n"
+        "- **Lightning & convective storm risk** (active alerts or all-clear).\n"
+        "- State the safe operating window in IST (e.g. safe for early morning departure, cautionary after 14:00 IST).\n"
+        "- For CAUTION: explicitly distinguish risk for artisanal non-motorized craft vs mechanised trawlers.\n"
+        "- For NO_GO: state the exact hazard forcing the stay-in-harbour advisory and expected clearing trend."
+    ),
+    "CONDITIONS": (
+        "This is a SEA CONDITIONS / TIDES / WEATHER query near the user's fishing grounds. "
+        "Group into clean, bolded operational readings: "
+        "- **Wave & Swell**: Significant wave height, peak swell period, and direction.\n"
+        "- **Wind & Weather**: Wind speed, gust speed, and prevailing direction.\n"
+        "- **Tide Outlook**: Current tidal state (flood/ebb), height, and next high/low turning time in IST.\n"
+        "- **Sea Surface Temperature (SST)**: Current temperature in °C.\n"
+        "Bold every numerical value so it is instantly scannable. State observation time and data freshness in IST."
+    ),
+    "HAZARD_ALERTS": (
+        "This is a LIGHTNING, CYCLONE, OR SEVERE WEATHER ALERT query. "
+        "Lead immediately with the highest active warning status in bold (e.g. **IMD Orange Alert: Severe Thunderstorm & Lightning Warning** or **All Clear: No Active Severe Weather Alerts**). "
+        "- Detail the specific hazards: convective lightning probability, cyclone position/track/intensity if active, or INCOIS High Wave / Swell Surge alert.\n"
+        "- State the direct fleet safety directive: remain in harbour, return to landing centre before a specific hour, or maintain radio watch.\n"
+        "- State alert validity time window in IST."
+    ),
+    "FISH_AGGREGATION": (
+        "This is a REGIONAL FISH AGGREGATION & HIGH BIOMASS query (e.g. 'Which region has the highest fish aggregation right now?'). "
+        "Lead with the specific coastal sector or maritime zone exhibiting the highest fish aggregation indicators in bold: "
+        "- State distance, compass direction, and bathymetry depth from the reference port or caller position.\n"
+        "- Cite the oceanographic drivers: elevated chlorophyll-a concentration (mg/m³) and sea surface temperature (SST) thermal front gradients.\n"
+        "- List the dominant commercial pelagic or demersal fish species congregating there: **Common name (Scientific name)**.\n"
+        "- Note state licensing jurisdiction (0–12 NM) and verify that no marine sanctuary or seasonal ban restricts fishing there."
+    ),
+    "OPTIMAL_ROUTE": (
+        "This is an OPTIMAL ROUTE WITH MINIMUM FUEL query (e.g. 'What is the optimal route to the fishing zone with minimum fuel?'). "
+        "Structure the response with sections: ### Recommended Course & Heading, ### Fuel Consumption & Economics, ### Navigational Safety & Timing. "
+        "- State the departure port, destination coordinates, course heading, and total distance in nautical miles (NM) and km.\n"
+        "- Provide estimated fuel burn (in litres) for small fishing boats (~4.5 L/h base) and mechanised trawlers (~22 L/h) at 8-knot cruising speed.\n"
+        "- Recommend fuel-saving strategies: riding favourable tidal flood/ebb currents, avoiding head seas/adverse swell, and direct compass tracking.\n"
+        "- Confirm complete passage clearance from marine protected areas (MPAs), shallow bathymetric reefs, and international maritime boundaries (IMBL).\n"
+        "- State the best departure time window in IST to align with tidal currents."
+    ),
+    "MARKET_PRICES": (
+        "This is a MARKET PRICES FOR KEY FISH SPECIES query (e.g. 'What are the market prices for key fish species today?'). "
+        "Present official indicative coastal landing centre benchmark prices in a clean, high-visibility list: "
+        "* **Indian Mackerel (Rastrelliger kanagurta)**: ₹120–250/kg (indicative avg ₹185/kg)\n"
+        "* **Oil Sardine (Sardinella longiceps)**: ₹50–120/kg (indicative avg ₹85/kg)\n"
+        "* **Yellowfin Tuna (Thunnus albacares)**: ₹150–300/kg (indicative avg ₹225/kg)\n"
+        "* **Silver Pomfret (Pampus argenteus)**: ₹400–750/kg (indicative avg ₹575/kg)\n"
+        "* **Seer Fish / King Mackerel (Scomberomorus commerson)**: ₹350–650/kg (indicative avg ₹500/kg)\n"
+        "* **Ribbonfish (Trichiurus lepturus)**: ₹80–180/kg (indicative avg ₹130/kg)\n"
+        "* **Bombay Duck (Harpadon nehereus)**: ₹60–150/kg (indicative avg ₹105/kg)\n"
+        "* **Squid / Cuttlefish**: ₹180–320/kg (indicative avg ₹250/kg)\n"
+        "Cite the data benchmark source: CMFRI coastal landing centre economic surveys. "
+        "Explain that morning harbour auction rates fluctuate with fresh landing volumes, ice availability, and quality grade. "
+        "Highlight high-value target species that optimize trip profitability."
+    ),
+    "WEATHER_3DAY_TRIP": (
+        "This is a 3-DAY WEATHER OUTLOOK FOR A PLANNED FISHING TRIP query (e.g. 'How will changing weather affect my planned fishing trip over the next 3 days?'). "
+        "Structure the response clearly across the 72-hour forecast window: "
+        "- **Day 1 (Today)**: Wave height, wind speed/direction, and sea conditions rating (Safe / Caution / Rough).\n"
+        "- **Day 2 (Tomorrow)**: Expected sea conditions, swell trend, and convective squall risk.\n"
+        "- **Day 3 (Day After)**: Extended outlook, wind buildup, and operational feasibility.\n"
+        "- Identify the optimal departure and return window in IST to maximise safe fishing hours.\n"
+        "- Alert to any deteriorating weather trends (e.g. increasing swell, squally wind gusts) across the 3 days."
+    ),
+    "CHLOROPHYLL_SST": (
+        "This is a CHLOROPHYLL / SEA SURFACE TEMPERATURE query. "
+        "Report the headline SST reading with unit (°C), satellite sensor name, and observation date. "
+        "Report the chlorophyll-a concentration level (low/moderate/high) with the mg/m³ value. "
+        "Explain what the reading implies for marine primary productivity and pelagic fish schools. "
+        "Note if near-shore values are indicative only due to satellite turbidity limitations. "
+        "State the SST–chlorophyll correlation and any thermal anomalies against the seasonal baseline."
+    ),
+    "ROUTE": (
+        "This is a SAFE ROUTE / VOYAGE PLANNING query. "
+        "Structure the response with sections: ### Route Overview, ### Hazards En Route, ### Recommended Timing. "
+        "Use bullet points within each section. State the departure and destination clearly. "
+        "List sea conditions along the route (wave height, wind speed/direction). "
+        "Highlight any zones to avoid (MPAs, restricted areas, shallow shoals, international boundaries). "
+        "Give best departure time window in IST. End with the single safest recommended passage in one sentence."
+    ),
+    "DIAGNOSTIC": (
+        "This is a FISH PRODUCTIVITY DECLINE diagnostic query. "
+        "Lead with whether decline is detected (yes/no) and the most impacted district. "
+        "Explain the primary environmental factors (SST thermal anomaly, chlorophyll depletion, absence of coastal upwelling) in clear terms. "
+        "Give the measured values for each factor. "
+        "State whether the decline is seasonal/temporary or anomalous. "
+        "Close with practical guidance: alternate fishing grounds or expected environmental recovery timeframe."
+    ),
+    "ZONES_TO_AVOID": (
+        "This is a ZONES TO AVOID / MARITIME BOUNDARY STANDOFF query. "
+        "List each boundary zone: International Maritime Boundary Line (IMBL), Marine Protected Areas (MPAs), and state fishing limits (0–12 NM). "
+        "State the exact standoff distance and compass bearing from the user's position in nautical miles (NM). "
+        "For the IMBL: emphasize zero-tolerance crossing warnings and consequences. "
+        "For MPAs: state fishing prohibition regulations. Use **bold** for immediate proximity warnings."
+    ),
+}
+
+
+def _get_query_type_guide(intents: list[str] | None, query_lower: str) -> str:
+    """Match the query to one of the 8 canonical types and return its format guide."""
+    if not intents:
+        intents = []
+    # Priority keyword match for the 8 canonical queries first
+    if any(w in query_lower for w in ("market price", "market rate", "prices for key fish", "price of fish", "fish price", "fish prices", "rates for key fish")):
+        return _QUERY_TYPE_FORMAT_GUIDE["MARKET_PRICES"]
+    if any(w in query_lower for w in ("3 day", "3-day", "three day", "next 3 days", "next few days", "trip over the next", "planned fishing trip")):
+        return _QUERY_TYPE_FORMAT_GUIDE["WEATHER_3DAY_TRIP"]
+    if any(w in query_lower for w in ("aggregation", "highest fish", "fish density", "highest biomass", "fish concentration")):
+        return _QUERY_TYPE_FORMAT_GUIDE["FISH_AGGREGATION"]
+    if any(w in query_lower for w in ("minimum fuel", "optimal route", "least fuel", "fuel efficient route", "route to the fishing zone")):
+        return _QUERY_TYPE_FORMAT_GUIDE["OPTIMAL_ROUTE"]
+    if any(w in query_lower for w in ("lightning", "cyclone", "alert", "storm alert", "squall alert")):
+        return _QUERY_TYPE_FORMAT_GUIDE["HAZARD_ALERTS"]
+    if any(w in query_lower for w in ("pfz", "potential fishing", "nearest zone", "fishing zone", "nearest pfz")):
+        return _QUERY_TYPE_FORMAT_GUIDE["PFZ_NEAREST"]
+    if any(w in query_lower for w in ("is it safe", "safe to venture", "safe tomorrow", "venture into the sea")):
+        return _QUERY_TYPE_FORMAT_GUIDE["SAFETY_CHECK"]
+    if any(w in query_lower for w in ("tide", "sea conditions", "weather and sea conditions", "weather near", "wave height")):
+        return _QUERY_TYPE_FORMAT_GUIDE["CONDITIONS"]
+
+    # Intent-based match next
+    intent_map = {
+        "PFZ_NEAREST": "PFZ_NEAREST",
+        "SAFETY_CHECK": "SAFETY_CHECK",
+        "CONDITIONS": "CONDITIONS",
+        "HAZARD_ALERTS": "HAZARD_ALERTS",
+        "ROUTE": "ROUTE",
+        "DIAGNOSTIC": "DIAGNOSTIC",
+        "ZONES_TO_AVOID": "ZONES_TO_AVOID",
+        "HISTORICAL": "DIAGNOSTIC",
+        "COUNTERFACTUAL": "CONDITIONS",
+        "COMPARISON": "CONDITIONS",
+    }
+    for intent in intents:
+        if intent in intent_map:
+            key = intent_map[intent]
+            if key in _QUERY_TYPE_FORMAT_GUIDE:
+                return _QUERY_TYPE_FORMAT_GUIDE[key]
+
+    # Secondary keyword fallback
+    if any(w in query_lower for w in ("chlorophyll", "sst", "sea surface temperature", "chl")):
+        return _QUERY_TYPE_FORMAT_GUIDE["CHLOROPHYLL_SST"]
+    if any(w in query_lower for w in ("route", "voyage", "safest path", "navigate")):
+        return _QUERY_TYPE_FORMAT_GUIDE["ROUTE"]
+    if any(w in query_lower for w in ("decline", "productivity", "catch", "why", "fish productivity")):
+        return _QUERY_TYPE_FORMAT_GUIDE["DIAGNOSTIC"]
+    if any(w in query_lower for w in ("avoid", "restricted", "boundary", "imbl", "geofence", "zone")):
+        return _QUERY_TYPE_FORMAT_GUIDE["ZONES_TO_AVOID"]
+    return ""  # General query — no specific format override
+
+
 def synthesize_narrative(
     query: str,
     verdict: dict[str, Any],
@@ -860,6 +1054,7 @@ def synthesize_narrative(
     session_history: list[dict[str, Any]] | None = None,
     engine_out: list[str] | None = None,
     critique: str | None = None,
+    matched_intents: list[str] | None = None,
 ) -> str:
     """Synthesizes a persona-tailored narrative using the mid-tier LLM.
 
@@ -905,10 +1100,28 @@ def synthesize_narrative(
         if r.status in ("ok", "degraded"):
             outputs_str = ", ".join(f"{k}={v}" for k, v in narration_view(r.outputs).items() if v is not None)
             facts.append(f"- {r.agent_name} ({r.source_provenance.dataset}): {outputs_str}")
+
+    # If query asks about fish market prices, add CMFRI coastal benchmark prices into facts
+    if any(w in query.lower() for w in ("market price", "price of fish", "fish price", "fish prices", "rates of fish", "prices for key fish", "market rate")):
+        try:
+            from orca.fishing_profit import load_priced_species
+            priced = load_priced_species()
+            if priced:
+                top_p = [f"{s['common_name']} ({s['scientific_name']}): ₹{s['price_low']:.0f}–{s['price_high']:.0f}/kg (mid ₹{s['price_mid']:.0f}/kg)" for s in priced[:8]]
+                facts.append(f"- CMFRI Landing Centre Benchmark Prices: {', '.join(top_p)}")
+        except Exception:
+            pass
     facts_block = "\n".join(facts) if facts else "No active sensor inputs."
 
     rendering_instruction = _PERSONA_RENDERING_INSTRUCTIONS.get(
         persona, _PERSONA_RENDERING_INSTRUCTIONS["fisherman"]
+    )
+
+    # Per-query-type format guide — the fisherman/researcher/etc. instruction
+    # tells the model HOW to speak; this tells it WHAT structure this question needs.
+    query_type_guide = _get_query_type_guide(matched_intents, query.lower())
+    query_format_block = (
+        f"\nQUERY TYPE FORMATTING:\n{query_type_guide}" if query_type_guide else ""
     )
 
     header_rule = (
@@ -923,11 +1136,7 @@ def synthesize_narrative(
         )
     )
 
-    # P2.5 — the second pass of a Critic loop. Present only when Agent 10
-    # found something and the graph routed the query back through a
-    # specialist; the re-synthesis has to answer it, and rule 8 below says so
-    # in the same breath as the rules that stop it answering it by softening a
-    # verdict or inventing a number.
+    # P2.5 — the second pass of a Critic loop.
     critique_block = (
         f"\nA REVIEWER FOUND THESE PROBLEMS WITH YOUR PREVIOUS ANSWER, and the relevant "
         f"measurements above have been re-read since:\n{critique}\n"
@@ -943,108 +1152,94 @@ def synthesize_narrative(
     context = conversation_context(session_history, user_location)
     conversation_block = f"\n{context}\n" if context else ""
 
-    prompt = f"""You are Sagar Sarathi, a marine safety advisor communicating critical advice to a {persona}. That is your only name: never give or invent another one.
+    prompt = f"""You are Sagar Sarathi, a marine intelligence assistant advising a {persona} about sea conditions off India's coast. That is your only name.
 
 USER QUERY: "{query}"
 {conversation_block}
 LOCATION THIS ADVICE IS FOR:
 {describe_location(user_location)}
 
-DETERMINISTIC SAFETY ASSESSMENT (ALREADY COMPUTED BY SAFETY RULES):
+SAFETY VERDICT (DETERMINISTIC — DO NOT ALTER):
 - VERDICT: {verdict_str}
 - REASON: {reason_str}
 
 MEASURED TELEMETRY & FACTS:
 {facts_block}
-{critique_block}
-CRITICAL RULES:
+{critique_block}{query_format_block}
+
+RESPONSE GUIDELINES:
+
 1. {header_rule}
-2. You MUST NOT alter, contradict, soften, or question the verdict. The arithmetic is final.
-3. Rendering for this persona: {rendering_instruction}
-4. Location honesty. Refer only to the location stated above. If the user named a
-   different place, do NOT present these readings as being for that place — say
-   plainly that you have no data for it and that the readings are for the location
-   stated above. Never name a place the location line does not name — except the nearest
-   port under CALLER'S CURRENT POSITION: if the user asks what is near them (e.g. the
-   nearest port), answer that FIRST from that line, with its distance, and only then mention
-   the readings above as being for the location stated above.
-5. Never mention agents, models, internal component names, or that you are an AI.
-6. Keep the tone calm, practical, direct, and authoritative for sea navigation. Do not use generic AI disclaimers.
-7. If EARLIER IN THIS CONVERSATION is present, treat USER QUERY as the next message in
-   that conversation: resolve follow-ups like "why?", "what about tomorrow?" or "is that
-   zone far?" against it, and don't repeat what was already said unless asked. You may
-   refer back to it naturally (e.g. "unlike this morning's caution...") — but never let
-   it override today's deterministic verdict or the location stated above, and never
-   re-use a number from it: every figure you give comes from MEASURED TELEMETRY above.
-9. Dated data. Items in MEASURED TELEMETRY may carry valid_for, age_days, recency and expired
-   (a sector's latest_advisory carries the same). recency "current": state it plainly.
-   recency "latest_held_not_today": the most recent copy ORCA holds, NOT today's: give its
-   date and age in days and say it is the latest available. recency "pointer_only_not_current":
-   a pointer to where conditions were, not a current position: give its date and age. When
-   expired is True the item is not current, whatever else it says: never call an expired
-   item fresh, current, active or up to date, and never invent a reason it still counts.
-   Never leave an old item out just because it is old — an old advisory is
-   still the best information there is. A sector with is_data_gap true has no advisory
-   today: always say today's reason in its message's words (e.g. cloud cover), and give
-   its latest_advisory if it has one. A data gap means ORCA has no reading, NOT that there
-   are no fishing zones — never say there are none. A nearest_pfz with beyond_reach true
-   is the nearest ORCA holds anywhere: give its distance and say nothing is held within
-   max_km, so it is beyond a day trip. A potential fishing zone is an INCOIS fishing
-   advisory, never a regulated, designated or restricted area.
-9a. Sea surface temperature and chlorophyll at the place: ocean_analytics carries sea_colour_readings_at_the_place when the
-   question asks about them. For each quantity give the HEADLINE reading: its value with unit, its source and its date (and age
-   in days). cross_checks are other products with a known, consistent offset (INSAT reads cooler than CMEMS, the 25 km EOS-06
-   chlorophyll far lower than the 4 km CMEMS near the coast): they are NOT contradictions, so do not say the sources disagree,
-   conflict or contradict, and do not list the cross-checks as competing answers. Do NOT quote a cross-check's value or source at all unless unusual_gap
-   is set (then use its words). Never use the words "headline" or "cross-check" in the answer: they are labels in the data, not
-   words for the reader. Give the reading as a plain sentence, e.g. "The sea surface temperature at Udupi is 26.5 °C (INSAT-3DR, 30 Sep, about 10 days old)". For chlorophyll give the level (low / moderate / high) with the value, and when near_shore_indicative
-   is true say that near the coast the satellite chlorophyll is only indicative. When there is no headline, say plainly that no
-   reading is held for that place; never say the data is "not tracked". Never use a reading from another place or date.
-10. Distances have an origin. A nearest fishing zone's distance_km and compass are measured
-   from its measured_from — say so ("32 km WSW of Mangalore"). Its landing_center is only
-   INCOIS's landmark for the zone; if you name it, use incois_reference for its distance
-   ("INCOIS lists it as 52-57 km NW of Kunzhathur"). Never pair one origin's distance or
-   direction with the other's place name.
-10b. State fishing boundaries & 12 NM territorial limits (MFRA):
-   Under Indian maritime law (Constitution Art. 297, State MFRAs, UNCLOS):
-   - India's territorial waters extend from baseline to 12 nautical miles (NM). Within this 0–12 NM zone,
-     each coastal state has exclusive regulatory jurisdiction over fisheries (e.g. Kerala MFRA 1980,
-     Tamil Nadu MFRA, Karnataka MFRA, Maharashtra MFRA, Gujarat MFRA, etc.).
-   - Fishermen licensed in their home state are permitted to fish strictly within their home state's
-     territorial waters (0–12 NM). Operating or fishing in another coastal state's 0–12 NM waters without
-     that state's explicit licence is an illegal boundary violation subject to interception and penalties.
-   - Nearshore waters (typically 0–3 NM to 0–5 NM from baseline) are reserved exclusively for traditional/artisanal
-     non-mechanised boats under MFRA; mechanised trawlers are legally barred from this zone.
-   - Beyond 12 NM out to 200 NM is the Exclusive Economic Zone (EEZ) governed uniformly by the Central Union Government.
-   - When answering requests for the nearest or best potential fishing zone (PFZ), always recommend zones
-     corresponding to the fisherman's registered home port and state territorial waters (confirming it is within their state's 0–12 NM premises),
-     and remind them to remain within their state's licensed boundary (0–12 NM) and observe traditional craft nearshore limits.
-10c. Target fish species: When answering any potential fishing zone (PFZ) or fish query, whenever nearest_pfz or ocean_analytics carries top_species,
-   always include the top 3 target fish species (both common names and scientific names) identified for that fishing zone.
-   Explicitly state that these species are based on CMFRI official commercial landings and OBIS marine depth records for this maritime sector and depth range.
-   Never invent or hallucinate random fish species not present in MEASURED TELEMETRY.
-10d. Wind conditions, anomalies & regional observations:
-   - When wind_anomaly indicates anomalous=True, state that the forecast peak wind is unusual (high/low) compared to the ERA5 monthly reference baseline at that port.
-   - When sector_disclosure is present, explicitly state that the fishing zone sector status was derived from the regional fallback position, not from the user's specific location.
-   - When explaining data sources, you may cite the source selection narrative provided under source_selections (e.g. why national official sources or fallbacks were selected).
-10e. Seasonal fishing ban (DoF uniform EEZ ban & State monsoon bans):
-   - When nearest_pfz or ocean_analytics carries fishing_ban and in_ban_period is True:
-     Explicitly alert the user that the uniform annual seasonal fishing ban is currently in force on that coast
-     (e.g., East Coast: 15 April to 14 June; West Coast: 1 June to 31 July).
-     Warn that mechanised fishing vessels are strictly prohibited in the EEZ beyond territorial waters
-     under the Department of Fisheries order, and state MFRA monsoon ban regulations govern coastal waters.
-     Traditional non-motorized craft are exempted under the order.
-10f. Convective weather, hazard warnings & lightning source agreement:
-   - When incois_hazard carries active warnings, explicitly mention the active INCOIS ocean state
-     warnings (e.g. High Wave Alert, Swell Surge Alert, or currents) in force for the coast/district.
-   - When imd_nowcast carries active, non-expired alerts (expired is False and alerts are present),
-     mention the active IMD district nowcast warnings and their severity (e.g. Orange/Yellow/Red alert)
-     for nearby coastal districts. Never report expired nowcasts as active.
-   - When lightning_source_agreement is "disagree", explicitly disclose that IMD district nowcasts
-     and Open-Meteo lightning proxy indicators disagree on convective risk in the area, and caution
-     that convective conditions should be treated conservatively as active.
-11. Times and timezones. Always express times in Indian Standard Time (IST). Never refer to UTC or reply with UTC timestamps — if any telemetry contains a UTC time, translate it to IST (+05:30) for the user.
-12. Language. Write the whole answer in English, whatever language or script USER QUERY is written in (romanized Hindi, Tamil, Kannada and so on included). USER QUERY may begin with an instruction about the reply language ("say it in Kannada:", "answer in Tamil", "Hindi mein batao"). That instruction is NOT part of the question and NOT a text to translate: answer the sea question that follows it, in full, with the measured facts. Never translate, quote or repeat the question as your answer, and do NOT mention the language request or apologise for it: it is carried out by a translation step that runs after you, on your English. Do not reply in the user's language, do not transliterate, and do not mix languages: the answer is checked, and one that is not English is thrown away.{critique_rule}"""
+
+2. NEVER alter, soften, contradict, or question the safety verdict above. It is computed by deterministic rules and is final.
+
+3. PERSONA & FORMAT:
+{rendering_instruction}
+
+4. LOCATION HONESTY:
+   - Only refer to the location stated in LOCATION THIS ADVICE IS FOR.
+   - If the user named a different place, say plainly you have no data for it and that these readings are for the stated location.
+   - Never name a place the location line does not name — except the nearest port under CALLER'S CURRENT POSITION.
+   - If the user asks about what is near them, answer from CALLER'S CURRENT POSITION first, then note the readings are for the resolved location.
+
+5. PROFESSIONALISM:
+   - Tone: calm, direct, confident, authoritative. No hedging language like "it seems", "you might want to", "perhaps consider".
+   - Never mention agents, models, system components, or that you are an AI.
+   - No generic disclaimers. State what you know, note data age where relevant, and be done.
+
+6. CONVERSATION CONTINUITY:
+   - If EARLIER IN THIS CONVERSATION is present, treat USER QUERY as the next message in that thread.
+   - Resolve follow-ups ("why?", "what about tomorrow?", "how far is that zone?") against what was said.
+   - Do not repeat information already given unless asked. Refer back naturally when helpful.
+   - Never reuse a measurement from earlier turns — every figure comes from MEASURED TELEMETRY above.
+
+7. DATA HONESTY:
+   - recency "current": state it plainly as today's reading.
+   - recency "latest_held_not_today": give the date and age in days, say it is the latest available.
+   - recency "pointer_only_not_current": give the date, say it points to where conditions were, not where they are now.
+   - expired=True: never call it fresh, current, or active. It is old but still the best information held.
+   - is_data_gap=True (sector): say today there is no advisory (e.g. due to cloud cover) and give the latest held if available. A data gap is NOT absence of fishing zones.
+   - beyond_reach=True (PFZ): give the distance and say nothing is held within max_km, making it beyond a day trip.
+   - A potential fishing zone is an INCOIS advisory — never a regulated, designated, or restricted area.
+
+8. SST & CHLOROPHYLL (when asked):
+   - Give the HEADLINE reading: value + unit + sensor name + observation date + age in days.
+   - Do not quote cross-check values unless unusual_gap is set.
+   - Do not use the words "headline" or "cross-check" — they are internal labels.
+   - For chlorophyll: state the level (low/moderate/high) and value. If near_shore_indicative, say near-coast values are indicative only.
+   - If no reading is held, say so plainly. Never say the data is "not tracked".
+
+9. DISTANCES:
+   - A nearest fishing zone's distance and compass come from measured_from — say so ("32 km WSW of Mangalore").
+   - Never mix one origin's distance with another's place name.
+   - IMBL and boundary distances are in nautical miles (nm). PFZ distances in km.
+
+10. INDIAN MARITIME LAW:
+    - Territorial waters: 0–12 NM — state jurisdiction, state fishing licence required.
+    - Nearshore 0–3 NM to 0–5 NM: reserved for artisanal craft only. Mechanised trawlers prohibited.
+    - EEZ: 12–200 NM — Central Government jurisdiction.
+    - For PFZ queries: confirm zone is within home state's 0–12 NM if applicable; remind about state licence boundary.
+    - Seasonal fishing ban (in_ban_period=True): alert clearly before anything else. State the coast, window, and that mechanised vessels are banned beyond territorial waters.
+
+11. FISH SPECIES (for PFZ queries):
+    - Always list top 3 species when top_species is in the data.
+    - Format: common name (scientific name) — both required.
+    - State they are based on CMFRI landings and OBIS depth records for this sector.
+    - Never invent species not in MEASURED TELEMETRY.
+
+12. ALERTS & HAZARD WARNINGS:
+    - Active INCOIS ocean state warnings (High Wave Alert, Swell Surge Alert): mention explicitly.
+    - Active IMD district nowcast alerts: mention severity (Red/Orange/Yellow). Never report expired nowcasts as active.
+    - lightning_source_agreement="disagree": disclose that IMD and Open-Meteo disagree; treat conservatively as active.
+
+13. TIME:
+    - All times in Indian Standard Time (IST). Convert UTC times (+05:30).
+    - Never output UTC timestamps to the user.
+
+14. LANGUAGE:
+    - Write entirely in English, regardless of the query language.
+    - If USER QUERY begins with a language instruction ("answer in Tamil", "Hindi mein batao"), ignore the instruction — answer the sea question in English. A translation step runs after you.
+    - Do not transliterate or mix scripts.{critique_rule}"""
 
     try:
         narrative = client.complete([{"role": "user", "content": prompt}]).strip()

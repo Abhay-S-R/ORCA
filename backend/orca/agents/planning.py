@@ -40,25 +40,30 @@ class RoutingRow:
 ROUTING_TABLE: tuple[RoutingRow, ...] = (
     RoutingRow(
         "SAFETY_CHECK",
-        ("safe to go to sea", "safe to fish", "venture into sea", "is it safe", "go to sea today", "go to sea tomorrow"),
+        ("safe to go to sea", "safe to fish", "venture into sea", "is it safe", "go to sea today", "go to sea tomorrow",
+         "safe to venture", "venture into the sea", "venture into the sea tomorrow", "safe tomorrow morning", "safe tomorrow", "is it safe to venture"),
         ("marine_data_discovery", "weather_intelligence", "ocean_analytics", "risk_assessment", "visualization"),
     ),
     RoutingRow(
         "PFZ_NEAREST",
         ("nearest pfz", "fishing zone", "persistent fishing zone", "where to fish", "potential fishing", "best fishing zone", "best pfz", "best zone", "best fishing", "where can i fish", "pfz in my state", "fishing in my state", "show me pfz", "find pfz", "fishing boundary", "state fishing limit",
          "what fish", "which fish", "types of fish", "fish species", "target species", "what to catch", "what can i catch",
-         "fish in zone", "fish in pfz", "fishes in zone", "type of fishes"),
+         "fish in zone", "fish in pfz", "fishes in zone", "type of fishes",
+         "potential fishing zone", "nearest potential fishing zone", "pfz today", "highest fish aggregation", "fish aggregation", "fish aggregation right now", "aggregation right now", "fish concentration", "highest aggregation",
+         "market prices for key fish", "market price", "market prices", "price of fish", "fish price", "fish prices", "rates of fish", "price today"),
         ("marine_data_discovery", "ocean_analytics", "geospatial", "visualization"),
     ),
     RoutingRow(
         "CONDITIONS",
         ("tide", "sea conditions", "current conditions", "wave height", "wind speed", "forecast",
-         "weather in", "weather at", "weather for", "weather near", "weather today", "weather tomorrow", "the weather like"),
+         "weather in", "weather at", "weather for", "weather near", "weather today", "weather tomorrow", "the weather like",
+         "tide, weather", "weather and sea conditions", "near my fishing location", "changing weather", "next 3 days", "3-day forecast", "planned fishing trip", "trip over the next 3 days"),
         ("marine_data_discovery", "weather_intelligence", "ocean_analytics", "visualization"),
     ),
     RoutingRow(
         "HAZARD_ALERTS",
-        ("lightning", "cyclone", "storm alert", "hazard warning", "weather warning"),
+        ("lightning", "cyclone", "storm alert", "hazard warning", "weather warning",
+         "lightning or cyclone", "cyclone alerts", "alerts in my area", "lightning alerts"),
         ("weather_intelligence", "risk_assessment", "visualization"),
     ),
     RoutingRow(
@@ -68,7 +73,8 @@ ROUTING_TABLE: tuple[RoutingRow, ...] = (
     ),
     RoutingRow(
         "ROUTE",
-        ("safest route", "route from", "route to", "passage from", "voyage from", "plan a voyage", "plan my route", "navigate from"),
+        ("safest route", "route from", "route to", "passage from", "voyage from", "plan a voyage", "plan my route", "navigate from",
+         "optimal route", "minimum fuel", "optimal route to the fishing zone", "route to the fishing zone with minimum fuel", "least fuel", "fuel efficient route"),
         ("geospatial", "weather_intelligence", "risk_assessment", "visualization"),
     ),
     RoutingRow(

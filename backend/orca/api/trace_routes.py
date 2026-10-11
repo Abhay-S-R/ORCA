@@ -244,6 +244,15 @@ def _reasoning_summary(
         intents = outputs.get("matched_intent_rows") or []
         intent_str = intents[0] if intents else "STANDARD"
         return f"Intent {intent_str} · Fanned out to 3 specialist agents"
+    if agent_name in ("marine_data_discovery", "discovery"):
+        sels = outputs.get("source_selections") or []
+        n = len(sels)
+        unusable = outputs.get("unusable_data_types") or []
+        if unusable and n:
+            return f"Identified {n} verified marine sources ({len(unusable)} unavailable)"
+        if n:
+            return f"Identified {n} verified marine data source{'s' if n != 1 else ''}"
+        return "Relevant marine data sources identified"
     if agent_name == "risk_assessment":
         return f"{outputs.get('go_no_go', '?')}: {outputs.get('reason', 'no reason recorded')}"
     if agent_name == "geospatial":
