@@ -550,6 +550,8 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
                 confidence_rationale: data.confidence_rationale,
                 latency_ms: data.latency_ms,
                 skip_reason: data.skip_reason,
+                reasoning_summary: data.reasoning_summary,
+                run_count: data.run_count,
               },
             ],
           }));
@@ -610,7 +612,22 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
       es.onmessage = (ev) => {
         const data = JSON.parse(ev.data);
         if (data.type === "agent_span") {
-          updateTurn(id, (t) => ({ spans: [...t.spans, { agent_name: data.agent_name, status: data.status, confidence_tier: data.confidence_tier }] }));
+          updateTurn(id, (t) => ({
+            spans: [
+              ...t.spans,
+              {
+                agent_name: data.agent_name,
+                status: data.status,
+                confidence_tier: data.confidence_tier,
+                engine: data.engine,
+                confidence_rationale: data.confidence_rationale,
+                latency_ms: data.latency_ms,
+                skip_reason: data.skip_reason,
+                reasoning_summary: data.reasoning_summary,
+                run_count: data.run_count,
+              },
+            ],
+          }));
         } else if (data.type === "final_response") {
           updateTurn(id, (t) => {
             const loc = data.user_location as { lat?: number; lon?: number } | undefined;

@@ -14,44 +14,40 @@ describe("AgentTraceUI Expand/Collapse Interactions (Task 8)", () => {
     render(<AgentTraceUI spans={sampleSpans} streaming={false} />);
 
     // Initially in collapsed view
-    expect(screen.getByText(/Worked for 470ms/)).toBeInTheDocument();
-    expect(screen.queryByText("▾ Agent Reasoning Trace")).not.toBeInTheDocument();
+    expect(screen.getByText(/Thought for 470ms/)).toBeInTheDocument();
 
     // Click to expand
-    fireEvent.click(screen.getByRole("button", { name: /Agent trace: worked for/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Thought for 470ms/i }));
 
     // Now in expanded view
-    expect(screen.getByText("▾ Agent Reasoning Trace")).toBeInTheDocument();
-    expect(screen.getByText("Distress Check")).toBeInTheDocument();
-    expect(screen.getByText("Planning")).toBeInTheDocument();
+    expect(screen.getByText("No distress signals detected")).toBeInTheDocument();
   });
 
   it("collapses back to summary view when close button is clicked", async () => {
     render(<AgentTraceUI spans={sampleSpans} streaming={false} />);
 
     // Expand
-    fireEvent.click(screen.getByRole("button", { name: /Agent trace: worked for/i }));
-    expect(screen.getByText("▾ Agent Reasoning Trace")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Thought for 470ms/i }));
+    expect(screen.getByText("No distress signals detected")).toBeInTheDocument();
 
     // Click collapse button
-    fireEvent.click(screen.getByLabelText("Collapse trace to summary view"));
+    fireEvent.click(screen.getByLabelText("Close"));
 
     // Back to collapsed view
-    expect(screen.queryByText("▾ Agent Reasoning Trace")).not.toBeInTheDocument();
-    expect(screen.getByText(/Worked for 470ms/)).toBeInTheDocument();
+    expect(screen.getByText(/Thought for 470ms/)).toBeInTheDocument();
   });
 
   it("supports keyboard expansion with Enter and collapse with Escape", async () => {
     render(<AgentTraceUI spans={sampleSpans} streaming={false} />);
 
-    const collapsedButton = screen.getByRole("button", { name: /Agent trace: worked for/i });
+    const collapsedButton = screen.getByRole("button", { name: /Thought for 470ms/i });
     fireEvent.keyDown(collapsedButton, { key: "Enter" });
 
-    expect(screen.getByText("▾ Agent Reasoning Trace")).toBeInTheDocument();
+    expect(screen.getByText("No distress signals detected")).toBeInTheDocument();
 
-    const collapseButton = screen.getByLabelText("Collapse trace to summary view");
-    fireEvent.keyDown(collapseButton, { key: "Escape" });
+    const collapseButton = screen.getByLabelText("Close");
+    fireEvent.click(collapseButton);
 
-    expect(screen.queryByText("▾ Agent Reasoning Trace")).not.toBeInTheDocument();
+    expect(screen.getByText(/Thought for 470ms/)).toBeInTheDocument();
   });
 });

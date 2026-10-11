@@ -64,6 +64,8 @@ export interface AgentSpan {
   engine?: string;
   skip_reason?: string | null;
   run_count?: number;
+  reasoning_summary?: string | null;
+  confidence_rationale?: string | null;
 }
 
 /**
@@ -96,6 +98,8 @@ export interface AgentTraceExpandedProps {
   streaming: boolean;
   /** Total execution time in milliseconds */
   totalTimeMs?: number;
+  /** Active pipeline action description */
+  activeAction?: string;
   /** Callback when user clicks to collapse */
   onCollapse: () => void;
 }
@@ -151,6 +155,9 @@ const PARALLEL_SPECIALISTS = new Set([
 /**
  * Convert AgentSpan array to a simplified TraceGraph for streaming updates
  */
+/**
+ * Convert AgentSpan array to a simplified TraceGraph for streaming updates
+ */
 function spansToTraceGraph(spans: AgentSpan[]): TraceGraph {
   const nodes: import("../reasoning/fixture").TraceNode[] = spans.map((span, index) => ({
     id: `${span.agent_name}-${index}`,
@@ -159,9 +166,12 @@ function spansToTraceGraph(spans: AgentSpan[]): TraceGraph {
     status: span.status,
     confidence_tier: span.confidence_tier as any,
     latency_ms: span.latency_ms ?? 0,
-    reasoning_summary: "",
+    reasoning_summary: span.reasoning_summary ?? "",
     source_count: 0,
-    used_llm: false,
+    used_llm:
+      span.agent_name === "planning" ||
+      span.agent_name === "reporting" ||
+      span.agent_name === "critic",
     model: null,
     tier: null,
     engine: span.engine,
@@ -169,20 +179,49 @@ function spansToTraceGraph(spans: AgentSpan[]): TraceGraph {
     run_count: span.run_count ?? 1,
   }));
 
-  // Identify parallel specialist agents to group together
-  const specialistNodeIds = nodes
+  // Group 1: weather, geospatial, ocean (initial run only)
+  const group1NodeIds = nodes
     .filter((_, idx) => {
-      const rawSpan = spans[idx];
-      return PARALLEL_SPECIALISTS.has(rawSpan.agent_name.toLowerCase());
+      const a = spans[idx].agent_name.toLowerCase();
+      const runCount = spans[idx].run_count ?? 1;
+      return (
+        runCount === 1 &&
+        (a === "weather_intelligence" ||
+          a === "weather" ||
+          a === "geospatial" ||
+          a === "ocean_analytics" ||
+          a === "ocean")
+      );
+    })
+    .map((n) => n.id);
+
+  // Group 2: risk, visualization (initial run only)
+  const group2NodeIds = nodes
+    .filter((_, idx) => {
+      const a = spans[idx].agent_name.toLowerCase();
+      const runCount = spans[idx].run_count ?? 1;
+      return (
+        runCount === 1 &&
+        (a === "risk_assessment" ||
+          a === "risk" ||
+          a === "visualization")
+      );
     })
     .map((n) => n.id);
 
   const groups: import("../reasoning/fixture").TraceGroup[] = [];
-  if (specialistNodeIds.length > 0) {
+  if (group1NodeIds.length > 0) {
     groups.push({
-      id: "parallel-specialists",
+      id: "parallel-weather-ocean",
       reason: "parallel_fanout",
-      node_ids: specialistNodeIds,
+      node_ids: group1NodeIds,
+    });
+  }
+  if (group2NodeIds.length > 0) {
+    groups.push({
+      id: "parallel-risk-vis",
+      reason: "parallel_fanout",
+      node_ids: group2NodeIds,
     });
   }
 
@@ -196,12 +235,126 @@ function spansToTraceGraph(spans: AgentSpan[]): TraceGraph {
     });
   }
 
+  // Detect critic loops (e.g. Geospatial re-invoked with run_count > 1)
+  for (let i = 0; i < nodes.length; i++) {
+    if ((nodes[i].run_count ?? 1) > 1 && nodes[i].agent_name !== "Critic") {
+      for (let j = i - 1; j >= 0; j--) {
+        if (nodes[j].agent_name === "Critic") {
+          edges.push({
+            from: nodes[j].id,
+            to: nodes[i].id,
+            kind: "critic_loop",
+            label: "Refining analysis",
+          });
+          break;
+        }
+      }
+    }
+  }
+
   return {
     query_id: "",
     nodes,
     edges,
     groups,
   };
+}
+
+export function getActivePipelineAction(spans: AgentSpan[]): string {
+  if (!spans || spans.length === 0) {
+    return "Scanning for distress signals…";
+  }
+
+  const validSpans = spans.filter((s) => s.status !== "skipped" && s.status !== "cancelled");
+  const completedAgentNames = new Set(validSpans.map((s) => s.agent_name.toLowerCase()));
+  const lastSpan = validSpans[validSpans.length - 1];
+
+  // 1. Distress check
+  if (!completedAgentNames.has("distress_check") && !completedAgentNames.has("distress")) {
+    return "Scanning for distress signals…";
+  }
+
+  // 2. Planning
+  if (!completedAgentNames.has("planning")) {
+    return "Analyzing the query and planning my approach…";
+  }
+
+  // 3. Specialists Group 1 (Weather, Geospatial, Ocean)
+  const hasGathering1 =
+    completedAgentNames.has("weather_intelligence") ||
+    completedAgentNames.has("weather");
+  const hasGathering2 = completedAgentNames.has("geospatial");
+  const hasGathering3 =
+    completedAgentNames.has("ocean_analytics") ||
+    completedAgentNames.has("ocean");
+  const finishedGroup1 = hasGathering1 && hasGathering2 && hasGathering3;
+
+  if (!finishedGroup1) {
+    return "Gathering weather and sea conditions, geospatial information, and ocean conditions…";
+  }
+
+  // 4. Specialists Group 2 (Risk, Visualization)
+  const hasRisk = completedAgentNames.has("risk_assessment") || completedAgentNames.has("risk");
+  const hasVis = completedAgentNames.has("visualization");
+  const finishedGroup2 = hasRisk && hasVis;
+
+  if (!finishedGroup2) {
+    return "Evaluating risks and preparing map visualizations…";
+  }
+
+  // Count how many times reporting and critic ran
+  const reportingSpans = validSpans.filter((s) => s.agent_name.toLowerCase() === "reporting");
+  const criticSpans = validSpans.filter((s) => s.agent_name.toLowerCase() === "critic");
+  const reinvokedSpans = validSpans.filter(
+    (s) => (s.run_count ?? 1) > 1 && s.agent_name.toLowerCase() !== "critic"
+  );
+
+  // 5. If reporting has not run yet:
+  if (reportingSpans.length === 0) {
+    return "Compiling my findings…";
+  }
+
+  // 6. If reporting ran once, but critic has not run:
+  if (criticSpans.length === 0) {
+    return "Reviewing and validating the findings…";
+  }
+
+  // 7. Critic ran. Check if critic found issues or triggered reinvocation:
+  const firstCritic = criticSpans[0];
+  const summaryLower = (firstCritic.reasoning_summary ?? "").toLowerCase();
+  const hadIssues = summaryLower.includes("issue") || reinvokedSpans.length > 0;
+
+  if (hadIssues) {
+    // If reinvoked specialist has not completed yet:
+    if (reinvokedSpans.length === 0) {
+      return "Requesting Geospatial to refine its analysis…";
+    }
+
+    // If reporting second pass hasn't run:
+    if (reportingSpans.length < 2) {
+      const reinvokedName = AGENT_LABEL[reinvokedSpans[0].agent_name] ?? reinvokedSpans[0].agent_name;
+      if (lastSpan && lastSpan.agent_name.toLowerCase() === reinvokedSpans[0].agent_name.toLowerCase()) {
+        return `Requesting ${reinvokedName} to refine its analysis…`;
+      }
+      return "Compiling my findings…";
+    }
+
+    // If critic second pass hasn't run:
+    if (criticSpans.length < 2) {
+      return "Reviewing and validating the findings…";
+    }
+  }
+
+  // 8. Translation (only if query was vernacular):
+  const ingressSpan = validSpans.find((s) => s.agent_name.toLowerCase().includes("ingress"));
+  const ingressSummary = (ingressSpan?.reasoning_summary ?? "").toLowerCase();
+  const isVernacular = ingressSummary.length > 0 && !ingressSummary.includes("en") && !ingressSummary.includes("passthrough");
+
+  if (isVernacular && !completedAgentNames.has("language_egress")) {
+    return "Translating the response…";
+  }
+
+  return "Reviewing and validating the findings…";
 }
 
 // ============================================================================
@@ -309,15 +462,8 @@ export function AgentTraceUI({
     if (!streaming) {
       return `Thought for ${formatDuration(totalTimeMs)}`;
     }
-    if (narrativeLines.length === 0) {
-      return "Thinking…";
-    }
-    const runningLine = narrativeLines.find((l) => l.running);
-    if (runningLine) {
-      return runningLine.text;
-    }
-    return narrativeLines[narrativeLines.length - 1].text;
-  }, [streaming, narrativeLines, totalTimeMs]);
+    return getActivePipelineAction(spans);
+  }, [streaming, spans, totalTimeMs]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const collapsedButtonRef = useRef<HTMLButtonElement>(null);
@@ -524,6 +670,7 @@ export function AgentTraceUI({
                 traceGraph={activeGraph}
                 streaming={streaming}
                 totalTimeMs={totalTimeMs}
+                activeAction={currentText}
                 onCollapse={handleCollapse}
                 closeButtonRef={closeButtonRef}
               />

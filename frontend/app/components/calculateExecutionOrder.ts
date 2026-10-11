@@ -118,13 +118,19 @@ export function calculateExecutionOrder(graph: TraceGraph): OrderedStep[] {
       // Add group end marker
       ordered.push({ type: "group_end", groupId });
       
-      // Continue traversal from the first node in the group
-      // (all parallel nodes should have the same outgoing edges)
-      const outgoingEdges = adjacency.get(nodeId) || [];
-      for (const edge of outgoingEdges) {
-        if (edge.kind === "handoff") {
-          visit(edge.to, indent);
+      // Continue traversal from all nodes in the group to any downstream node outside the group
+      const groupNodeIdSet = new Set(groupNodeIds);
+      const nextNodeIds = new Set<string>();
+      for (const pId of groupNodeIds) {
+        const out = adjacency.get(pId) || [];
+        for (const edge of out) {
+          if (!groupNodeIdSet.has(edge.to) && edge.kind === "handoff") {
+            nextNodeIds.add(edge.to);
+          }
         }
+      }
+      for (const nextId of nextNodeIds) {
+        visit(nextId, indent);
       }
     } else if (groupId && processedGroups.has(groupId)) {
       // This node was already processed as part of its parallel group
@@ -147,7 +153,7 @@ export function calculateExecutionOrder(graph: TraceGraph): OrderedStep[] {
           const targetName = AGENT_LABEL[targetNode.agent_name] ?? AGENT_LABEL[targetNode.id] ?? targetNode.agent_name;
           ordered.push({
             type: "critic_reinvoke",
-            label: `Requesting ${targetName} to refine its analysis`,
+            label: criticLoopEdges[0].label || `Requesting ${targetName} to refine its analysis`,
             indent: indent + 1,
           });
           
@@ -171,6 +177,24 @@ export function calculateExecutionOrder(graph: TraceGraph): OrderedStep[] {
   
   // Start traversal from root node
   visit(root.id, 0);
+
+  // Safety guard: ensure any node in graph that wasn't reached by edges
+  // (e.g. streaming graphs or loose edges) is still visited and never dropped,
+  // excluding nodes that were targets of cancelled edges or marked skipped/cancelled
+  const cancelledTargets = new Set(
+    graph.edges.filter((e) => e.kind === "cancelled").map((e) => e.to)
+  );
+  for (const node of graph.nodes) {
+    if (
+      !visited.has(node.id) &&
+      !cancelledTargets.has(node.id) &&
+      node.status !== "cancelled" &&
+      node.status !== "skipped"
+    ) {
+      visited.add(node.id);
+      ordered.push({ type: "step", node, indent: 0 });
+    }
+  }
   
   return ordered;
 }

@@ -60,8 +60,7 @@ describe("AgentTraceUI Container & Data Fetching (Task 10)", () => {
       />
     );
 
-    expect(screen.getByText("Worked for 210ms")).toBeInTheDocument();
-    expect(screen.queryByText("▾ Agent Reasoning Trace")).not.toBeInTheDocument();
+    expect(screen.getByText("Thought for 210ms")).toBeInTheDocument();
   });
 
   it("fetches trace data on expand and integrates with adaptTraceGraph", async () => {
@@ -84,7 +83,7 @@ describe("AgentTraceUI Container & Data Fetching (Task 10)", () => {
     fireEvent.click(screen.getByRole("button"));
 
     await waitFor(() => {
-      expect(screen.getByText("▾ Agent Reasoning Trace")).toBeInTheDocument();
+      expect(screen.getByText("Thought for 0ms")).toBeInTheDocument();
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
@@ -92,8 +91,8 @@ describe("AgentTraceUI Container & Data Fetching (Task 10)", () => {
       expect.any(Object)
     );
 
-    expect(screen.getByText("Distress Check")).toBeInTheDocument();
-    expect(screen.getByText("Planning")).toBeInTheDocument();
+    expect(screen.getByText("No distress indicators detected")).toBeInTheDocument();
+    expect(screen.getByText("Generated 3-stage execution plan")).toBeInTheDocument();
   });
 
   it("displays loading skeleton state while fetching trace data", async () => {
@@ -124,7 +123,7 @@ describe("AgentTraceUI Container & Data Fetching (Task 10)", () => {
 
     await waitFor(() => {
       expect(screen.queryByRole("status", { name: /loading trace data/i })).not.toBeInTheDocument();
-      expect(screen.getByText("Distress Check")).toBeInTheDocument();
+      expect(screen.getByText("No distress indicators detected")).toBeInTheDocument();
     });
   });
 
@@ -171,8 +170,8 @@ describe("AgentTraceUI Container & Data Fetching (Task 10)", () => {
     fireEvent.click(screen.getByRole("button"));
 
     await waitFor(() => {
-      expect(screen.getByText("▾ Agent Reasoning Trace")).toBeInTheDocument();
-      expect(screen.getByText("Distress Check")).toBeInTheDocument();
+      expect(screen.getByText("Thought for 180ms")).toBeInTheDocument();
+      expect(screen.getByText("No distress signals detected")).toBeInTheDocument();
     });
   });
 });

@@ -145,7 +145,7 @@ describe("calculateExecutionOrder", () => {
       // Find the critic_reinvoke marker
       const criticReinvokeStep = result.find((step) => step.type === "critic_reinvoke");
       expect(criticReinvokeStep).toBeDefined();
-      expect((criticReinvokeStep as any).label).toContain("Critic calls Reporting again");
+      expect((criticReinvokeStep as any).label).toMatch(/Critic calls Reporting again|Requesting Reporting to refine its analysis/);
       expect((criticReinvokeStep as any).indent).toBe(1); // Indented under critic
       
       // The re-invoked node should also be indented

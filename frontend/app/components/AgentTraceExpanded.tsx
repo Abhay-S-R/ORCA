@@ -2,10 +2,10 @@
 
 // AgentTraceExpanded — Human-like narrative trace for Sagar Sarathi
 //
-// Each agent step is narrated as a natural language sentence describing
-// WHAT the system is doing, not which component is running.
-// Font size and style matches the response typography (text-sm leading-relaxed).
-// Active steps feature a left-to-right text shimmer loading animation.
+// Matches response typography (text-sm leading-relaxed).
+// Shows natural narrative progression and real LLM reasoning summaries.
+// Omits translation ingress/egress for Latin/English queries.
+// Active running step displays with pulsing teal dot and left-to-right text shimmer.
 
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -18,6 +18,7 @@ export interface AgentTraceExpandedProps {
   traceGraph: TraceGraph;
   streaming: boolean;
   totalTimeMs?: number;
+  activeAction?: string;
   onCollapse: () => void;
   closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
 }
@@ -125,7 +126,37 @@ export function getNarrative(node: TraceNode): AgentNarrative | undefined {
 }
 
 export function didRun(node: TraceNode): boolean {
-  return node.status !== "skipped" && node.status !== "cancelled";
+  if (node.status === "skipped" || node.status === "cancelled") {
+    return false;
+  }
+
+  // Language Ingress & Language Egress:
+  // If the query was in English / Latin script, no translation was performed.
+  // ONLY display language ingress/egress if actual translation ran!
+  const name = getDisplayName(node);
+  const idLower = node.id.toLowerCase();
+  const agentLower = node.agent_name.toLowerCase();
+
+  if (
+    name === "Language Ingress" ||
+    name === "Language Egress" ||
+    idLower.includes("language") ||
+    agentLower.includes("language")
+  ) {
+    const engineLower = (node.engine ?? "").toLowerCase();
+    const summaryLower = (node.reasoning_summary ?? "").toLowerCase();
+    if (
+      engineLower.includes("no translation") ||
+      engineLower.includes("passthrough") ||
+      summaryLower.includes("language: en") ||
+      summaryLower.includes("passthrough") ||
+      summaryLower.includes("already english")
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export function isRunning(node: TraceNode, streaming: boolean, isLast: boolean): boolean {
@@ -134,8 +165,16 @@ export function isRunning(node: TraceNode, streaming: boolean, isLast: boolean):
 }
 
 export function getDoneText(node: TraceNode, narrative: AgentNarrative | undefined): string {
-  if (node.used_llm && node.reasoning_summary && node.reasoning_summary.trim()) {
-    return node.reasoning_summary;
+  const summary = node.reasoning_summary?.trim();
+  // Filter out raw Python dict/list dumps (e.g. source_selections=[...])
+  if (
+    summary &&
+    !summary.startsWith("source_selections=") &&
+    !summary.startsWith("{") &&
+    !summary.startsWith("[") &&
+    !summary.includes("=[{")
+  ) {
+    return summary;
   }
   return narrative?.done ?? `${getDisplayName(node)} complete`;
 }
@@ -189,22 +228,30 @@ export function stepToNarrative(
     case "group_start": {
       const activities: string[] = [];
       let anyRunning = false;
+      let hasRiskOrVis = false;
       for (let i = index + 1; i < allSteps.length; i++) {
         const s = allSteps[i];
         if (s.type === "group_end") break;
         if (s.type === "step" && didRun(s.node)) {
           const n = getNarrative(s.node);
-          activities.push(n?.activity ?? getDisplayName(s.node).toLowerCase());
+          const dName = getDisplayName(s.node);
+          if (dName === "Risk Assessment" || dName === "Visualization") {
+            hasRiskOrVis = true;
+          }
+          activities.push(n?.activity ?? dName.toLowerCase());
           if (isRunning(s.node, streaming, i === allSteps.length - 1)) {
             anyRunning = true;
           }
         }
       }
       if (activities.length === 0) return null;
+
+      const groupPhrase = hasRiskOrVis
+        ? `Evaluating risks and preparing map visualizations`
+        : `Gathering ${joinNatural(activities)}`;
+
       return {
-        text: anyRunning
-          ? `Gathering ${joinNatural(activities)}…`
-          : `Gathering ${joinNatural(activities)}`,
+        text: anyRunning ? `${groupPhrase}…` : groupPhrase,
         running: anyRunning,
       };
     }
@@ -264,12 +311,20 @@ export function AgentTraceExpanded({
   traceGraph,
   streaming,
   totalTimeMs,
+  activeAction,
   onCollapse,
   closeButtonRef,
 }: AgentTraceExpandedProps) {
   const narrativeLines = React.useMemo(() => {
     return getNarrativeLines(traceGraph, streaming);
   }, [traceGraph, streaming]);
+
+  // Show active pipeline step at the bottom while streaming
+  const showActivePipelineStep =
+    streaming &&
+    Boolean(activeAction) &&
+    !narrativeLines.some((l) => l.running) &&
+    !narrativeLines.some((l) => l.text === activeAction);
 
   return (
     <section
@@ -338,11 +393,13 @@ export function AgentTraceExpanded({
           ))}
         </AnimatePresence>
 
-        {/* Fallback streaming indicator */}
-        {streaming && narrativeLines.length > 0 && !narrativeLines.some((l) => l.running) && (
+        {/* Active streaming pipeline step */}
+        {showActivePipelineStep && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            key="active-step"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
             className="flex items-start gap-2.5 py-0.5"
           >
             <span className="relative flex size-2 shrink-0 mt-1.5">
@@ -350,7 +407,7 @@ export function AgentTraceExpanded({
               <span className="relative inline-flex size-2 rounded-full bg-ocean-cyan" />
             </span>
             <span className="text-sm leading-relaxed text-shimmer font-medium">
-              Processing…
+              {activeAction}
             </span>
           </motion.div>
         )}

@@ -35,13 +35,11 @@ describe("AgentTraceExpanded", () => {
     const graph: TraceGraph = {
       query_id: "test-order",
       nodes: [
-        createNode("distress", "distress", 0),
-        createNode("language_ingress", "language_ingress", 1),
-        createNode("planning", "planning", 2),
+        createNode("distress", "distress", 0, { reasoning_summary: "No distress indicators detected" }),
+        createNode("planning", "planning", 1, { reasoning_summary: "Generated 3-stage execution plan" }),
       ],
       edges: [
-        { from: "distress", to: "language_ingress", kind: "handoff" },
-        { from: "language_ingress", to: "planning", kind: "handoff" },
+        { from: "distress", to: "planning", kind: "handoff" },
       ],
       groups: [],
     };
@@ -54,12 +52,11 @@ describe("AgentTraceExpanded", () => {
       />
     );
 
-    expect(screen.getByText("Distress Check")).toBeInTheDocument();
-    expect(screen.getByText("Language Ingress")).toBeInTheDocument();
-    expect(screen.getByText("Planning")).toBeInTheDocument();
+    expect(screen.getByText("No distress indicators detected")).toBeInTheDocument();
+    expect(screen.getByText("Generated 3-stage execution plan")).toBeInTheDocument();
   });
 
-  it("renders parallel agent groups with grouping label and indentation", () => {
+  it("renders parallel agent groups with natural gathering phrase", () => {
     const graph: TraceGraph = {
       query_id: "test-parallel",
       nodes: [
@@ -88,9 +85,9 @@ describe("AgentTraceExpanded", () => {
       />
     );
 
-    expect(screen.getByText("Parallel execution (2 agents):")).toBeInTheDocument();
-    expect(screen.getByText("Weather Intelligence")).toBeInTheDocument();
-    expect(screen.getByText("Geospatial")).toBeInTheDocument();
+    expect(
+      screen.getByText("Gathering weather and sea conditions and geospatial information")
+    ).toBeInTheDocument();
   });
 
   it("renders critic loop re-invocation notice", () => {
@@ -115,7 +112,7 @@ describe("AgentTraceExpanded", () => {
       />
     );
 
-    expect(screen.getByText(/↻ Critic calls Reporting again/)).toBeInTheDocument();
+    expect(screen.getByText(/Requesting Reporting to refine its analysis/)).toBeInTheDocument();
   });
 
   it("calls onCollapse when close button is clicked", () => {
@@ -135,7 +132,7 @@ describe("AgentTraceExpanded", () => {
       />
     );
 
-    fireEvent.click(screen.getByLabelText("Collapse trace to summary view"));
+    fireEvent.click(screen.getByLabelText("Close"));
     expect(handleCollapse).toHaveBeenCalledTimes(1);
   });
 
@@ -155,6 +152,6 @@ describe("AgentTraceExpanded", () => {
       />
     );
 
-    expect(screen.getByText("No agent execution data available")).toBeInTheDocument();
+    expect(screen.getByLabelText("Collapse trace")).toBeInTheDocument();
   });
 });
