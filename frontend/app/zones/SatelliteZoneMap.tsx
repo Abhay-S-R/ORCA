@@ -9,6 +9,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Compass, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import type { ProfitApiResponse, ZoneProfitResult } from "./zones-dashboard";
+import { useZonesT } from "./translations";
 
 const PIN_HEX: Record<string, string> = {
   green: "#2f7a4f",
@@ -79,6 +80,7 @@ export function SatelliteZoneMap({
   onSelect: (id: string) => void;
   onSelectPort?: (portId: string) => void;
 }) {
+  const { t, zoneName } = useZonesT();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
   const markersRef = useRef<import("maplibre-gl").Marker[]>([]);
@@ -211,7 +213,7 @@ export function SatelliteZoneMap({
               ${data.port_name}
             </span>
             <span style="font-size: 7.5px; font-weight: 800; color: #22d3ee; text-shadow: 0 1px 3px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.9); letter-spacing: 0.08em; font-family: monospace;">
-              DEPARTURE PORT
+              ${t("DEPARTURE PORT")}
             </span>
           </div>
         </div>
@@ -229,7 +231,7 @@ export function SatelliteZoneMap({
 
         const pinBtn = document.createElement("button");
         pinBtn.type = "button";
-        pinBtn.setAttribute("aria-label", `Zone ${index + 1}: ${z.zone_name}`);
+        pinBtn.setAttribute("aria-label", `Zone ${index + 1}: ${zoneName(z.zone_name)}`);
         pinBtn.className = "group relative cursor-pointer outline-none transition-transform duration-200 select-none";
         pinBtn.style.transform = isSel ? "scale(1.15)" : "scale(1.0)";
         pinBtn.style.background = "transparent";
@@ -252,7 +254,7 @@ export function SatelliteZoneMap({
             <div style="position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; z-index: 30; pointer-events: none;">
               <div style="background: linear-gradient(135deg, #064e3b 0%, #047857 100%); color: #ecfdf5; font-size: 9px; font-weight: 800; padding: 2px 7.5px; border-radius: 9999px; border: 1.5px solid #34d399; box-shadow: 0 3px 10px rgba(0,0,0,0.85), 0 0 8px rgba(52, 211, 153, 0.4); white-space: nowrap; letter-spacing: 0.06em; display: flex; align-items: center; gap: 3.5px; line-height: 1.2;">
                 <span style="color: #fbbf24; font-size: 10.5px; line-height: 1;">★</span>
-                <span>BEST ZONE</span>
+                <span>${t("Best Zone")}</span>
               </div>
               <div style="width: 0; height: 0; border-left: 4.5px solid transparent; border-right: 4.5px solid transparent; border-top: 5px solid #047857; margin-top: -0.5px;"></div>
             </div>
@@ -281,7 +283,7 @@ export function SatelliteZoneMap({
         markersRef.current.push(marker);
       });
     });
-  }, [ready, zones, selectedId, data.port_lat, data.port_lon, data.port_name, onSelect]);
+  }, [ready, zones, selectedId, data.port_lat, data.port_lon, data.port_name, onSelect, t, zoneName]);
 
   return (
     <div
@@ -294,7 +296,7 @@ export function SatelliteZoneMap({
       {/* Satellite badge overlay */}
       <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-md bg-slate-950/85 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-ocean-cyan backdrop-blur-md border border-white/10 shadow-sm">
         <span className="size-2 rounded-full bg-ocean-cyan animate-pulse" />
-        Satellite Region View · {data.port_name}
+        {t("Satellite Region View")} · ${data.port_name}
       </div>
 
       {/* Recenter & Zoom controls */}

@@ -10,6 +10,7 @@ import { Badge } from "../components/Badge";
 import { Skeleton } from "../components/States";
 import { useT } from "../i18n/useT";
 import { SatelliteZoneMap } from "./SatelliteZoneMap";
+import { useZonesT } from "./translations";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -200,6 +201,7 @@ export function ZonesToolbar({
   profileVesselLabel?: string | null;
   isProfileVesselActive?: boolean;
 }) {
+  const { t } = useZonesT();
   const byState = useMemo(() => {
     const m = new Map<string, PortLite[]>();
     ports.forEach((p) => m.set(p.state, [...(m.get(p.state) ?? []), p]));
@@ -214,7 +216,7 @@ export function ZonesToolbar({
         </span>
         <div className="relative">
           <label htmlFor="zones-port" className="sr-only">
-            Home port
+            {t("Home port")}
           </label>
           <select
             id="zones-port"
@@ -223,7 +225,7 @@ export function ZonesToolbar({
             className="cursor-pointer appearance-none rounded-lg border border-hairline bg-shelf-1 py-1.5 pl-3 pr-8 text-xs font-semibold text-ink focus:border-ocean-cyan focus:outline-none focus:ring-1 focus:ring-ocean-cyan"
           >
             <option value="default_home">
-              {registeredHomePortName ?? "Kochi"} (profile default)
+              {registeredHomePortName ?? "Kochi"} {t("(profile default)")}
             </option>
             {byState.map(([state, list]) => (
               <optgroup key={state} label={state}>
@@ -257,7 +259,7 @@ export function ZonesToolbar({
                   on ? "bg-ocean-cyan font-bold text-black" : "text-ink-muted hover:text-ink"
                 }`}
               >
-                {v.label}
+                {t(v.label)}
               </button>
             );
           })}
@@ -265,8 +267,8 @@ export function ZonesToolbar({
         {profileVesselLabel && (
           <p className="hidden text-[11px] text-ink-dim sm:block">
             {isProfileVesselActive
-              ? `From your profile · ${profileVesselLabel}`
-              : "Changed for this page only"}
+              ? `${t("From your profile")} · ${t(profileVesselLabel)}`
+              : t("Changed for this page only")}
           </p>
         )}
       </div>
@@ -323,18 +325,19 @@ export function KpiStrip({
   bestZone: ZoneProfitResult | null;
   ban?: unknown;
 }) {
-  const t = useT();
+  const tBase = useT();
+  const { t, zoneName, bearing } = useZonesT();
 
   const nearestBadge = !nearest.found
-    ? { text: "None charted", tone: "neutral" as Tone }
+    ? { text: t("None charted"), tone: "neutral" as Tone }
     : nearest.within
-    ? { text: "Within reach", tone: "go" as Tone }
-    : { text: "Beyond day trip", tone: "caution" as Tone };
+    ? { text: t("Within reach"), tone: "go" as Tone }
+    : { text: t("Beyond day trip"), tone: "caution" as Tone };
 
   // Box 4: Estimated Trip Profit / Net Return (Understandable to fisherman)
-  let profitLabel = "Est. Trip Profit";
+  let profitLabel = t("Est. Trip Profit");
   let profitValue = "—";
-  let profitBadge = "Net return";
+  let profitBadge = t("Net return");
   let profitTone: Tone = "neutral";
   let profitNote: string | undefined = undefined;
 
@@ -342,38 +345,43 @@ export function KpiStrip({
     if (bestZone.show_profit) {
       profitValue = `${inrK(bestZone.profit_low)} – ${inrK(bestZone.profit_high)}`;
       const isPositive = bestZone.profit_mid != null && bestZone.profit_mid > 0;
-      profitBadge = isPositive ? "High return" : "Low margin";
+      profitBadge = isPositive ? t("High return") : t("Low margin");
       profitTone = isPositive ? "go" : "caution";
-      profitNote = `Net return after ₹${Math.round(bestZone.fuel_cost / 1000)}k fuel & crew`;
+      profitNote = `${t("Net return")} (₹${Math.round(bestZone.fuel_cost / 1000)}k)`;
     } else {
-      profitLabel = "Est. Fuel Burn";
+      profitLabel = t("Est. Fuel Burn");
       profitValue = `${bestZone.fuel_liters ?? "—"} L`;
-      profitBadge = "Round trip";
+      profitBadge = t("Round trip");
       profitTone = "neutral";
-      profitNote = "Estimated voyage consumption";
+      profitNote = t("Estimated voyage consumption");
     }
   }
+
+  // Format bearing in nearest value if present (e.g. SW 82.8 km -> ನೈಋತ್ಯ 82.8 km)
+  const formattedNearestLabel = nearest.label
+    ? nearest.label.replace(/^([A-Z]+)\s+([\d.]+)\s*km/, (_, comp, dist) => `${bearing(comp)} ${dist} km`)
+    : "—";
 
   return (
     <div className="mb-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
       <Kpi
-        label={t("zones.yourSector")}
+        label={tBase("zones.yourSector") || t("Your sector")}
         value={sector.name}
-        badge={sector.gap ? t("zones.noAdvisory") : "Active coverage"}
+        badge={sector.gap ? tBase("zones.noAdvisory") : t("Active coverage")}
         tone={sector.gap ? "caution" : "go"}
         note={sector.message}
       />
       <Kpi
-        label={t("zones.nearestZone")}
-        value={nearest.label ?? "—"}
-        badge={nearest.zoneName ? nearest.zoneName : nearestBadge.text}
+        label={tBase("zones.nearestZone") || t("Nearest advised zone")}
+        value={formattedNearestLabel}
+        badge={nearest.zoneName ? zoneName(nearest.zoneName) : nearestBadge.text}
         tone={nearestBadge.tone}
-        note={nearest.within ? "Within safe day steaming reach" : "Extended offshore voyage required"}
+        note={nearest.within ? t("Within safe day steaming reach") : t("Extended offshore voyage required")}
       />
       <Kpi
-        label="Best margin"
+        label={t("Best margin")}
         value={bestZone?.margin_pct != null ? `${bestZone.margin_pct}%` : "—"}
-        badge={bestZone ? bestZone.zone_name : "No priced zone"}
+        badge={bestZone ? zoneName(bestZone.zone_name) : t("No priced zone")}
         tone={bestZone ? toneOf(bestZone.profit_color) : "neutral"}
       />
       <Kpi
@@ -404,6 +412,7 @@ function ZoneMap({
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [mapViewMode, setMapViewMode] = useState<"satellite" | "chart">("satellite");
+  const { t, zoneName, zoneDesc, bearing } = useZonesT();
 
   const W = 560;
   const H = 340;
@@ -517,7 +526,7 @@ function ZoneMap({
           </div>
           <div>
             <h3 className="text-sm font-bold text-ink">
-              Fishing Grounds &amp; Regional Map · {data.port_name}
+              {t("Fishing Grounds & Regional Map")} · {data.port_name}
             </h3>
             <p className="text-[10px] font-mono text-ink-dim">
               {data.port_lat.toFixed(2)}°N, {data.port_lon.toFixed(2)}°E · {data.port_state} Coast
@@ -541,7 +550,7 @@ function ZoneMap({
                   : "text-ink-muted hover:text-ink"
               }`}
             >
-              🛰️ Satellite
+              🛰️ {t("Satellite")}
             </button>
             <button
               type="button"
@@ -554,11 +563,11 @@ function ZoneMap({
                   : "text-ink-muted hover:text-ink"
               }`}
             >
-              🧭 Sea Chart
+              🧭 {t("Sea Chart")}
             </button>
           </div>
           <span className="hidden sm:inline-flex items-center gap-1 rounded bg-shelf-3 px-2 py-0.5 text-[10px] font-mono text-ink-dim border border-hairline/60">
-            <span className="size-1.5 rounded-full bg-ocean-cyan animate-pulse" /> Live Telemetry
+            <span className="size-1.5 rounded-full bg-ocean-cyan animate-pulse" /> {t("Live Telemetry")}
           </span>
         </div>
       </div>
@@ -816,7 +825,7 @@ function ZoneMap({
                 fill="#0284c7"
                 letterSpacing="0.05em"
               >
-                DEPARTURE PORT
+                {t("DEPARTURE PORT")}
               </text>
             </g>
 
@@ -834,7 +843,7 @@ function ZoneMap({
                   className="cursor-pointer"
                   role="button"
                   tabIndex={0}
-                  aria-label={`${z.zone_name}, ${Math.round(z.distance_km)} km`}
+                  aria-label={`${zoneName(z.zone_name)}, ${Math.round(z.distance_km)} km`}
                   aria-pressed={isSel}
                   onClick={() => onSelect(z.zone_id)}
                   onMouseEnter={() => setHoveredId(z.zone_id)}
@@ -880,9 +889,9 @@ function ZoneMap({
                   {z.is_best_zone && (
                     <g transform="translate(0, -17)">
                       <rect
-                        x="-14"
+                        x="-18"
                         y="-5"
-                        width="28"
+                        width="36"
                         height="10"
                         rx="2.5"
                         fill="#92400e"
@@ -892,12 +901,12 @@ function ZoneMap({
                       <text
                         y="2.5"
                         textAnchor="middle"
-                        fontSize="6.5"
+                        fontSize="6"
                         fontWeight="bold"
                         fill="#fef3c7"
                         letterSpacing="0.02em"
                       >
-                        ★ Best
+                        ★ {t("Best Zone")}
                       </text>
                     </g>
                   )}
@@ -921,33 +930,33 @@ function ZoneMap({
                 {zones.findIndex((z) => z.zone_id === activeZone.zone_id) + 1}
               </span>
               <div className="flex items-center gap-2 flex-wrap min-w-0">
-                <span className="text-xs sm:text-sm font-bold text-ink">{activeZone.zone_name}</span>
+                <span className="text-xs sm:text-sm font-bold text-ink">{zoneName(activeZone.zone_name)}</span>
                 <span className="rounded bg-shelf-3 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-ocean-cyan border border-hairline/60">
                   {Math.round(activeZone.distance_km)} km ·{" "}
-                  {calculateBearing(data.port_lat, data.port_lon, activeZone.lat, activeZone.lon).compass}
+                  {bearing(calculateBearing(data.port_lat, data.port_lon, activeZone.lat, activeZone.lon).compass)}
                 </span>
                 {activeZone.is_best_zone && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
-                    <span className="text-amber-500">★</span> Best Zone
+                    <span className="text-amber-500">★</span> {t("Best Zone")}
                   </span>
                 )}
               </div>
             </div>
 
             <div className="shrink-0">
-              <Badge tone={toneOf(activeZone.profit_color)}>{activeZone.profit_label}</Badge>
+              <Badge tone={toneOf(activeZone.profit_color)}>{t(activeZone.profit_label)}</Badge>
             </div>
           </div>
 
           {/* Bottom row: description and trip cost on left, net profit on right */}
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-t border-hairline/60 pt-2 text-xs">
             <p className="min-w-0 flex-1 text-[11px] leading-normal text-ink-dim break-words">
-              {activeZone.zone_description} · Trip cost: <strong className="font-semibold text-ink">{inr(activeZone.total_cost)}</strong> (fuel + fixed)
+              {zoneDesc(activeZone.zone_description)} · {t("Trip cost:")} <strong className="font-semibold text-ink">{inr(activeZone.total_cost)}</strong> {t("(fuel + fixed)")}
             </p>
 
             {activeZone.show_profit && activeZone.profit_mid != null && (
               <div className="flex items-center gap-1.5 shrink-0 font-mono text-[11px]">
-                <span className="text-[10px] uppercase font-bold text-ink-dim">Est. Net Profit:</span>
+                <span className="text-[10px] uppercase font-bold text-ink-dim">{t("Est. Net Profit:")}</span>
                 <span className="font-bold text-ink">
                   {inrK(activeZone.profit_low ?? 0)} – {inrK(activeZone.profit_high ?? 0)}
                 </span>
@@ -976,6 +985,8 @@ function RankedZoneList({
   onSelect: (id: string) => void;
   showProfit: boolean;
 }) {
+  const { t, zoneName, zoneDesc } = useZonesT();
+
   return (
     <div
       className={`${CARD} flex flex-col p-0 overflow-hidden`}
@@ -984,9 +995,9 @@ function RankedZoneList({
       <div className="flex items-center justify-between px-4 py-3 border-b border-hairline/60 bg-shelf-1/60">
         <h3 className="text-sm font-bold text-ink flex items-center gap-2">
           <Layers className="size-4 text-ocean-cyan" />
-          {showProfit ? "Ranked Fishing Grounds" : "Nearest Fishing Grounds"}
+          {showProfit ? t("Ranked Fishing Grounds") : t("Nearest Fishing Grounds")}
         </h3>
-        <span className="text-[11px] font-mono text-ink-dim">{zones.length} Charted</span>
+        <span className="text-[11px] font-mono text-ink-dim">{zones.length} {t("Charted")}</span>
       </div>
       <ul className="flex flex-col divide-y divide-hairline/60">
         {zones.map((z, i) => {
@@ -1016,11 +1027,11 @@ function RankedZoneList({
                     <div className="flex flex-wrap items-center gap-1.5">
                       {/* Full zone name displayed without truncation */}
                       <span className="text-sm font-bold text-ink leading-snug break-words">
-                        {z.zone_name}
+                        {zoneName(z.zone_name)}
                       </span>
                       {z.is_best_zone && (
                         <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
-                          <span className="text-amber-500">★</span> Best Choice
+                          <span className="text-amber-500">★</span> {t("Best Choice")}
                         </span>
                       )}
                     </div>
@@ -1029,7 +1040,7 @@ function RankedZoneList({
                         {Math.round(z.distance_km)} km
                       </span>
                       <span>·</span>
-                      <span className="line-clamp-1">{z.zone_description}</span>
+                      <span className="line-clamp-1">{zoneDesc(z.zone_description)}</span>
                     </div>
                   </div>
                 </div>
@@ -1042,7 +1053,7 @@ function RankedZoneList({
                           {z.margin_pct}%
                         </span>
                       )}
-                      <Badge tone={tone}>{z.profit_label}</Badge>
+                      <Badge tone={tone}>{t(z.profit_label)}</Badge>
                     </div>
                     {z.profit_low != null && z.profit_high != null && (
                       <span className={`mt-0.5 block font-mono text-[11px] font-semibold ${TONE_TEXT[tone]}`}>
@@ -1072,6 +1083,7 @@ function LedgerRow({ label, value, strong, className = "" }: { label: string; va
 }
 
 function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
+  const { t, zoneName, zoneDesc, species: tSpecies } = useZonesT();
   const tone = toneOf(zone.profit_color);
   const species = zone.priced_species.slice(0, 6);
   const totalKg = zone.priced_species.reduce((sum, sp) => sum + sp.est_kg, 0);
@@ -1083,23 +1095,23 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
         <div>
           <div className="flex items-center gap-2">
             <Fish className="size-4.5 text-ocean-cyan" />
-            <h3 className="text-sm font-bold text-ink">{zone.zone_name} Catch &amp; Profit Breakdown</h3>
+            <h3 className="text-sm font-bold text-ink">{zoneName(zone.zone_name)} {t("Catch & Profit Breakdown")}</h3>
           </div>
           <p className="mt-0.5 text-[11px] text-ink-dim">
-            {zone.distance_km.toFixed(1)} km from port · {zone.zone_description}
+            {zone.distance_km.toFixed(1)} {t("km from port")} · {zoneDesc(zone.zone_description, zone.zone_name)}
           </p>
         </div>
         <div className="flex items-center gap-1.5">
-          {zone.limited_data && zone.show_profit && <Badge tone="caution">Limited data</Badge>}
-          {zone.is_best_zone && zone.show_profit && <Badge tone="go">★ Best Zone for You</Badge>}
-          <Badge tone={tone}>{zone.profit_label}</Badge>
+          {zone.limited_data && zone.show_profit && <Badge tone="caution">{t("Limited data")}</Badge>}
+          {zone.is_best_zone && zone.show_profit && <Badge tone="go">★ {t("Best Zone for You")}</Badge>}
+          <Badge tone={tone}>{t(zone.profit_label)}</Badge>
         </div>
       </div>
 
       {!zone.show_profit ? (
-        <p className="text-xs text-ink-muted">Profit estimates apply to fishing vessels only.</p>
+        <p className="text-xs text-ink-muted">{t("Profit estimates apply to fishing vessels only.")}</p>
       ) : species.length === 0 ? (
-        <p className="text-xs italic text-ink-muted">Profit not available for this zone — no priced species data.</p>
+        <p className="text-xs italic text-ink-muted">{t("Profit not available for this zone — no priced species data.")}</p>
       ) : (
         <>
           {/* Top Banner: Prominent Low & High Approximate Profit Per Trip */}
@@ -1108,32 +1120,32 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <div>
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
-                    Approximate profit per trip
+                    {t("Approximate profit per trip")}
                   </span>
                   <div className="flex items-baseline gap-2 mt-0.5">
                     <span className={`text-xl font-bold font-mono ${TONE_TEXT[tone]}`}>
                       {inr(zone.profit_low)} – {inr(zone.profit_high)}
                     </span>
                     <span className="text-xs text-ink-muted">
-                      (Normal day: <strong className="font-mono font-bold text-ink">{zone.profit_mid != null ? inr(zone.profit_mid) : "—"}</strong>)
+                      ({t("Normal day:")} <strong className="font-mono font-bold text-ink">{zone.profit_mid != null ? inr(zone.profit_mid) : "—"}</strong>)
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {zone.margin_pct != null && (
                     <span className="rounded-md bg-go/15 px-2 py-1 font-mono text-xs font-bold text-go">
-                      {zone.margin_pct}% margin
+                      {zone.margin_pct}% {t("margin")}
                     </span>
                   )}
-                  <Badge tone={tone}>{zone.profit_label}</Badge>
+                  <Badge tone={tone}>{t(zone.profit_label)}</Badge>
                 </div>
               </div>
 
               {/* Visual Boat Expenses vs Net Sales Kept Progress Bar */}
               <div className="mt-2.5">
                 <div className="flex items-center justify-between text-[11px] font-mono text-ink-dim mb-1">
-                  <span>Boat expenses: {inr(zone.total_cost)}</span>
-                  <span>{zone.margin_pct ?? 0}% of sales kept</span>
+                  <span>{t("Boat expenses:")} {inr(zone.total_cost)}</span>
+                  <span>{zone.margin_pct ?? 0}% {t("of sales kept")}</span>
                 </div>
                 <div className="h-2 w-full rounded-full bg-shelf-3/80 overflow-hidden">
                   <div
@@ -1157,10 +1169,10 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
               <div className="flex items-center justify-between gap-2 mb-3">
                 <p className="text-xs font-bold text-ink flex items-center gap-1.5">
                   <TrendingUp className="size-4 text-ocean-cyan" />
-                  Estimated Trip Economics
+                  {t("Estimated Trip Economics")}
                 </p>
                 <span className="text-[11px] font-mono text-ink-dim">
-                  {Math.round(zone.distance_km * 2)} km round trip
+                  {Math.round(zone.distance_km * 2)} km {t("round trip")}
                 </span>
               </div>
 
@@ -1168,72 +1180,72 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
                 {/* 1. Catch Value */}
                 <div className="rounded-lg border border-hairline bg-shelf-2/60 p-2.5">
                   <div className="text-[10px] text-ink-dim font-bold uppercase tracking-wider">
-                    Expected Catch Value
+                    {t("Expected Catch Value")}
                   </div>
                   <div className="text-sm font-bold font-mono text-ink mt-1">
                     {inr(zone.income_low)} – {inr(zone.income_high)}
                   </div>
                   <div className="text-[10px] text-ink-muted mt-0.5">
-                    Typical day: <strong className="font-mono text-ink">{zone.income_mid != null ? inr(zone.income_mid) : "—"}</strong>
+                    {t("Typical day:")} <strong className="font-mono text-ink">{zone.income_mid != null ? inr(zone.income_mid) : "—"}</strong>
                   </div>
-                  <div className="text-[10px] text-ink-dim mt-0.5">Auction landing value</div>
+                  <div className="text-[10px] text-ink-dim mt-0.5">{t("Auction landing value")}</div>
                 </div>
 
                 {/* 2. Boat Expenses */}
                 <div className="rounded-lg border border-hairline bg-shelf-2/60 p-2.5">
                   <div className="text-[10px] text-ink-dim font-bold uppercase tracking-wider">
-                    Trip Operating Costs
+                    {t("Trip Operating Costs")}
                   </div>
                   <div className="text-sm font-bold font-mono text-no-go mt-1">
                     −{inr(zone.total_cost)}
                   </div>
                   <div className="text-[10px] text-ink-muted mt-0.5">
-                    Diesel: <strong className="font-mono text-ink">{inr(zone.fuel_cost)}</strong>{zone.fuel_liters != null ? ` (~${zone.fuel_liters} L)` : ""}
+                    {t("Diesel:")} <strong className="font-mono text-ink">{inr(zone.fuel_cost)}</strong>{zone.fuel_liters != null ? ` (~${zone.fuel_liters} L)` : ""}
                   </div>
                   <div className="text-[10px] text-ink-dim mt-0.5">
-                    Ice &amp; Crew provision: <strong className="font-mono text-ink">{inr(zone.fixed_cost)}</strong>
+                    {t("Ice & Crew provision:")} <strong className="font-mono text-ink">{inr(zone.fixed_cost)}</strong>
                   </div>
                 </div>
 
                 {/* 3. Take-Home Profit */}
                 <div className="rounded-lg border border-hairline bg-shelf-2/60 p-2.5">
                   <div className="text-[10px] text-ink-dim font-bold uppercase tracking-wider">
-                    Net Return to Boat
+                    {t("Net Return to Boat")}
                   </div>
                   <div className={`text-sm font-bold font-mono mt-1 ${TONE_TEXT[tone]}`}>
                     {inr(zone.profit_low)} – {inr(zone.profit_high)}
                   </div>
                   <div className="text-[10px] text-ink-muted mt-0.5">
-                    Expected net: <strong className="font-mono text-ink">{zone.profit_mid != null ? inr(zone.profit_mid) : "—"}</strong>
+                    {t("Expected net:")} <strong className="font-mono text-ink">{zone.profit_mid != null ? inr(zone.profit_mid) : "—"}</strong>
                   </div>
                   <div className="text-[10px] text-ink-dim mt-0.5">
-                    {zone.margin_pct != null ? `${zone.margin_pct}% kept after trip costs` : "Clear profit after costs"}
+                    {zone.margin_pct != null ? `${zone.margin_pct}% ${t("kept after trip costs")}` : t("Clear profit after costs")}
                   </div>
                 </div>
               </div>
 
               <div className="text-[11px] text-ink-muted mt-2.5 pt-2 border-t border-hairline/60">
-                Net return is what you take home after paying <strong>{inr(zone.fuel_cost)}</strong> for diesel and <strong>{inr(zone.fixed_cost)}</strong> for crew, ice and landing fees.
+                {t("Net return is what you take home after paying")} <strong>{inr(zone.fuel_cost)}</strong> {t("for diesel and")} <strong>{inr(zone.fixed_cost)}</strong> {t("for crew, ice and landing fees.")}
               </div>
 
               {/* Formula: How Trip Economics is Calculated */}
               <div className="mt-3 rounded-lg border border-hairline/80 bg-shelf-2/50 p-3 text-xs">
                 <div className="flex items-center gap-1.5 font-semibold text-ink mb-2">
                   <span className="text-ocean-cyan">📐</span>
-                  <span>Calculation Formula:</span>
+                  <span>{t("Calculation Formula:")}</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
                   <div className="rounded border border-hairline/60 bg-shelf-1/80 p-2">
-                    <span className="text-[10px] font-bold uppercase text-ink-dim block">Expected Catch Value</span>
-                    <span className="font-mono text-ink text-[11px] mt-0.5 block">Catch Weight (kg) × Auction Price (₹/kg)</span>
+                    <span className="text-[10px] font-bold uppercase text-ink-dim block">{t("Expected Catch Value")}</span>
+                    <span className="font-mono text-ink text-[11px] mt-0.5 block">{t("Catch Weight (kg) × Auction Price (₹/kg)")}</span>
                   </div>
                   <div className="rounded border border-hairline/60 bg-shelf-1/80 p-2">
-                    <span className="text-[10px] font-bold uppercase text-ink-dim block">Trip Operating Costs</span>
-                    <span className="font-mono text-ink text-[11px] mt-0.5 block">Diesel (L × ₹/L) + Ice, Crew &amp; Port Fees</span>
+                    <span className="text-[10px] font-bold uppercase text-ink-dim block">{t("Trip Operating Costs")}</span>
+                    <span className="font-mono text-ink text-[11px] mt-0.5 block">{t("Diesel (L × ₹/L) + Ice, Crew & Port Fees")}</span>
                   </div>
                   <div className="rounded border border-hairline/60 bg-shelf-1/80 p-2">
-                    <span className="text-[10px] font-bold uppercase text-go block">Net Return to Boat</span>
-                    <span className="font-mono text-go font-semibold text-[11px] mt-0.5 block">Expected Catch Value − Operating Costs</span>
+                    <span className="text-[10px] font-bold uppercase text-go block">{t("Net Return to Boat")}</span>
+                    <span className="font-mono text-go font-semibold text-[11px] mt-0.5 block">{t("Expected Catch Value − Operating Costs")}</span>
                   </div>
                 </div>
               </div>
@@ -1245,15 +1257,15 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
-                  Expected Catch Share (Estimated trip landing)
+                  {t("Expected Catch Share (Estimated trip landing)")}
                 </p>
-                <span className="text-[10px] font-mono text-ink-dim">CMFRI Landings Model</span>
+                <span className="text-[10px] font-mono text-ink-dim">{t("CMFRI Landings Model")}</span>
               </div>
               <ul className="flex flex-col gap-2.5 rounded-lg border border-hairline/60 bg-shelf-1/60 p-3">
                 {species.map((sp) => (
                   <li key={sp.aphia_id}>
                     <div className="mb-1 flex items-center justify-between text-xs">
-                      <span className="truncate font-medium text-ink">{sp.common_name}</span>
+                      <span className="truncate font-medium text-ink">{tSpecies(sp.common_name)}</span>
                       <div className="flex items-center gap-2 font-mono text-[11px]">
                         <span className="text-ink-dim">{sp.est_kg} kg</span>
                         <span className="font-bold text-ink">{sp.share_pct}%</span>
@@ -1277,23 +1289,23 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
                 <div className="rounded-lg border border-hairline/80 bg-shelf-1/70 p-3">
                   <div className="mb-1.5 flex items-center justify-between">
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
-                      1. Gross Fish Value (Before Costs)
+                      {t("1. Gross Fish Value (Before Costs)")}
                     </p>
-                    <span className="text-[10px] font-mono text-ink-dim">Auction vs Retail</span>
+                    <span className="text-[10px] font-mono text-ink-dim">{t("Auction vs Retail")}</span>
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div className="rounded border border-hairline/60 bg-shelf-2/60 p-1.5">
-                      <span className="block text-[10px] text-ink-dim">Low (Harbor glut)</span>
+                      <span className="block text-[10px] text-ink-dim">{t("Low (Harbor glut)")}</span>
                       <span className="font-mono text-xs font-semibold text-ink">{inr(zone.income_low)}</span>
                     </div>
                     <div className="rounded border border-ocean-cyan/30 bg-ocean-cyan/10 p-1.5">
-                      <span className="block text-[10px] font-semibold text-ocean-cyan">Mid (Normal market)</span>
+                      <span className="block text-[10px] font-semibold text-ocean-cyan">{t("Mid (Normal market)")}</span>
                       <span className="font-mono text-xs font-bold text-ink">
                         {zone.income_mid != null ? inr(zone.income_mid) : "—"}
                       </span>
                     </div>
                     <div className="rounded border border-hairline/60 bg-shelf-2/60 p-1.5">
-                      <span className="block text-[10px] text-ink-dim">High (Peak demand)</span>
+                      <span className="block text-[10px] text-ink-dim">{t("High (Peak demand)")}</span>
                       <span className="font-mono text-xs font-semibold text-ink">{inr(zone.income_high)}</span>
                     </div>
                   </div>
@@ -1303,17 +1315,17 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
               {/* Trip Expenses */}
               <div className="rounded-lg border border-hairline/80 bg-shelf-1/70 p-3">
                 <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
-                  2. Trip Costs (Diesel + Crew + Ice)
+                  {t("2. Trip Costs (Diesel + Crew + Ice)")}
                 </p>
                 <LedgerRow
-                  label={`Diesel fuel (${zone.fuel_liters != null ? `${zone.fuel_liters} L · ` : ""}${Math.round(zone.distance_km * 2)} km round trip)`}
+                  label={`${t("Diesel fuel")} (${zone.fuel_liters != null ? `${zone.fuel_liters} L · ` : ""}${Math.round(zone.distance_km * 2)} km ${t("round trip")})`}
                   value={`−${inr(zone.fuel_cost)}`}
                 />
-                <LedgerRow label="Crew share, ice blocks, harbor fees" value={`−${inr(zone.fixed_cost)}`} />
+                <LedgerRow label={t("Crew share, ice blocks, harbor fees")} value={`−${inr(zone.fixed_cost)}`} />
                 <LedgerRow
                   strong
                   className="mt-1 border-t border-hairline pt-1 text-ink"
-                  label="Total trip expense"
+                  label={t("Total trip expense")}
                   value={`−${inr(zone.total_cost)}`}
                 />
               </div>
@@ -1332,25 +1344,25 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs font-bold text-ink flex items-center gap-1.5">
                       <Sparkles className="size-3.5 text-ocean-cyan" />
-                      3. Net Take-Home Profit (Income − Cost)
+                      {t("3. Net Take-Home Profit (Income − Cost)")}
                     </span>
                     {zone.margin_pct != null && (
                       <span className="font-mono text-xs font-bold text-go">
-                        {zone.margin_pct}% margin
+                        {zone.margin_pct}% {t("margin")}
                       </span>
                     )}
                   </div>
                   <div className="flex items-center justify-between text-base font-bold font-mono">
-                    <span className="text-ink">{inr(zone.profit_low)} (Low)</span>
-                    <span className="text-ink-dim font-normal text-xs">to</span>
-                    <span className={TONE_TEXT[tone]}>{inr(zone.profit_high)} (Peak)</span>
+                    <span className="text-ink">{inr(zone.profit_low)} ({t("Low")})</span>
+                    <span className="text-ink-dim font-normal text-xs">{t("to")}</span>
+                    <span className={TONE_TEXT[tone]}>{inr(zone.profit_high)} ({t("Peak")})</span>
                   </div>
                   <div className="mt-1.5 flex flex-wrap items-center justify-between border-t border-hairline/60 pt-1.5 text-[11px] text-ink-dim gap-1">
                     <span>
-                      Expected mid profit: <strong className="font-mono font-bold text-ink">{zone.profit_mid != null ? inr(zone.profit_mid) : "—"}</strong>
+                      {t("Expected mid profit:")} <strong className="font-mono font-bold text-ink">{zone.profit_mid != null ? inr(zone.profit_mid) : "—"}</strong>
                     </span>
                     <span className="italic">
-                      {inr(zone.income_low ?? 0)} to {inr(zone.income_high ?? 0)} gross − {inr(zone.total_cost)} costs
+                      {inr(zone.income_low ?? 0)} {t("to")} {inr(zone.income_high ?? 0)} {t("gross")} − {inr(zone.total_cost)} {t("costs")}
                     </span>
                   </div>
                 </div>
@@ -1363,23 +1375,23 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
             <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-ocean-cyan hover:underline">
               <span className="flex items-center gap-1.5">
                 <ChevronDown className="size-3.5 transition group-open:rotate-180" />
-                Fish Species Catch &amp; Market Value (Low to High Price Ranges)
+                {t("Fish Species Catch & Market Value (Low to High Price Ranges)")}
               </span>
               <span className="text-[10px] font-mono text-ink-dim font-normal">
-                {zone.priced_species.length} species modeled
+                {zone.priced_species.length} {t("species modeled")}
               </span>
             </summary>
             <div className="mt-2.5 overflow-x-auto">
               <table className="w-full border-collapse text-left text-xs">
                 <thead>
                   <tr className="border-b border-hairline text-[11px] text-ink-dim bg-shelf-1/80">
-                    <th className="px-2 py-2 font-medium">Fish Species</th>
-                    <th className="px-2 py-2 text-right font-medium">Share</th>
-                    <th className="px-2 py-2 text-right font-medium">~kg Landed</th>
-                    <th className="px-2 py-2 text-right font-medium">₹/kg Range (Low–High)</th>
-                    <th className="px-2 py-2 text-right font-medium">Low Income</th>
-                    <th className="px-2 py-2 text-right font-medium">High Income</th>
-                    <th className="px-2 py-2 text-right font-medium text-ocean-cyan">Expected Mid</th>
+                    <th className="px-2 py-2 font-medium">{t("Fish Species")}</th>
+                    <th className="px-2 py-2 text-right font-medium">{t("Share")}</th>
+                    <th className="px-2 py-2 text-right font-medium">{t("~kg Landed")}</th>
+                    <th className="px-2 py-2 text-right font-medium">{t("₹/kg Range (Low–High)")}</th>
+                    <th className="px-2 py-2 text-right font-medium">{t("Low Income")}</th>
+                    <th className="px-2 py-2 text-right font-medium">{t("High Income")}</th>
+                    <th className="px-2 py-2 text-right font-medium text-ocean-cyan">{t("Expected Mid")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-hairline/40">
@@ -1389,7 +1401,7 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
                     return (
                       <tr key={sp.aphia_id} className="hover:bg-shelf-2/40">
                         <td className="px-2 py-1.5 text-ink">
-                          <div className="font-medium">{sp.common_name}</div>
+                          <div className="font-medium">{tSpecies(sp.common_name)}</div>
                           <div className="text-[10px] italic text-ink-dim">{sp.scientific_name}</div>
                         </td>
                         <td className="px-2 py-1.5 text-right font-mono text-ink-muted">{sp.share_pct}%</td>
@@ -1412,12 +1424,12 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-hairline bg-shelf-1/90 font-semibold text-ink text-xs">
-                    <td className="px-2 py-2">Total Estimated Landing</td>
+                    <td className="px-2 py-2">{t("Total Estimated Landing")}</td>
                     <td className="px-2 py-2 text-right font-mono">100%</td>
                     <td className="px-2 py-2 text-right font-mono">
                       {totalKg.toFixed(1)} kg
                     </td>
-                    <td className="px-2 py-2 text-right text-[10px] text-ink-dim font-normal">Trip Gross Value</td>
+                    <td className="px-2 py-2 text-right text-[10px] text-ink-dim font-normal">{t("Trip Gross Value")}</td>
                     <td className="px-2 py-2 text-right font-mono text-ink">
                       {zone.income_low != null ? inr(zone.income_low) : "—"}
                     </td>
@@ -1447,6 +1459,7 @@ export function ZoneDashboard({
   profit: ProfitState;
   onSelectPort?: (portId: string) => void;
 }) {
+  const { t } = useZonesT();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { data, loading, error } = profit;
   const zones = data?.zones ?? [];
@@ -1470,7 +1483,7 @@ export function ZoneDashboard({
   if (error || !data) {
     return (
       <div className="mb-4 rounded-lg border border-caution/30 bg-caution/10 p-4 text-xs text-caution">
-        Profit estimates are unavailable right now. Try again shortly.
+        {t("Profit estimates are unavailable right now. Try again shortly.")}
       </div>
     );
   }
@@ -1484,13 +1497,13 @@ export function ZoneDashboard({
       )}
       {!data.show_profit && (
         <div className="rounded-lg border border-hairline bg-shelf-2/60 px-3 py-2 text-xs text-ink-muted">
-          Cargo vessels don&apos;t fish, so profit figures are hidden. Zones are shown for reference.
+          {t("Cargo vessels don't fish, so profit figures are hidden. Zones are shown for reference.")}
         </div>
       )}
 
       {zones.length === 0 ? (
         <div className="rounded-lg border border-dashed border-hairline py-8 text-center text-xs text-ink-muted">
-          No charted fishing zones for this port.
+          {t("No charted fishing zones for this port.")}
         </div>
       ) : (
         <>
@@ -1515,3 +1528,4 @@ export function ZoneDashboard({
     </section>
   );
 }
+

@@ -16,6 +16,7 @@ import { type Recency } from "../lib/recency";
 import { usePersona } from "../persona/context";
 import { useT } from "../i18n/useT";
 import { KpiStrip, ZoneDashboard, ZonesToolbar, useFishingProfit, calculateBearing } from "./zones-dashboard";
+import { useZonesT } from "./translations";
 
 function dbVesselToZoneKey(rawClass: string | null | undefined): string {
   if (!rawClass) return "small_fishing";
@@ -246,6 +247,7 @@ export default function ZonesPage() {
   } | null>(null);
   const [error, setError] = useState(false);
   const t = useT();
+  const { t: zT, zoneName, zoneDesc, species: tSpecies, bearing: tBearing } = useZonesT();
   const { persona } = usePersona();
   const reach = useVesselReachKm();
   const auth = useAuth();
@@ -459,35 +461,37 @@ export default function ZonesPage() {
         <div className="flex flex-col gap-4">
           <div className={`grid gap-4 ${showProxy ? "lg:grid-cols-2" : ""}`}>
             {/* Nearest advised fishing zone */}
-            {nearestChartedZone && (
+            {nearestChartedZone && (() => {
+              const b = calculateBearing(currentPort.lat, currentPort.lon, nearestChartedZone.lat, nearestChartedZone.lon);
+              return (
               <Panel
-                title="Nearest Advised Fishing Zone"
+                title={zT("Nearest Advised Fishing Zone")}
                 action={
                   <span className="rounded bg-go/15 px-2 py-0.5 text-[11px] font-bold text-go">
-                    Active Ground
+                    {zT("Active Ground")}
                   </span>
                 }
               >
                 <div className="mb-2 flex items-center gap-2 text-lg">
                   <Compass className="size-5 text-ocean-cyan" aria-hidden="true" />
                   <span data-readout className="font-bold text-ink">
-                    {calculateBearing(currentPort.lat, currentPort.lon, nearestChartedZone.lat, nearestChartedZone.lon).compass}{" "}
-                    {calculateBearing(currentPort.lat, currentPort.lon, nearestChartedZone.lat, nearestChartedZone.lon).deg}° ·{" "}
+                    {tBearing(b.compass)}{" "}
+                    {b.deg}° ·{" "}
                     {nearestChartedZone.distance_km.toFixed(1)} km
                   </span>
                   <span className="text-xs font-semibold text-ink-muted">
-                    ({nearestChartedZone.zone_name})
+                    ({zoneName(nearestChartedZone.zone_name)})
                   </span>
                 </div>
 
                 <p className="mb-3 text-xs text-ink-muted leading-relaxed">
-                  {nearestChartedZone.zone_description} · Measured directly from {currentPort.name} departure port ({currentPort.lat.toFixed(2)}°N, {currentPort.lon.toFixed(2)}°E).
+                  {zoneDesc(nearestChartedZone.zone_description, nearestChartedZone.zone_name)} · {currentPort.name} ({currentPort.lat.toFixed(2)}°N, {currentPort.lon.toFixed(2)}°E).
                 </p>
 
                 <ReadoutGrid cols={3}>
-                  <Readout label="Departure Port" value={currentPort.name} />
+                  <Readout label={zT("Departure Port")} value={currentPort.name} />
                   <Readout
-                    label="Advised Depth"
+                    label={zT("Advised Depth")}
                     value={
                       nearestChartedZone.zone_type === "nearshore"
                         ? "15 – 35"
@@ -498,7 +502,7 @@ export default function ZonesPage() {
                     unit="m"
                   />
                   <Readout
-                    label="Zone Coordinates"
+                    label={zT("Zone Coordinates")}
                     value={`${nearestChartedZone.lat.toFixed(2)}, ${nearestChartedZone.lon.toFixed(2)}`}
                   />
                 </ReadoutGrid>
@@ -508,9 +512,9 @@ export default function ZonesPage() {
                   <div className="mt-4 border-t border-hairline pt-3">
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-[11px] font-semibold text-ocean-cyan flex items-center gap-1.5">
-                        <Fish className="size-3.5" /> Top Target Fish Species
+                        <Fish className="size-3.5" /> {zT("Top Target Fish Species")}
                       </p>
-                      <span className="text-[9px] font-mono text-ink-dim uppercase">Official Landings Mix</span>
+                      <span className="text-[9px] font-mono text-ink-dim uppercase">{zT("Official Landings Mix")}</span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       {nearestChartedZone.priced_species.slice(0, 3).map((sp, idx) => (
@@ -519,13 +523,13 @@ export default function ZonesPage() {
                             <span className="flex size-4 items-center justify-center rounded-full bg-ocean-cyan/15 text-[9px] font-bold font-mono text-ocean-cyan">
                               {idx + 1}
                             </span>
-                            <span className="font-semibold text-xs text-ink truncate">{sp.common_name}</span>
+                            <span className="font-semibold text-xs text-ink truncate">{tSpecies(sp.common_name)}</span>
                           </div>
                           {sp.scientific_name && (
                             <p className="text-[10px] italic text-ink-dim truncate font-serif">{sp.scientific_name}</p>
                           )}
                           <div className="mt-1.5 flex items-center justify-between text-[10px] font-mono text-ink-muted">
-                            <span>{sp.share_pct}% catch</span>
+                            <span>{sp.share_pct}% {zT("catch")}</span>
                             <span className="font-semibold text-ink">~{sp.est_kg} kg</span>
                           </div>
                         </div>
@@ -534,7 +538,7 @@ export default function ZonesPage() {
                   </div>
                 )}
               </Panel>
-            )}
+            );})()}
 
             {/* Thermal-front proxy */}
             {showProxy && data?.thermal_front_proxy?.orca_metadata && (
