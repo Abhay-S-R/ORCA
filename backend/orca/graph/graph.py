@@ -455,14 +455,16 @@ def _route_after_planning(state: ORCAState) -> list[str] | str:
 # ocean_analytics_node's note on fail-safe execution); the rest are added only
 # when an intent actually asks for them, so a "is it safe?" query does not pay
 # to pick a chlorophyll source it will never read.
-_CORE_DATA_TYPES: tuple[str, ...] = ("wave_height", "wind_speed", "boundary", "lightning", "cyclone")
+_CORE_DATA_TYPES: tuple[str, ...] = (
+    "wave_height", "wind_speed", "boundary", "lightning", "cyclone", "hazard", "cyclone_track"
+)
 # What Ocean Analytics consumes when it runs. Resolved by Agent 3 whenever
 # Ocean is in the plan (or the plan is empty, which gates nothing off), NOT
 # only when an intent happens to name them: the first live run of P2.6 showed
 # Ocean deciding `pfz` and `catch_statistics` for itself on a plain safety
 # question, because Agent 3 had never been asked for them — which is the
 # "each specialist picks its own sources" arrangement this node replaces.
-_OCEAN_DATA_TYPES: tuple[str, ...] = ("pfz", "tide", "catch_statistics")
+_OCEAN_DATA_TYPES: tuple[str, ...] = ("pfz", "tide", "catch_statistics", "fishing_ban")
 _INTENT_DATA_TYPES: dict[str, tuple[str, ...]] = {
     "SAFETY_CHECK": ("tide", "cyclone"),
     "PFZ_NEAREST": ("pfz", "bathymetry"),
@@ -793,7 +795,9 @@ def weather_node(state: ORCAState) -> dict:
         )
 
     result, entry = run_traced_node("weather_intelligence", weather_intelligence.run, state)
-    _attach_discovery(entry, state, ("wave_height", "wind_speed", "lightning", "cyclone"))
+    _attach_discovery(
+        entry, state, ("wave_height", "wind_speed", "lightning", "cyclone", "hazard", "cyclone_track")
+    )
     return {
         # Same shape the geospatial node stores: Agent 7's compute_confidence
         # reads weather_data["confidence"], so dropping it here meant a cached
@@ -1270,7 +1274,8 @@ def reporting_run(state: ORCAState) -> AgentResult:
     if weather:
         results.append(AgentResult(
             agent_name="weather_intelligence", query_id=query_id, reasoning_depth=depth,
-            inputs_consumed={}, outputs={"lightning_active": weather.get("lightning_active"), "cyclone_alert": weather.get("cyclone_alert")},
+            inputs_consumed={},
+            outputs={k: v for k, v in weather.items() if k != "confidence"},
             source_provenance=SourceProvenance(
                 dataset=weather.get("dataset", "Open-Meteo Marine API + Forecast API"),
                 acquisition_timestamp=weather.get("acquisition_timestamp", ""),
@@ -1356,6 +1361,19 @@ def reporting_run(state: ORCAState) -> AgentResult:
                     "osf_point_forecast",
                     # NOTE-CHL-1: SST / chlorophyll at the place, only present when the question asked for them
                     "sea_colour_readings_at_the_place",
+                    # O1: Forward wind, correlation, and species outputs to narrative and facts
+                    "wind_rose",
+                    "wind_anomaly",
+                    "sst_chlorophyll_correlation",
+                    "top_species",
+                    # O2: Forward tool / source selection narratives
+                    "source_selections",
+                    # O3: Forward sector fallback disclosure (P1.6, R-INDIA-2)
+                    "sector_disclosure",
+                    # O5: Forward historical comparison (R-EDGE-2)
+                    "historical_comparison",
+                    # O7: Forward seasonal fishing ban status
+                    "fishing_ban",
                 )
                 if ocean.get(k) is not None
             },

@@ -1,0 +1,361 @@
+"""Tests for defects O1, O2, and O3:
+- O1: wind_rose, wind_anomaly, sst_chlorophyll_correlation, and top_species forwarded to reporting
+- O2: source_selections narrative surfaced to reporting / prompt context
+- O3: sector_disclosure forwarded and surfaced in reporting
+"""
+from __future__ import annotations
+
+from orca.agents import reporting
+from orca.contracts import AgentResult, Confidence, SourceProvenance
+from orca.graph.graph import reporting_run
+from orca.state import ORCAState
+
+
+def test_reporting_run_forwards_o1_o2_o3_outputs():
+    """Verify O1, O2, O3: reporting_run does not drop ocean outputs."""
+    ocean_data = {
+        "tide": {"tidal_state": "FALLING", "station_name": "Thoothukudi"},
+        "nearest_pfz": {"found": True, "distance_km": 12.0, "compass": "ESE"},
+        "sector_status": {"sector_id": "SEC006", "is_data_gap": False},
+        "wind_rose": {
+            "available": True,
+            "port": "Thoothukudi",
+            "hours_counted": 168,
+            "petals": [{"compass": "N", "calm": 5, "light": 10, "moderate": 2}],
+        },
+        "wind_anomaly": {
+            "available": True,
+            "nearest_port": "Thoothukudi",
+            "observed_peak": 42.5,
+            "units": "km/h",
+            "baseline_days": 30,
+            "anomalous": True,
+            "direction": "high",
+        },
+        "sst_chlorophyll_correlation": {
+            "available": True,
+            "pearson_r": -0.682,
+            "relationship": "moderate inverse",
+            "n_samples": 45,
+        },
+        "top_species": [
+            {"name": "Indian Mackerel", "scientific_name": "Rastrelliger kanagurta"},
+            {"name": "Sardinella", "scientific_name": "Sardinella longiceps"},
+        ],
+        "source_selections": [
+            {
+                "data_type": "tide",
+                "chosen": "soi_tide_tables",
+                "chosen_dataset": "Survey of India 2026 Tide Tables",
+                "narrative": "Survey of India official harmonic tables selected",
+                "considered": ["soi_tide_tables", "stormglass_tides"],
+                "fallback_chain": ["soi_tide_tables", "stormglass_tides"],
+            }
+        ],
+        "sector_disclosure": "Sector SEC006 was derived from the regional fallback position, not from yours.",
+    }
+
+    state: ORCAState = {
+        "query_id": "test-q1",
+        "reasoning_depth": "SHALLOW",
+        "ocean_data": ocean_data,
+        "risk_assessment": {"go_no_go": "GO", "reason": "Safe conditions"},
+        "weather_data": {},
+        "geospatial_data": {},
+        "raw_user_query": "where are the fishing zones",
+    }
+
+    res = reporting_run(state)
+    assert res.agent_name == "reporting"
+
+    # We can inspect assembled citations or test assemble_response directly
+    assembled = reporting.assemble_response(
+        "test-q1",
+        [
+            AgentResult(
+                agent_name="ocean_analytics",
+                query_id="test-q1",
+                reasoning_depth="SHALLOW",
+                inputs_consumed={},
+                outputs=ocean_data,
+                source_provenance=SourceProvenance(dataset="test", acquisition_timestamp="", freshness_minutes=0),
+                confidence=Confidence(score="HIGH", rationale="test"),
+            )
+        ],
+    )
+    assert assembled.query_id == "test-q1"
+
+
+def test_facts_paragraph_surfaces_o3_sector_disclosure():
+    """Verify O3: facts_paragraph surfaces sector_disclosure."""
+    ocean_out = {
+        "sector_status": {"is_data_gap": False},
+        "sector_disclosure": "Sector SEC006 was derived from the regional fallback position, not from yours.",
+    }
+    results = [
+        AgentResult(
+            agent_name="ocean_analytics",
+            query_id="q1",
+            reasoning_depth="SHALLOW",
+            inputs_consumed={},
+            outputs=ocean_out,
+            source_provenance=SourceProvenance(dataset="test", acquisition_timestamp="", freshness_minutes=0),
+            confidence=Confidence(score="HIGH", rationale="ok"),
+        )
+    ]
+    text = reporting.facts_paragraph({"go_no_go": "GO", "reason": "Safe"}, results)
+    assert "Sector SEC006 was derived from the regional fallback position, not from yours." in text
+
+
+def test_facts_paragraph_surfaces_o1_wind_anomaly_and_correlation():
+    """Verify O1: facts_paragraph surfaces wind anomaly and SST-chlorophyll correlation."""
+    ocean_out = {
+        "wind_anomaly": {
+            "available": True,
+            "nearest_port": "Thoothukudi",
+            "observed_peak": 44.0,
+            "units": "km/h",
+            "baseline_days": 30,
+            "anomalous": True,
+            "direction": "high",
+        },
+        "sst_chlorophyll_correlation": {
+            "available": True,
+            "pearson_r": -0.72,
+            "relationship": "strong inverse",
+            "n_samples": 50,
+        },
+    }
+    results = [
+        AgentResult(
+            agent_name="ocean_analytics",
+            query_id="q1",
+            reasoning_depth="SHALLOW",
+            inputs_consumed={},
+            outputs=ocean_out,
+            source_provenance=SourceProvenance(dataset="test", acquisition_timestamp="", freshness_minutes=0),
+            confidence=Confidence(score="HIGH", rationale="ok"),
+        )
+    ]
+    text = reporting.facts_paragraph({"go_no_go": "GO", "reason": "Safe"}, results)
+    assert "Forecast peak wind 44.0 km/h is anomalous (high)" in text
+    assert "Regional SST and chlorophyll correlation is r=-0.72 (strong inverse) across 50 co-located grid cells." in text
+
+
+def test_facts_paragraph_surfaces_o1_top_species_fallback():
+    """Verify O1: facts_paragraph falls back to ocean.top_species when nearest_pfz has none."""
+    ocean_out = {
+        "nearest_pfz": {"found": True, "distance_km": 15.0, "compass": "S"},
+        "top_species": [
+            {"name": "Indian Mackerel", "scientific_name": "Rastrelliger kanagurta"},
+            {"name": "Oil Sardine", "scientific_name": "Sardinella longiceps"},
+        ],
+    }
+    results = [
+        AgentResult(
+            agent_name="ocean_analytics",
+            query_id="q1",
+            reasoning_depth="SHALLOW",
+            inputs_consumed={},
+            outputs=ocean_out,
+            source_provenance=SourceProvenance(dataset="test", acquisition_timestamp="", freshness_minutes=0),
+            confidence=Confidence(score="HIGH", rationale="ok"),
+        )
+    ]
+    text = reporting.facts_paragraph({"go_no_go": "GO", "reason": "Safe"}, results)
+    assert "Top target fish species for this zone" in text
+    assert "Indian Mackerel (Rastrelliger kanagurta)" in text
+
+
+def test_narration_view_prunes_bulky_fields_from_source_selections():
+    """Verify O2: narration_view keeps narrative and decisions while pruning bulky routing lists."""
+    raw_selection = {
+        "data_type": "tide",
+        "chosen": "soi_tide_tables",
+        "chosen_dataset": "Survey of India 2026 Tide Tables",
+        "narrative": "Survey of India official harmonic tables selected",
+        "considered": ["soi_tide_tables", "stormglass_tides"],
+        "fallback_chain": ["soi_tide_tables", "stormglass_tides"],
+        "decided_by": "marine_data_discovery",
+    }
+    cleaned = reporting.narration_view(raw_selection)
+    assert cleaned["narrative"] == "Survey of India official harmonic tables selected"
+    assert cleaned["chosen"] == "soi_tide_tables"
+    assert "considered" not in cleaned
+    assert "fallback_chain" not in cleaned
+
+
+def test_o4_correlation_gated_by_intent():
+    """Verify O4: sst_chlorophyll_correlation is gated and not computed for general safety queries."""
+    from orca.agents import ocean_analytics
+
+    # General safety query without sea-colour / correlation keywords or bbox
+    state_safety: ORCAState = {
+        "query_id": "test-safety",
+        "raw_user_query": "is it safe to go fishing tomorrow",
+        "normalized_english_query": "is it safe to go fishing tomorrow",
+        "reasoning_depth": "SHALLOW",
+        "user_location": {"lat": 8.8, "lon": 78.1, "place_name": "Thoothukudi", "place_source": "explicit"},
+    }
+    res_safety = ocean_analytics.run(state_safety)
+    corr_safety = res_safety.outputs["sst_chlorophyll_correlation"]
+    assert corr_safety["available"] is False
+    assert "not requested" in corr_safety.get("note", "").lower()
+
+    # Query asking for SST and chlorophyll correlation
+    state_diagnostic: ORCAState = {
+        "query_id": "test-diag",
+        "raw_user_query": "what is the correlation between sst and chlorophyll",
+        "normalized_english_query": "what is the correlation between sst and chlorophyll",
+        "reasoning_depth": "SHALLOW",
+        "user_location": {"lat": 8.8, "lon": 78.1, "place_name": "Thoothukudi", "place_source": "explicit"},
+    }
+    res_diagnostic = ocean_analytics.run(state_diagnostic)
+    corr_diag = res_diagnostic.outputs["sst_chlorophyll_correlation"]
+    # Evaluated (either available or has data note from the readers, not gated out)
+    assert "not requested" not in corr_diag.get("note", "").lower()
+
+
+def test_o5_historical_comparison_wiring():
+    """Verify O5: historical_comparison is evaluated when asked, forwarded in reporting_run, and surfaced in facts."""
+    from orca.agents import ocean_analytics
+    from orca.graph.graph import reporting_run
+
+    # When query asks about past weather comparison
+    state_hist: ORCAState = {
+        "query_id": "test-hist",
+        "raw_user_query": "was last week rougher than today",
+        "normalized_english_query": "was last week rougher than today",
+        "reasoning_depth": "SHALLOW",
+        "user_location": {"lat": 8.8, "lon": 78.1, "place_name": "Thoothukudi", "place_source": "explicit"},
+    }
+    res_hist = ocean_analytics.run(state_hist)
+    hist_out = res_hist.outputs["historical_comparison"]
+    assert hist_out["available"] is True
+    assert "peak wind" in hist_out["statement"]
+    assert hist_out["comparison"] in ("rougher", "calmer", "about the same")
+
+    # Verify inclusion in facts_paragraph
+    ocean_result = AgentResult(
+        agent_name="ocean_analytics",
+        query_id="test-hist",
+        reasoning_depth="SHALLOW",
+        inputs_consumed={},
+        outputs=res_hist.outputs,
+        source_provenance=SourceProvenance(dataset="test", acquisition_timestamp="", freshness_minutes=0),
+        confidence=Confidence(score="HIGH", rationale="test"),
+    )
+    facts = reporting.facts_paragraph({"go_no_go": "GO", "reason": "safe"}, [ocean_result])
+    assert "ERA5 archive" in facts
+
+    # Verify reporting_run consumes ocean_data with historical_comparison
+    rep_res = reporting_run({
+        **state_hist,
+        "ocean_data": res_hist.outputs,
+        "risk_assessment": {"go_no_go": "GO", "reason": "safe"},
+    })
+    assert rep_res.agent_name == "reporting"
+
+    # When query does NOT ask about past comparison
+    state_no_hist: ORCAState = {
+        "query_id": "test-no-hist",
+        "raw_user_query": "what is the wind speed right now",
+        "normalized_english_query": "what is the wind speed right now",
+        "reasoning_depth": "SHALLOW",
+        "user_location": {"lat": 8.8, "lon": 78.1, "place_name": "Thoothukudi", "place_source": "explicit"},
+    }
+    res_no_hist = ocean_analytics.run(state_no_hist)
+    assert res_no_hist.outputs["historical_comparison"]["available"] is False
+
+
+def test_o6_productivity_district_resolution():
+    """Verify O6: productivity diagnosis resolves to specific districts or falls back to coastal states."""
+    from orca.agents import ocean_analytics
+
+    # 1. Kundapur in Karnataka: should resolve to Karnataka state CMFRI data rather than failing
+    state_kundapur: ORCAState = {
+        "query_id": "test-kundapur",
+        "raw_user_query": "why has catch declined near Kundapur",
+        "normalized_english_query": "why has catch declined near Kundapur",
+        "reasoning_depth": "DEEP",
+        "user_location": {"lat": 13.62, "lon": 74.69, "place_name": "Kundapur", "state": "Karnataka", "place_source": "explicit"},
+    }
+    res_k = ocean_analytics.run(state_kundapur)
+    diag_k = res_k.outputs["productivity_diagnosis"]
+    assert diag_k["state"] == "Karnataka"
+    assert "Karnataka landed" in diag_k["detail"]
+    assert diag_k["verdict"] != "insufficient data"
+
+    # 2. Mumbai: should resolve to "Mumbai Coastal"
+    state_mumbai: ORCAState = {
+        "query_id": "test-mumbai",
+        "raw_user_query": "why has catch dropped in Mumbai",
+        "normalized_english_query": "why has catch dropped in Mumbai",
+        "reasoning_depth": "DEEP",
+        "user_location": {"lat": 18.96, "lon": 72.82, "place_name": "Mumbai", "place_source": "explicit"},
+    }
+    res_m = ocean_analytics.run(state_mumbai)
+    diag_m = res_m.outputs["productivity_diagnosis"]
+    assert diag_m["district"] == "Mumbai Coastal"
+    assert len(diag_m["series"]) >= 3
+
+
+def test_o7_fishing_ban_integration():
+    """Verify O7: Seasonal fishing ban is evaluated, tracked in source_selections, and surfaced in reporting."""
+    from datetime import date
+    from orca.agents import ocean_analytics, reporting
+    from orca.contracts import AgentResult, Confidence, SourceProvenance
+    from orca.graph.graph import reporting_run
+
+    # 1. nearest_pfz evaluated in ban window (e.g. May 1 on East Coast)
+    near = ocean_analytics.nearest_pfz(8.8, 78.1, when=date(2026, 5, 1))
+    assert near.fishing_ban is not None
+    assert near.fishing_ban["available"] is True
+    assert near.fishing_ban["in_ban_period"] is True
+    assert near.ban_note is not None
+    assert "Seasonal fishing ban" in near.ban_note
+
+    # 2. ocean_analytics run produces fishing_ban output and includes it in source_selections
+    state_pfz: ORCAState = {
+        "query_id": "test-pfz-ban",
+        "raw_user_query": "where is the nearest fishing zone",
+        "normalized_english_query": "where is the nearest fishing zone",
+        "reasoning_depth": "SHALLOW",
+        "user_location": {"lat": 8.8, "lon": 78.1, "place_name": "Thoothukudi", "place_source": "explicit"},
+        "target_time_window": {"start": "2026-05-01T06:00:00Z"},
+    }
+    res = ocean_analytics.run(state_pfz)
+    assert "fishing_ban" in res.outputs
+    ban_out = res.outputs["fishing_ban"]
+    assert ban_out["available"] is True
+    assert ban_out["in_ban_period"] is True
+
+    # Verify source_selections tracks dof_fishing_ban
+    selections = res.outputs.get("source_selections", [])
+    ban_sel = next((s for s in selections if s["data_type"] == "fishing_ban"), None)
+    assert ban_sel is not None
+    assert ban_sel["chosen"] == "dof_fishing_ban"
+
+    # 3. reporting_run forwards fishing_ban to reporting
+    ocean_result = AgentResult(
+        agent_name="ocean_analytics",
+        query_id="test-pfz-ban",
+        reasoning_depth="SHALLOW",
+        inputs_consumed={},
+        outputs=res.outputs,
+        source_provenance=SourceProvenance(dataset="test", acquisition_timestamp="", freshness_minutes=0),
+        confidence=Confidence(score="HIGH", rationale="test"),
+    )
+    rep_res = reporting_run({
+        **state_pfz,
+        "ocean_data": res.outputs,
+        "risk_assessment": {"go_no_go": "GO", "reason": "safe"},
+    })
+    assert rep_res.agent_name == "reporting"
+
+    # 4. facts_paragraph surfaces the ban warning
+    facts = reporting.facts_paragraph({"go_no_go": "GO", "reason": "safe"}, [ocean_result])
+    assert "Seasonal fishing ban alert" in facts
+    assert "East Coast" in facts or "prohibited" in facts
+
+

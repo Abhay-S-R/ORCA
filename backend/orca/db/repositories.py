@@ -46,8 +46,13 @@ def get_user_by_id(db: Session, user_id: uuid.UUID) -> User | None:
 
 def get_user_by_identifier(db: Session, identifier: str) -> User | None:
     """identifier is a phone (E.164) or an email — registration/login accept
-    either (infra/db/001_init.sql users_identity_present)."""
-    stmt = select(User).where((User.phone_e164 == identifier) | (User.email == identifier))
+    either (infra/db/001_init.sql users_identity_present). Supports short demo usernames like 'demouser'."""
+    clean = identifier.strip()
+    stmt = select(User).where(
+        (User.phone_e164 == clean)
+        | (User.email == clean)
+        | (User.email == f"{clean.lower()}@orca.test")
+    )
     return db.execute(stmt).scalar_one_or_none()
 
 

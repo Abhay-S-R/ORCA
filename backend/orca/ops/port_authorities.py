@@ -19,12 +19,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from orca.auth.security import hash_password
-from orca.db.models import User
+from orca.db.models import User, Vessel
 
 logger = logging.getLogger("orca.ops.port_authorities")
 
 # Default credentials for local dev / testing
 DEFAULT_AUTHORITY_PASSWORD = "orca-authority-local-dev"
+DEMO_USER_EMAIL = "demouser@orca.test"
+DEMO_USER_PASSWORD = "demouser123"
 
 # Roster of coastal authority configurations for all major ports
 PORT_AUTHORITIES: list[dict[str, Any]] = [
@@ -286,6 +288,44 @@ def ensure_port_authorities(db: Session) -> list[User]:
                 db.flush()
 
         created_or_found.append(user)
+
+    # Ensure single general demo account exists for mariner personas
+    demo = db.execute(select(User).where(User.email == DEMO_USER_EMAIL)).scalar_one_or_none()
+    if demo is None:
+        demo = User(
+            email=DEMO_USER_EMAIL,
+            password_hash=hash_password(DEMO_USER_PASSWORD),
+            display_name="Demo Mariner",
+            role="user",
+            default_persona="fisherman",
+            language="en",
+            home_port=_point_wkb(18.9446, 72.8347),
+            home_port_name="Mumbai",
+            status="active",
+        )
+        db.add(demo)
+        db.flush()
+
+    # Ensure demouser has active vessel (fibreglass boat)
+    vessel = db.execute(select(Vessel).where(Vessel.owner_user_id == demo.id)).scalar_one_or_none()
+    if vessel is None:
+        vessel = Vessel(
+            owner_user_id=demo.id,
+            name="Sagar Demo",
+            vessel_class="fibreglass",
+            length_m=9.5,
+            draft_m=1.2,
+            crew_size=4,
+            cruise_speed_kn=12.0,
+            fuel_burn_lph=14.0,
+            engine_count=1,
+            last_position=_point_wkb(18.9446, 72.8347),
+        )
+        db.add(vessel)
+        db.flush()
+    if demo.active_vessel_id != vessel.id:
+        demo.active_vessel_id = vessel.id
+        db.flush()
 
     db.commit()
     return created_or_found

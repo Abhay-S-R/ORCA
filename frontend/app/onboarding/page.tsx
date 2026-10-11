@@ -58,6 +58,10 @@ export default function OnboardingPage() {
     }
   }, [auth.status, auth.profile, router]);
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync language from parent context
+    setChosenLanguage(language);
+  }, [language]);
   function chooseLanguage(code: LangCode) {
     setChosenLanguage(code);
     setLanguage(code);
@@ -114,7 +118,7 @@ export default function OnboardingPage() {
           await authFetch("/api/profile/active-vessel", {
             method: "PUT",
             body: JSON.stringify({ vessel_id: created.id }),
-          }).catch(() => {});
+          }).catch(() => { });
         }
       }
     } catch {
@@ -152,9 +156,8 @@ export default function OnboardingPage() {
                   type="button"
                   onClick={() => chooseLanguage(lang.code)}
                   aria-pressed={selected}
-                  className={`glass relative flex min-h-[76px] flex-col items-center justify-center gap-1 rounded-xl border p-3 text-center transition-all ${
-                    selected ? "border-accent shadow-md" : "border-hairline/80 hover:border-hairline-strong"
-                  }`}
+                  className={`glass relative flex min-h-[76px] flex-col items-center justify-center gap-1 rounded-xl border p-3 text-center transition-all ${selected ? "border-accent shadow-md" : "border-hairline/80 hover:border-hairline-strong"
+                    }`}
                 >
                   <span className={`text-base font-semibold text-ink ${fontClassForLanguage(lang.code)}`}>{lang.native}</span>
                   <span className="text-[10px] text-ink-dim">{lang.english}</span>
@@ -196,9 +199,8 @@ export default function OnboardingPage() {
                   type="button"
                   onClick={() => setChosenRole(p.id)}
                   aria-pressed={selected}
-                  className={`glass flex items-start justify-between gap-2.5 rounded-xl border p-3 text-left transition-all ${
-                    selected ? "border-accent bg-accent/5 shadow-sm" : "border-hairline/80 hover:border-hairline-strong"
-                  }`}
+                  className={`glass flex items-start justify-between gap-2.5 rounded-xl border p-3 text-left transition-all ${selected ? "border-accent bg-accent/5 shadow-sm" : "border-hairline/80 hover:border-hairline-strong"
+                    }`}
                 >
                   <div className="min-w-0">
                     <div className="text-xs font-semibold text-ink">{t(`role.${roleId}`)}</div>

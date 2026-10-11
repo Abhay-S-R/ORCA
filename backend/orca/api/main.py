@@ -1357,7 +1357,7 @@ async def query(
             # came from the previous turn rather than this one, which is what
             # place_source and the disclosure say.
             place_name = None if place_source == "regional_default" else resolved.place.name
-        elif usable is not None and resolved.status != "ambiguous":
+        elif usable is not None and resolved.status not in ("ambiguous", "out_of_range"):
             # The text named nothing we hold (or nothing at all) but the browser
             # gave us a real fix — that beats the pilot default outright, and is
             # what `resolve_or_ask`'s own fallback disclosure asks the caller for
@@ -1371,7 +1371,7 @@ async def query(
             (lat, lon), place_source = usable, "gps_fix"
             place_name = None
             resolution = {**(resolution or {}), "status": "resolved", "place_source": "gps_fix"}
-        elif home_port is not None and resolved.status != "ambiguous":
+        elif home_port is not None and resolved.status not in ("ambiguous", "out_of_range"):
             # P3.1 — a signed-in user's registered home port beats the
             # regional default: it is a real, chosen position, just not one
             # named in this particular question. `place_source="home_port"`

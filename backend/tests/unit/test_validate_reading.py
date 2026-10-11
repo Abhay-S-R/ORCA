@@ -97,6 +97,21 @@ def test_inland_place_returns_needs_place():
     assert outcome.code == "NEEDS_PLACE"
 
 
+def test_international_place_returns_out_of_range():
+    """An international place outside India's maritime waters (e.g. New York, Dubai)
+    must be refused with OUT_OF_RANGE, not NEEDS_PLACE."""
+    for raw_name, norm_name in [("New York", "new york"), ("Dubai", "dubai"), ("London", "london")]:
+        outcome = validate_reading(
+            places=[{"raw": raw_name, "normalized": norm_name}],
+            when=None,
+            user_location=None,
+            now=_NOW,
+        )
+        assert outcome is not None, raw_name
+        assert outcome.code == "OUT_OF_RANGE", raw_name
+        assert "outside India's maritime waters" in outcome.body, raw_name
+
+
 def test_empty_places_list_does_not_refuse():
     """No places extracted means the model found no place — validate_reading
     does not refuse; the caller decides whether a place is required."""
@@ -326,3 +341,13 @@ def test_a_chosen_position_outside_the_data_extent_is_still_refused():
     loc = {"lat": 12.0, "lon": 50.0, "place_source": "explicit"}
     outcome = validate_reading(_GUJARAT, None, loc, now=_NOW)
     assert outcome is not None and outcome.code == "OUT_OF_RANGE"
+
+
+def test_foreign_places_refused_by_validate_reading():
+    """Foreign places identified via geonamescache or static word list must return OUT_OF_RANGE."""
+    for place_str in ["new york", "dubai", "san fransisco", "abuja", "auckland"]:
+        outcome = validate_reading([{"raw": place_str, "normalized": place_str}], None, None, now=_NOW)
+        assert outcome is not None, place_str
+        assert outcome.code == "OUT_OF_RANGE", place_str
+        assert "outside India's maritime waters" in outcome.body, place_str
+

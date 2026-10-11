@@ -483,6 +483,7 @@ def get_cyclone_status(basin: Literal["BoB", "AS"]) -> dict[str, Any]:
     return {
         "basin": basin,
         "active_cyclones": cyclone_alerts,
+        "source_used": "ndma_sachet",
         "source_provenance": SourceProvenance(
             dataset=dataset, acquisition_timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             freshness_minutes=0,
@@ -585,35 +586,50 @@ def _fetch_gdacs_tracks() -> dict[str, Any]:
     return {"systems": systems, "geojson": {"type": "FeatureCollection", "features": features}}
 
 
-def get_cyclone_tracks() -> dict[str, Any]:
+def get_cyclone_tracks(*, skip_live: bool = False) -> dict[str, Any]:
     """Active North Indian Ocean cyclones as a map layer: track, timed positions
     (observed vs forecast) and the uncertainty cone. Live from GDACS; on failure
-    the last successful fetch is served with its own timestamp and `cached`
+    or skip_live the last successful fetch is served with its own timestamp and `cached`
     set; with no fetch ever made, `available` is False — never an invented track."""
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    try:
-        result = {**_fetch_gdacs_tracks(), "fetched_at": now, "cached": False}
+    result: dict[str, Any] | None = None
+    if not skip_live:
         try:
-            path = cached_gdacs_tc_path()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(result), encoding="utf-8")
-        except OSError:
-            pass  # a failed cache write must not cost the live answer
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            result = {**_fetch_gdacs_tracks(), "fetched_at": now, "cached": False, "source_used": "gdacs_tc"}
+            try:
+                path = cached_gdacs_tc_path()
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(result), encoding="utf-8")
+            except OSError:
+                pass  # a failed cache write must not cost the live answer
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            result = None
+
+    if result is None:
         try:
-            result = {**load_json(cached_gdacs_tc_path()), "cached": True}
+            result = {**load_json(cached_gdacs_tc_path()), "cached": True, "source_used": "gdacs_tc"}
         except (OSError, ValueError):
-            return {"available": False, "systems": [], "geojson": {"type": "FeatureCollection", "features": []},
-                    "cached": False, "note": "GDACS unreachable and no earlier fetch on disk — cyclone track unavailable.",
-                    "source": "GDACS (EU JRC)"}
-    systems = result["systems"]
+            return {
+                "available": False,
+                "systems": [],
+                "geojson": {"type": "FeatureCollection", "features": []},
+                "cached": False,
+                "note": "GDACS unreachable and no earlier fetch on disk — cyclone track unavailable.",
+                "source": "GDACS (EU JRC)",
+                "source_used": "gdacs_tc",
+            }
+    systems = result.get("systems", [])
     active = len(systems) if isinstance(systems, list) else 0
+    note_extra = ""
+    if result.get("cached"):
+        note_extra = " (cached)" if skip_live else " (cached — live fetch failed)"
     result.update({
         "available": True,
         "source": "GDACS (EU JRC)",
+        "source_used": "gdacs_tc",
         "note": (f"{active} active system(s) in the North Indian Ocean" if active
-                 else "No active cyclone in the North Indian Ocean") + f" — GDACS, checked {result['fetched_at']}"
-                + (" (cached — live fetch failed)" if result["cached"] else "") + ".",
+                 else "No active cyclone in the North Indian Ocean") + f" — GDACS, checked {result.get('fetched_at', now)}"
+                + note_extra + ".",
     })
     return result
 
@@ -678,31 +694,52 @@ def _fetch_incois_hazard_bulletins() -> tuple[list[dict], str] | None:
     return (out, "INCOIS multi-hazard bulletins — HWA/SSA/currents (live)")
 
 
-def get_incois_hazard_alerts(region: str) -> dict[str, Any]:
+def get_incois_hazard_alerts(region: str, *, skip_live: bool = False) -> dict[str, Any]:
     """Tool per Architecture §3.1 Agent 4. Live INCOIS high-wave, swell-surge and
     ocean-current bulletins for `region`, matched against district or state.
 
     Falls back to the NDMA SACHET CAP feed — `discovery.py`'s declared fallback for
-    this source — when INCOIS is unreachable, and says which one it used. An empty
+    this source — when INCOIS is unreachable or skip_live is True, and says which one it used. An empty
     list from INCOIS means "no hazard issued", which is a real answer; only a
     transport or parse failure triggers the fallback.
     """
-    region_lower = region.lower()
-    live = _fetch_incois_hazard_bulletins()
-    if live is not None:
-        bulletins, dataset = live
-        matching = [b for b in bulletins
-                    if region_lower in (b["district"] or "").lower()
-                    or region_lower in (b["state"] or "").lower()]
-        confidence = Confidence(score="HIGH", rationale="Live INCOIS hazard bulletin feed")
+    region_lower = region.lower().strip()
+    if not region_lower:
+        matching: list[dict] = []
+        source_used = "incois_hazard_osf" if not skip_live else "ndma_sachet"
+        fallback_depth = 0 if not skip_live else 1
+        dataset = "INCOIS multi-hazard bulletins — HWA/SSA/currents (live)" if not skip_live else "NDMA SACHET CAP feed (skipped — SACHET fallback)"
+        confidence = Confidence(score="HIGH" if not skip_live else "MEDIUM", rationale="No region specified — no bulletins matched")
+    elif not skip_live:
+        live = _fetch_incois_hazard_bulletins()
+        if live is not None:
+            bulletins, dataset = live
+            matching = [b for b in bulletins
+                        if region_lower in (b.get("district") or "").lower()
+                        or region_lower in (b.get("state") or "").lower()
+                        or (b.get("district") or "").lower() in region_lower
+                        or (b.get("state") or "").lower() in region_lower]
+            confidence = Confidence(score="HIGH", rationale="Live INCOIS hazard bulletin feed")
+            source_used = "incois_hazard_osf"
+            fallback_depth = 0
+        else:
+            alerts, dataset, confidence = _fetch_sachet_alerts()
+            dataset = f"{dataset} (INCOIS hazard feed unreachable — SACHET fallback)"
+            matching = [a for a in alerts if region_lower in a.get("area_description", "").lower()]
+            source_used = "ndma_sachet"
+            fallback_depth = 1
     else:
         alerts, dataset, confidence = _fetch_sachet_alerts()
-        dataset = f"{dataset} (INCOIS hazard feed unreachable — SACHET fallback)"
+        dataset = f"{dataset} (INCOIS hazard feed skipped — SACHET fallback)"
         matching = [a for a in alerts if region_lower in a.get("area_description", "").lower()]
+        source_used = "ndma_sachet"
+        fallback_depth = 1
 
     return {
         "region": region,
         "active_warnings": matching,
+        "source_used": source_used,
+        "fallback_depth": fallback_depth,
         "source_provenance": SourceProvenance(
             dataset=dataset,
             acquisition_timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -753,8 +790,33 @@ def run(state: ORCAState) -> AgentResult:
     else:
         agreement = "disagree"
 
+    region = (location.get("district") or location.get("place_name") or location.get("state") or "").strip()
+    if not region:
+        from orca.sea_route.datasets import _guess_coastal_state
+        guessed = _guess_coastal_state(lat, lon)
+        if guessed and guessed != "India":
+            region = guessed
+    if not region:
+        region = _nearest_port(lat, lon, CACHED_WEATHER_PORTS)
+
+    hazard_decision = decisions.get("hazard") or decisions.get("incois_hazard_osf") or {}
+    skip_live_hazard = hazard_decision.get("chosen") == "ndma_sachet"
+    incois_hazard = get_incois_hazard_alerts(region, skip_live=skip_live_hazard)
+
+    track_decision = decisions.get("cyclone_track") or {}
+    has_active_cyclone = bool(cyclone.get("active_cyclones"))
+    skip_live_track = not has_active_cyclone or (
+        track_decision.get("chosen") is not None and track_decision.get("chosen") != "gdacs_tc"
+    )
+    cyclone_tracks = get_cyclone_tracks(skip_live=skip_live_track)
+
     used_by_type = {
-        "wave_height": weather["source_used"], "wind_speed": weather["source_used"], "lightning": lightning["source_used"],
+        "wave_height": weather["source_used"],
+        "wind_speed": weather["source_used"],
+        "lightning": lightning["source_used"],
+        "cyclone": cyclone.get("source_used", "ndma_sachet"),
+        "hazard": incois_hazard["source_used"],
+        "cyclone_track": cyclone_tracks.get("source_used", "gdacs_tc"),
     }
     from orca.agents.discovery import source_report_entry
 
@@ -767,6 +829,20 @@ def run(state: ORCAState) -> AgentResult:
         "imd_nowcast_dataset": imd["source_provenance"].dataset,
         "lightning_source_agreement": agreement,
         "cyclone_alert": _cyclone_alert_severity(cyclone["active_cyclones"]),
+        "incois_hazard": {
+            "region": incois_hazard["region"],
+            "active_warnings": incois_hazard["active_warnings"],
+            "warning_count": len(incois_hazard["active_warnings"]),
+            "source_used": incois_hazard["source_used"],
+            "dataset": incois_hazard["source_provenance"].dataset,
+        },
+        "cyclone_tracks": {
+            "available": cyclone_tracks.get("available", False),
+            "active_systems": len(cyclone_tracks.get("systems") or []),
+            "systems": cyclone_tracks.get("systems", []),
+            "cached": cyclone_tracks.get("cached", False),
+            "note": cyclone_tracks.get("note", ""),
+        },
         # Agent 7 reads weather_data (this dict, once the graph stores it in
         # state) and needs its own SourceProvenance for its verdict — the
         # timestamp lived only inside the AgentResult.source_provenance this
@@ -787,13 +863,17 @@ def run(state: ORCAState) -> AgentResult:
     # perfectly good safety answer degrades because a *bonus* source is stale.
     tiers = ["HIGH", "MEDIUM", "LOW_DATA"]
     worst = max(
-        weather["confidence"].score, lightning["confidence"].score, cyclone["confidence"].score,
+        weather["confidence"].score,
+        lightning["confidence"].score,
+        cyclone["confidence"].score,
+        incois_hazard["confidence"].score,
         key=tiers.index,
     )
     confidence = Confidence(
         score=worst,  # type: ignore[arg-type]  # max() over Literal values returns str
         rationale=f"weather={weather['confidence'].rationale}; lightning={lightning['confidence'].rationale}; "
-        f"cyclone={cyclone['confidence'].rationale}; imd_nowcast={imd['confidence'].rationale}",
+        f"cyclone={cyclone['confidence'].rationale}; incois_hazard={incois_hazard['confidence'].rationale}; "
+        f"imd_nowcast={imd['confidence'].rationale}",
     )
 
     return AgentResult(
