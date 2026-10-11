@@ -228,17 +228,136 @@ export function turnVersions(turn: Turn): TurnVersion[] {
   return turn.versions?.length ? turn.versions : [{ answer: turn.answer, spans: turn.spans }];
 }
 
+function parsePossibleJson<T = Record<string, unknown>>(val: unknown): T | null {
+  if (!val) return null;
+  if (typeof val === "object") return val as T;
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        return JSON.parse(trimmed) as T;
+      } catch {
+        try {
+          const sanitized = trimmed
+            .replace(/'/g, '"')
+            .replace(/\bTrue\b/g, "true")
+            .replace(/\bFalse\b/g, "false")
+            .replace(/\bNone\b/g, "null");
+          return JSON.parse(sanitized) as T;
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+export function extractPfzDistanceAndName(
+  data: FinalResponse | null | undefined,
+  queryText: string,
+): { distanceKm?: number; targetName?: string } {
+  let distanceKm: number | undefined;
+  let targetName: string | undefined;
+
+  // 1. Structured data in ocean_summary.nearest_pfz
+  const rawOcean = data?.ocean_summary;
+  const ocean = parsePossibleJson<{ nearest_pfz?: unknown }>(rawOcean) ?? (rawOcean as { nearest_pfz?: unknown } | undefined);
+  const nearest = parsePossibleJson<{ distance_km?: number | string; landing_center?: string; name?: string }>(ocean?.nearest_pfz) ?? (ocean?.nearest_pfz as { distance_km?: number | string; landing_center?: string; name?: string } | undefined);
+
+  if (nearest) {
+    if (typeof nearest.distance_km === "number" && !isNaN(nearest.distance_km)) {
+      distanceKm = nearest.distance_km;
+    } else if (typeof nearest.distance_km === "string") {
+      const parsed = parseFloat(nearest.distance_km);
+      if (!isNaN(parsed)) distanceKm = parsed;
+    }
+    if (nearest.landing_center && typeof nearest.landing_center === "string" && nearest.landing_center.trim()) {
+      targetName = nearest.landing_center.trim();
+    } else if (nearest.name && typeof nearest.name === "string" && nearest.name.trim()) {
+      targetName = nearest.name.trim();
+    }
+  }
+
+  // 2. From final response text if distance not in structured data
+  const text = data?.final_english_response || "";
+  if (distanceKm === undefined && text) {
+    const matchNear = text.match(/(?:nearest|pfz|zone|advisory|distance|away|within|located)[^.\n,;]*?(\d+(?:\.\d+)?)\s*(?:km|kilometres|kilometers)\b/i);
+    if (matchNear) {
+      distanceKm = parseFloat(matchNear[1]);
+    } else {
+      const matchGeneral = text.match(/(\d+(?:\.\d+)?)\s*(?:km|kilometres|kilometers)\b/i);
+      if (matchGeneral) {
+        distanceKm = parseFloat(matchGeneral[1]);
+      } else {
+        const matchNm = text.match(/(\d+(?:\.\d+)?)\s*(?:nm|nautical miles)\b/i);
+        if (matchNm) {
+          distanceKm = parseFloat(matchNm[1]) * 1.852;
+        }
+      }
+    }
+  }
+
+  // 3. Extract place name from query or response text if targetName is not set
+  if (!targetName) {
+    const combined = `${queryText} ${text}`.toLowerCase();
+    const candidatePlaces = [
+      "munambam", "chellanam", "kochi", "cochin", "veraval", "mumbai", "chennai",
+      "thoothukudi", "tuticorin", "visakhapatnam", "vizag", "mangalore", "mangaluru",
+      "rameswaram", "kanyakumari", "paradip", "kakinada", "kolkata", "porbandar",
+      "dwarka", "okha", "malpe", "karwar", "beypore", "neendakara", "goa",
+    ];
+    for (const place of candidatePlaces) {
+      if (combined.includes(place)) {
+        targetName = place;
+        break;
+      }
+    }
+  }
+
+  // 4. Fallback from user_location.place_name
+  if (!targetName) {
+    const placeName = (data?.user_location as { place_name?: string } | undefined)?.place_name;
+    if (placeName && typeof placeName === "string" && placeName.trim()) {
+      targetName = placeName.toLowerCase().trim();
+    }
+  }
+
+  return { distanceKm, targetName };
+}
+
 // Chart focus reacts to the question itself, not the answer. A follow-up that
 // names no topic or region of its own ("what about tomorrow?") keeps the map
 // where the conversation already is — the same carry-over the backend applies
 // to its intent and place.
-function focusFor(q: string, previous: QueryFocus | null | undefined, nonce: number): QueryFocus {
+function focusFor(
+  q: string,
+  previous: QueryFocus | null | undefined,
+  nonce: number,
+  initialInfo?: { distanceKm?: number; targetName?: string },
+): QueryFocus {
   const intent = classifyQueryIntent(q);
   return {
     intent: intent === "general" && previous ? previous.intent : intent,
     regionId: matchRegionInQuery(q) ?? previous?.regionId,
     nonce,
+    distanceKm: initialInfo?.distanceKm,
+    targetName: initialInfo?.targetName,
   };
+}
+
+// Whether the query explicitly asks about the user's own current position.
+// Only when true should we zoom the map to the GPS-resolved location;
+// otherwise the map stays anchored at the home port (or coastal default).
+const USER_LOCATION_PHRASES = [
+  "my location", "from my location", "at my location", "near me", "where i am",
+  "my position", "from my position", "current position", "current location",
+  "my current", "i am at", "i'm at", "where am i", "around me", "around here",
+  "live location", "my gps", "my area", "near here", "here",
+];
+function mentionsUserLocation(q: string): boolean {
+  const lower = q.toLowerCase();
+  return USER_LOCATION_PHRASES.some((p) => lower.includes(p));
 }
 
 // P4.12 — the same hard-block reading every answer already carries
@@ -283,20 +402,19 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
   const [saveFailed, setSaveFailed] = useState<false | "retrying" | "rejected">(false);
   // The browser's GPS fix, shared with MapView's marker through the one hook
   // so the map and the answer are never about two different positions.
-  // Backend rule (api/main.py): an explicit lat/lon always beats a place name
-  // parsed out of the text, so sending this is what stops a query naming a
-  // harbour outside the gazetteer from falling back to the backend's geographic default.
   const { position: geoPosition, status: geoStatus } = useGeolocation();
   // useGeolocation stores [lon, lat] (GeoJSON order), so unpack, don't index blind.
-  // Only sent on a "granted" fix: a denied or still-loading permission must
-  // fall through to resolving the place from the query text, not to a stale
-  // or half-resolved position. Shared by `ask` and `rerun`: a re-run that
-  // dropped the fix would answer the same question at a different position.
   const [geoLon, geoLat] = geoPosition ?? [];
-  const geoParam =
-    geoStatus === "granted" && geoLat !== undefined && geoLon !== undefined
-      ? `&fix_lat=${geoLat}&fix_lon=${geoLon}`
-      : "";
+
+  // Ambient GPS fix is ONLY sent when the query explicitly asks about the user's location.
+  // Unsolicited GPS fixes must never override the user's registered home port.
+  function getGeoParam(qText: string): string {
+    if (!mentionsUserLocation(qText)) return "";
+    if (geoStatus === "granted" && geoLat !== undefined && geoLon !== undefined) {
+      return `&fix_lat=${geoLat}&fix_lon=${geoLon}`;
+    }
+    return "";
+  }
   const sourceRef = useRef<EventSource | null>(null);
   const focusNonce = useRef(0);
   const lastPersona = useRef(persona);
@@ -318,7 +436,15 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
       // answer — its EventSource is gone, so it would hang forever as is.
       const settled = withCachedConfidence(t.streaming ? { ...t, streaming: false, failed: true } : t);
       focusNonce.current += 1;
-      const focus = settled.focus ?? focusFor(settled.askedQuery, previous, focusNonce.current);
+      const info = extractPfzDistanceAndName(settled.answer, settled.askedQuery);
+      const baseFocus = settled.focus ?? focusFor(settled.askedQuery, previous, focusNonce.current, info);
+      const focus: QueryFocus = {
+        ...baseFocus,
+        nonce: focusNonce.current,
+        distanceKm: info.distanceKm ?? baseFocus.distanceKm,
+        targetName: info.targetName ?? baseFocus.targetName,
+        responseText: settled.answer?.final_english_response ?? baseFocus.responseText,
+      };
       previous = focus;
       return { ...settled, focus };
     });
@@ -489,8 +615,14 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     const sessionId = chatIdRef.current;
 
     const id = crypto.randomUUID();
+    const initialInfo = extractPfzDistanceAndName(null, q);
     focusNonce.current += 1;
-    const focus = focusFor(q, turns[turns.length - 1]?.focus, focusNonce.current);
+    const focus = focusFor(q, turns[turns.length - 1]?.focus, focusNonce.current, initialInfo);
+    if (options?.position) {
+      focus.coords = [options.position.lon, options.position.lat];
+    } else if (mentionsUserLocation(q) && geoPosition) {
+      focus.coords = geoPosition;
+    }
     setSavedTurns((prev) => [
       ...(prev ?? []),
       {
@@ -515,13 +647,12 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     const llmParam = options?.llm === "off" ? "&llm=off" : "";
     const dropParam = options?.drop?.length ? `&drop=${encodeURIComponent(options.drop.join(","))}` : "";
     // P3.10 — a saved-location chip's own coordinates, an explicit position
-    // that beats both the query text and the ambient GPS fix (api/main.py:
-    // `lat`/`lon` given at all skips text/fix resolution entirely) — the
-    // one case where a chip's own stored spot must win even indoors or over
-    // a text place name it doesn't share the gazetteer's spelling of.
+    // that beats both the query text and the ambient GPS fix
     const positionParam = options?.position
       ? `&lat=${options.position.lat}&lon=${options.position.lon}`
       : "";
+    const geo = getGeoParam(q);
+    const locationParam = positionParam || geo;
     const vesselParam = options?.vessel_class
       ? `&vessel_class=${encodeURIComponent(options.vessel_class)}`
       : "";
@@ -532,7 +663,7 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
       // The user may have switched chats while the context was restoring.
       if (chatIdRef.current !== sessionId) return;
       const es = new EventSource(
-        `${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${positionParam || geoParam}${vesselParam}${llmParam}${dropParam}${authParam}`,
+        `${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${locationParam}${vesselParam}${llmParam}${dropParam}${authParam}`,
       );
       sourceRef.current = es;
       es.onmessage = (ev) => {
@@ -556,18 +687,26 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
             ],
           }));
         } else if (data.type === "final_response") {
-          updateTurn(id, (t) => {
-            const loc = data.user_location as { lat?: number; lon?: number } | undefined;
-            const coords: [number, number] | undefined =
-              loc?.lon != null && loc?.lat != null ? [loc.lon, loc.lat] : undefined;
-            const focus: QueryFocus | null = t.focus
-              ? { ...t.focus, coords: coords ?? t.focus.coords }
-              : coords
-              ? { intent: "general", coords, nonce: focusNonce.current }
-              : null;
-            if (focus) setActiveFocus(focus);
-            return { answer: data, streaming: false, focus };
-          });
+          const loc = data.user_location as { lat?: number; lon?: number; place_source?: string } | undefined;
+          const allowGpsZoom = mentionsUserLocation(q);
+          const isGpsFix = loc?.place_source === "gps_fix";
+          const allowCoords = (!isGpsFix || allowGpsZoom) && loc?.lon != null && loc?.lat != null;
+          const coords: [number, number] | undefined =
+            allowCoords && loc?.lon != null && loc?.lat != null ? [loc.lon, loc.lat] : undefined;
+
+          const { distanceKm, targetName } = extractPfzDistanceAndName(data, q);
+          focusNonce.current += 1;
+          const currentTurn = turnsRef.current.find((t) => t.id === id);
+          const nextFocus: QueryFocus = {
+            ...(currentTurn?.focus ?? { intent: classifyQueryIntent(q) }),
+            coords: coords ?? (allowGpsZoom ? currentTurn?.focus?.coords : undefined),
+            nonce: focusNonce.current,
+            distanceKm: distanceKm ?? currentTurn?.focus?.distanceKm,
+            targetName: targetName ?? currentTurn?.focus?.targetName,
+            responseText: data.final_english_response,
+          };
+          setActiveFocus(nextFocus);
+          updateTurn(id, { answer: data, streaming: false, focus: nextFocus });
           const critical = criticalConditionFrom(data);
           if (critical) raiseCriticalAlert(critical);
           es.close();
@@ -603,10 +742,11 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     });
 
     const personaParam = persona !== "unresolved" ? `&persona=${persona}` : "";
+    const geo = getGeoParam(turn.askedQuery);
     // Same token as ask() sends, for the same reason (chatbot plan C0.1).
     void tokenParam().then((authParam) => {
       if (chatIdRef.current !== sessionId) return;
-      const url = `${API_BASE}/query?q=${encodeURIComponent(turn.askedQuery)}${personaParam}&session_id=${encodeURIComponent(sessionId)}${geoParam}&fresh=1${authParam}`;
+      const url = `${API_BASE}/query?q=${encodeURIComponent(turn.askedQuery)}${personaParam}&session_id=${encodeURIComponent(sessionId)}${geo}&fresh=1${authParam}`;
       const es = new EventSource(url);
       sourceRef.current = es;
       es.onmessage = (ev) => {
@@ -629,27 +769,33 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
             ],
           }));
         } else if (data.type === "final_response") {
-          updateTurn(id, (t) => {
-            const loc = data.user_location as { lat?: number; lon?: number } | undefined;
-            const coords: [number, number] | undefined =
-              loc?.lon != null && loc?.lat != null ? [loc.lon, loc.lat] : undefined;
-            const focus: QueryFocus | null = t.focus
-              ? { ...t.focus, coords: coords ?? t.focus.coords }
-              : coords
-              ? { intent: "general", coords, nonce: focusNonce.current }
-              : null;
-            if (focus) setActiveFocus(focus);
-            return {
-              answer: data,
-              streaming: false,
-              focus,
-              versions: (t.versions ?? []).map((v, i) => (i === t.versionIndex ? { answer: data, spans: t.spans } : v)),
-            };
-          });
-          {
-            const critical = criticalConditionFrom(data);
-            if (critical) raiseCriticalAlert(critical);
-          }
+          const loc = data.user_location as { lat?: number; lon?: number; place_source?: string } | undefined;
+          const allowGpsZoom = mentionsUserLocation(turn.askedQuery);
+          const isGpsFix = loc?.place_source === "gps_fix";
+          const allowCoords = (!isGpsFix || allowGpsZoom) && loc?.lon != null && loc?.lat != null;
+          const coords: [number, number] | undefined =
+            allowCoords && loc?.lon != null && loc?.lat != null ? [loc.lon, loc.lat] : undefined;
+
+          const { distanceKm, targetName } = extractPfzDistanceAndName(data, turn.askedQuery);
+          focusNonce.current += 1;
+          const currentTurn = turnsRef.current.find((t) => t.id === id);
+          const nextFocus: QueryFocus = {
+            ...(currentTurn?.focus ?? { intent: classifyQueryIntent(turn.askedQuery) }),
+            coords: coords ?? (allowGpsZoom ? currentTurn?.focus?.coords : undefined),
+            nonce: focusNonce.current,
+            distanceKm: distanceKm ?? currentTurn?.focus?.distanceKm,
+            targetName: targetName ?? currentTurn?.focus?.targetName,
+            responseText: data.final_english_response,
+          };
+          setActiveFocus(nextFocus);
+          updateTurn(id, (t) => ({
+            answer: data,
+            streaming: false,
+            focus: nextFocus,
+            versions: (t.versions ?? []).map((v, i) => (i === t.versionIndex ? { answer: data, spans: t.spans } : v)),
+          }));
+          const critical = criticalConditionFrom(data);
+          if (critical) raiseCriticalAlert(critical);
           es.close();
           // /query?fresh=1 deliberately does NOT remember the turn — the question
           // is already in the window with the answer this one replaces. Push the

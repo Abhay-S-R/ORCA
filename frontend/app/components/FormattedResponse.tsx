@@ -170,7 +170,7 @@ function renderPointItem(itemText: string): ReactNode {
  * - Any highlighted metrics or text in the rest of the paragraph is rendered in BROWN ONLY (`font-semibold text-accent`).
  */
 function renderParagraphBlock(paraText: string): ReactNode {
-  const match = paraText.match(/^(?:\*\*)?([A-Za-z\s&/—–-]+?)(?:\*\*)?:\s*(.*)$/s);
+  const match = paraText.match(/^(?:\*\*)?([A-Za-z\s&/—–-]+?)(?:\*\*)?:\s*([\s\S]*)$/);
   if (match && match[1].trim().length < 60) {
     const headingClean = match[1].replace(/\*\*/g, "").trim();
     const rest = match[2];
