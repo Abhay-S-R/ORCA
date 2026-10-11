@@ -1,7 +1,7 @@
 import React from "react";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom/jest-globals";
-import { describe, it, expect, jest } from "@jest/globals";
+import { describe, it, expect } from "@jest/globals";
 import { AgentTraceUI, type AgentSpan } from "./AgentTraceUI";
 
 describe("AgentTraceUI Expand/Collapse Interactions (Task 8)", () => {

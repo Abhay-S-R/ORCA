@@ -366,9 +366,8 @@ def _revision_is_safe(current: str, revised: str, verdict_header: str | None, fa
     it was given nor the measured facts. A refused revision keeps the previous text."""
     if not revised.strip():
         return False
-    if verdict_header:
-        if not revised.startswith(verdict_header):
-            return False
+    if verdict_header and not revised.startswith(verdict_header):
+        return False
     if _opens_with_heading(revised) and not _opens_with_heading(current):
         return False
     known = _extract_figures(current) | _extract_figures(facts_block or "")

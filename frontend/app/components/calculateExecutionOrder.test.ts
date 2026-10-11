@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Unit tests for calculateExecutionOrder function
 // These tests verify the execution order algorithm handles:
 // - Simple linear traces
@@ -7,7 +8,7 @@
 // - Edge cases (empty graph, single node, cycles)
 
 import { describe, it, expect } from "@jest/globals";
-import { calculateExecutionOrder, type OrderedStep } from "./calculateExecutionOrder";
+import { calculateExecutionOrder } from "./calculateExecutionOrder";
 import type { TraceGraph, TraceNode } from "../reasoning/fixture";
 
 // Helper function to create a minimal TraceNode

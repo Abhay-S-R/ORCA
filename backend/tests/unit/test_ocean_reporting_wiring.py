@@ -303,6 +303,7 @@ def test_o6_productivity_district_resolution():
 def test_o7_fishing_ban_integration():
     """Verify O7: Seasonal fishing ban is evaluated, tracked in source_selections, and surfaced in reporting."""
     from datetime import date
+
     from orca.agents import ocean_analytics, reporting
     from orca.contracts import AgentResult, Confidence, SourceProvenance
     from orca.graph.graph import reporting_run

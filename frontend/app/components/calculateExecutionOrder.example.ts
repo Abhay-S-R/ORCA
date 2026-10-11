@@ -13,23 +13,22 @@ console.log(`Query ID: ${EXAMPLE_TRACE.query_id}`);
 console.log(`Total steps: ${orderedSteps.length}\n`);
 
 orderedSteps.forEach((step, index) => {
-  const indent = "  ".repeat(step.type === "step" ? (step as any).indent : 0);
+  const indent = "  ".repeat(step.type === "step" ? step.indent : 0);
   
   switch (step.type) {
     case "step":
-      const node = (step as any).node;
       console.log(
-        `${index + 1}. ${indent}${node.agent_name} (${node.id}) - ${node.latency_ms}ms - ${node.status}`
+        `${index + 1}. ${indent}${step.node.agent_name} (${step.node.id}) - ${step.node.latency_ms}ms - ${step.node.status}`
       );
       break;
     case "group_start":
-      console.log(`${index + 1}. ${(step as any).label}`);
+      console.log(`${index + 1}. ${step.label}`);
       break;
     case "group_end":
       console.log(`${index + 1}. [End of parallel group]`);
       break;
     case "critic_reinvoke":
-      console.log(`${index + 1}. ${"  ".repeat((step as any).indent)}${(step as any).label}`);
+      console.log(`${index + 1}. ${"  ".repeat(step.indent)}${step.label}`);
       break;
   }
 });

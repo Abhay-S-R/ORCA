@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/jest-globals";
 import { describe, it, expect, jest, beforeEach, afterEach } from "@jest/globals";
 import { AgentTraceUI, type AgentSpan } from "./AgentTraceUI";
