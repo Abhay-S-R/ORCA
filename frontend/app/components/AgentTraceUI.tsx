@@ -26,7 +26,11 @@ import { adaptTraceGraph, AGENT_LABEL } from "../reasoning/trace-adapter";
 import { API_BASE } from "../lib/apiBase";
 import type { AgentStatus } from "./AgentPill";
 import { AgentTraceCollapsed } from "./AgentTraceCollapsed";
-import { AgentTraceExpanded } from "./AgentTraceExpanded";
+import {
+  AgentTraceExpanded,
+  getNarrativeLines,
+  formatDuration,
+} from "./AgentTraceExpanded";
 
 // ============================================================================
 // Type Definitions
@@ -73,6 +77,8 @@ export interface AgentTraceCollapsedProps {
   totalTimeMs: number;
   /** Whether agents are still running (show progress indicator) */
   streaming: boolean;
+  /** Current trace text to display */
+  currentText?: string;
   /** Callback when user clicks to expand */
   onExpand: () => void;
 }
@@ -88,6 +94,8 @@ export interface AgentTraceExpandedProps {
   traceGraph: TraceGraph;
   /** Whether agents are still running (show running indicators) */
   streaming: boolean;
+  /** Total execution time in milliseconds */
+  totalTimeMs?: number;
   /** Callback when user clicks to collapse */
   onCollapse: () => void;
 }
@@ -130,30 +138,28 @@ interface AgentTraceUIState {
 // Utility Functions
 // ============================================================================
 
+const PARALLEL_SPECIALISTS = new Set([
+  "discovery",
+  "marine_data_discovery",
+  "weather_intelligence",
+  "geospatial",
+  "ocean_analytics",
+  "risk_assessment",
+  "visualization",
+]);
+
 /**
  * Convert AgentSpan array to a simplified TraceGraph for streaming updates
- * 
- * This function builds a TraceGraph from the incremental SSE span data without
- * needing to fetch from the API. This allows the expanded view to render and
- * update in real-time as agent_span events arrive.
- * 
- * Requirement 4.1: Implement incremental step updates as agent_span events arrive
- * Requirement 15.2: Update incrementally when new agent spans arrive
- * 
- * Note: This is a simplified TraceGraph that doesn't include edges or groups,
- * which means parallel execution and critic loops won't be visualized until
- * the full trace is fetched from the API. This is acceptable for streaming
- * updates where we just want to show progress.
  */
 function spansToTraceGraph(spans: AgentSpan[]): TraceGraph {
   const nodes: import("../reasoning/fixture").TraceNode[] = spans.map((span, index) => ({
     id: `${span.agent_name}-${index}`,
     agent_name: AGENT_LABEL[span.agent_name] ?? span.agent_name,
-    depth: index, // Simple sequential depth for streaming
+    depth: index,
     status: span.status,
-    confidence_tier: span.confidence_tier as any, // Type coercion for compatibility
+    confidence_tier: span.confidence_tier as any,
     latency_ms: span.latency_ms ?? 0,
-    reasoning_summary: "", // Not available in spans
+    reasoning_summary: "",
     source_count: 0,
     used_llm: false,
     model: null,
@@ -163,7 +169,23 @@ function spansToTraceGraph(spans: AgentSpan[]): TraceGraph {
     run_count: span.run_count ?? 1,
   }));
 
-  // Return simplified TraceGraph with sequential edges
+  // Identify parallel specialist agents to group together
+  const specialistNodeIds = nodes
+    .filter((_, idx) => {
+      const rawSpan = spans[idx];
+      return PARALLEL_SPECIALISTS.has(rawSpan.agent_name.toLowerCase());
+    })
+    .map((n) => n.id);
+
+  const groups: import("../reasoning/fixture").TraceGroup[] = [];
+  if (specialistNodeIds.length > 0) {
+    groups.push({
+      id: "parallel-specialists",
+      reason: "parallel_fanout",
+      node_ids: specialistNodeIds,
+    });
+  }
+
   const edges: import("../reasoning/fixture").TraceEdge[] = [];
   for (let i = 0; i < nodes.length - 1; i++) {
     edges.push({
@@ -178,7 +200,7 @@ function spansToTraceGraph(spans: AgentSpan[]): TraceGraph {
     query_id: "",
     nodes,
     edges,
-    groups: [], // No parallel groups in simplified trace
+    groups,
   };
 }
 
@@ -276,6 +298,26 @@ export function AgentTraceUI({
     }
     return spansToTraceGraph(debouncedSpans);
   }, [debouncedSpans]);
+
+  const activeGraph = state.traceGraph ?? streamingTraceGraph;
+
+  const narrativeLines = useMemo(() => {
+    return getNarrativeLines(activeGraph, streaming);
+  }, [activeGraph, streaming]);
+
+  const currentText = useMemo(() => {
+    if (!streaming) {
+      return `Thought for ${formatDuration(totalTimeMs)}`;
+    }
+    if (narrativeLines.length === 0) {
+      return "Thinking…";
+    }
+    const runningLine = narrativeLines.find((l) => l.running);
+    if (runningLine) {
+      return runningLine.text;
+    }
+    return narrativeLines[narrativeLines.length - 1].text;
+  }, [streaming, narrativeLines, totalTimeMs]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const collapsedButtonRef = useRef<HTMLButtonElement>(null);
@@ -429,6 +471,7 @@ export function AgentTraceUI({
             <AgentTraceCollapsed
               totalTimeMs={totalTimeMs}
               streaming={streaming}
+              currentText={currentText}
               onExpand={handleExpand}
               buttonRef={collapsedButtonRef}
             />
@@ -444,7 +487,7 @@ export function AgentTraceUI({
             transition={{ duration: 0.2, ease: "easeOut" }}
           >
             {/* Loading state skeleton loader (Requirement 14.2) */}
-            {state.loading && !state.traceGraph && (
+            {state.loading && !activeGraph && (
               <div 
                 className="rounded-lg border border-hairline/60 bg-shelf-1/40 p-3 shadow-sm space-y-2"
                 role="status"
@@ -460,7 +503,7 @@ export function AgentTraceUI({
             )}
 
             {/* Error state with retry (Requirement 8.3) */}
-            {state.error && !state.traceGraph && (
+            {state.error && !activeGraph && (
               <div 
                 className="rounded-lg border border-no-go/30 bg-shelf-1/40 p-3 shadow-sm text-center"
                 role="alert"
@@ -476,10 +519,11 @@ export function AgentTraceUI({
               </div>
             )}
 
-            {state.traceGraph && (
+            {activeGraph && (
               <AgentTraceExpanded
-                traceGraph={state.traceGraph}
+                traceGraph={activeGraph}
                 streaming={streaming}
+                totalTimeMs={totalTimeMs}
                 onCollapse={handleCollapse}
                 closeButtonRef={closeButtonRef}
               />

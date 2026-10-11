@@ -13,7 +13,7 @@ describe("AgentTraceCollapsed", () => {
         onExpand={() => {}}
       />
     );
-    expect(screen.getByText("Worked for 3.2s")).toBeInTheDocument();
+    expect(screen.getByText("Thought for 3.2s")).toBeInTheDocument();
   });
 
   it("formats and displays execution time correctly for milliseconds", () => {
@@ -24,19 +24,19 @@ describe("AgentTraceCollapsed", () => {
         onExpand={() => {}}
       />
     );
-    expect(screen.getByText("Worked for 450ms")).toBeInTheDocument();
+    expect(screen.getByText("Thought for 450ms")).toBeInTheDocument();
   });
 
-  it("shows streaming progress indicator when streaming=true", () => {
+  it("shows currentText when streaming=true", () => {
     render(
       <AgentTraceCollapsed
         totalTimeMs={1500}
         streaming={true}
+        currentText="Scanning for distress signals…"
         onExpand={() => {}}
       />
     );
-    expect(screen.getByLabelText("Still working")).toBeInTheDocument();
-    expect(screen.getByText("⟳")).toBeInTheDocument();
+    expect(screen.getByText("Scanning for distress signals…")).toBeInTheDocument();
   });
 
   it("calls onExpand when clicked", () => {

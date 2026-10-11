@@ -195,7 +195,41 @@
   animation: beacon-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+@keyframes text-shimmer-sweep {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.text-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-ink-dim) 0%,
+    var(--color-ink-dim) 20%,
+    var(--color-ocean-cyan) 45%,
+    var(--color-ink) 55%,
+    var(--color-ink-dim) 80%,
+    var(--color-ink-dim) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: text-shimmer-sweep 2.4s linear infinite;
+  display: inline-block;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .text-shimmer {
+    animation: none !important;
+    background: none !important;
+    -webkit-text-fill-color: var(--color-ink) !important;
+    color: var(--color-ink) !important;
+  }
   *,
   *::before,
   *::after {
