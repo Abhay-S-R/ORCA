@@ -1422,6 +1422,10 @@ def reporting_run(state: ORCAState) -> AgentResult:
         # re-run wearing a loop's clothes.
         critique=state.get("critic_critique"),
         engine_out=engine_out,
+        # Per-query-type format guide: tells the model which of the 8 canonical
+        # question types this is (PFZ, safety, conditions, hazard alerts, etc.)
+        # so it structures the response accordingly, regardless of persona.
+        matched_intents=matched_rows,
     )
     # NOTE-CHL-1: the SST / chlorophyll figures come from the data, not from which of them a model chose to mention
     final_english = reporting.with_colour_readings(final_english, results, state.get("user_location"))
@@ -1470,6 +1474,7 @@ def reporting_node(state: ORCAState) -> dict:
     result, entry = run_traced_node("reporting", reporting_run, state)
     return {
         "final_english_response": result.outputs["final_english_response"],
+        "english_reading": state.get("english_reading"),
         # Chatbot plan C0.2e — which engine wrote it; "Deterministic — …" is
         # the facts paragraph, which the chat UI labels as such.
         "response_engine": result.engine,

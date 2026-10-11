@@ -10,6 +10,7 @@ import {
   FileText,
   Clock,
   MapPin,
+  AlertTriangle,
 } from "lucide-react";
 import { fontClassForLanguage } from "../i18n/languages";
 import { splitVerdictHeader } from "../lib/verdictHeader";
@@ -18,15 +19,7 @@ import { useT } from "../i18n/useT";
 interface FormattedResponseProps {
   text: string;
   className?: string;
-  // P3.12 — the answer's own detected/vernacular language (`en` by
-  // default). Loads the matching Noto family (globals.css `@theme`) rather
-  // than leaving a non-Tamil Indic script to the base UI font, which has no
-  // Indic glyphs and depends entirely on whatever the OS happens to fall
-  // back to.
   language?: string | null;
-  // P4.4 — the fisherman surface's "≥18px body, maximum sunlight contrast":
-  // every other persona keeps the design system's normal 14px/12px reading
-  // sizes, which is what "sections" and "items" default to below.
   large?: boolean;
 }
 
@@ -41,7 +34,7 @@ function renderInlineMarkdown(str: string): React.ReactNode[] {
   return tokens.map((token, idx) => {
     if (token.startsWith("**") && token.endsWith("**") && token.length >= 4) {
       return (
-        <strong key={idx} className="font-semibold text-ink">
+        <strong key={idx} className="font-bold text-ink">
           {token.slice(2, -2)}
         </strong>
       );
@@ -50,7 +43,7 @@ function renderInlineMarkdown(str: string): React.ReactNode[] {
       return (
         <code
           key={idx}
-          className="rounded-md border border-hairline/80 bg-shelf-2/80 px-1.5 py-0.5 font-mono text-[11px] text-accent font-medium"
+          className="rounded-md border border-hairline/80 bg-shelf-2/80 px-1.5 py-0.5 font-mono text-xs text-accent font-semibold"
         >
           {token.slice(1, -1)}
         </code>
@@ -69,19 +62,22 @@ function renderInlineMarkdown(str: string): React.ReactNode[] {
 
 function getSectionIcon(title: string) {
   const lower = title.toLowerCase();
-  if (lower.includes("geospatial") || lower.includes("boundary") || lower.includes("imbl")) {
+  if (lower.includes("hazard") || lower.includes("warning") || lower.includes("lightning") || lower.includes("cyclone")) {
+    return <AlertTriangle className="size-4 text-caution" />;
+  }
+  if (lower.includes("route") || lower.includes("course") || lower.includes("geospatial") || lower.includes("boundary") || lower.includes("imbl") || lower.includes("navigation")) {
     return <Compass className="size-4 text-ocean-cyan" />;
   }
-  if (lower.includes("meteorological") || lower.includes("weather") || lower.includes("atmospheric")) {
+  if (lower.includes("meteorological") || lower.includes("weather") || lower.includes("atmospheric") || lower.includes("day 1") || lower.includes("day 2") || lower.includes("day 3")) {
     return <Cloud className="size-4 text-ocean-cyan" />;
   }
-  if (lower.includes("oceanographic") || lower.includes("tidal") || lower.includes("tide")) {
+  if (lower.includes("oceanographic") || lower.includes("tidal") || lower.includes("tide") || lower.includes("current")) {
     return <Waves className="size-4 text-ocean-cyan" />;
   }
-  if (lower.includes("fishing") || lower.includes("pfz") || lower.includes("sector")) {
+  if (lower.includes("fishing") || lower.includes("pfz") || lower.includes("sector") || lower.includes("aggregation") || lower.includes("species")) {
     return <Crosshair className="size-4 text-go" />;
   }
-  if (lower.includes("summary") || lower.includes("directive") || lower.includes("operational")) {
+  if (lower.includes("summary") || lower.includes("directive") || lower.includes("operational") || lower.includes("price") || lower.includes("market") || lower.includes("fuel")) {
     return <ShieldCheck className="size-4 text-accent" />;
   }
   return <FileText className="size-4 text-ink-dim" />;
@@ -182,7 +178,7 @@ export function FormattedResponse({ text, className = "", language, large = fals
     return (
       <div lang={language ?? undefined} className={`space-y-3 ${className} ${langClass}`}>
         {parsed.paragraphs.map((p, i) => (
-          <p key={i} className={`leading-relaxed text-ink/90 ${large ? "text-base" : "text-sm"}`}>
+          <p key={i} className={`leading-relaxed text-ink/90 ${large ? "text-lg font-medium" : "text-base"}`}>
             {renderInlineMarkdown(p)}
           </p>
         ))}
@@ -229,7 +225,7 @@ export function FormattedResponse({ text, className = "", language, large = fals
             >
               {/* Section Header */}
               <div
-                className={`flex items-center gap-2 border-b px-3.5 py-2 text-[13px] sm:text-sm font-semibold ${
+                className={`flex items-center gap-2.5 border-b px-4 py-2.5 text-sm font-bold tracking-tight ${
                   isDirective
                     ? "border-go/20 bg-go/10 text-go"
                     : "border-hairline/60 bg-shelf-2/50 text-ink"
@@ -240,14 +236,14 @@ export function FormattedResponse({ text, className = "", language, large = fals
               </div>
 
               {/* Section Items */}
-              <div className="p-3.5 space-y-2">
+              <div className="p-4 space-y-2.5">
                 {section.items.map((item, iIdx) => {
                   return (
                     <div
                       key={iIdx}
-                      className={`flex items-start gap-2.5 leading-relaxed text-ink/90 ${large ? "text-base" : "text-sm"}`}
+                      className={`flex items-start gap-2.5 leading-relaxed text-ink/90 ${large ? "text-lg font-medium" : "text-base"}`}
                     >
-                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-accent/80" />
+                      <span className="mt-2.5 size-1.5 shrink-0 rounded-full bg-accent" />
                       <div className="min-w-0 flex-1">
                         {renderInlineMarkdown(item)}
                       </div>

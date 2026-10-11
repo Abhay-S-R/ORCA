@@ -372,6 +372,52 @@ function windHint(value: number | null, t?: SafetyThresholds | null): string | u
   return `limit ${(t.caution_wind_kmh / 3.6).toFixed(1)} m/s caution · ${(t.danger_wind_kmh / 3.6).toFixed(1)} m/s danger`;
 }
 
+function resolveHeaderMeta(
+  intent: QueryIntent,
+  rawAnswer?: unknown
+): { title: string; icon: typeof ShieldCheck } {
+  const ans = typeof rawAnswer === "object" && rawAnswer !== null ? (rawAnswer as Record<string, unknown>) : null;
+  const query = String(ans?.asked_query || ans?.raw_user_query || "").toLowerCase();
+  const routing = ans?.routing as { matched_intent_rows?: string[] } | undefined;
+  const matched = routing?.matched_intent_rows || [];
+
+  if (query.includes("market price") || query.includes("price of fish") || query.includes("fish price") || query.includes("rates for key fish") || query.includes("rates of fish") || query.includes("market rate")) {
+    return { title: "Fish Market Rates & Economic Outlook", icon: ShieldCheck };
+  }
+  if (query.includes("aggregation") || query.includes("highest fish") || query.includes("biomass") || query.includes("fish concentration")) {
+    return { title: "Fish Aggregation & Biomass Analysis", icon: Crosshair };
+  }
+  if (query.includes("3 day") || query.includes("3-day") || query.includes("three day") || query.includes("next 3 days") || query.includes("trip over the next") || query.includes("planned fishing trip")) {
+    return { title: "3-Day Weather & Voyage Outlook", icon: Cloud };
+  }
+  if (query.includes("minimum fuel") || query.includes("optimal route") || (query.includes("route") && query.includes("fuel"))) {
+    return { title: "Optimal Route & Fuel Efficiency", icon: Compass };
+  }
+  if (query.includes("lightning") || query.includes("cyclone") || matched.includes("HAZARD_ALERTS")) {
+    return { title: "Severe Weather & Hazard Alerts", icon: AlertTriangle };
+  }
+  if (query.includes("potential fishing") || query.includes("nearest pfz") || query.includes("fishing zone") || matched.includes("PFZ_NEAREST")) {
+    return { title: "Potential Fishing Zone (PFZ) Advisory", icon: Crosshair };
+  }
+  if (query.includes("safe") || query.includes("venture") || matched.includes("SAFETY_CHECK")) {
+    return { title: "Sea Safety & Venture Assessment", icon: ShieldCheck };
+  }
+  if (query.includes("tide") || query.includes("sea condition") || matched.includes("CONDITIONS")) {
+    return { title: "Marine Conditions & Tide Outlook", icon: Waves };
+  }
+  if (matched.includes("ZONES_TO_AVOID") || query.includes("avoid") || query.includes("boundary")) {
+    return { title: "Maritime Boundary Standoff", icon: Compass };
+  }
+  if (matched.includes("DIAGNOSTIC") || query.includes("decline") || query.includes("productivity")) {
+    return { title: "Fisheries Productivity Diagnostic", icon: Waves };
+  }
+
+  return {
+    title: INTENT_TITLE[intent] ?? "Marine Intelligence Advisory",
+    icon: INTENT_ICON[intent] ?? ShieldCheck,
+  };
+}
+
 export function PersonaAnswerMatrix({
   persona,
   queryId,
@@ -426,7 +472,9 @@ export function PersonaAnswerMatrix({
   const pfz = formatPfzData(ocean.nearest_pfz);
   const sector = formatSectorStatusData(ocean.sector_status);
   const productivity = formatProductivityData(ocean.productivity_diagnosis);
-  const HeaderIcon = INTENT_ICON[intent];
+  const headerMeta = resolveHeaderMeta(intent, rawAnswer);
+  const HeaderIcon = headerMeta.icon;
+  const headerTitle = headerMeta.title;
   // Falls back rather than indexing with a verdict the table has never heard of.
   const VerdictIcon = VERDICT_ICON[verdict] ?? AlertTriangle;
 
@@ -440,7 +488,7 @@ export function PersonaAnswerMatrix({
           <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-hairline bg-shelf-2/60 text-accent">
             <HeaderIcon className="size-4" aria-hidden="true" />
           </span>
-          <p className="truncate text-base font-bold tracking-tight text-ink">{INTENT_TITLE[intent]}</p>
+          <p className="truncate text-base font-bold tracking-tight text-ink">{headerTitle}</p>
         </div>
       </div>
 
