@@ -22,7 +22,8 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { TraceGraph } from "../reasoning/fixture";
-import { AGENT_LABEL } from "../reasoning/trace-adapter";
+import { adaptTraceGraph, AGENT_LABEL } from "../reasoning/trace-adapter";
+import { API_BASE } from "../lib/apiBase";
 import type { AgentStatus } from "./AgentPill";
 import { AgentTraceCollapsed } from "./AgentTraceCollapsed";
 import { AgentTraceExpanded } from "./AgentTraceExpanded";
@@ -276,49 +277,99 @@ export function AgentTraceUI({
     return spansToTraceGraph(debouncedSpans);
   }, [debouncedSpans]);
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const collapsedButtonRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const wasExpandedRef = useRef<boolean>(false);
+
+  /**
+   * Focus management on expand/collapse
+   * Requirement 16.4: Ensure focus management on expand/collapse transitions
+   */
+  useEffect(() => {
+    if (wasExpandedRef.current && !state.isExpanded) {
+      // Focus returns to the collapsed trigger button
+      collapsedButtonRef.current?.focus();
+    } else if (!wasExpandedRef.current && state.isExpanded) {
+      // Focus moves to the close button in expanded view
+      requestAnimationFrame(() => {
+        closeButtonRef.current?.focus();
+      });
+    }
+    wasExpandedRef.current = state.isExpanded;
+  }, [state.isExpanded]);
+
+  /**
+   * Smooth scroll behavior on expand
+   * Requirement 18.2: Ensure expanded trace is comfortably in view
+   */
+  useEffect(() => {
+    if (state.isExpanded && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      if (rect.bottom > window.innerHeight || rect.top < 0) {
+        containerRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
+  }, [state.isExpanded]);
+
   /**
    * Handle expand action - fetch full trace data from API
    * Requirement 2.1: User clicks collapsed view to expand
-   * 
-   * For streaming updates, we can show the simplified trace immediately
-   * and optionally fetch the full trace with edges/groups later.
+   * Requirement 10.1: Fetch trace data from /trace/{query_id} on expand
+   * Requirement 8.1-8.5: Accurate backend trace data integration
+   * Requirement 14.5: 5-second timeout on fetch
    */
   const handleExpand = useCallback(async () => {
-    setState((prev) => ({ ...prev, isExpanded: true }));
-
-    // If we have a streaming trace graph from spans, use it immediately
-    // Requirement 4.1: Show incremental updates without waiting for API
-    if (streamingTraceGraph) {
-      setState((prev) => ({ 
-        ...prev, 
-        traceGraph: streamingTraceGraph,
-        loading: false,
-      }));
-    }
+    setState((prev) => ({
+      ...prev,
+      isExpanded: true,
+      traceGraph: prev.traceGraph ?? streamingTraceGraph,
+    }));
 
     // If queryId is available and we're not streaming, fetch the full trace
-    // This will have edges, groups, and more complete data
+    // This provides complete edges, parallel groups, and detailed run metadata
     if (queryId && !streaming) {
-      setState((prev) => ({ ...prev, loading: true }));
+      setState((prev) => ({ ...prev, loading: !prev.traceGraph, error: null }));
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
 
       try {
-        // TODO: Implement actual API fetch in next task
-        // For now, just use the streaming trace graph
-        // const response = await fetch(`/api/trace/${queryId}`);
-        // const apiTrace = await response.json();
-        // const traceGraph = adaptTraceGraph(apiTrace);
-        
+        const response = await fetch(`${API_BASE}/trace/${queryId}`, {
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            // Requirement 8.1: If 404 and streaming spans exist, keep streaming graph; otherwise note not found
+            setState((prev) => ({
+              ...prev,
+              loading: false,
+              error: prev.traceGraph ? null : "Trace data not found for this query",
+            }));
+            return;
+          }
+          throw new Error(`Failed to fetch trace (${response.status})`);
+        }
+
+        const apiTrace = await response.json();
+        const fullTraceGraph = adaptTraceGraph(apiTrace);
+
         setState((prev) => ({
           ...prev,
+          traceGraph: fullTraceGraph,
           loading: false,
-          // traceGraph will be set when API integration is complete
+          error: null,
         }));
       } catch (err) {
+        clearTimeout(timeoutId);
         console.error("AgentTraceUI: Failed to fetch trace data", err);
         setState((prev) => ({
           ...prev,
           loading: false,
-          error: err instanceof Error ? err.message : "Failed to fetch trace data",
+          error: prev.traceGraph ? null : (err instanceof Error && err.name === "AbortError" ? "Trace request timed out" : "Failed to load trace details"),
         }));
       }
     }
@@ -339,7 +390,6 @@ export function AgentTraceUI({
    * Requirement 15.2: Update incrementally when new agent spans arrive via SSE
    */
   useEffect(() => {
-    // Only update if expanded and we have a streaming trace graph
     if (state.isExpanded && streamingTraceGraph) {
       setState((prev) => ({
         ...prev,
@@ -348,8 +398,23 @@ export function AgentTraceUI({
     }
   }, [state.isExpanded, streamingTraceGraph]);
 
+  /**
+   * When streaming concludes while trace is already expanded, refetch full graph from API
+   */
+  const prevStreamingRef = useRef(streaming);
+  useEffect(() => {
+    if (prevStreamingRef.current && !streaming && state.isExpanded && queryId) {
+      handleExpand();
+    }
+    prevStreamingRef.current = streaming;
+  }, [streaming, state.isExpanded, queryId, handleExpand]);
+
   return (
-    <div className={`agent-trace-ui ${className}`}>
+    <section 
+      ref={containerRef} 
+      aria-label="Agent reasoning trace" 
+      className={`agent-trace-ui ${className}`}
+    >
       <AnimatePresence mode="wait">
         {!state.isExpanded ? (
           // Collapsed View (Requirement 1.1, 1.3)
@@ -365,6 +430,7 @@ export function AgentTraceUI({
               totalTimeMs={totalTimeMs}
               streaming={streaming}
               onExpand={handleExpand}
+              buttonRef={collapsedButtonRef}
             />
           </motion.div>
         ) : (
@@ -377,31 +443,51 @@ export function AgentTraceUI({
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
           >
+            {/* Loading state skeleton loader (Requirement 14.2) */}
             {state.loading && !state.traceGraph && (
-              <div className="rounded-lg border border-hairline/60 bg-shelf-1/40 p-2.5 shadow-sm">
-                <div className="py-4 text-center text-sm text-ink-dim">
-                  Loading trace data...
+              <div 
+                className="rounded-lg border border-hairline/60 bg-shelf-1/40 p-3 shadow-sm space-y-2"
+                role="status"
+                aria-label="Loading trace data"
+              >
+                <div className="h-4 w-36 animate-pulse rounded bg-shelf-3" />
+                <div className="space-y-1.5 pt-1">
+                  <div className="h-7 w-full animate-pulse rounded border border-hairline/40 bg-shelf-2/60" />
+                  <div className="h-7 w-full animate-pulse rounded border border-hairline/40 bg-shelf-2/60" />
+                  <div className="h-7 w-full animate-pulse rounded border border-hairline/40 bg-shelf-2/60" />
                 </div>
               </div>
             )}
+
+            {/* Error state with retry (Requirement 8.3) */}
             {state.error && !state.traceGraph && (
-              <div className="rounded-lg border border-hairline/60 bg-shelf-1/40 p-2.5 shadow-sm">
-                <div className="py-4 text-center text-sm text-caution">
-                  {state.error}
-                </div>
+              <div 
+                className="rounded-lg border border-no-go/30 bg-shelf-1/40 p-3 shadow-sm text-center"
+                role="alert"
+              >
+                <p className="text-xs text-caution mb-2">{state.error}</p>
+                <button
+                  onClick={() => handleExpand()}
+                  type="button"
+                  className="text-xs font-mono rounded border border-hairline px-2.5 py-1 text-ink-dim hover:text-ink hover:bg-shelf-2 transition-colors"
+                >
+                  Retry
+                </button>
               </div>
             )}
+
             {state.traceGraph && (
               <AgentTraceExpanded
                 traceGraph={state.traceGraph}
                 streaming={streaming}
                 onCollapse={handleCollapse}
+                closeButtonRef={closeButtonRef}
               />
             )}
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </section>
   );
 }
 

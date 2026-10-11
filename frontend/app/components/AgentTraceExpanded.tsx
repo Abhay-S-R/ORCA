@@ -1,311 +1,371 @@
 "use client";
 
-// AgentTraceExpanded — Detail view for the Agent Trace UI
+// AgentTraceExpanded — Human-like narrative trace for Sagar Sarathi
 //
-// Displays a flat chronological list of agent execution steps with real-time
-// streaming updates. This component integrates calculateExecutionOrder to
-// get the chronological step list and renders AgentTraceStep components in
-// execution order.
+// Each agent step is narrated as a natural language sentence describing
+// WHAT the system is doing, not which component is running. This makes
+// the trace feel like a pipeline of intelligent work, not a list of tools.
 //
-// The implementation uses a FLAT LIST structure (Requirement 2.2, 2.3) to
-// show agent steps in chronological order. This design allows teammates to
-// migrate to a tree structure later if product requirements change. Parallel
-// execution is indicated through indentation and grouping labels, not through
-// actual tree nesting in the DOM.
-//
-// Key features:
-// - Flat chronological list of agent steps
-// - Parallel execution grouping with "Parallel execution (N agents):" label
-// - Critic loop display with indentation and "↻ Critic calls X again" text
-// - Header with collapse button
-// - Collapse callback for returning to summary view
-// - Container styling: border, background, shadows
-//
-// Requirements fulfilled:
-// - 2.1: Expanded view shows flat chronological list
-// - 2.2: Display steps in execution order as flat list
-// - 2.3: Document flat list structure explicitly in code comments
-// - 2.4: Display steps in chronological order based on execution sequence
-// - 2.5: Provide way to collapse back to summary view
-// - 5.1: Display re-invocations as separate steps
-// - 5.2: Display re-invoked steps with indentation
-// - 5.4: Show steps indented under critic's critique step
-// - 6.1: Identify parallel execution from TraceGraph.groups
-// - 6.2: Display individual lines for each specialist agent
-// - 6.3: Display timestamps showing concurrent execution
-// - 6.4: Visually indicate parallel execution through layout/spacing
-// - 6.5: Show individual execution times for parallel agents
-// - 11.1: Display normal sequential flow for handoff edges
-// - 11.2: Display re-invocation flow with visual distinction
+// Key principles:
+// - Only show agents that actually ran (skip skipped/cancelled)
+// - For LLM agents, show reasoning_summary when available
+// - Parallel groups describe what's being gathered, not who's running
+// - Every agent has a unique, human-like phrase
+// - Critic explains what it's validating or who it's calling back
 
-import React, { useState, useEffect } from "react";
+import React from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
-import { motion } from "framer-motion";
 import type { TraceGraph, TraceNode } from "../reasoning/fixture";
-import { AgentTraceStep } from "./AgentTraceStep";
 import { calculateExecutionOrder, type OrderedStep } from "./calculateExecutionOrder";
+import { AGENT_LABEL } from "../reasoning/trace-adapter";
 
-/**
- * Props for the expanded detail view component
- * 
- * Requirements:
- * - 2.1: Expand to show chronological list of steps
- * - 2.5: Provide way to collapse back
- */
 export interface AgentTraceExpandedProps {
-  /** Adapted TraceGraph from trace-adapter.ts */
   traceGraph: TraceGraph;
-  /** Whether agents are still running (show running indicators) */
   streaming: boolean;
-  /** Callback when user clicks to collapse */
   onCollapse: () => void;
+  closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
+}
+
+// ---------------------------------------------------------------------------
+// Agent narrative descriptions
+// ---------------------------------------------------------------------------
+
+interface AgentNarrative {
+  /** What to show while the agent is actively running */
+  running: string;
+  /** What to show when the agent finished successfully */
+  done: string;
+  /** What to show if the agent failed */
+  failed?: string;
+  /** Short noun phrase for parallel group descriptions (e.g. "weather and sea conditions") */
+  activity?: string;
 }
 
 /**
- * AgentTraceExpanded - Detail view showing chronological list of steps
- *
- * This component renders agent execution steps in a flat chronological list,
- * showing parallel execution through grouping labels and indentation, and
- * critic loops through indented re-invocations.
- *
- * DESIGN NOTE - FLAT LIST STRUCTURE:
- * The current implementation uses a FLAT LIST for displaying agent steps
- * in chronological order (Requirements 2.2, 2.3). This allows for simple,
- * intuitive rendering that matches the actual execution flow. The parallel
- * execution pattern is indicated through indentation and grouping labels,
- * NOT through actual tree nesting in the DOM.
- *
- * If product requirements change in the future, this can be migrated to a
- * tree structure. The calculateExecutionOrder utility already identifies
- * the relationships needed for that transformation (see its documentation
- * for migration notes).
- *
- * Requirements fulfilled:
- * - 2.1: Chronological list of agent steps
- * - 2.2: Steps in execution order as flat list (NOT tree)
- * - 2.3: Explicit documentation of flat list structure
- * - 2.4: Chronological order based on execution sequence
- * - 2.5: Collapse callback for returning to summary view
- * - 5.1, 5.2, 5.4: Critic loop visualization with indentation
- * - 6.1-6.5: Parallel execution display with grouping
- * - 11.1, 11.2: Edge type visualization (handoff, critic_loop)
+ * Human-like narrative for each agent, keyed by display name.
+ * These make the trace read like Sagar Sarathi is narrating its own process.
  */
+const AGENT_NARRATIVE: Record<string, AgentNarrative> = {
+  "Distress Check": {
+    running: "Scanning for distress signals…",
+    done: "No distress signals detected",
+    failed: "Distress signal check encountered an error",
+  },
+  "Language Ingress": {
+    running: "Translating the query…",
+    done: "Query translated successfully",
+    failed: "Could not translate the query",
+  },
+  "Planning": {
+    running: "Analyzing the query and planning my approach…",
+    done: "Routing to specialist agents",
+    failed: "Failed to plan the approach",
+  },
+  "Marine Data Discovery": {
+    running: "Searching for relevant marine data sources…",
+    done: "Relevant data sources identified",
+    failed: "Could not discover marine data sources",
+    activity: "marine data sources",
+  },
+  "Weather Intelligence": {
+    running: "Fetching weather and sea conditions…",
+    done: "Weather and sea conditions analyzed",
+    failed: "Weather data retrieval failed",
+    activity: "weather and sea conditions",
+  },
+  "Geospatial": {
+    running: "Analyzing geospatial data…",
+    done: "Geospatial analysis complete",
+    failed: "Geospatial analysis failed",
+    activity: "geospatial information",
+  },
+  "Ocean Analytics": {
+    running: "Computing ocean analytics…",
+    done: "Ocean conditions processed",
+    failed: "Ocean analytics computation failed",
+    activity: "ocean conditions",
+  },
+  "Risk Assessment": {
+    running: "Evaluating potential risks…",
+    done: "Risk evaluation complete",
+    failed: "Risk assessment encountered an error",
+    activity: "risk factors",
+  },
+  "Visualization": {
+    running: "Preparing map visualizations…",
+    done: "Visualizations prepared",
+    failed: "Visualization generation failed",
+    activity: "map visualizations",
+  },
+  "Reporting": {
+    running: "Compiling my findings…",
+    done: "Findings compiled into a report",
+    failed: "Report compilation failed",
+  },
+  "Critic": {
+    running: "Reviewing and validating the findings…",
+    done: "Findings validated — quality check passed",
+    failed: "Validation encountered an issue",
+  },
+  "Language Egress": {
+    running: "Translating the response…",
+    done: "Response translated",
+    failed: "Response translation failed",
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Resolve the human-readable display name for a node */
+function getDisplayName(node: TraceNode): string {
+  return AGENT_LABEL[node.agent_name] ?? AGENT_LABEL[node.id] ?? node.agent_name;
+}
+
+/** Get the narrative config for a node */
+function getNarrative(node: TraceNode): AgentNarrative | undefined {
+  const name = getDisplayName(node);
+  return AGENT_NARRATIVE[name];
+}
+
+/** Did this agent actually run? (false for skipped/cancelled) */
+function didRun(node: TraceNode): boolean {
+  return node.status !== "skipped" && node.status !== "cancelled";
+}
+
+/** Is this step currently executing? */
+function isRunning(node: TraceNode, streaming: boolean, isLast: boolean): boolean {
+  if (!streaming) return false;
+  return node.status === "running" || (isLast && node.status === "pending");
+}
+
+/**
+ * Get the "done" text for an agent.
+ * For LLM agents with a reasoning_summary, use it to make the trace richer.
+ * Otherwise fall back to the narrative's done phrase.
+ */
+function getDoneText(node: TraceNode, narrative: AgentNarrative | undefined): string {
+  // For LLM agents, prefer the reasoning summary — it tells us WHAT the agent thought
+  if (node.used_llm && node.reasoning_summary && node.reasoning_summary.trim()) {
+    return node.reasoning_summary;
+  }
+  return narrative?.done ?? `${getDisplayName(node)} complete`;
+}
+
+/**
+ * Format a list with commas and "and" before the last item.
+ * ["a"] → "a"
+ * ["a", "b"] → "a and b"
+ * ["a", "b", "c"] → "a, b, and c"
+ */
+function joinNatural(items: string[]): string {
+  if (items.length === 0) return "";
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+// ---------------------------------------------------------------------------
+// Step → narrative line conversion
+// ---------------------------------------------------------------------------
+
+function stepToNarrative(
+  step: OrderedStep,
+  streaming: boolean,
+  isLastStep: boolean,
+  allSteps: OrderedStep[],
+  index: number,
+): { text: string; running: boolean } | null {
+  switch (step.type) {
+    case "step": {
+      // ---- SKIP agents that didn't run ----
+      if (!didRun(step.node)) return null;
+
+      const narrative = getNarrative(step.node);
+      const active = isRunning(step.node, streaming, isLastStep);
+
+      if (active) {
+        return {
+          text: narrative?.running ?? `Processing ${getDisplayName(step.node)}…`,
+          running: true,
+        };
+      }
+
+      // Terminal statuses
+      switch (step.node.status) {
+        case "ok":
+        case "degraded":
+          return { text: getDoneText(step.node, narrative), running: false };
+        case "failed":
+          return {
+            text: narrative?.failed ?? `${getDisplayName(step.node)} failed`,
+            running: false,
+          };
+        default:
+          return { text: getDoneText(step.node, narrative), running: false };
+      }
+    }
+
+    case "group_start": {
+      // Build a natural description of what's being gathered in parallel.
+      // Uses each agent's "activity" noun phrase instead of its name.
+      const activities: string[] = [];
+      for (let i = index + 1; i < allSteps.length; i++) {
+        const s = allSteps[i];
+        if (s.type === "group_end") break;
+        if (s.type === "step" && didRun(s.node)) {
+          const n = getNarrative(s.node);
+          activities.push(n?.activity ?? getDisplayName(s.node).toLowerCase());
+        }
+      }
+      if (activities.length === 0) return null; // All agents in group were skipped
+      return {
+        text: `Gathering ${joinNatural(activities)}`,
+        running: false,
+      };
+    }
+
+    case "group_end":
+      return null;
+
+    case "critic_reinvoke":
+      // Label is already set by calculateExecutionOrder with human phrasing
+      return { text: step.label, running: false };
+
+    default:
+      return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 export function AgentTraceExpanded({
   traceGraph,
   streaming,
   onCollapse,
+  closeButtonRef,
 }: AgentTraceExpandedProps) {
-  /**
-   * Calculate chronological execution order from TraceGraph
-   * Requirement 2.4: Steps in chronological order based on execution sequence
-   * Requirement 6.1: Identify parallel execution from TraceGraph.groups
-   * Requirement 15.3: Memoize to prevent unnecessary recalculation
-   */
-  const orderedSteps = React.useMemo(() => {
-    return calculateExecutionOrder(traceGraph);
-  }, [traceGraph]);
+  const orderedSteps = React.useMemo(
+    () => calculateExecutionOrder(traceGraph),
+    [traceGraph],
+  );
 
-  /**
-   * Track rendered node IDs for incremental updates
-   * Requirement 15.2: Update incrementally when new agent spans arrive
-   * Requirement 15.3: Don't re-render completed steps
-   */
-  const [renderedNodeIds, setRenderedNodeIds] = React.useState<Set<string>>(new Set());
+  const narrativeLines = React.useMemo(() => {
+    const lines: { key: string; text: string; running: boolean }[] = [];
 
-  /**
-   * Update rendered node IDs when new nodes arrive
-   * Requirement 4.1: Incremental step updates as agent_span events arrive
-   */
-  React.useEffect(() => {
-    const currentNodeIds = new Set(
-      orderedSteps
-        .filter((step) => step.type === "step")
-        .map((step) => (step as { type: "step"; node: TraceNode }).node.id)
-    );
-    
-    setRenderedNodeIds(currentNodeIds);
-  }, [orderedSteps]);
+    orderedSteps.forEach((step, idx) => {
+      const isLast = idx === orderedSteps.length - 1;
+      const result = stepToNarrative(step, streaming, isLast, orderedSteps, idx);
+      if (!result) return;
 
-  /**
-   * Track which node IDs were in the previous render
-   * This helps us identify newly added steps for entry animations
-   * Requirement 4.1: Animate new steps as they arrive
-   */
-  const prevNodeIdsRef = React.useRef<Set<string>>(new Set());
-  
-  /**
-   * Check if a node is newly added (should animate in)
-   */
-  const isNewNode = React.useCallback((nodeId: string): boolean => {
-    return !prevNodeIdsRef.current.has(nodeId);
-  }, []);
+      const key =
+        step.type === "step"
+          ? step.node.id
+          : step.type === "group_start"
+            ? `group-${step.groupId}`
+            : `critic-${idx}`;
 
-  /**
-   * Update previous node IDs after render
-   */
-  React.useEffect(() => {
-    prevNodeIdsRef.current = renderedNodeIds;
-  }, [renderedNodeIds]);
-
-  /**
-   * Handle keyboard accessibility for collapse button
-   * Requirement 2.5: Collapse back to summary view
-   */
-  const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      onCollapse();
-    }
-    if (event.key === "Escape") {
-      onCollapse();
-    }
-  };
-
-  /**
-   * Render individual ordered steps
-   * This function handles the flat list rendering of steps, group labels,
-   * and critic re-invocation markers.
-   * 
-   * Requirement 4.1: Animate new steps with entry animation
-   * Requirement 15.3: Memoized AgentTraceStep prevents re-rendering completed steps
-   */
-  const renderOrderedStep = (step: OrderedStep, index: number) => {
-    switch (step.type) {
-      case "step": {
-        // Regular agent execution step
-        // Requirements: 2.4 (chronological order), 3.1-3.5 (step content)
-        const isNew = isNewNode(step.node.id);
-        const isCurrentlyRunning = streaming && (step.node.status === "running" || (index === orderedSteps.length - 1 && step.node.status === "pending"));
-        
-        return (
-          <AgentTraceStep
-            key={`${step.node.id}-${index}`}
-            node={step.node}
-            isNew={isNew}
-            isRunning={isCurrentlyRunning}
-            indent={step.indent}
-          />
-        );
+      // Skip individual parallel agent steps — they're covered by
+      // the "Gathering X, Y, and Z" group line
+      if (step.type === "step" && step.indent === 1) {
+        if (!result.running) return; // Still show actively-running ones
       }
 
-      case "group_start":
-        // Parallel execution group label
-        // Requirement 6.4: Visually indicate parallel execution through layout
-        return (
-          <li
-            key={`group-start-${step.groupId}`}
-            className="mb-1 mt-2 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim/70"
-            role="heading"
-            aria-level={3}
-          >
-            {step.label}
-          </li>
-        );
+      lines.push({ key, text: result.text, running: result.running });
+    });
 
-      case "group_end":
-        // Parallel execution group end (visual spacing)
-        // Requirement 6.4: Visual indication of parallel execution
-        return (
-          <li
-            key={`group-end-${step.groupId}`}
-            className="mb-1"
-            aria-hidden="true"
-          />
-        );
-
-      case "critic_reinvoke":
-        // Critic re-invocation marker
-        // Requirements: 5.1 (re-invocations as separate steps),
-        //               5.2 (indentation for re-invoked steps),
-        //               11.2 (visual distinction for critic_loop)
-        return (
-          <li
-            key={`critic-${index}`}
-            className={`mb-1 text-[10px] font-mono text-ink-dim/80 ${
-              step.indent === 1 ? "pl-4" : step.indent === 2 ? "pl-8" : ""
-            }`}
-            role="listitem"
-          >
-            {step.label}
-          </li>
-        );
-
-      default:
-        return null;
-    }
-  };
+    return lines;
+  }, [orderedSteps, streaming]);
 
   return (
-    <div
-      className="agent-trace-expanded rounded-lg border border-hairline/60 bg-shelf-1/40 p-2.5 shadow-sm"
+    <section
+      id="agent-trace-expanded-region"
+      className="agent-trace-expanded"
       role="region"
-      aria-label="Agent execution steps"
+      aria-label="Agent execution trace"
     >
-      {/* Header with collapse button */}
-      {/* Requirement 2.5: Collapse callback for returning to summary */}
-      <div className="mb-2 flex items-center justify-between border-b border-hairline/40 pb-2">
-        <h2 className="text-[11px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
-          ▾ Agent Reasoning Trace
-        </h2>
+      {/* Header */}
+      <div className="mb-2 flex items-center justify-between">
         <button
+          ref={closeButtonRef}
           onClick={onCollapse}
-          onKeyDown={handleKeyDown}
-          className="flex size-6 shrink-0 items-center justify-center rounded border border-hairline/60 bg-shelf-1 text-ink-dim transition-colors hover:border-hairline-strong hover:bg-shelf-2 focus:outline-none focus:ring-2 focus:ring-ocean-cyan/30"
-          aria-label="Collapse trace to summary view"
+          className="flex items-center gap-1.5 text-[11px] sm:text-xs font-medium text-ink-dim hover:text-ink transition-colors"
+          aria-label="Collapse trace"
           type="button"
         >
-          <X className="size-3.5" aria-hidden="true" />
+          <span className="select-none">▾</span>
+          <span>Thinking</span>
+        </button>
+        <button
+          onClick={onCollapse}
+          className="flex size-5 items-center justify-center rounded text-ink-dim/60 hover:text-ink transition-colors"
+          aria-label="Close"
+          type="button"
+        >
+          <X className="size-3" aria-hidden="true" />
         </button>
       </div>
 
-      {/* Flat chronological list of agent steps */}
-      {/* Requirements:
-            - 2.2: Steps in execution order as flat list
-            - 2.3: Explicit documentation of flat list structure
-            - 2.4: Chronological order based on execution sequence
-            - 16.1: Semantic HTML structure (ol/li for steps)
-       */}
-      <ol className="flex flex-col gap-1" role="list">
-        {orderedSteps.length === 0 ? (
-          <li className="py-4 text-center text-sm text-ink-dim">
-            No agent execution data available
-          </li>
-        ) : (
-          orderedSteps.map((step, index) => renderOrderedStep(step, index))
-        )}
-
-        {/* Streaming indicator for next step */}
-        {/* Requirement 4.2: Show progress indicator for running agents */}
-        {/* Requirement 4.4: Remove progress indicators when all agents complete */}
-        {streaming && orderedSteps.length > 0 && (
-          <motion.li
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.2 }}
-            className="mt-1 flex items-center gap-2 rounded border border-ocean-cyan/40 bg-ocean-cyan/5 px-2 py-1.5 text-[11px] text-ink-dim"
-            role="status"
-            aria-live="polite"
-          >
-            <motion.span 
-              className="text-ocean-cyan"
-              animate={{ opacity: [0.5, 1, 0.5] }}
-              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+      {/* Narrative trace lines */}
+      <div className="flex flex-col gap-0.5 pl-2 border-l-2 border-ink-dim/15">
+        <AnimatePresence initial={false}>
+          {narrativeLines.map((line) => (
+            <motion.div
+              key={line.key}
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="flex items-center gap-2 py-0.5"
             >
-              ⟳
-            </motion.span>
-            <span>Processing...</span>
-          </motion.li>
-        )}
-      </ol>
+              {line.running ? (
+                <span className="relative flex size-1.5 shrink-0">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-ocean-cyan opacity-60" />
+                  <span className="relative inline-flex size-1.5 rounded-full bg-ocean-cyan" />
+                </span>
+              ) : (
+                <span className="size-1 shrink-0 rounded-full bg-ink-dim/30" />
+              )}
 
-      {/* ARIA live region for streaming updates */}
-      {/* Requirement 16.3: Announce state changes via aria-live regions */}
-      {streaming && (
-        <div className="sr-only" aria-live="polite" aria-atomic="false">
-          Agents are still working
-        </div>
-      )}
-    </div>
+              <span
+                className={`text-[11px] sm:text-xs leading-relaxed ${
+                  line.running ? "text-ink font-medium" : "text-ink-dim"
+                }`}
+              >
+                {line.text}
+              </span>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+
+        {/* Fallback streaming indicator */}
+        {streaming && narrativeLines.length > 0 && !narrativeLines.some((l) => l.running) && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex items-center gap-2 py-0.5"
+          >
+            <span className="relative flex size-1.5 shrink-0">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-ocean-cyan opacity-60" />
+              <span className="relative inline-flex size-1.5 rounded-full bg-ocean-cyan" />
+            </span>
+            <span className="text-[11px] sm:text-xs text-ink-dim">
+              Processing…
+            </span>
+          </motion.div>
+        )}
+      </div>
+
+      {/* Screen reader */}
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {streaming
+          ? `Working. ${narrativeLines.length} steps so far.`
+          : `Done. ${narrativeLines.length} steps completed.`}
+      </div>
+    </section>
   );
 }

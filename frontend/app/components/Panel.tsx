@@ -4,7 +4,7 @@
 //
 // Semantic <section> with a heading, so a screen reader gets the same panel
 // structure a sighted user gets from the hairline.
-import type { ReactNode } from "react";
+import React, { type ReactNode } from "react";
 
 export function Panel({
   title,

@@ -46,6 +46,14 @@ export interface AgentTraceStepProps {
   indent?: number;
   /** Optional group label like "Parallel execution (4 agents)" */
   showGroupLabel?: string;
+  /** Optional index of this step among all steps */
+  stepIndex?: number;
+  /** Optional total count of all steps */
+  totalSteps?: number;
+  /** Key down handler for list keyboard navigation */
+  onKeyDown?: (e: React.KeyboardEvent<HTMLLIElement>) => void;
+  /** Ref callback for the step listitem DOM node */
+  itemRef?: (el: HTMLLIElement | null) => void;
 }
 
 // ============================================================================
@@ -209,6 +217,10 @@ function AgentTraceStepComponent({
   isRunning = false,
   indent = 0,
   showGroupLabel,
+  stepIndex,
+  totalSteps,
+  onKeyDown,
+  itemRef,
 }: AgentTraceStepProps) {
   const [showTooltip, setShowTooltip] = useState(false);
   
@@ -281,14 +293,21 @@ function AgentTraceStepComponent({
   /**
    * Build ARIA label for accessibility
    * Requirement 16.2: Use ARIA labels to describe steps
+   * Requirement 16.3: Announce relationships (parallel, critic loop)
    */
   const getAriaLabel = () => {
     const parts = [
       displayName,
       STATUS_TEXT[effectiveStatus],
-      formatLatency(node.latency_ms),
-    ];
+      node.latency_ms > 0 ? formatLatency(node.latency_ms) : null,
+    ].filter(Boolean);
     
+    if (indent === 1) {
+      parts.push("parallel execution");
+    } else if (indent === 2) {
+      parts.push("re-invoked under critic loop");
+    }
+
     if (showConfidence) {
       parts.push(`${CONFIDENCE_FULL_LABEL[node.confidence_tier]} confidence`);
     }
@@ -296,8 +315,27 @@ function AgentTraceStepComponent({
     if (showRunCount) {
       parts.push(`ran ${node.run_count} times`);
     }
+
+    if (stepIndex !== undefined && totalSteps !== undefined) {
+      parts.push(`step ${stepIndex + 1} of ${totalSteps}`);
+    }
     
     return parts.join(", ");
+  };
+
+  /**
+   * Keyboard handler for step item
+   * Requirement 16.4: Enter/Space toggles tooltip details, Escape closes tooltip
+   */
+  const handleStepKeyDown = (e: React.KeyboardEvent<HTMLLIElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setShowTooltip((prev) => !prev);
+    } else if (e.key === "Escape" && showTooltip) {
+      e.stopPropagation();
+      setShowTooltip(false);
+    }
+    onKeyDown?.(e);
   };
 
   return (
@@ -306,7 +344,7 @@ function AgentTraceStepComponent({
       {/* Requirement 6.4: Visually indicate parallel execution */}
       {showGroupLabel && (
         <div 
-          className="mb-1 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim/70"
+          className="mb-1 text-[9px] sm:text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim/70"
           role="heading"
           aria-level={3}
         >
@@ -316,11 +354,15 @@ function AgentTraceStepComponent({
 
       {/* Agent step container */}
       {/* Requirement 16.1: Semantic HTML structure (li element) */}
+      {/* Requirement 16.4: Accessible keyboard navigation focus and interactions */}
       <motion.li
+        ref={itemRef}
+        tabIndex={0}
+        onKeyDown={handleStepKeyDown}
         initial={isNew ? { opacity: 0, x: -8 } : undefined}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.15 }}
-        className={`group relative flex items-center gap-2 rounded border px-2 py-1.5 transition-colors duration-150 ${STATUS_BG[effectiveStatus]} ${getIndentClass(indent)}`}
+        className={`group relative flex items-center gap-1.5 sm:gap-2 rounded border px-1.5 py-2 sm:px-2 sm:py-1.5 transition-colors duration-150 min-h-[48px] sm:min-h-[44px] focus:outline-none focus:ring-2 focus:ring-ocean-cyan/50 focus:ring-offset-1 ${STATUS_BG[effectiveStatus]} ${getIndentClass(indent)}`}
         aria-label={getAriaLabel()}
         role="listitem"
       >
@@ -332,14 +374,14 @@ function AgentTraceStepComponent({
 
         {/* Agent name */}
         {/* Requirement 3.3: Display agent name/label */}
-        <span className="flex-1 truncate text-[11px] sm:text-xs font-medium text-ink">
+        <span className="flex-1 truncate text-[10px] sm:text-[11px] lg:text-xs font-medium text-ink">
           {displayName}
         </span>
 
         {/* Latency display */}
         {/* Requirement 3.4: Display execution time formatted */}
         {node.latency_ms > 0 && (
-          <span className="shrink-0 text-[10px] font-mono text-ink-muted">
+          <span className="shrink-0 text-[9px] sm:text-[10px] font-mono text-ink-muted">
             {formatLatency(node.latency_ms)}
           </span>
         )}
@@ -386,7 +428,7 @@ function AgentTraceStepComponent({
         {/* Tooltip */}
         {showTooltip && (
           <div
-            className="absolute right-0 top-full z-10 mt-1 w-64 rounded-lg border border-hairline bg-shelf-3 p-2 text-[10px] leading-relaxed text-ink shadow-md"
+            className="absolute right-0 top-full z-10 mt-1 w-52 sm:w-64 lg:w-72 rounded-lg border border-hairline bg-shelf-3 p-2 text-[9px] sm:text-[10px] leading-relaxed text-ink shadow-md"
             role="tooltip"
           >
             <pre className="whitespace-pre-wrap font-sans">{getTooltipContent()}</pre>
@@ -421,7 +463,9 @@ export const AgentTraceStep = React.memo(
       prevProps.indent === nextProps.indent &&
       prevProps.showGroupLabel === nextProps.showGroupLabel &&
       prevProps.node.status === nextProps.node.status &&
-      prevProps.node.latency_ms === nextProps.node.latency_ms
+      prevProps.node.latency_ms === nextProps.node.latency_ms &&
+      prevProps.stepIndex === nextProps.stepIndex &&
+      prevProps.totalSteps === nextProps.totalSteps
     );
   }
 );

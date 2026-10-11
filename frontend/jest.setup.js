@@ -12,8 +12,11 @@ jest.mock("framer-motion", () => {
         React.createElement("button", props, children),
       li: ({ children, ...props }) =>
         React.createElement("li", props, children),
+      span: ({ children, ...props }) =>
+        React.createElement("span", props, children),
     },
     AnimatePresence: ({ children }) => children,
+    useReducedMotion: () => false,
   };
 });
 

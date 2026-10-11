@@ -21,6 +21,7 @@
   "dependencies": {
     "@deck.gl/core": "^9.3.11",
     "@deck.gl/mapbox": "^9.3.11",
+    "@tanstack/react-virtual": "^3.14.14",
     "@types/dagre": "^0.7.54",
     "@xyflow/react": "^12.11.6",
     "dagre": "^0.8.5",

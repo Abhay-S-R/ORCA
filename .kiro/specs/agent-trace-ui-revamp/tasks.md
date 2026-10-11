@@ -23,7 +23,7 @@ This implementation replaces ORCA's current pill-based agent strip UI with a pro
     - Apply styling: minimal border, subtle background (shelf-1/40), hover states
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
 
-  - [ ]* 2.2 Write unit tests for AgentTraceCollapsed
+  - [x] 2.2 Write unit tests for AgentTraceCollapsed
     - Test total time calculation (3200ms → "3.2s")
     - Test streaming spinner display when streaming=true
     - Test onExpand callback invocation on click
@@ -40,7 +40,7 @@ This implementation replaces ORCA's current pill-based agent strip UI with a pro
     - Add explicit code comments documenting flat list structure (allows future tree migration)
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 5.1, 5.2, 6.1, 11.4_
 
-  - [ ]* 3.2 Write unit tests for execution order algorithm
+  - [x] 3.2 Write unit tests for execution order algorithm
     - Test simple linear trace ordering
     - Test parallel agent grouping
     - Test critic loop nesting
@@ -111,8 +111,8 @@ This implementation replaces ORCA's current pill-based agent strip UI with a pro
     - Test debouncing behavior with rapid events
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5_
 
-- [ ] 8. Implement expand/collapse animations and interactions
-  - [ ] 8.1 Add framer-motion animations for expand/collapse
+- [x] 8. Implement expand/collapse animations and interactions
+  - [x] 8.1 Add framer-motion animations for expand/collapse
     - Implement expand animation (height 0→auto, opacity 0→1, 200ms easeOut)
     - Implement collapse animation (height auto→0, opacity 1→0, 200ms easeOut)
     - Add step entry animation for streaming updates (opacity 0→1, x -8→0, 150ms)
@@ -120,17 +120,17 @@ This implementation replaces ORCA's current pill-based agent strip UI with a pro
     - Implement smooth scroll behavior when expanding
     - _Requirements: 1.5, 2.5, 15.5, 18.2_
 
-  - [ ]* 8.2 Write integration tests for expand/collapse
+  - [x]* 8.2 Write integration tests for expand/collapse
     - Test expand interaction (click collapsed → shows expanded view)
     - Test collapse interaction (click close button → shows collapsed view)
     - Verify animation completion
     - _Requirements: 1.5, 2.5_
 
-- [ ] 9. Checkpoint - Verify core UI components
+- [x] 9. Checkpoint - Verify core UI components
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 10. Implement AgentTraceUI container component
-  - [ ] 10.1 Wire up AgentTraceUI with state and data fetching
+- [x] 10. Implement AgentTraceUI container component
+  - [x] 10.1 Wire up AgentTraceUI with state and data fetching
     - Implement expanded/collapsed state management
     - Implement trace data fetching from `/trace/{query_id}` on expand
     - Integrate with adaptTraceGraph from trace-adapter.ts
@@ -140,7 +140,7 @@ This implementation replaces ORCA's current pill-based agent strip UI with a pro
     - Calculate total time from spans for collapsed view
     - _Requirements: 1.2, 2.1, 8.1, 8.2, 8.3, 8.4, 8.5, 14.1, 14.2, 14.3, 14.4, 14.5_
 
-  - [ ]* 10.2 Write unit tests for AgentTraceUI container
+  - [x]* 10.2 Write unit tests for AgentTraceUI container
     - Test initial collapsed state rendering
     - Test expand trigger and data fetching
     - Test loading state display
@@ -148,8 +148,8 @@ This implementation replaces ORCA's current pill-based agent strip UI with a pro
     - Test integration with adaptTraceGraph
     - _Requirements: 1.1, 2.1, 8.1, 14.1, 14.2_
 
-- [ ] 11. Implement responsive layout and styling
-  - [ ] 11.1 Add responsive breakpoints and mobile optimizations
+- [x] 11. Implement responsive layout and styling
+  - [x] 11.1 Add responsive breakpoints and mobile optimizations
     - Implement mobile layout (320px-639px): smaller text (11px), 40px collapsed height
     - Implement tablet layout (640px-1023px): medium text (13px), 44px collapsed height
     - Implement desktop layout (1024px+): full layout with wider tooltips
@@ -167,7 +167,7 @@ This implementation replaces ORCA's current pill-based agent strip UI with a pro
     - _Requirements: 12.1, 12.2, 12.3, 12.4_
 
 - [ ] 12. Implement accessibility features
-  - [ ] 12.1 Add ARIA labels and keyboard navigation
+  - [x] 12.1 Add ARIA labels and keyboard navigation
     - Add semantic HTML structure (section, button, ol/li for steps)
     - Implement ARIA labels (aria-label, aria-expanded, role attributes)
     - Add aria-live regions for streaming updates announcements
@@ -184,8 +184,8 @@ This implementation replaces ORCA's current pill-based agent strip UI with a pro
     - Test keyboard operability
     - _Requirements: 16.5, 9.2_
 
-- [ ] 13. Integrate with ChatTurn component
-  - [ ] 13.1 Replace AgentStrip with AgentTraceUI in ChatTurn
+- [x] 13. Integrate with ChatTurn component
+  - [x] 13.1 Replace AgentStrip with AgentTraceUI in ChatTurn
     - Modify ChatTurn to conditionally render AgentTraceUI (behind feature flag)
     - Pass displaySpans, streaming, and query_id props to AgentTraceUI
     - Maintain existing position above answer content
@@ -193,7 +193,7 @@ This implementation replaces ORCA's current pill-based agent strip UI with a pro
     - Ensure no breaking changes to ChatTurn layout or styling
     - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 7.1, 7.2, 7.3, 7.4, 7.5_
 
-  - [ ]* 13.2 Write integration tests for ChatTurn integration
+  - [x]* 13.2 Write integration tests for ChatTurn integration
     - Test AgentTraceUI rendering within ChatTurn
     - Test SSE stream integration
     - Test position above answer content
@@ -201,7 +201,7 @@ This implementation replaces ORCA's current pill-based agent strip UI with a pro
     - _Requirements: 13.3, 13.4, 13.5_
 
 - [ ] 14. Implement performance optimizations
-  - [ ] 14.1 Add virtualization and memoization
+  - [x] 14.1 Add virtualization and memoization
     - Implement virtualization with @tanstack/react-virtual for 10+ steps
     - Add useMemo for calculateExecutionOrder
     - Add React.memo to AgentTraceStep component
@@ -216,7 +216,7 @@ This implementation replaces ORCA's current pill-based agent strip UI with a pro
     - Measure expand/collapse animation frame rate
     - _Requirements: 15.1, 15.2, 15.3, 15.5_
 
-- [ ] 15. Checkpoint - Verify integration and performance
+- [x] 15. Checkpoint - Verify integration and performance
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 16. Implement error handling and edge cases

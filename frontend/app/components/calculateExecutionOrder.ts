@@ -147,7 +147,7 @@ export function calculateExecutionOrder(graph: TraceGraph): OrderedStep[] {
           const targetName = AGENT_LABEL[targetNode.agent_name] ?? AGENT_LABEL[targetNode.id] ?? targetNode.agent_name;
           ordered.push({
             type: "critic_reinvoke",
-            label: `↻ Critic calls ${targetName} again (×${targetNode.run_count || 1})`,
+            label: `Requesting ${targetName} to refine its analysis`,
             indent: indent + 1,
           });
           
