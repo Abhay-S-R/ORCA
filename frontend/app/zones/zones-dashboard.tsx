@@ -9,6 +9,7 @@ import { Anchor, ChevronDown, Compass, Fish, Layers, Sparkles, TrendingUp } from
 import { Badge } from "../components/Badge";
 import { Skeleton } from "../components/States";
 import { useT } from "../i18n/useT";
+import { SatelliteZoneMap } from "./SatelliteZoneMap";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -377,59 +378,98 @@ function ZoneMap({
   onSelect: (id: string) => void;
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [mapViewMode, setMapViewMode] = useState<"satellite" | "chart">("satellite");
 
   const W = 560;
   const H = 340;
-  const PX = 60;
-  const PY = 45;
-
-  const lats = [data.port_lat, ...zones.map((z) => z.lat)];
-  const lons = [data.port_lon, ...zones.map((z) => z.lon)];
-
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLon = Math.min(...lons);
-  const maxLon = Math.max(...lons);
-
-  const centerLat = (minLat + maxLat) / 2;
-  const centerLon = (minLon + maxLon) / 2;
-
-  const latKmPerDeg = 111;
-  const lonKmPerDeg = 111 * Math.cos((centerLat * Math.PI) / 180);
-
-  const maxZoneDist = Math.max(50, ...zones.map((z) => z.distance_km));
-  const rings = maxZoneDist > 110 ? [50, 100, 150] : [25, 50, 100];
-  const maxRingKm = Math.max(...rings);
-
-  const ringLatSpan = (maxRingKm / latKmPerDeg) * 2;
-  const ringLonSpan = (maxRingKm / lonKmPerDeg) * 2;
-
-  const spanLat = Math.max(ringLatSpan * 1.2, (maxLat - minLat) * 1.5, 1.4);
-  const spanLon = Math.max(ringLonSpan * 1.2, (maxLon - minLon) * 1.5, 1.6);
-
-  const startLat = centerLat - spanLat / 2;
-  const startLon = centerLon - spanLon / 2;
-
-  const toX = (lon: number) => PX + ((lon - startLon) / spanLon) * (W - 2 * PX);
-  const toY = (lat: number) => H - (PY + ((lat - startLat) / spanLat) * (H - 2 * PY));
-
-  const px = toX(data.port_lon);
-  const py = toY(data.port_lat);
-
-  const kmToPx = (km: number) => (km / lonKmPerDeg / spanLon) * (W - 2 * PX);
 
   const isWestCoast =
-    data.port_lon < 77.2 ||
+    data.port_lon < 77.5 ||
     ["Kerala", "Karnataka", "Goa", "Maharashtra", "Gujarat"].includes(data.port_state);
+
+  // Position departure port along the natural coastline:
+  // West coast: land on right (East), vast open sea on left (West) -> port at x ~ 405 (72% of W)
+  // East coast: land on left (West), vast open sea on right (East) -> port at x ~ 155 (28% of W)
+  const px = isWestCoast ? 405 : 155;
+
+  const latKmPerDeg = 111;
+  const centerLat = data.port_lat;
+  const lonKmPerDeg = 111 * Math.cos((centerLat * Math.PI) / 180);
+
+  // Compute km offsets relative to departure port
+  const deltas = zones.map((z) => ({
+    ...z,
+    dx_km: (z.lon - data.port_lon) * lonKmPerDeg,
+    dy_km: (z.lat - data.port_lat) * latKmPerDeg, // positive = North
+  }));
+
+  // Find max extents
+  const maxEastWestKm = Math.max(35, ...deltas.map((d) => Math.abs(d.dx_km)));
+  const maxNorthKm = Math.max(10, ...deltas.map((d) => Math.max(0, d.dy_km)));
+  const maxSouthKm = Math.max(10, ...deltas.map((d) => Math.max(0, -d.dy_km)));
+  const totalNorthSouthKm = Math.max(70, maxNorthKm + maxSouthKm);
+
+  // Usable canvas space for sea distribution
+  const usableWidthSea = isWestCoast ? px - 45 : W - px - 45;
+  const usableHeight = H - 90;
+
+  // Isotropic scale: 1 km East-West = 1 km North-South (eliminates all squashing!)
+  const scaleX = usableWidthSea / (maxEastWestKm * 1.15);
+  const scaleY = usableHeight / (totalNorthSouthKm * 1.15);
+  const scale = Math.min(scaleX, scaleY, 1.75);
+
+  // Port vertical position py based on North-South spread
+  const py = Math.max(65, Math.min(H - 65, 45 + maxNorthKm * 1.15 * scale));
+
+  // Projected pixel coordinates
+  const rawCoords = deltas.map((d) => ({
+    ...d,
+    x: px + d.dx_km * scale,
+    y: py - d.dy_km * scale, // SVG y is inverted (North is negative y)
+  }));
+
+  // Collision separation pass: ensures every numbered pin (1, 2, 3, 4, 5) and port
+  // is spaced at least 32px apart, preventing any overlapping or clustering
+  const placedZones = rawCoords.map((pt, idx, arr) => {
+    let x = pt.x;
+    let y = pt.y;
+
+    // Check distance to port
+    const dPort = Math.hypot(x - px, y - py);
+    if (dPort < 34) {
+      const angle = Math.atan2(y - py, x - px);
+      x = px + Math.cos(angle) * 36;
+      y = py + Math.sin(angle) * 36;
+    }
+
+    // Check distance to already placed zones
+    for (let j = 0; j < idx; j++) {
+      const other = arr[j];
+      const dist = Math.hypot(x - other.x, y - other.y);
+      if (dist < 34 && dist > 0) {
+        const angle = Math.atan2(y - other.y, x - other.x);
+        x += Math.cos(angle) * (34 - dist);
+        y += Math.sin(angle) * (34 - dist);
+      }
+    }
+
+    // Clamp inside canvas margins
+    x = Math.max(28, Math.min(W - 28, x));
+    y = Math.max(28, Math.min(H - 28, y));
+    return { ...pt, x, y };
+  });
+
+  const maxZoneDist = Math.max(50, ...zones.map((z) => z.distance_km));
+  const rings = maxZoneDist > 160 ? [50, 100, 150, 200] : maxZoneDist > 90 ? [50, 100, 150] : [25, 50, 75];
 
   // Smooth natural coastline
   const coastPath = isWestCoast
-    ? `M ${px + 10} 0 Q ${px - 14} ${H * 0.3}, ${px + 8} ${H * 0.65} T ${px - 10} ${H} L ${W} ${H} L ${W} 0 Z`
-    : `M ${px - 10} 0 Q ${px + 14} ${H * 0.3}, ${px - 8} ${H * 0.65} T ${px + 10} ${H} L 0 ${H} L 0 0 Z`;
+    ? `M ${px + 10} 0 Q ${px - 16} ${H * 0.3}, ${px + 6} ${py} T ${px - 10} ${H} L ${W} ${H} L ${W} 0 Z`
+    : `M ${px - 10} 0 Q ${px + 16} ${H * 0.3}, ${px - 6} ${py} T ${px + 10} ${H} L 0 ${H} L 0 0 Z`;
 
   const coastLine = isWestCoast
-    ? `M ${px + 10} 0 Q ${px - 14} ${H * 0.3}, ${px + 8} ${H * 0.65} T ${px - 10} ${H}`
-    : `M ${px - 10} 0 Q ${px + 14} ${H * 0.3}, ${px - 8} ${H * 0.65} T ${px + 10} ${H}`;
+    ? `M ${px + 10} 0 Q ${px - 16} ${H * 0.3}, ${px + 6} ${py} T ${px - 10} ${H}`
+    : `M ${px - 10} 0 Q ${px + 16} ${H * 0.3}, ${px - 6} ${py} T ${px + 10} ${H}`;
 
   // Currently active zone for the telemetry HUD
   const activeZone =
@@ -440,8 +480,11 @@ function ZoneMap({
     null;
 
   return (
-    <div className={`${CARD} flex flex-col p-3.5 gap-2.5`}>
-      {/* Header bar */}
+    <div
+      className={`${CARD} flex flex-col p-3.5 gap-2.5`}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {/* Header bar with Satellite / Sea Chart toggle */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-hairline/60 pb-2">
         <div className="flex items-center gap-2">
           <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-ocean-cyan/15 text-ocean-cyan">
@@ -449,7 +492,7 @@ function ZoneMap({
           </div>
           <div>
             <h3 className="text-sm font-bold text-ink">
-              Fishing Grounds &amp; Sea Chart · {data.port_name}
+              Fishing Grounds &amp; Regional Map · {data.port_name}
             </h3>
             <p className="text-[10px] font-mono text-ink-dim">
               {data.port_lat.toFixed(2)}°N, {data.port_lon.toFixed(2)}°E · {data.port_state} Coast
@@ -457,432 +500,399 @@ function ZoneMap({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <div
+            role="tablist"
+            aria-label="Map style"
+            className="inline-flex rounded-lg border border-hairline bg-shelf-1 p-0.5"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mapViewMode === "satellite"}
+              onClick={() => setMapViewMode("satellite")}
+              className={`cursor-pointer rounded-md px-2.5 py-1 text-[11px] font-semibold transition ${
+                mapViewMode === "satellite"
+                  ? "bg-ocean-cyan font-bold text-black shadow-xs"
+                  : "text-ink-muted hover:text-ink"
+              }`}
+            >
+              🛰️ Satellite
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mapViewMode === "chart"}
+              onClick={() => setMapViewMode("chart")}
+              className={`cursor-pointer rounded-md px-2.5 py-1 text-[11px] font-semibold transition ${
+                mapViewMode === "chart"
+                  ? "bg-ocean-cyan font-bold text-black shadow-xs"
+                  : "text-ink-muted hover:text-ink"
+              }`}
+            >
+              🧭 Sea Chart
+            </button>
+          </div>
           <span className="hidden sm:inline-flex items-center gap-1 rounded bg-shelf-3 px-2 py-0.5 text-[10px] font-mono text-ink-dim border border-hairline/60">
             <span className="size-1.5 rounded-full bg-ocean-cyan animate-pulse" /> Live Telemetry
           </span>
-          <span className="text-[11px] font-medium text-ocean-cyan">Click pin to inspect</span>
         </div>
       </div>
 
-      {/* SVG Nautical Chart Frame */}
-      <div className="relative overflow-hidden rounded-xl border border-hairline/80 shadow-inner bg-shelf-1">
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          className="w-full select-none"
-          role="group"
-          aria-label={`Admiralty navigation chart of ${zones.length} fishing grounds near ${data.port_name}`}
+      {/* Map View Body */}
+      {mapViewMode === "satellite" ? (
+        <SatelliteZoneMap
+          data={data}
+          zones={zones}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
+      ) : (
+        /* SVG Nautical Chart Frame */
+        <div
+          className="relative overflow-hidden rounded-xl border border-hairline/80 shadow-inner bg-shelf-1"
+          onContextMenu={(e) => e.preventDefault()}
         >
-          <defs>
-            {/* Filter for realistic pin drop-shadow */}
-            <filter id="pin-shadow" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="0" dy="1.5" stdDeviation="2" floodColor="#1b2633" floodOpacity="0.22" />
-            </filter>
-            {/* Subtle sea water pattern */}
-            <linearGradient id="sea-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#eef7f8" stopOpacity="0.95" />
-              <stop offset="100%" stopColor="#e2eff1" stopOpacity="0.85" />
-            </linearGradient>
-            {/* Land pattern */}
-            <linearGradient id="land-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#f5eedd" stopOpacity="0.98" />
-              <stop offset="100%" stopColor="#ece1c4" stopOpacity="0.95" />
-            </linearGradient>
-          </defs>
-
-          {/* 1. Sea Water Canvas Base */}
-          <rect width={W} height={H} fill="url(#sea-gradient)" />
-
-          {/* 2. Landmass Polygon */}
-          <path d={coastPath} fill="url(#land-gradient)" />
-          <path d={coastLine} fill="none" stroke="#cfc1a0" strokeWidth="2.5" />
-          <path d={coastLine} fill="none" stroke="#8a7f66" strokeWidth="0.8" strokeDasharray="6 3" />
-
-          {/* 3. Sea & Land Watermark Labels */}
-          <text
-            x={isWestCoast ? 24 : W - 24}
-            y={28}
-            textAnchor={isWestCoast ? "start" : "end"}
-            fontSize="10"
-            fontWeight="bold"
-            letterSpacing="0.16em"
-            fill="#2f6f74"
-            fillOpacity="0.28"
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            className="w-full select-none"
+            role="group"
+            aria-label={`Admiralty navigation chart of ${zones.length} fishing grounds near ${data.port_name}`}
+            onContextMenu={(e) => e.preventDefault()}
           >
-            {isWestCoast ? "ARABIAN SEA" : "BAY OF BENGAL"} · CONTINENTAL SHELF
-          </text>
-          <text
-            x={isWestCoast ? W - 18 : 18}
-            y={H - 16}
-            textAnchor={isWestCoast ? "end" : "start"}
-            fontSize="9"
-            fontWeight="bold"
-            letterSpacing="0.12em"
-            fill="#8c8672"
-            fillOpacity="0.75"
-          >
-            {data.port_state.toUpperCase()} COAST
-          </text>
+            <defs>
+              <filter id="pin-shadow" x="-30%" y="-30%" width="160%" height="160%">
+                <feDropShadow dx="0" dy="1.5" stdDeviation="2" floodColor="#1b2633" floodOpacity="0.22" />
+              </filter>
+              <linearGradient id="sea-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#eef7f8" stopOpacity="0.95" />
+                <stop offset="100%" stopColor="#e2eff1" stopOpacity="0.85" />
+              </linearGradient>
+              <linearGradient id="land-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#f5eedd" stopOpacity="0.98" />
+                <stop offset="100%" stopColor="#ece1c4" stopOpacity="0.95" />
+              </linearGradient>
+            </defs>
 
-          {/* 4. Bathymetric Shelf Depth Contours & Soundings */}
-          {[-55, -115, -185].map((d, idx) => {
-            const shift = isWestCoast ? d : -d;
-            const contour = isWestCoast
-              ? `M ${px + 10 + shift} 0 Q ${px - 14 + shift} ${H * 0.3}, ${px + 8 + shift} ${H * 0.65} T ${px - 10 + shift} ${H}`
-              : `M ${px - 10 + shift} 0 Q ${px + 14 + shift} ${H * 0.3}, ${px - 8 + shift} ${H * 0.65} T ${px + 10 + shift} ${H}`;
-            const labelY = 45 + idx * 80;
-            const labelX = px + shift - (isWestCoast ? 8 : -8);
-            const depths = ["20m", "50m", "100m shelf"];
+            {/* 1. Sea Water Canvas Base */}
+            <rect width={W} height={H} fill="url(#sea-gradient)" />
 
-            return (
-              <g key={`bathy-${idx}`} className="pointer-events-none">
-                <path
-                  d={contour}
-                  fill="none"
-                  stroke="#2f6f74"
-                  strokeOpacity={0.15 + idx * 0.05}
-                  strokeWidth="0.9"
-                  strokeDasharray="2 4"
-                />
-                {labelX > 15 && labelX < W - 25 && (
-                  <text
-                    x={labelX}
-                    y={labelY}
-                    fontSize="7.5"
-                    fontFamily="monospace"
-                    fill="#2f6f74"
-                    fillOpacity="0.4"
-                    textAnchor={isWestCoast ? "end" : "start"}
-                  >
-                    ~{depths[idx]}
-                  </text>
-                )}
-              </g>
-            );
-          })}
+            {/* 2. Landmass Polygon */}
+            <path d={coastPath} fill="url(#land-gradient)" />
+            <path d={coastLine} fill="none" stroke="#cfc1a0" strokeWidth="2.5" />
+            <path d={coastLine} fill="none" stroke="#8a7f66" strokeWidth="0.8" strokeDasharray="6 3" />
 
-          {/* 5. Radial Distance Rings */}
-          {rings.map((km) => {
-            const r = kmToPx(km);
-            if (r <= 8) return null;
-            const angleRad = (isWestCoast ? 198 : -18) * (Math.PI / 180);
-            const lx = px + r * Math.cos(angleRad);
-            const ly = py + r * Math.sin(angleRad);
-            const showLabel = lx > 25 && lx < W - 25 && ly > 20 && ly < H - 20;
+            {/* 3. Sea & Land Watermark Labels */}
+            <text
+              x={isWestCoast ? 24 : W - 24}
+              y={28}
+              textAnchor={isWestCoast ? "start" : "end"}
+              fontSize="10"
+              fontWeight="bold"
+              letterSpacing="0.16em"
+              fill="#2f6f74"
+              fillOpacity="0.28"
+            >
+              {isWestCoast ? "ARABIAN SEA" : "BAY OF BENGAL"} · CONTINENTAL SHELF
+            </text>
+            <text
+              x={isWestCoast ? W - 18 : 18}
+              y={H - 16}
+              textAnchor={isWestCoast ? "end" : "start"}
+              fontSize="9"
+              fontWeight="bold"
+              letterSpacing="0.12em"
+              fill="#8c8672"
+              fillOpacity="0.75"
+            >
+              {data.port_state.toUpperCase()} COAST
+            </text>
 
-            return (
-              <g key={`ring-${km}`} className="pointer-events-none">
-                <circle
-                  cx={px}
-                  cy={py}
-                  r={r}
-                  fill="none"
-                  stroke="#2f6f74"
-                  strokeOpacity={km === 50 ? 0.35 : 0.2}
-                  strokeWidth={km === 50 ? 1.2 : 0.8}
-                  strokeDasharray={km === 50 ? "4 3" : "3 4"}
-                />
-                {showLabel && (
-                  <g transform={`translate(${lx}, ${ly})`}>
-                    <rect
-                      x="-22"
-                      y="-7.5"
-                      width="44"
-                      height="15"
-                      rx="3.5"
-                      fill="#faf6ea"
-                      fillOpacity="0.95"
-                      stroke="#2f6f74"
-                      strokeOpacity="0.4"
-                      strokeWidth="0.8"
-                    />
+            {/* 4. Bathymetric Shelf Depth Contours & Soundings */}
+            {[-55, -115, -185].map((d, idx) => {
+              const shift = isWestCoast ? d : -d;
+              const contour = isWestCoast
+                ? `M ${px + 10 + shift} 0 Q ${px - 14 + shift} ${H * 0.3}, ${px + 8 + shift} ${py} T ${px - 10 + shift} ${H}`
+                : `M ${px - 10 + shift} 0 Q ${px + 14 + shift} ${H * 0.3}, ${px - 8 + shift} ${py} T ${px + 10 + shift} ${H}`;
+              const labelY = 45 + idx * 80;
+              const labelX = px + shift - (isWestCoast ? 8 : -8);
+              const depths = ["20m", "50m", "100m shelf"];
+
+              return (
+                <g key={`bathy-${idx}`} className="pointer-events-none">
+                  <path
+                    d={contour}
+                    fill="none"
+                    stroke="#2f6f74"
+                    strokeOpacity={0.15 + idx * 0.05}
+                    strokeWidth="0.9"
+                    strokeDasharray="2 4"
+                  />
+                  {labelX > 15 && labelX < W - 25 && (
                     <text
-                      y="3.5"
-                      textAnchor="middle"
-                      fontSize="8.5"
-                      fontWeight="bold"
+                      x={labelX}
+                      y={labelY}
+                      fontSize="7.5"
                       fontFamily="monospace"
                       fill="#2f6f74"
+                      fillOpacity="0.4"
+                      textAnchor={isWestCoast ? "end" : "start"}
                     >
-                      {km} km
+                      ~{depths[idx]}
                     </text>
-                  </g>
-                )}
-              </g>
-            );
-          })}
+                  )}
+                </g>
+              );
+            })}
 
-          {/* 6. Compass Rose (Nautical Orientation) */}
-          <g
-            transform={`translate(${isWestCoast ? W - 44 : 44}, 44)`}
-            className="pointer-events-none select-none opacity-80"
-          >
-            <circle r="22" fill="none" stroke="#2f6f74" strokeWidth="0.8" strokeOpacity="0.35" />
-            <circle r="19" fill="none" stroke="#2f6f74" strokeWidth="0.5" strokeOpacity="0.2" strokeDasharray="1 3" />
-            <polygon points="0,-20 4,-5 0,-1" fill="#b3402c" />
-            <polygon points="0,-20 -4,-5 0,-1" fill="#8c8672" />
-            <polygon points="0,20 4,5 0,1" fill="#2f6f74" />
-            <polygon points="0,20 -4,5 0,1" fill="#8c8672" />
-            <polygon points="20,0 5,4 1,0" fill="#2f6f74" />
-            <polygon points="20,0 5,-4 1,0" fill="#8c8672" />
-            <polygon points="-20,0 -5,4 -1,0" fill="#2f6f74" />
-            <polygon points="-20,0 -5,-4 -1,0" fill="#8c8672" />
-            <text y="-23" textAnchor="middle" fontSize="8.5" fontWeight="bold" fill="#b3402c">
-              N
-            </text>
-            <text x="25" y="3" textAnchor="middle" fontSize="7.5" fontWeight="600" fill="#2f6f74">
-              E
-            </text>
-            <text y="28" textAnchor="middle" fontSize="7.5" fontWeight="600" fill="#2f6f74">
-              S
-            </text>
-            <text x="-25" y="3" textAnchor="middle" fontSize="7.5" fontWeight="600" fill="#2f6f74">
-              W
-            </text>
-          </g>
+            {/* 5. Radial Distance Rings */}
+            {rings.map((km) => {
+              const r = km * scale;
+              if (r <= 12) return null;
+              const angleRad = (isWestCoast ? 200 : -20) * (Math.PI / 180);
+              const lx = px + r * Math.cos(angleRad);
+              const ly = py + r * Math.sin(angleRad);
+              const showLabel = lx > 25 && lx < W - 25 && ly > 20 && ly < H - 20;
 
-          {/* 7. Bearing Vectors from Port to Zones */}
-          {zones.map((z) => {
-            const zx = toX(z.lon);
-            const zy = toY(z.lat);
-            const isSel = selectedId === z.zone_id;
-            const isHov = hoveredId === z.zone_id;
-            const active = isSel || isHov;
-            const c = PIN_HEX[z.profit_color] ?? PIN_HEX.neutral;
-            const bearing = calculateBearing(data.port_lat, data.port_lon, z.lat, z.lon);
+              return (
+                <g key={`ring-${km}`} className="pointer-events-none">
+                  <circle
+                    cx={px}
+                    cy={py}
+                    r={r}
+                    fill="none"
+                    stroke="#2f6f74"
+                    strokeOpacity={km === 50 ? 0.35 : 0.2}
+                    strokeWidth={km === 50 ? 1.2 : 0.8}
+                    strokeDasharray={km === 50 ? "4 3" : "3 4"}
+                  />
+                  {showLabel && (
+                    <g transform={`translate(${lx}, ${ly})`}>
+                      <rect
+                        x="-22"
+                        y="-7.5"
+                        width="44"
+                        height="15"
+                        rx="3.5"
+                        fill="#faf6ea"
+                        fillOpacity="0.95"
+                        stroke="#2f6f74"
+                        strokeOpacity="0.4"
+                        strokeWidth="0.8"
+                      />
+                      <text
+                        y="3.5"
+                        textAnchor="middle"
+                        fontSize="8.5"
+                        fontWeight="bold"
+                        fontFamily="monospace"
+                        fill="#2f6f74"
+                      >
+                        {km} km
+                      </text>
+                    </g>
+                  )}
+                </g>
+              );
+            })}
 
-            const midX = (px + zx) / 2;
-            const midY = (py + zy) / 2;
+            {/* 6. Compass Rose */}
+            <g
+              transform={`translate(${isWestCoast ? W - 44 : 44}, 44)`}
+              className="pointer-events-none select-none opacity-80"
+            >
+              <circle r="22" fill="none" stroke="#2f6f74" strokeWidth="0.8" strokeOpacity="0.35" />
+              <circle r="19" fill="none" stroke="#2f6f74" strokeWidth="0.5" strokeOpacity="0.2" strokeDasharray="1 3" />
+              <polygon points="0,-20 4,-5 0,-1" fill="#b3402c" />
+              <polygon points="0,-20 -4,-5 0,-1" fill="#8c8672" />
+              <polygon points="0,20 4,5 0,1" fill="#2f6f74" />
+              <polygon points="0,20 -4,5 0,1" fill="#8c8672" />
+              <polygon points="20,0 5,4 1,0" fill="#2f6f74" />
+              <polygon points="20,0 5,-4 1,0" fill="#8c8672" />
+              <polygon points="-20,0 -5,4 -1,0" fill="#2f6f74" />
+              <polygon points="-20,0 -5,-4 -1,0" fill="#8c8672" />
+              <text y="-23" textAnchor="middle" fontSize="8.5" fontWeight="bold" fill="#b3402c">
+                N
+              </text>
+              <text x="25" y="3" textAnchor="middle" fontSize="7.5" fontWeight="600" fill="#2f6f74">
+                E
+              </text>
+              <text y="28" textAnchor="middle" fontSize="7.5" fontWeight="600" fill="#2f6f74">
+                S
+              </text>
+              <text x="-25" y="3" textAnchor="middle" fontSize="7.5" fontWeight="600" fill="#2f6f74">
+                W
+              </text>
+            </g>
 
-            return (
-              <g key={`v-${z.zone_id}`} className="cursor-pointer" onClick={() => onSelect(z.zone_id)}>
-                {active && (
+            {/* 7. Bearing Navigation Tracks */}
+            {placedZones.map((z) => {
+              const isSel = selectedId === z.zone_id;
+              const isHov = hoveredId === z.zone_id;
+              const active = isSel || isHov;
+              const c = PIN_HEX[z.profit_color] ?? PIN_HEX.neutral;
+
+              return (
+                <g key={`v-${z.zone_id}`} className="cursor-pointer" onClick={() => onSelect(z.zone_id)}>
+                  {active && (
+                    <line
+                      x1={px}
+                      y1={py}
+                      x2={z.x}
+                      y2={z.y}
+                      stroke={c}
+                      strokeWidth={3.5}
+                      strokeOpacity={0.3}
+                      strokeLinecap="round"
+                    />
+                  )}
                   <line
                     x1={px}
                     y1={py}
-                    x2={zx}
-                    y2={zy}
+                    x2={z.x}
+                    y2={z.y}
                     stroke={c}
-                    strokeWidth={4.5}
-                    strokeOpacity={0.25}
-                    strokeLinecap="round"
+                    strokeWidth={active ? 2 : 1}
+                    strokeOpacity={active ? 0.95 : 0.35}
+                    strokeDasharray={active ? "none" : "4 4"}
                   />
-                )}
-                <line
-                  x1={px}
-                  y1={py}
-                  x2={zx}
-                  y2={zy}
-                  stroke={c}
-                  strokeWidth={active ? 2.4 : 1.2}
-                  strokeOpacity={active ? 0.95 : 0.5}
-                  strokeDasharray={active ? "none" : "5 4"}
-                />
-                {/* Distance & Heading Tag at Midpoint */}
-                <g transform={`translate(${midX}, ${midY})`} className="pointer-events-none">
-                  <rect
-                    x="-37"
-                    y="-8.5"
-                    width="74"
-                    height="17"
-                    rx="4"
-                    fill="#ffffff"
-                    fillOpacity="0.96"
+                </g>
+              );
+            })}
+
+            {/* 8. Departure Home Port Marker */}
+            <g transform={`translate(${px}, ${py})`}>
+              <circle r="20" fill="#2f6f74" fillOpacity="0.1" />
+              <circle r="13" fill="#2f6f74" fillOpacity="0.22" />
+              <circle r="7" fill="#1f4d51" stroke="#ffffff" strokeWidth="2" filter="url(#pin-shadow)" />
+              <circle r="2.5" fill="#ffffff" />
+            </g>
+            <g
+              transform={`translate(${px + (isWestCoast ? 14 : -14)}, ${py})`}
+              className="pointer-events-none select-none"
+            >
+              <rect
+                x={isWestCoast ? 0 : -118}
+                y="-15"
+                width="118"
+                height="30"
+                rx="6"
+                fill="#ffffff"
+                fillOpacity="0.96"
+                stroke="#2f6f74"
+                strokeWidth="1.2"
+                filter="url(#pin-shadow)"
+              />
+              <text
+                x={isWestCoast ? 8 : -8}
+                y="-1"
+                textAnchor={isWestCoast ? "start" : "end"}
+                fontSize="11"
+                fontWeight="bold"
+                fill="#1c2939"
+              >
+                ⚓ {data.port_name}
+              </text>
+              <text
+                x={isWestCoast ? 8 : -8}
+                y="10"
+                textAnchor={isWestCoast ? "start" : "end"}
+                fontSize="8.5"
+                fontWeight="600"
+                fontFamily="monospace"
+                fill="#8c8672"
+              >
+                DEPARTURE PORT
+              </text>
+            </g>
+
+            {/* 9. Waypoint Pins 1, 2, 3, 4, 5 (Clean Pins without floating black box tooltip) */}
+            {placedZones.map((z, i) => {
+              const isSel = selectedId === z.zone_id;
+              const isHov = hoveredId === z.zone_id;
+              const active = isSel || isHov;
+              const c = PIN_HEX[z.profit_color] ?? PIN_HEX.neutral;
+
+              return (
+                <g
+                  key={z.zone_id}
+                  transform={`translate(${z.x}, ${z.y})`}
+                  className="cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${z.zone_name}, ${Math.round(z.distance_km)} km`}
+                  aria-pressed={isSel}
+                  onClick={() => onSelect(z.zone_id)}
+                  onMouseEnter={() => setHoveredId(z.zone_id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelect(z.zone_id);
+                    }
+                  }}
+                >
+                  {/* Outer Radar Halo on hover/active */}
+                  <circle
+                    r={active ? 22 : z.is_best_zone ? 17 : 14}
+                    fill={c}
+                    fillOpacity={active ? 0.35 : 0.16}
                     stroke={c}
-                    strokeWidth={active ? 1.4 : 0.8}
-                    strokeOpacity={active ? 0.95 : 0.55}
+                    strokeOpacity={active ? 0.7 : 0.3}
+                    strokeWidth={active ? 1.5 : 1}
+                  />
+
+                  {/* Waypoint Circle */}
+                  <circle
+                    r={active ? 13 : 11.5}
+                    fill={c}
+                    stroke="#ffffff"
+                    strokeWidth="2.5"
                     filter="url(#pin-shadow)"
                   />
+                  {/* Clean Prominent Number (1, 2, 3, 4, 5) */}
                   <text
-                    y="3.2"
+                    y="4"
                     textAnchor="middle"
-                    fontSize="8.5"
+                    fontSize="11"
                     fontWeight="bold"
                     fontFamily="monospace"
-                    fill="#1c2939"
-                  >
-                    {Math.round(z.distance_km)} km · {bearing.compass}
-                  </text>
-                </g>
-              </g>
-            );
-          })}
-
-          {/* 8. Departure Home Port Marker */}
-          <g transform={`translate(${px}, ${py})`}>
-            <circle r="22" fill="#2f6f74" fillOpacity="0.1" />
-            <circle r="14" fill="#2f6f74" fillOpacity="0.22" />
-            <circle r="7" fill="#1f4d51" stroke="#ffffff" strokeWidth="2" filter="url(#pin-shadow)" />
-            <circle r="2.5" fill="#ffffff" />
-          </g>
-          {/* Departure Port Label Box */}
-          <g
-            transform={`translate(${px + (isWestCoast ? 14 : -14)}, ${py - 14})`}
-            className="pointer-events-none"
-          >
-            <rect
-              x={isWestCoast ? 0 : -114}
-              y="-12"
-              width="114"
-              height="30"
-              rx="6"
-              fill="#ffffff"
-              fillOpacity="0.96"
-              stroke="var(--color-hairline-strong)"
-              filter="url(#pin-shadow)"
-            />
-            <text
-              x={isWestCoast ? 8 : -8}
-              y="1"
-              textAnchor={isWestCoast ? "start" : "end"}
-              fontSize="11"
-              fontWeight="bold"
-              fill="#1c2939"
-            >
-              ⚓ {data.port_name}
-            </text>
-            <text
-              x={isWestCoast ? 8 : -8}
-              y="12"
-              textAnchor={isWestCoast ? "start" : "end"}
-              fontSize="8.5"
-              fontWeight="600"
-              fontFamily="monospace"
-              fill="#8c8672"
-            >
-              DEPARTURE PORT
-            </text>
-          </g>
-
-          {/* 9. Waypoint Pins & Floating Labels */}
-          {zones.map((z, i) => {
-            const zx = toX(z.lon);
-            const zy = toY(z.lat);
-            const isSel = selectedId === z.zone_id;
-            const isHov = hoveredId === z.zone_id;
-            const active = isSel || isHov;
-            const c = PIN_HEX[z.profit_color] ?? PIN_HEX.neutral;
-
-            const labelRight = zx < W - 140;
-            const labelDown = zy < H - 50;
-
-            return (
-              <g
-                key={z.zone_id}
-                transform={`translate(${zx}, ${zy})`}
-                className="cursor-pointer"
-                role="button"
-                tabIndex={0}
-                aria-label={`${z.zone_name}, ${Math.round(z.distance_km)} km`}
-                aria-pressed={isSel}
-                onClick={() => onSelect(z.zone_id)}
-                onMouseEnter={() => setHoveredId(z.zone_id)}
-                onMouseLeave={() => setHoveredId(null)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onSelect(z.zone_id);
-                  }
-                }}
-              >
-                {/* Outer Radar Halo */}
-                <circle
-                  r={active ? 24 : z.is_best_zone ? 18 : 14}
-                  fill={c}
-                  fillOpacity={active ? 0.32 : 0.16}
-                  stroke={c}
-                  strokeOpacity={active ? 0.6 : 0.3}
-                  strokeWidth={1}
-                />
-
-                {/* Waypoint Circle */}
-                <circle
-                  r={active ? 13 : 11}
-                  fill={c}
-                  stroke="#ffffff"
-                  strokeWidth="2.5"
-                  filter="url(#pin-shadow)"
-                />
-                <text
-                  y="4"
-                  textAnchor="middle"
-                  fontSize="11"
-                  fontWeight="bold"
-                  fontFamily="monospace"
-                  fill="#ffffff"
-                >
-                  {i + 1}
-                </text>
-
-                {/* Best Zone Banner */}
-                {z.is_best_zone && (
-                  <g transform="translate(0, -18)">
-                    <rect
-                      x="-20"
-                      y="-6"
-                      width="40"
-                      height="13"
-                      rx="3.5"
-                      fill="#b8862e"
-                      stroke="#ffffff"
-                      strokeWidth="1"
-                      filter="url(#pin-shadow)"
-                    />
-                    <text
-                      y="3"
-                      textAnchor="middle"
-                      fontSize="7.5"
-                      fontWeight="bold"
-                      fill="#ffffff"
-                    >
-                      ★ BEST
-                    </text>
-                  </g>
-                )}
-
-                {/* Floating Waypoint Label Tag */}
-                <g
-                  transform={`translate(${labelRight ? 18 : -18}, ${labelDown ? 12 : -12})`}
-                  className="pointer-events-none select-none"
-                >
-                  <rect
-                    x={labelRight ? 0 : -120}
-                    y="-13"
-                    width="120"
-                    height="32"
-                    rx="6"
                     fill="#ffffff"
-                    fillOpacity={active ? 0.98 : 0.92}
-                    stroke={active ? c : "var(--color-hairline)"}
-                    strokeWidth={active ? 1.5 : 1}
-                    filter="url(#pin-shadow)"
-                  />
-                  <text
-                    x={labelRight ? 7 : -7}
-                    y="-1"
-                    textAnchor={labelRight ? "start" : "end"}
-                    fontSize="10"
-                    fontWeight="bold"
-                    fill="#1c2939"
                   >
-                    {z.zone_name}
+                    {i + 1}
                   </text>
-                  <text
-                    x={labelRight ? 7 : -7}
-                    y="11"
-                    textAnchor={labelRight ? "start" : "end"}
-                    fontSize="8.5"
-                    fontWeight="600"
-                    fill={c}
-                  >
-                    {z.margin_pct != null ? `${z.margin_pct}% margin · ` : ""}
-                    {inrK(z.profit_low ?? 0)}–{inrK(z.profit_high ?? 0)}
-                  </text>
+
+                  {/* Best Port / Best Zone Badge */}
+                  {z.is_best_zone && (
+                    <g transform="translate(0, -18)">
+                      <rect
+                        x="-22"
+                        y="-6.5"
+                        width="44"
+                        height="14"
+                        rx="4"
+                        fill="#b8862e"
+                        stroke="#ffffff"
+                        strokeWidth="1.2"
+                        filter="url(#pin-shadow)"
+                      />
+                      <text
+                        y="3.5"
+                        textAnchor="middle"
+                        fontSize="8"
+                        fontWeight="bold"
+                        fill="#ffffff"
+                        letterSpacing="0.05em"
+                      >
+                        ★ BEST
+                      </text>
+                    </g>
+                  )}
                 </g>
-              </g>
-            );
-          })}
-        </svg>
-      </div>
+              );
+            })}
+          </svg>
+        </div>
+      )}
 
       {/* 10. Selected Ground Quick Telemetry HUD */}
       {activeZone && (
@@ -935,9 +945,6 @@ function ZoneMap({
           </div>
         </div>
       )}
-
-      {/* 11. Chart Legend & Radar Scale Bar */}
-      
     </div>
   );
 }
@@ -956,7 +963,10 @@ function RankedZoneList({
   showProfit: boolean;
 }) {
   return (
-    <div className={`${CARD} flex flex-col p-0 overflow-hidden`}>
+    <div
+      className={`${CARD} flex flex-col p-0 overflow-hidden`}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <div className="flex items-center justify-between px-4 py-3 border-b border-hairline/60 bg-shelf-1/60">
         <h3 className="text-sm font-bold text-ink flex items-center gap-2">
           <Layers className="size-4 text-ocean-cyan" />
@@ -981,34 +991,37 @@ function RankedZoneList({
                     : "hover:bg-shelf-3/50 border-l-3 border-transparent"
                 }`}
               >
-                <div className="flex min-w-0 items-center gap-3">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
                   <span
-                    className="flex size-6 shrink-0 items-center justify-center rounded-full font-mono text-[11px] font-bold text-white shadow-xs"
+                    className="flex size-6 shrink-0 items-center justify-center rounded-full font-mono text-[11px] font-bold text-white shadow-xs mt-0.5"
                     style={{ backgroundColor: c }}
                   >
                     {i + 1}
                   </span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-bold text-ink">{z.zone_name}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {/* Full zone name displayed without truncation */}
+                      <span className="text-sm font-bold text-ink leading-snug break-words">
+                        {z.zone_name}
+                      </span>
                       {z.is_best_zone && (
-                        <span className="rounded bg-go/15 px-1.5 py-0.2 text-[9px] font-bold text-go">
+                        <span className="shrink-0 rounded bg-go/15 px-1.5 py-0.5 text-[9px] font-bold text-go">
                           ★ Best
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-1.5 text-[11px] text-ink-dim truncate mt-0.5">
-                      <span className="font-semibold text-ocean-cyan font-mono">
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-dim">
+                      <span className="shrink-0 font-mono font-semibold text-ocean-cyan">
                         {Math.round(z.distance_km)} km
                       </span>
                       <span>·</span>
-                      <span className="truncate">{z.zone_description}</span>
+                      <span className="line-clamp-1">{z.zone_description}</span>
                     </div>
                   </div>
                 </div>
 
                 {showProfit && z.profit_label !== "cargo" && (
-                  <div className="shrink-0 text-right">
+                  <div className="shrink-0 text-right pl-2">
                     <div className="flex items-center justify-end gap-1.5">
                       {z.margin_pct != null && (
                         <span className="font-mono text-[11px] font-bold text-go">
