@@ -54,13 +54,18 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <div className="flex h-full">
+      <div className="flex h-full h-dvh">
         <NavRail />
         <div className="flex min-w-0 flex-1 flex-col">
           <StatusBar />
           {/* The only scroll container in the app. The shell is fixed so
               a full-bleed chart can fill the viewport exactly. */}
-          <main id="main-content" className="min-h-0 flex-1 overflow-y-auto pb-16 sm:pb-0">
+          <main
+            id="main-content"
+            className={`min-h-0 flex-1 overflow-y-auto ${
+              pathname === "/map" ? "pb-0" : "pb-16 sm:pb-0"
+            }`}
+          >
             {children}
           </main>
         </div>

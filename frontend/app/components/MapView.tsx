@@ -97,17 +97,18 @@ function projectPfzPos(m: maplibregl.Map, coords: [number, number]): PfzScreenPo
   const container = m.getContainer();
   const width = container.clientWidth;
   const height = container.clientHeight;
-  const cardWidth = 310;
-  const cardHeight = 440;
-  const gap = 14;
+  const isMobile = width < 640;
+  const cardWidth = isMobile ? Math.min(width - 24, 290) : 310;
+  const cardHeight = isMobile ? 360 : 440;
+  const gap = 12;
 
   const side: "left" | "right" = pos.x > width / 2 ? "left" : "right";
   const rawLeft = side === "right" ? pos.x + gap : pos.x - gap - cardWidth;
-  const left = Math.max(8, Math.min(width - cardWidth - 8, rawLeft));
+  const left = Math.max(10, Math.min(width - cardWidth - 10, rawLeft));
 
   const rawTop = pos.y - cardHeight / 2;
-  const top = Math.max(8, Math.min(height - cardHeight - 8, rawTop));
-  const arrowY = Math.max(28, Math.min(cardHeight - 28, pos.y - top));
+  const top = Math.max(52, Math.min(height - cardHeight - 68, rawTop));
+  const arrowY = Math.max(24, Math.min(cardHeight - 24, pos.y - top));
 
   return { left, top, side, arrowY };
 }
@@ -275,9 +276,6 @@ const resolveTileUrl = (template: string, frame?: string) =>
 // §4.7 layer lifecycle budget: 2 concurrent heavy layers on mobile, 4 on
 // desktop, LRU-evicted with a visible notice rather than a silent frame-rate
 // collapse. These four toggles are the chart's only "heavy" layers today.
-// Width of the scale bar in screen pixels; the label reports the real
-// distance across exactly this span.
-const SCALE_BAR_PX = 100;
 
 const HEAVY_KEYS = ["srvBathymetry", "waveForecast", "currents", "wind"] as const;
 type HeavyKey = (typeof HEAVY_KEYS)[number];
@@ -618,6 +616,9 @@ export function MapView({
   );
 
   const handleClick = useCallback(async (lat: number, lon: number) => {
+    setSelectedPfz(null);
+    selectedPfzCoordsRef.current = null;
+    setSelectedPfzPos(null);
     onPointClick?.(lat, lon);
     setClicked({ lat, lon });
     setSoundingDismissed(false);
@@ -684,24 +685,6 @@ export function MapView({
     map.current = m;
 
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
-    // Stock ScaleControl rounds its label to the nearest 1/2/3/5/10/50 nm,
-    // which is unreadable as an actual distance. Same control, same styling
-    // and placement — only the label is ours: the true distance across a
-    // fixed 100 px bar, to a precision that follows the magnitude.
-    const scale = new maplibregl.ScaleControl({ unit: "nautical", maxWidth: SCALE_BAR_PX });
-    scale._onMove = () => {
-      const el = scale._container;
-      if (!el) return;
-      const box = m.getContainer();
-      const y = box.clientHeight / 2;
-      const x = box.clientWidth / 2;
-      const nm =
-        m.unproject([x - SCALE_BAR_PX / 2, y]).distanceTo(m.unproject([x + SCALE_BAR_PX / 2, y])) / 1852;
-      el.style.width = `${SCALE_BAR_PX}px`;
-      el.textContent = `${nm < 1 ? nm.toFixed(3) : nm < 10 ? nm.toFixed(2) : nm < 100 ? nm.toFixed(1) : Math.round(nm)} nm`;
-    };
-    m.addControl(scale, "bottom-left");
-    m.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
     m.on("load", () => {
       // Positron's own water tone is close, but recolouring it to the exact
@@ -1075,11 +1058,13 @@ export function MapView({
         const geometry = pfzFeatures[0].geometry as { type: "Point"; coordinates: [number, number] };
         selectedPfzCoordsRef.current = geometry.coordinates;
         setSelectedPfzPos(projectPfzPos(m, geometry.coordinates));
-      } else {
-        setSelectedPfz(null);
-        selectedPfzCoordsRef.current = null;
-        setSelectedPfzPos(null);
+        setSoundingDismissed(true);
+        setSoundingCollapsed(true);
+        return;
       }
+      setSelectedPfz(null);
+      selectedPfzCoordsRef.current = null;
+      setSelectedPfzPos(null);
       void handleClickRef.current(e.lngLat.lat, e.lngLat.lng);
     });
     // Keep the PFZ popup glued to its marker's screen position while the
@@ -1732,7 +1717,7 @@ export function MapView({
 
       {selectedPfz && selectedPfzPos && (
         <div
-          className="pointer-events-auto absolute z-30 w-[310px] transition-all duration-75"
+          className="pointer-events-auto absolute z-30 w-[min(295px,calc(100vw-20px))] sm:w-[310px] transition-all duration-75"
           style={{ left: selectedPfzPos.left, top: selectedPfzPos.top }}
         >
           {/* Speech-bubble tail — sits OUTSIDE overflow-hidden so it isn't
@@ -1746,13 +1731,13 @@ export function MapView({
             }`}
             style={{ top: selectedPfzPos.arrowY }}
           />
-          <div className="relative overflow-hidden rounded-xl border border-go/30 bg-shelf-3/95 backdrop-blur-xl shadow-xl transition-all">
+          <div className="relative overflow-hidden rounded-xl border border-go/30 bg-shelf-3/95 backdrop-blur-xl shadow-xl transition-all max-h-[72vh] overflow-y-auto">
             {/* Glowing top line */}
             <div className="h-0.5 bg-gradient-to-r from-go to-ocean-cyan" />
 
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-hairline px-3.5 py-2.5 bg-gradient-to-b from-white/[0.03] to-transparent">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between border-b border-hairline px-3 py-2 sm:px-3.5 sm:py-2.5 bg-gradient-to-b from-white/[0.03] to-transparent">
+              <div className="flex items-center gap-1.5 sm:gap-2">
                 <span className="relative flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-go opacity-75" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-go" />
@@ -1760,7 +1745,7 @@ export function MapView({
                 <span className="rounded-full border border-go/40 bg-go/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-go">
                   PFZ Advisory
                 </span>
-                <h4 className="text-xs font-bold tracking-tight text-ink truncate max-w-[140px]">
+                <h4 className="text-xs font-bold tracking-tight text-ink truncate max-w-[120px] sm:max-w-[140px]">
                   {selectedPfz.landing_center ? String(selectedPfz.landing_center) : "Fishing Zone"}
                 </h4>
               </div>
@@ -1779,8 +1764,8 @@ export function MapView({
             </div>
 
             {/* Body Content */}
-            <div className="p-3">
-              <div className="grid grid-cols-2 gap-2">
+            <div className="p-2.5 sm:p-3">
+              <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
                 {/* Sector Tile */}
                 <div className="rounded-lg border border-hairline/50 bg-shelf-2/60 p-2">
                   <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-ink-dim">
@@ -1916,24 +1901,26 @@ export function MapView({
 
       {showPanels && (
         <div className="pointer-events-none absolute inset-0 z-10">
-          {showLayerPanel && (
-            <div className="pointer-events-auto absolute top-3 left-3 w-56 flex flex-col gap-2">
-              <Panel dense>
-                <button
-                  type="button"
-                  onClick={() => setLayersOpen((v) => !v)}
-                  aria-expanded={layersOpen}
-                  className="flex w-full items-center justify-between gap-3 text-left"
-                >
-                  <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
-                    <Layers className="size-3.5 text-ink-dim" aria-hidden="true" />
-                    Chart layers
-                  </span>
-                  <ChevronDown
-                    aria-hidden="true"
-                    className={`size-3.5 text-ink-dim transition-transform ${layersOpen ? "rotate-180" : ""}`}
-                  />
-                </button>
+          {/* Top Control Bar — Chart Layers (left) & Coastal Region (right) in unified responsive flex row */}
+          <div className="pointer-events-none absolute top-2.5 left-2.5 right-13 sm:top-3 sm:left-3 sm:right-14 z-20 flex items-start justify-between gap-1.5 sm:gap-2">
+            {showLayerPanel && (
+              <div className="pointer-events-auto w-auto min-w-[145px] sm:w-56 flex flex-col gap-2">
+                <Panel dense className="shadow-lg backdrop-blur-xl">
+                  <button
+                    type="button"
+                    onClick={() => setLayersOpen((v) => !v)}
+                    aria-expanded={layersOpen}
+                    className="flex w-full items-center justify-between gap-2 text-left py-1"
+                  >
+                    <span className="flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-ink">
+                      <Layers className="size-4 text-ink-dim shrink-0" aria-hidden="true" />
+                      <span>Chart layers</span>
+                    </span>
+                    <ChevronDown
+                      aria-hidden="true"
+                      className={`size-3.5 text-ink-dim transition-transform ${layersOpen ? "rotate-180" : ""}`}
+                    />
+                  </button>
                 {layersOpen && (
                   <div className="-mx-2 mt-3">
                     <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-dim">
@@ -2074,6 +2061,57 @@ export function MapView({
             </div>
           )}
 
+          {/* Coastal Region Quick Switcher */}
+          {showRegionSwitcher && (
+            <div ref={regionDropdownRef} className="pointer-events-auto shrink-0 relative">
+              <button
+                type="button"
+                onClick={() => setRegionDropdownOpen(!regionDropdownOpen)}
+                className="flex items-center gap-1.5 sm:gap-2 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl px-2.5 sm:px-3 py-1.5 text-xs font-medium text-ink shadow-lg transition-all hover:bg-shelf-2 hover:border-hairline-strong focus:outline-none"
+                aria-label="Select coastal sector"
+              >
+                <Compass className="size-3.5 text-ocean-cyan shrink-0" />
+                <span className="max-w-[110px] sm:max-w-[170px] md:max-w-none truncate font-medium">
+                  {COASTAL_REGIONS.find((r) => r.id === selectedRegion)?.name ?? "Select Sector"}
+                </span>
+                <ChevronDown
+                  className={`size-3 text-ink-dim transition-transform duration-200 shrink-0 ${regionDropdownOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+              {regionDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-64 max-h-80 overflow-y-auto rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-2xl p-1.5 shadow-2xl z-30">
+                  <div className="px-2.5 py-1.5 text-[10px] font-semibold tracking-wider text-ink-dim uppercase border-b border-hairline/50 mb-1">
+                    Coastal Navigation Regions
+                  </div>
+                  {COASTAL_REGIONS.map((region) => (
+                    <button
+                      key={region.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedRegion(region.id);
+                        setRegionDropdownOpen(false);
+                        map.current?.flyTo({
+                          center: region.center,
+                          zoom: region.zoom,
+                          duration: 1200,
+                          essential: true,
+                        });
+                      }}
+                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${selectedRegion === region.id
+                        ? "bg-accent/15 text-accent font-semibold"
+                        : "text-ink hover:bg-shelf-2"
+                        }`}
+                    >
+                      <span className="truncate">{region.name}</span>
+                      <span className="ml-2 text-[10px] text-ink-dim shrink-0">{region.sub}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
           {showLegends && layers.srvBathymetry && (
             // Depth legend: to the left of the zoom controls column and
             // right below the Coastal Navigation Regions dropdown.
@@ -2119,60 +2157,7 @@ export function MapView({
             </div>
           )}
 
-          {/* Coastal Region Quick Switcher — the control stays put; only the
-              dashboard below it moves side, so picking a region never
-              relocates the button itself. */}
-          {showRegionSwitcher && (
-            <div ref={regionDropdownRef} className="pointer-events-auto absolute top-3 right-14 z-20">
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setRegionDropdownOpen(!regionDropdownOpen)}
-                  className="flex items-center gap-2 rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-xl px-3 py-1.5 text-xs font-medium text-ink shadow-lg transition-all hover:bg-shelf-2 hover:border-hairline-strong focus:outline-none"
-                  aria-label="Select coastal sector"
-                >
-                  <Compass className="size-3.5 text-ocean-cyan shrink-0" />
-                  <span className="max-w-[140px] sm:max-w-none truncate font-medium">
-                    {COASTAL_REGIONS.find((r) => r.id === selectedRegion)?.name ?? "Select Sector"}
-                  </span>
-                  <ChevronDown
-                    className={`size-3 text-ink-dim transition-transform duration-200 shrink-0 ${regionDropdownOpen ? "rotate-180" : ""
-                      }`}
-                  />
-                </button>
-                {regionDropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-64 max-h-80 overflow-y-auto rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-2xl p-1.5 shadow-2xl z-30">
-                    <div className="px-2.5 py-1.5 text-[10px] font-semibold tracking-wider text-ink-dim uppercase border-b border-hairline/50 mb-1">
-                      Coastal Navigation Regions
-                    </div>
-                    {COASTAL_REGIONS.map((region) => (
-                      <button
-                        key={region.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedRegion(region.id);
-                          setRegionDropdownOpen(false);
-                          map.current?.flyTo({
-                            center: region.center,
-                            zoom: region.zoom,
-                            duration: 1200,
-                            essential: true,
-                          });
-                        }}
-                        className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${selectedRegion === region.id
-                          ? "bg-accent/15 text-accent font-semibold"
-                          : "text-ink hover:bg-shelf-2"
-                          }`}
-                      >
-                        <span className="truncate">{region.name}</span>
-                        <span className="ml-2 text-[10px] text-ink-dim shrink-0">{region.sub}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+
 
           {/* Quick recenter button — sits directly below the MapLibre
               zoom/compass controls (NavigationControl, ~96px tall at top-right).
@@ -2205,7 +2190,7 @@ export function MapView({
           <div
             className={`pointer-events-auto absolute right-3 left-3 sm:left-auto sm:w-80 transition-all ${Boolean(layers.waveForecast && forecastLayer?.forecast_frames?.length)
               ? "bottom-36 sm:bottom-24"
-              : "bottom-4 sm:bottom-4"
+              : "bottom-18 sm:bottom-4"
               }`}
           >
             {selectedBadge && (
@@ -2244,16 +2229,19 @@ export function MapView({
             {/* Acoustic Sounding HUD */}
             {showSoundingHud && (
               soundingDismissed ? (
-                <div className="flex justify-end">
+                <div className="flex justify-end pr-16 sm:pr-16">
                   <button
                     type="button"
                     onClick={() => {
+                      setSelectedPfz(null);
+                      selectedPfzCoordsRef.current = null;
+                      setSelectedPfzPos(null);
                       setSoundingDismissed(false);
                       setSoundingCollapsed(false);
                     }}
-                    className="flex items-center gap-2 rounded-full border border-ocean-cyan/40 bg-shelf-3/95 px-3 py-1.5 backdrop-blur-xl text-[11px] font-semibold text-ocean-cyan shadow-lg transition-colors duration-200 cursor-pointer hover:border-ocean-cyan hover:shadow-[0_0_18px_rgba(34,211,238,0.55)]"
+                    className="flex h-11 items-center gap-2 rounded-full border border-ocean-cyan/40 bg-shelf-3/95 px-3.5 backdrop-blur-xl text-xs font-semibold text-ocean-cyan shadow-md transition-all duration-200 cursor-pointer hover:border-ocean-cyan hover:shadow-[0_0_18px_rgba(34,211,238,0.55)]"
                   >
-                    <Crosshair className="size-3 text-ocean-cyan" />
+                    <Crosshair className="size-3.5 text-ocean-cyan" />
                     <span>Sounding HUD</span>
                     {depth?.depth_m != null && !depth.on_land && (
                       <span className="font-mono font-bold text-ocean-cyan">{depth.depth_m}m</span>
@@ -2261,7 +2249,7 @@ export function MapView({
                   </button>
                 </div>
               ) : (
-                <div className="overflow-hidden rounded-xl border border-ocean-cyan/30 bg-shelf-3/95 backdrop-blur-xl shadow-xl  transition-all">
+                <div className="overflow-hidden rounded-xl border border-ocean-cyan/30 bg-shelf-3/95 backdrop-blur-xl shadow-xl transition-all max-h-[58vh] overflow-y-auto">
                   {/* Glowing top line */}
                   <div className="h-0.5 bg-gradient-to-r from-ocean-cyan to-accent" />
 

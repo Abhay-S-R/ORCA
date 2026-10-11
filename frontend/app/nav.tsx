@@ -136,7 +136,7 @@ export function NavRail() {
       {/* Mobile tab bar — five primary, the rest reachable from More. */}
       <nav
         aria-label="Primary"
-        className="fixed inset-x-0 bottom-0 z-40 flex border-t border-hairline bg-shelf-1/95 backdrop-blur-xl sm:hidden shadow-2xl"
+        className="fixed inset-x-0 bottom-0 z-40 flex border-t border-hairline bg-shelf-1/95 backdrop-blur-xl sm:hidden shadow-2xl pb-[env(safe-area-inset-bottom)]"
       >
         {visible.slice(0, 5).map(({ href }) => {
           const { Icon } = NAV[href];
@@ -147,11 +147,11 @@ export function NavRail() {
               key={href}
               href={href}
               aria-current={active ? "page" : undefined}
-              className={`flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium tracking-wide transition-colors ${active ? "text-ocean-cyan border-t-2 border-ocean-cyan -mt-px bg-shelf-2/40" : "text-ink-dim hover:text-ink"
+              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium tracking-wide transition-colors ${active ? "text-ocean-cyan border-t-2 border-ocean-cyan -mt-px bg-shelf-2/40" : "text-ink-dim hover:text-ink"
                 }`}
             >
-              <Icon className="size-5" strokeWidth={active ? 2.2 : 1.75} aria-hidden="true" />
-              {label}
+              <Icon className="size-4.5" strokeWidth={active ? 2.2 : 1.75} aria-hidden="true" />
+              <span className="truncate max-w-[56px] text-center leading-tight">{label}</span>
             </Link>
           );
         })}
@@ -280,14 +280,14 @@ export function SosButton() {
         type="button"
         onClick={trigger}
         aria-label="Send a distress alert"
-        className={`group fixed z-50 flex size-14 items-center justify-center rounded-full border-2 border-no-go/60 bg-no-go text-sm font-black tracking-widest text-on-accent shadow-lg transition-all hover:scale-105 active:scale-95 ${
+        className={`group fixed z-50 flex items-center justify-center rounded-full border-2 border-no-go/60 bg-no-go text-sm font-black tracking-widest text-on-accent shadow-lg transition-all hover:scale-105 active:scale-95 ${
           isMapPage
-            ? "left-16 bottom-12 sm:left-16.5 sm:bottom-19.5"
-            : "right-4 bottom-18 sm:right-2.5 sm:bottom-1.5"
+            ? "right-4 bottom-18 size-11 sm:size-14 sm:right-3 sm:bottom-3"
+            : "right-4 bottom-18 size-14 sm:right-2.5 sm:bottom-1.5"
         }`}
       >
         <span className="absolute inset-0 -z-10 rounded-full bg-no-go/30 animate-ping opacity-75 pointer-events-none" />
-        <span className="relative z-10 font-mono text-base font-black">SOS</span>
+        <span className="relative z-10 font-mono text-xs sm:text-base font-black">SOS</span>
       </button>
 
       {/* Native <dialog>: Escape-to-close, focus containment */}

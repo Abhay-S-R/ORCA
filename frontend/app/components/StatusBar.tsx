@@ -65,7 +65,7 @@ function ClockIST() {
 
   return (
     <div
-      className="flex items-center gap-1.5 text-ink-muted"
+      className="hidden sm:flex items-center gap-1.5 text-ink-muted"
       data-readout
       title="Current Indian Standard Time (IST)"
     >
