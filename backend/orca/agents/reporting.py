@@ -356,11 +356,7 @@ def facts_paragraph(
     )
     lines: list[str] = []
     if lead_with_verdict and verdict.get("go_no_go"):
-        v_reason = verdict.get("reason") or ""
-        if re.search(r"all parameters within safe operational limits", v_reason, re.IGNORECASE):
-            v_reason = ""
-        head = f"{verdict['go_no_go']}: {v_reason}".rstrip(": ") if v_reason else verdict['go_no_go']
-        lines.append(_sentence(head))
+        lines.append(_sentence(f"{verdict['go_no_go']}: {verdict.get('reason') or ''}".rstrip(": ")))
 
     readings = verdict.get("readings") or {}
     sea = []
