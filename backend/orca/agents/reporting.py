@@ -964,7 +964,7 @@ def _scrub_recheck_phrases(text: str) -> str:
     cleaned = re.sub(
         r"(?mi)^(?:[•*\-]|\d+\.)?\s*(?:\*\*)?([A-Za-z\s&/—–-]+?)(?:\*\*)?:\s*\n+([0-9A-Za-z][^\n]*)",
         lambda m: f"\n**{m.group(1).strip()}**:\n• {m.group(2).strip().lstrip('•*- ')}"
-        if re.search(r"parameters|points|findings|assessment|directives|details|overview|summary", m.group(1), re.I)
+        if re.search(r"parameters|points|findings|assessment|directives|details|overview|summary", m.group(1), re.IGNORECASE)
         else f"• **{m.group(1).strip()}**: {m.group(2).strip()}",
         cleaned,
     )
