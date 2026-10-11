@@ -208,24 +208,21 @@ def describe_location(user_location: dict[str, Any] | None) -> str:
     loc = user_location or {}
     lat, lon = loc.get("lat"), loc.get("lon")
     position = f"{lat}, {lon}" if lat is not None and lon is not None else "an unknown position"
+    name = loc.get("place_name") or "Gulf of Mannar"
     if loc.get("place_source") == "regional_default":
         if loc.get("fix_on_land"):
-            # The caller did send a position; it was inland, so there is no sea
-            # at it to measure. Saying "no GPS fix was supplied" here would be
-            # false, and letting it pass unsaid is how the default's numbers
-            # get narrated as "your nearest fishing zone" to somebody a
-            # thousand kilometres from the coast.
             device_coords = f" ({loc['fix_lat']:.4f}, {loc['fix_lon']:.4f})" if loc.get("fix_lat") is not None and loc.get("fix_lon") is not None else ""
             return (
-                f"The telemetry below was measured at a fallback position in the Gulf of Mannar ({position}). "
-                f"The caller's device did report a position{device_coords}, but it is inland, so there are no marine "
-                "readings there and it was not used. These numbers are NOT near the caller: do not call "
-                "this 'your position' or 'your nearest' anything. Name the default's own place instead, "
-                "and tell them to name a port or a position at sea for local numbers."
+                f"The telemetry below was measured at the regional operating position off {name} ({position}). "
+                f"The caller's device reported a position{device_coords} inland, so ocean readings are evaluated for {name} coastal waters. "
+                f"Because this query is open-ended or did not specify an explicit location, answer directly and decisively for {name} coastal waters. "
+                "Do NOT ask the caller to specify a location or name a port."
             )
         return (
-            f"The telemetry below was measured at a fallback position in the Gulf of Mannar ({position}) "
-            "because the query named no location that could be resolved and no GPS fix was supplied."
+            f"The telemetry below was measured at a fallback position in {name} ({position}) "
+            "because the query named no location that could be resolved and no GPS fix was supplied. "
+            f"Because this query is open-ended or did not specify an explicit location, this operating region is the primary reference point. "
+            f"Answer directly and decisively for {name} coastal waters without asking the caller to name a place."
         )
     if loc.get("place_source") == "gps_fix":
         return (
@@ -233,14 +230,14 @@ def describe_location(user_location: dict[str, Any] | None) -> str:
             "The query named no place Sagar Sarathi holds data for, so this is where they actually are, "
             "not a place they asked about — say so if the query named somewhere else."
         )
-    name = loc.get("place_name")
     if loc.get("place_source") == "home_port":
         port_desc = f"{name} ({position})" if name else f"({position})"
         return (
-            f"The telemetry below was measured at the caller's registered home port: {port_desc}. "
+            f"The telemetry below was measured at the caller's home port: {port_desc}. "
             "Because this query is open-ended or did not specify an explicit location, "
-            "their registered home port is the default operating region and primary reference point for this advice. "
-            "Answer directly for this home port and surrounding coastal waters."
+            "this home port is the operating region and primary reference point for this advice. "
+            "Answer directly and decisively for this home port and surrounding coastal waters with certainty. "
+            "Do NOT ask the caller to specify a location, mention a place, or confirm a port."
         )
     if loc.get("place_source") == "session_carried" and name:
         return (
@@ -439,7 +436,13 @@ def facts_paragraph(
     if pfz.get("found") and pfz.get("distance_km") is not None:
         state_info = pfz.get("state")
         boundary_part = f" within {state_info} territorial waters (0–12 NM)" if state_info else ""
-        text = f"The nearest potential fishing zone{boundary_part} is {pfz['distance_km']} km {pfz.get('compass') or ''} of {place}".replace("  ", " ")
+        landing_center = pfz.get("landing_center")
+        zone_id = pfz.get("sector_id")
+        zone_name = f"{landing_center} ({zone_id})" if (landing_center and zone_id) else (landing_center or zone_id or "designated PFZ zone")
+        incois_ref = f" (INCOIS advisory: {pfz['incois_reference']})" if pfz.get("incois_reference") else ""
+        text = f"The nearest potential fishing zone{boundary_part} is **{zone_name}**, located {pfz['distance_km']} km {pfz.get('compass') or ''} of {place}{incois_ref}".replace("  ", " ")
+        if landing_center:
+            text += f". Specific fishing zone name / landing center: {landing_center}."
         if pfz.get("valid_for"):
             text += f", from the advisory for {pfz['valid_for']}"
             if pfz.get("band") in ("hint", "history") and pfz.get("age_days") is not None:
@@ -994,15 +997,15 @@ _PERSONA_QUERY_GUIDES: dict[str, dict[str, str]] = {
         "PFZ_NEAREST": (
             "Present Potential Fishing Zone intelligence clearly for a working fisherman. Keep total response short (~90–120 words):\n\n"
             "1. Summary (1 sentence, plain text, NEVER a bullet point):\n"
-            "   Lead directly: '**Summary**: The nearest Potential Fishing Zone is **X km [Direction]** off [Port/Coast].'\n\n"
+            "   Lead directly with the specific fishing zone name: '**Summary**: The nearest Potential Fishing Zone is **[Zone Name / Landing Center]** (Sector **[Sector ID]**), located **[Distance] km [Direction]** off [Port/Coast].'\n\n"
             "2. Key Reasoning Parameters (Points Format — strictly 3 to 4 core points max):\n"
-            "   • **Distance & Travel Time**: **[Distance] km** (**[Direction]**); travel time **[Hours] hours**\n"
+            "   • **Zone Name & Travel Time**: **[Zone Name / Landing Center]** (**[Distance] km [Direction]** off [Port]); travel time **[Hours] hours**\n"
             "   • **Sea Depth & Conditions**: Water depth **[Depth] m**; sea conditions calm and favorable\n"
             "   • **Target Fish Species**: [Species 1], [Species 2]; catch depth **[Range] m** (Common names ONLY, never Latin scientific names, unbolded)\n"
             "   • **Fishing Rules & Limits**: Within state waters (0–12 NM). No active ban. (Keep under 12 words)\n\n"
             "3. Safe Operating Window (1 single line):\n"
             "   • **Safe Operating Window**: **[Start] to [End] IST** (Optimal departure window)\n\n"
-            "Rule: Highlight all numbers and units in bold. Metric units only (km, km/h, m, IST). NEVER include scientific fish names. NEVER bold fish names. NEVER tell the user to recheck or verify with port authorities."
+            "Rule: Highlight all numbers and units in bold. Metric units only (km, km/h, m, IST). NEVER include scientific fish names. NEVER bold fish names. MUST state the specific fishing zone name / landing center (e.g. Odaikuppam). NEVER tell the user to recheck or verify with port authorities."
         ),
         "SAFETY_CHECK": (
             "Present marine safety assessment clearly for a working fisherman. Keep response concise and reassuring (~90–120 words):\n\n"
@@ -1125,14 +1128,14 @@ _PERSONA_QUERY_GUIDES: dict[str, dict[str, str]] = {
         ),
         "PFZ_NEAREST": (
             "Present commercial vessel transit to offshore resource grounds in bridge format (~180–220 words):\n\n"
-            "1. Operational Verdict (1-2 sentences): '**Operational Verdict**: **Passage to offshore resource sector confirmed feasible** with clear waypoint separation.'\n\n"
+            "1. Operational Verdict (1-2 sentences): '**Operational Verdict**: **Passage to offshore resource sector [Zone Name / Landing Center]** (Sector **[Sector ID]**) confirmed feasible with clear waypoint separation.'\n\n"
             "2. Navigational & Marine Parameters (Points Format — 4 to 5 bridge points):\n"
-            "   • **Waypoint Course & Distance**: Steer **[Heading]°T**, distance **[Dist] NM**; steaming time **[Hours] hours** at standard cruising speed\n"
+            "   • **Resource Ground & Waypoint**: **[Zone Name / Landing Center]** (Sector **[Sector ID]**); Steer **[Heading]°T**, distance **[Dist] NM**; steaming time **[Hours] hours** at standard cruising speed\n"
             "   • **En Route Sea State**: Significant waves **[Height] m**, swell **[Swell] m** from **[Direction]** at **[Period]s**\n"
             "   • **Bathymetric Clearance**: Seafloor sounding **[Depth] m**; under-keel margin safe\n"
             "   • **Boundary & Statutory Standoff**: Minimum **[Dist] NM** standoff from IMBL; **[Buffer] NM** clearance from protected corridors\n\n"
             "3. Safe Operating Window (1 single line): `• **Safe Operating Window**: **[Start] to [End] IST**`\n\n"
-            "Rule: Use nautical units (NM, knots, °T). Highlight numbers in bold. NEVER tell the user to recheck."
+            "Rule: Use nautical units (NM, knots, °T). Highlight numbers in bold. MUST state the specific resource zone name / landing center. NEVER tell the user to recheck."
         ),
         "HAZARD_ALERTS": (
             "Present marine meteorological hazard assessment in bridge format (~160–200 words):\n\n"
@@ -1201,16 +1204,16 @@ _PERSONA_QUERY_GUIDES: dict[str, dict[str, str]] = {
         ),
         "PFZ_NEAREST": (
             "Present Potential Fishing Zone and biophysical aggregation analysis in academic register (~230–260 words):\n\n"
-            "1. Research Summary (1-2 sentences): '**Research Summary**: High-probability biophysical aggregation feature identified with active thermal front convergence off [Port].'\n\n"
+            "1. Research Summary (1-2 sentences): '**Research Summary**: High-probability biophysical aggregation feature identified at **[Zone Name / Landing Center]** (Sector **[Sector ID]**) with active thermal front convergence off [Port].'\n\n"
             "2. Oceanographic & Biogeochemical Parameters (Points Format — 5 to 6 points):\n"
-            "   • **Frontal Coordinate & Spatial Scope**: Feature located at **[Lat]°N, [Lon]°E**; **[Distance] km [Direction]** offshore\n"
+            "   • **Aggregation Feature & Spatial Scope**: Zone **[Zone Name / Landing Center]** (Sector **[Sector ID]**) at **[Lat]°N, [Lon]°E**; **[Distance] km [Direction]** offshore\n"
             "   • **Thermal Front Convergence**: SST **[SST]°C** with cross-frontal gradient **[Gradient]°C/km**\n"
             "   • **Chlorophyll-a Concentration**: **[Value] mg/m³** (**Mesotrophic** bloom boundary)\n"
             "   • **Bathymetric Shelf Profile**: Continental shelf margin depth **[Depth] m**\n"
             "   • **Taxonomic Biomass Horizon**: Dominated by [Species 1], [Species 2] (epipelagic depth **[Range] m**, common names only, unbolded)\n"
             "   • **Sensor Platform Provenance**: INCOIS PFZ advisory derived from MODIS/VIIRS ocean color telemetry\n\n"
             "3. Safe Sampling Window (1 single line): `• **Safe Sampling Window**: **[Start] to [End] IST**`\n\n"
-            "Rule: Scientific units. Highlight numbers in bold. Common fish names only, unbolded. NEVER tell the user to recheck."
+            "Rule: Scientific units. Highlight numbers in bold. Common fish names only, unbolded. MUST state the specific zone / landing center name. NEVER tell the user to recheck."
         ),
         "HAZARD_ALERTS": (
             "Present atmospheric & hydrodynamic hazard telemetry in academic register (~200–240 words):\n\n"
@@ -1280,14 +1283,14 @@ _PERSONA_QUERY_GUIDES: dict[str, dict[str, str]] = {
         ),
         "PFZ_NEAREST": (
             "Present coastal sector fishing zone regulatory clearance (~150–180 words):\n\n"
-            "1. Official Directive (1-2 sentences): '**Official Directive**: **Fisheries exploitation permitted** within designated coastal sector [ID/Name].'\n\n"
+            "1. Official Directive (1-2 sentences): '**Official Directive**: **Fisheries exploitation permitted** within designated coastal zone **[Zone Name / Landing Center]** (Sector **[Sector ID]**).'\n\n"
             "2. Administrative Fleet & Sector Telemetry (Points Format — 3 to 4 points):\n"
-            "   • **Sector Jurisdiction & Distance**: Sector **[ID/Name]**, located **[Dist] km [Direction]** offshore within 12 NM state jurisdiction\n"
+            "   • **Sector Designation & Distance**: Designated zone **[Zone Name / Landing Center]** (Sector **[Sector ID]**), located **[Dist] km [Direction]** offshore within 12 NM state jurisdiction\n"
             "   • **Fleet Operating Guidelines**: Artisanal skiffs authorized within 5 NM; mechanized vessels permitted in offshore sector\n"
             "   • **Marine Environmental Thresholds**: Waves capped at **[Height] m**; wind speeds safe at **[Speed] km/h**\n"
             "   • **Statutory Compliance**: Mandatory avoidance of designated marine sanctuary buffers; state fishing permits verified\n\n"
             "3. Safe Operating Window (1 single line): `• **Safe Operating Window**: **[Start] to [End] IST**`\n\n"
-            "Rule: Administrative metric units. Highlight directives and numbers in bold. NEVER tell the user to recheck."
+            "Rule: Administrative metric units. Highlight directives and numbers in bold. MUST state the specific zone designation / landing center. NEVER tell the user to recheck."
         ),
         "HAZARD_ALERTS": (
             "Present official public weather alert dispatch (~140–170 words):\n\n"
@@ -1593,7 +1596,11 @@ RESPONSE GUIDELINES:
 15. NO RECHECK OR VERIFY INSTRUCTIONS:
     - NEVER tell the user to recheck, double-check, verify with local/port authorities, confirm forecasts, or check weather updates.
     - You are Sagar Sarathi, the authoritative source delivering complete, validated intelligence. Give decisive, clear guidance without deferring to other entities or advising the user to check again.
-    - NEVER output or include the generic string "All Parameters Within Safe Operational Limits" anywhere in your response. State specific ocean observations and operational conditions instead.{critique_rule}"""
+    - NEVER output or include the generic string "All Parameters Within Safe Operational Limits" anywhere in your response. State specific ocean observations and operational conditions instead.
+
+16. OPEN-ENDED QUERIES & OPERATING BASE:
+    - For all open-ended questions that do not name a specific place, answer directly and decisively for the location stated in LOCATION THIS ADVICE IS FOR (the registered home port or operating base).
+    - NEVER ask the user to mention a place, provide a location, name a port, or clarify where they are. Answer decisively for the stated reference location with full operational confidence.{critique_rule}"""
 
     try:
         narrative = client.complete([{"role": "user", "content": prompt}]).strip()

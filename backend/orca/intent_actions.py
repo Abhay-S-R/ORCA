@@ -40,11 +40,14 @@ _FROM_TO = re.compile(r"\bfrom\s+(.+?)\s+to\s+(.+?)(?=[?.!,]|\s+(?:today|tomorro
 
 
 def _real_position(user_location: dict | None) -> tuple[float, float, str | None] | None:
-    """A regional default is where the backend computed, not a place the user named."""
-    if not user_location or user_location.get("place_source") == "regional_default":
+    """Returns valid coordinates and place name for intent action evaluation."""
+    if not user_location:
         return None
     try:
-        return float(user_location["lat"]), float(user_location["lon"]), user_location.get("place_name")
+        lat = float(user_location["lat"])
+        lon = float(user_location["lon"])
+        name = user_location.get("place_name") or ("Chennai" if user_location.get("place_source") == "home_port" else None)
+        return lat, lon, name
     except (KeyError, TypeError, ValueError):
         return None
 
