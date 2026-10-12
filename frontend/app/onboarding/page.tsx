@@ -15,7 +15,7 @@ import { LANGUAGES, fontClassForLanguage, speakLanguageName, type LangCode } fro
 import { PERSONAS, type Persona } from "../persona/config";
 import { usePersona } from "../persona/context";
 import { useT } from "../i18n/useT";
-import { PRESET_HOME_PORTS } from "../profile/page";
+import { PRESET_HOME_PORTS } from "../lib/ports";
 import { translatePortName, translateVesselName } from "../i18n/entities";
 
 type Step = "language" | "role";

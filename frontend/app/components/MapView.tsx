@@ -39,7 +39,7 @@ import { measureLayerToggle, reportLayerMetrics } from "../lib/layerPerf";
 import { watchBadges as fetchWatchBadges, type WatchBadge } from "../lib/watches";
 import { API_BASE } from "../lib/apiBase";
 import { matchRegionInQuery } from "../lib/queryIntent";
-import { PRESET_HOME_PORTS } from "../profile/page";
+import { PRESET_HOME_PORTS } from "../lib/ports";
 import { useLanguage } from "../language/context";
 import { translatePortName, translateZoneName } from "../i18n/entities";
 

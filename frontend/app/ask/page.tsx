@@ -23,7 +23,7 @@ import { Button } from "../components/Button";
 import { Greeting } from "../components/Greeting";
 import { SavedLocationChips } from "../components/SavedLocationChips";
 import { VesselChip } from "../components/VesselChip";
-import { PRESET_HOME_PORTS } from "../profile/page";
+import { PRESET_HOME_PORTS } from "../lib/ports";
 import { Skeleton } from "../components/States";
 import { useVoiceInput } from "../components/VoiceInput";
 import { useAuth } from "../lib/auth";
