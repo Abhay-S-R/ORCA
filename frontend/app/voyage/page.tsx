@@ -14,7 +14,7 @@ import { type RouteGeoJson } from "../components/MapView";
 import { SeaRouteMap } from "./SeaRouteMap";
 import { useVoyageT } from "./translations";
 import { useLanguage } from "../language/context";
-import { translatePortName, translateVesselName, translateZoneName } from "../i18n/entities";
+import { translatePortName, translateStateName, translateSectorName, translateVesselName, translateZoneName } from "../i18n/entities";
 import { PageHeader, PageBody } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { SourceChip } from "../components/SourceChip";
@@ -665,7 +665,7 @@ function VoyageContent() {
                   {(defaultHomePort?.name || homePortName) && (
                     <p className="mb-1.5 flex items-center gap-1.5 rounded-md border border-ocean-cyan/30 bg-ocean-cyan/10 px-2.5 py-1.5 text-[11px] text-ink">
                       <Anchor className="size-3 shrink-0 text-ocean-cyan" />
-                      <span>{t("Departing from your home port:")} <strong>{translatePortName(defaultHomePort?.name ?? homePortName, language)} ({activePortState})</strong></span>
+                      <span>{t("Departing from your home port:")} <strong>{translatePortName(defaultHomePort?.name ?? homePortName, language)} ({translateStateName(activePortState, language)})</strong></span>
                     </p>
                   )}
 
@@ -690,7 +690,7 @@ function VoyageContent() {
                           <optgroup label={t("Major Ports")}>
                             {majorPorts.map((p) => (
                               <option key={p.id} value={p.id} className="bg-shelf-2">
-                                {translatePortName(p.name, language)} ({p.state})
+                                {translatePortName(p.name, language)} ({translateStateName(p.state, language)})
                               </option>
                             ))}
                           </optgroup>
@@ -699,7 +699,7 @@ function VoyageContent() {
                           <optgroup label={t("Minor Ports")}>
                             {minorPorts.map((p) => (
                               <option key={p.id} value={p.id} className="bg-shelf-2">
-                                {translatePortName(p.name, language)} ({p.state})
+                                {translatePortName(p.name, language)} ({translateStateName(p.state, language)})
                               </option>
                             ))}
                           </optgroup>
@@ -708,7 +708,7 @@ function VoyageContent() {
                           <optgroup label={t("Fishing Harbours")}>
                             {fishingPorts.map((p) => (
                               <option key={p.id} value={p.id} className="bg-shelf-2">
-                                {translatePortName(p.name, language)} ({p.state})
+                                {translatePortName(p.name, language)} ({translateStateName(p.state, language)})
                               </option>
                             ))}
                           </optgroup>
@@ -754,7 +754,7 @@ function VoyageContent() {
                       >
                         <option value="">{t("Select fishing zone…")}</option>
                         {zonesBySector.map(([sector, list]) => (
-                          <optgroup key={sector} label={`${sector} (${list.length})`}>
+                          <optgroup key={sector} label={`${translateSectorName(sector, language)} (${list.length})`}>
                             {list.map((z) => (
                               <option key={z.properties.id} value={z.properties.id} className="bg-shelf-2">
                                 {translateZoneName(z.properties.name, language)} {z.properties.depth_m ? `[depth ${z.properties.depth_m}m]` : ""}

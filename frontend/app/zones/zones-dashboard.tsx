@@ -202,7 +202,7 @@ export function ZonesToolbar({
   profileVesselLabel?: string | null;
   isProfileVesselActive?: boolean;
 }) {
-  const { t, language } = useZonesT();
+  const { t, sectorName, portName } = useZonesT();
   const byState = useMemo(() => {
     const m = new Map<string, PortLite[]>();
     ports.forEach((p) => m.set(p.state, [...(m.get(p.state) ?? []), p]));
@@ -226,13 +226,13 @@ export function ZonesToolbar({
             className="cursor-pointer appearance-none rounded-lg border border-hairline bg-shelf-1 py-1.5 pl-3 pr-8 text-xs font-semibold text-ink focus:border-ocean-cyan focus:outline-none focus:ring-1 focus:ring-ocean-cyan"
           >
             <option value="default_home">
-              {translatePortName(registeredHomePortName ?? "Kochi", language)} {t("(profile default)")}
+              {portName(registeredHomePortName ?? "Kochi")} {t("(profile default)")}
             </option>
             {byState.map(([state, list]) => (
-              <optgroup key={state} label={state}>
+              <optgroup key={state} label={sectorName(state)}>
                 {list.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {translatePortName(p.name, language)}
+                    {portName(p.name)}
                   </option>
                 ))}
               </optgroup>
@@ -640,7 +640,7 @@ function ZoneMap({
               fill="#8c8672"
               fillOpacity="0.75"
             >
-              {data.port_state.toUpperCase()} COAST
+              {sectorName(data.port_state).toUpperCase()} {t("Coast").toUpperCase()}
             </text>
 
             {/* 4. Bathymetric Shelf Depth Contours & Soundings */}
@@ -814,7 +814,7 @@ function ZoneMap({
                 fontWeight="bold"
                 fill="#0f172a"
               >
-                ⚓ {translatePortName(data.port_name, language)}
+                ⚓ {portName(data.port_name)}
               </text>
               <text
                 x={isWestCoast ? 2 : -2}
