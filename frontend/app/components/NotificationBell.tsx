@@ -121,11 +121,11 @@ export function NotificationBell() {
   return (
     /*
      * Wrapper is position:fixed bottom-left.
-     * - Mobile (< sm): bottom-18 so it floats above the mobile tab bar
+     * - Mobile (< sm): bottom-14 so it sits cleanly above the mobile tab bar in the corner
      * - Desktop (sm+): bottom-6, clear of any UI chrome
      * The bubble grows upward from the bell (flex-col-reverse stacking).
      */
-    <div className="fixed bottom-18 left-4 z-40 flex flex-col-reverse items-start gap-2 sm:bottom-6">
+    <div className="fixed bottom-12 left-2.5 z-40 flex flex-col-reverse items-start gap-2 sm:bottom-6 sm:left-4">
       {/* ── Alert bubble ── */}
       {bubble && (
         <div

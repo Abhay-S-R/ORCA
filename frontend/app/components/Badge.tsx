@@ -24,14 +24,16 @@ export function Badge({
   tone = "neutral",
   children,
   icon,
+  className = "",
 }: {
   tone?: BadgeTone;
   children: ReactNode;
   icon?: ReactNode;
+  className?: string;
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] font-semibold tracking-wide ${TONE[tone]}`}
+      className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] font-semibold tracking-wide ${TONE[tone]} ${className}`}
     >
       {icon}
       {children}

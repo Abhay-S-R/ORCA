@@ -88,7 +88,7 @@ export function Composer({
 
       {/* Waveform while recording, transcript confirmation once done — requires an explicit "Ask" before it becomes a
           query, never auto-submitted (a mishearing on a safety query is a safety incident, not a UX annoyance). */}
-      <div className="mt-2">
+      <div className="empty:hidden mt-2">
         <VoiceInputPanel voice={voice} />
       </div>
 

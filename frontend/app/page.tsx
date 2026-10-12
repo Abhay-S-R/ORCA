@@ -21,11 +21,12 @@ import { signOut, useAuth } from "./lib/auth";
 import { Greeting } from "./components/Greeting";
 
 const STATS = [
-  { label: "Agents in the crew", value: "12" },
-  { label: "Command stations", value: "4" },
-  { label: "Languages", value: "10" },
-  { label: "Coastline covered", value: "7,516 km" },
-  { label: "Data edition", value: "Live" },
+  { label: "Agents in the crew", value: "12", sub: "Concurrent reasoning" },
+  { label: "Command stations", value: "4", sub: "Role-specific views" },
+  { label: "Indian languages", value: "10", sub: "Vernacular voice & text" },
+  { label: "Coastline covered", value: "7,516 km", sub: "EEZ & territorial sea" },
+  { label: "Coastal States & UTs", value: "13", sub: "Peninsula & islands" },
+  { label: "Data feeds", value: "Live", sub: "ISRO · INCOIS · IMD" },
 ];
 
 const STAKEHOLDER_STATIONS = [
@@ -73,11 +74,6 @@ function initialsOf(name: string): string {
   return parts.length > 1 ? (parts[0][0] + parts[1][0]).toUpperCase() : name.slice(0, 2).toUpperCase();
 }
 
-const TRY_QUERIES = [
-  "Is it safe to go out tomorrow morning?",
-  "Where are the fishing zones closest to my port?",
-  "How far am I from the maritime boundary?",
-];
 
 export default function LandingPage() {
   const { setPersona } = usePersona();
@@ -90,7 +86,7 @@ export default function LandingPage() {
     <div className="min-h-screen bg-abyss text-ink">
       <div className="pointer-events-none fixed inset-0 chart-grid" aria-hidden="true" />
 
-      <div className="relative mx-auto max-w-6xl px-6 py-8 sm:px-10">
+      <div className="relative mx-auto max-w-6xl px-6 pt-4 pb-12 sm:px-10 sm:pt-6 sm:pb-16">
         {/* Top bar */}
         <header className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
@@ -144,50 +140,8 @@ export default function LandingPage() {
         </header>
 
         {/* Hero */}
-        <section className="mt-16 grid gap-10 lg:grid-cols-[1.2fr_1fr] lg:items-center">
+        <section className="mt-8 sm:mt-12 grid gap-8 lg:gap-12 lg:grid-cols-[1.1fr_1fr] lg:items-start">
           <div>
-            {/* Official Data Provider Seals: ISRO, INCOIS, IMD (Transparent PNGs, no white background, enlarged size) */}
-            <div className="mb-8 flex items-center gap-6 sm:gap-8">
-              <div
-                className="flex h-16 sm:h-20 items-center justify-center transition-transform hover:scale-105 cursor-pointer"
-                title="ISRO · Indian Space Research Organisation"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/assets/isro.png"
-                  alt="ISRO"
-                  className="h-full w-auto object-contain select-none drop-shadow-sm"
-                  draggable={false}
-                />
-              </div>
-
-              <div
-                className="flex h-16 sm:h-20 items-center justify-center transition-transform hover:scale-105 cursor-pointer"
-                title="INCOIS · Indian National Centre for Ocean Information Services"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/assets/incois.png"
-                  alt="INCOIS"
-                  className="h-full w-auto object-contain select-none drop-shadow-sm"
-                  draggable={false}
-                />
-              </div>
-
-              <div
-                className="flex h-16 sm:h-20 items-center justify-center transition-transform hover:scale-105 cursor-pointer"
-                title="IMD · India Meteorological Department"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/assets/imd.png"
-                  alt="IMD"
-                  className="h-full w-auto object-contain select-none drop-shadow-sm"
-                  draggable={false}
-                />
-              </div>
-            </div>
-
             <motion.h1
               initial={reduce ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -196,8 +150,8 @@ export default function LandingPage() {
             >
               Sagar Sarathi
             </motion.h1>
-            <svg viewBox="0 0 340 12" className="mt-1 h-3 w-72 max-w-full text-ocean-cyan/60" aria-hidden="true">
-              <path d="M2 6 Q 20 -2, 38 6 T 74 6 T 110 6 T 146 6 T 182 6 T 218 6 T 254 6 T 290 6 T 326 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <svg viewBox="0 0 340 12" className="mt-2 h-3.5 w-72 max-w-full text-ocean-cyan/60" aria-hidden="true">
+              <path d="M2 6 Q 20 -2, 38 6 T 74 6 T 110 6 T 146 6 T 182 6 T 218 6 T 254 6 T 290 6 T 326 6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
             </svg>
 
             <p className="mt-6 max-w-lg font-display text-2xl leading-snug font-semibold text-ink sm:text-3xl">
@@ -211,10 +165,7 @@ export default function LandingPage() {
               each get the same underlying facts, rendered for what they actually decide.
             </p>
 
-            {/* P4.3 — the live conditions strip: a real cheap-check verdict for
-                the signed-in visitor's own home port, never an invented one for
-                a signed-out visitor (the illustrative chart badges stay as
-                decoration, not as a claimed reading). */}
+            {/* Live conditions strip */}
             {auth.status === "signed_in" && auth.profile?.home_port && (
               <div className="mt-4 max-w-xl">
                 <Greeting
@@ -227,73 +178,117 @@ export default function LandingPage() {
 
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <Link
-                href="/login"
-                onClick={() => setPersona("fisherman")}
-                className="inline-flex items-center gap-2 rounded-lg border border-ink bg-ink px-5 py-2.5 text-sm font-bold text-on-accent transition-transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                href={auth.status === "signed_in" ? "/ask" : "/login"}
+                onClick={() => {
+                  if (auth.status !== "signed_in") setPersona("fisherman");
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-ink bg-ink px-5 py-2.5 text-sm font-bold text-on-accent transition-transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-sm"
               >
-                Log in to Sagar Sarathi
+                {auth.status === "signed_in" ? "Open Sagar Sarathi" : "Log in to Sagar Sarathi"}
                 <ArrowRight className="size-4" />
               </Link>
               <button
                 type="button"
                 onClick={() => stationSectionRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth" })}
-                className="rounded-lg border border-hairline-strong bg-shelf-1 px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-shelf-2 cursor-pointer"
+                className="rounded-lg border border-hairline-strong bg-shelf-1 px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-shelf-2 cursor-pointer shadow-xs"
               >
                 Explore command stations
               </button>
             </div>
-
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-mono font-semibold text-ink-dim uppercase tracking-wider">
-                Try:
-              </span>
-              {TRY_QUERIES.map((q) => (
-                <Link
-                  key={q}
-                  href={`/login?next=${encodeURIComponent(`/ask?q=${q}`)}`}
-                  className="rounded-full border border-hairline bg-shelf-1 px-3 py-1 text-xs text-ink-muted underline decoration-hairline-strong decoration-dotted underline-offset-4 transition-colors hover:border-ocean-cyan/50 hover:text-ink"
-                >
-                  {q}
-                </Link>
-              ))}
-            </div>
           </div>
 
-          {/* Chart illustration */}
-          <div className="relative mx-auto aspect-square w-full max-w-sm">
-            <svg viewBox="0 0 200 200" className="size-full text-ink-dim/25" aria-hidden="true">
-              <circle cx="100" cy="100" r="98" fill="none" stroke="currentColor" strokeWidth="0.75" />
-              <circle cx="100" cy="100" r="70" fill="none" stroke="currentColor" strokeWidth="0.75" />
-              <circle cx="100" cy="100" r="40" fill="none" stroke="currentColor" strokeWidth="0.75" />
-              <path d="M100 2 V198 M2 100 H198" stroke="currentColor" strokeWidth="0.5" />
-            </svg>
-            <div className="absolute inset-0 grid place-items-center">
-              <OrcaMark className="size-24" />
+          {/* Right side: Partner logos placed directly above the normal chart illustration */}
+          <div className="flex flex-col items-center justify-center pt-6 sm:pt-8 lg:pt-10">
+            {/* Official Data Provider Seals: ISRO, INCOIS, IMD */}
+            <div className="mb-6 flex items-center justify-center gap-6 sm:gap-8">
+              <div
+                className="flex h-18 sm:h-22 items-center justify-center transition-transform hover:scale-105 cursor-pointer"
+                title="ISRO · Indian Space Research Organisation"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/assets/isro.png"
+                  alt="ISRO"
+                  className="h-full w-auto object-contain select-none drop-shadow-sm"
+                  draggable={false}
+                />
+              </div>
+
+              <div
+                className="flex h-18 sm:h-22 items-center justify-center transition-transform hover:scale-105 cursor-pointer"
+                title="INCOIS · Indian National Centre for Ocean Information Services"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/assets/incois.png"
+                  alt="INCOIS"
+                  className="h-full w-auto object-contain select-none drop-shadow-sm"
+                  draggable={false}
+                />
+              </div>
+
+              <div
+                className="flex h-18 sm:h-22 items-center justify-center transition-transform hover:scale-105 cursor-pointer"
+                title="IMD · India Meteorological Department"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/assets/imd.png"
+                  alt="IMD"
+                  className="h-full w-auto object-contain select-none drop-shadow-sm"
+                  draggable={false}
+                />
+              </div>
             </div>
-            <div className="absolute top-6 right-4 rounded-full border border-go/40 bg-shelf-1 px-2.5 py-1 text-[10px] font-mono font-semibold text-go shadow-sm">
-              GO · 47.6 nm clear
-            </div>
-            <div className="absolute bottom-8 left-2 rounded-full border border-hairline-strong bg-shelf-1 px-2.5 py-1 text-[10px] font-mono font-semibold text-ink-muted shadow-sm">
-              PFZ · 12.4 km
+
+            {/* Normal Chart illustration */}
+            <div className="relative mx-auto aspect-square w-full max-w-sm">
+              <svg viewBox="0 0 200 200" className="size-full text-ink-dim/25" aria-hidden="true">
+                <circle cx="100" cy="100" r="98" fill="none" stroke="currentColor" strokeWidth="0.75" />
+                <circle cx="100" cy="100" r="70" fill="none" stroke="currentColor" strokeWidth="0.75" />
+                <circle cx="100" cy="100" r="40" fill="none" stroke="currentColor" strokeWidth="0.75" />
+                <path d="M100 2 V198 M2 100 H198" stroke="currentColor" strokeWidth="0.5" />
+              </svg>
+              <div className="absolute inset-0 grid place-items-center">
+                <OrcaMark className="size-28" />
+              </div>
+              <div className="absolute top-6 right-4 rounded-full border border-go/40 bg-shelf-1 px-2.5 py-1 text-[10px] font-mono font-semibold text-go shadow-sm">
+                GO · 47.6 nm clear
+              </div>
+              <div className="absolute bottom-8 left-2 rounded-full border border-hairline-strong bg-shelf-1 px-2.5 py-1 text-[10px] font-mono font-semibold text-ink-muted shadow-sm">
+                PFZ · 12.4 km
+              </div>
             </div>
           </div>
         </section>
 
         {/* Stat strip */}
-        <section className="mt-16 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-hairline bg-hairline sm:grid-cols-5">
+        <section className="mt-20 sm:mt-24 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-hairline bg-hairline sm:grid-cols-3 lg:grid-cols-6 shadow-xs">
           {STATS.map((s) => (
-            <div key={s.label} className="bg-shelf-1 p-4">
+            <div key={s.label} className="bg-shelf-1 p-4 sm:p-5 transition-colors hover:bg-shelf-2">
               <p className="text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">{s.label}</p>
-              <p className="mt-1 font-display text-2xl font-bold text-ink">{s.value}</p>
+              <p className="mt-1 font-display text-2xl sm:text-3xl font-bold text-ink">{s.value}</p>
+              <p className="mt-0.5 text-[11px] font-mono text-ink-muted">{s.sub}</p>
             </div>
           ))}
         </section>
 
         {/* Command stations */}
         <section ref={stationSectionRef} className="mt-20 scroll-mt-10">
-          <h2 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
-            One ground truth, four command stations
-          </h2>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <div className="mb-1 inline-flex items-center gap-1.5 font-mono text-[11px] font-bold text-ocean-cyan uppercase tracking-wider">
+                <Compass className="size-3.5" />
+                <span>Command Stations</span>
+              </div>
+              <h2 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+                One ground truth, four command stations
+              </h2>
+            </div>
+            <span className="font-mono text-[11px] text-ink-dim">
+              Single unified reality · tailored for the decision
+            </span>
+          </div>
           <p className="mt-2 max-w-xl text-sm text-ink-muted">
             The underlying facts never change with who&apos;s asking — only the structure of the answer does.
           </p>
@@ -307,10 +302,10 @@ export default function LandingPage() {
                   key={station.id}
                   onMouseEnter={() => setOpenStation(station.id)}
                   onMouseLeave={() => setOpenStation((s) => (s === station.id ? null : s))}
-                  className="flex flex-col justify-between rounded-xl border border-hairline bg-shelf-1 p-5 shadow-sm transition-colors hover:border-hairline-strong"
+                  className="flex flex-col justify-between rounded-xl border border-hairline bg-shelf-1 p-5 shadow-xs transition-all duration-200 hover:border-hairline-strong hover:shadow-sm"
                 >
                   <div>
-                    <div className={`grid size-9 place-items-center rounded-lg border ${open ? "border-ocean-cyan/50 bg-ocean-cyan/10 text-ocean-cyan" : "border-hairline text-ink-dim"}`}>
+                    <div className={`grid size-9 place-items-center rounded-lg border transition-colors ${open ? "border-ocean-cyan/50 bg-ocean-cyan/10 text-ocean-cyan" : "border-hairline text-ink-dim"}`}>
                       <Icon className="size-4.5" />
                     </div>
                     <h3 className="mt-3.5 font-display text-lg font-bold text-ink">{station.title}</h3>
@@ -325,11 +320,11 @@ export default function LandingPage() {
                     </ul>
                   </div>
                   <Link
-                    href={`/login?next=${encodeURIComponent(PERSONA_DEFAULT_ROUTE[station.id])}`}
+                    href={auth.status === "signed_in" ? PERSONA_DEFAULT_ROUTE[station.id] : `/login?next=${encodeURIComponent(PERSONA_DEFAULT_ROUTE[station.id])}`}
                     onClick={() => setPersona(station.id)}
-                    className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-hairline-strong bg-shelf-2 py-2 text-xs font-bold text-ink transition-colors hover:bg-ink hover:text-on-accent cursor-pointer"
+                    className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-hairline-strong bg-shelf-2 py-2 text-xs font-bold text-ink transition-colors hover:bg-ink hover:text-on-accent hover:border-ink cursor-pointer shadow-xs"
                   >
-                    Log in
+                    <span>{auth.status === "signed_in" ? "Open station" : "Log in"}</span>
                     <ArrowRight className="size-3.5" />
                   </Link>
                 </div>
@@ -338,7 +333,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* How ORCA decides */}
+        {/* How Sagar Sarathi decides */}
         <section className="mt-20 border-t border-hairline pt-10">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
@@ -349,16 +344,19 @@ export default function LandingPage() {
             </span>
           </div>
 
-          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {HOW_IT_DECIDES.map((step, i) => (
-              <div key={step.title} className="relative">
-                <div className="flex items-center gap-2">
-                  <Compass className="size-4 text-ocean-cyan" />
-                  <h3 className="font-display text-lg font-bold text-ink">{step.title}</h3>
+              <div key={step.title} className="relative rounded-xl border border-hairline bg-shelf-1 p-5 shadow-xs transition-colors hover:border-hairline-strong">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-mono text-[10px] font-bold text-ocean-cyan tracking-wider">
+                    {`STAGE 0${i + 1}`}
+                  </span>
+                  <Compass className="size-4 text-ocean-cyan/70" />
                 </div>
+                <h3 className="font-display text-lg font-bold text-ink">{step.title}</h3>
                 <p className="mt-1.5 text-xs leading-relaxed text-ink-muted">{step.body}</p>
                 {i < HOW_IT_DECIDES.length - 1 && (
-                  <ArrowRight className="absolute top-1 -right-5 hidden size-4 text-ink-dim/50 lg:block" />
+                  <ArrowRight className="absolute top-1/2 -right-3 hidden size-4 -translate-y-1/2 text-ocean-cyan/40 lg:block z-10" />
                 )}
               </div>
             ))}
