@@ -8,10 +8,16 @@ import { PERSONAS } from "./config";
 import { usePersona } from "./context";
 import { useLanguage } from "../language/context";
 import { translatePersonaName } from "../i18n/entities";
+import { isPortAuthority, useAuth } from "../lib/auth";
 
 export function PersonaSelector() {
+  const auth = useAuth();
   const { persona, setPersona } = usePersona();
   const { language } = useLanguage();
+
+  if (isPortAuthority(auth.profile)) {
+    return null;
+  }
 
   return (
     <div className="relative flex items-center w-full">

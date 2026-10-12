@@ -34,6 +34,7 @@ export type Profile = {
   active_vessel_id: string | null;
   quiet_hours: { start: string; end: string; tz: string } | null;
   typical_departure_hour: number | null;
+  is_port_authority?: boolean;
 };
 
 type TokenPair = { access_token: string; refresh_token: string };
@@ -334,4 +335,27 @@ export async function setHomePort(lat: number, lon: number, name?: string): Prom
   } catch {
     return false;
   }
+}
+
+export const PORT_AUTHORITY_EMAILS: Set<string> = new Set([
+  "authority.mumbai@orca.test",
+  "authority.thoothukudi@orca.test",
+  "authority.chennai@orca.test",
+  "authority.kochi@orca.test",
+  "authority.visakhapatnam@orca.test",
+  "authority.mangalore@orca.test",
+  "authority.rameswaram@orca.test",
+  "authority.kanyakumari@orca.test",
+  "authority.paradip@orca.test",
+  "authority.veraval@orca.test",
+  "authority.kakinada@orca.test",
+  "authority.kolkata@orca.test",
+]);
+
+export function isPortAuthority(profile: Profile | null | undefined): boolean {
+  if (!profile) return false;
+  if (profile.is_port_authority === true) return true;
+  if (profile.role === "authority") return true;
+  if (profile.identifier && PORT_AUTHORITY_EMAILS.has(profile.identifier.toLowerCase().trim())) return true;
+  return false;
 }

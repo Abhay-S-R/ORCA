@@ -52,6 +52,7 @@ from orca.db.repositories import (
     user_home_port,
     vessel_last_position,
 )
+from orca.ops.port_authorities import is_port_authority_user
 
 router = APIRouter(prefix="/api")
 
@@ -68,12 +69,14 @@ def _user_out(user: User) -> UserOut:
     # already guarantees this column can only hold one of the three role
     # literals — SQLAlchemy's ORM column type is just `str`, mypy can't see
     # the DB constraint that makes the value narrower.
+    is_pa = is_port_authority_user(user)
     return UserOut(
         id=user.id, identifier=user.email or user.phone_e164, display_name=user.display_name, role=cast(Role, user.role),
-        default_persona=user.default_persona, language=user.language,
+        default_persona="coastal_authority" if is_pa else user.default_persona, language=user.language,
         home_port=user_home_port(user), home_port_name=user.home_port_name,
         active_vessel_id=user.active_vessel_id, quiet_hours=user.quiet_hours,
         typical_departure_hour=user.typical_departure_hour,
+        is_port_authority=is_pa,
     )
 
 
@@ -209,6 +212,10 @@ def put_language(body: LanguageIn, user: User = Depends(get_current_user), db: S
 @router.put("/profile/persona", response_model=UserOut)
 def put_persona(body: PersonaIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> UserOut:
     """P3.4 — the setup wizard's mandatory "role" screen."""
+    if is_port_authority_user(user):
+        set_default_persona(db, user, "coastal_authority")
+        db.commit()
+        return _user_out(user)
     set_default_persona(db, user, body.default_persona)
     db.commit()
     return _user_out(user)

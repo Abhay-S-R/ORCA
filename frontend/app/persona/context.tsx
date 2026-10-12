@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { PERSONA_STORAGE_KEY as STORAGE_KEY, type Persona } from "./config";
-import { useAuth } from "../lib/auth";
+import { isPortAuthority, useAuth } from "../lib/auth";
 
 type PersonaContextValue = {
   persona: Persona;
@@ -18,12 +18,17 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const [persona, setPersonaState] = useState<Persona>("unresolved");
   const auth = useAuth();
 
-  // P3.4 — the account's resolved role (set by the onboarding wizard, or by
-  // `PUT /api/profile/persona`) becomes this device's view too, on first
-  // load only: a local override this session (a deliberate "view as ___")
-  // is never silently clobbered by the profile on a later re-render.
+  // For Port Authority accounts, the persona is always fixed to coastal_authority.
+  // For other accounts, the account's resolved role becomes this device's view too,
+  // on first load only: a local override this session is never silently clobbered.
   useEffect(() => {
-    if (auth.status !== "signed_in" || !auth.profile || auth.profile.default_persona === "unresolved") return;
+    if (auth.status !== "signed_in" || !auth.profile) return;
+    if (isPortAuthority(auth.profile)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPersonaState("coastal_authority");
+      return;
+    }
+    if (auth.profile.default_persona === "unresolved") return;
     let overridden = false;
     try {
       overridden = window.localStorage.getItem(STORAGE_KEY) !== null;
@@ -32,24 +37,23 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
     }
     // Syncing from the external auth store (useAuth), same reasoning as the
     // localStorage sync effect below.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!overridden) setPersonaState(auth.profile.default_persona as Persona);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.status, auth.profile?.default_persona]);
+  }, [auth.status, auth.profile?.default_persona, auth.profile?.role, auth.profile?.is_port_authority]);
 
   useEffect(() => {
     // Reading localStorage directly in useState's initializer would mismatch
-    // the server-rendered HTML (no `window` during SSR) and crash hydration
-    // — rendering "unresolved" on both passes, then syncing from the client-
-    // only external store (localStorage) after mount, is the standard
-    // hydration-safe pattern for this, not a case the "avoid setState in
-    // effect" rule has an exception for.
+    // the server-rendered HTML (no `window` during SSR) and crash hydration.
     const stored = window.localStorage.getItem(STORAGE_KEY);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (stored) setPersonaState(stored as Persona);
   }, []);
 
   function setPersona(p: Persona) {
+    if (auth.status === "signed_in" && isPortAuthority(auth.profile)) {
+      setPersonaState("coastal_authority");
+      return;
+    }
     setPersonaState(p);
     window.localStorage.setItem(STORAGE_KEY, p);
   }

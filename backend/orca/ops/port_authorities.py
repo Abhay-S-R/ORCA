@@ -200,6 +200,18 @@ PORT_AUTHORITIES: list[dict[str, Any]] = [
     },
 ]
 
+PORT_AUTHORITY_EMAILS: set[str] = {p["email"].lower() for p in PORT_AUTHORITIES}
+
+
+def is_port_authority_user(user: User | None) -> bool:
+    """Returns True if the user is one of the coastal port authority accounts."""
+    if user is None:
+        return False
+    if user.email and user.email.lower() in PORT_AUTHORITY_EMAILS:
+        return True
+    return getattr(user, "role", None) == "authority"
+
+
 _EARTH_RADIUS_KM = 6371.0
 
 

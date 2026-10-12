@@ -7,7 +7,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Eye, LogIn, LogOut, Settings } from "lucide-react";
-import { displayNameOf, signOut, useAuth } from "../lib/auth";
+import { displayNameOf, isPortAuthority, signOut, useAuth } from "../lib/auth";
 import { PersonaSelector } from "../persona/PersonaSelector";
 
 function initials(name: string): string {
@@ -98,18 +98,28 @@ export function AccountMenu() {
             </div>
           </div>
 
-          {/* Viewing Persona Selector Card */}
-          <div className="mt-2.5 rounded-xl border border-hairline/60 bg-shelf-2/30 p-2.5 space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
-                Viewing Persona
-              </span>
-              <span className="size-1.5 rounded-full bg-ocean-cyan" />
+          {/* Viewing Persona Selector Card — hidden for port authority accounts */}
+          {!isPortAuthority(auth.profile) ? (
+            <div className="mt-2.5 rounded-xl border border-hairline/60 bg-shelf-2/30 p-2.5 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
+                  Viewing Persona
+                </span>
+                <span className="size-1.5 rounded-full bg-ocean-cyan" />
+              </div>
+              <div className="w-full">
+                <PersonaSelector />
+              </div>
             </div>
-            <div className="w-full">
-              <PersonaSelector />
+          ) : (
+            <div className="mt-2.5 rounded-xl border border-ocean-cyan/30 bg-ocean-cyan/5 p-2.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="size-2 rounded-full bg-ocean-cyan" />
+                <span className="text-[11px] font-semibold text-ocean-cyan">Coastal Authority</span>
+              </div>
+              <span className="text-[9px] font-mono uppercase text-ink-dim tracking-wider">Default</span>
             </div>
-          </div>
+          )}
 
           <div className="my-2 border-t border-hairline/60" />
 
