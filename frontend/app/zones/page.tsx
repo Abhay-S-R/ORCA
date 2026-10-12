@@ -247,7 +247,7 @@ export default function ZonesPage() {
   } | null>(null);
   const [error, setError] = useState(false);
   const t = useT();
-  const { t: zT, zoneName, zoneDesc, species: tSpecies, bearing: tBearing } = useZonesT();
+  const { t: zT, zoneName, zoneDesc, species: tSpecies, portName, sectorName, activeCoverageNote, bearing: tBearing } = useZonesT();
   const { persona } = usePersona();
   const reach = useVesselReachKm();
   const auth = useAuth();
@@ -383,14 +383,14 @@ export default function ZonesPage() {
     currentPort.state && currentPort.state !== "Home Port"
       ? currentPort.state
       : data?.sector_status?.sector_name || "Maharashtra";
-  const currentSectorName = (resolvedState || "Coast").toUpperCase();
+  const currentSectorName = sectorName(resolvedState || "Coast");
   const isSectorDataCurrent =
     data?.sector_status &&
     data.sector_status.sector_name.toLowerCase() === resolvedState.toLowerCase();
   const sectorGap = isSectorDataCurrent ? data.sector_status.is_data_gap : false;
   const sectorMessage = isSectorDataCurrent
-    ? data.sector_status.message
-    : `Active coastal coverage charted for ${currentPort.name}`;
+    ? zT(data.sector_status.message)
+    : activeCoverageNote(portName(currentPort.name));
 
   // Closest charted zone for the selected port
   const nearestChartedZone = useMemo(() => {
@@ -509,11 +509,11 @@ export default function ZonesPage() {
                 </div>
 
                 <p className="mb-3 text-xs text-ink-muted leading-relaxed">
-                  {zoneDesc(nearestChartedZone.zone_description, nearestChartedZone.zone_name)} · {currentPort.name} ({currentPort.lat.toFixed(2)}°N, {currentPort.lon.toFixed(2)}°E).
+                  {zoneDesc(nearestChartedZone.zone_description, nearestChartedZone.zone_name)} · {portName(currentPort.name)} ({currentPort.lat.toFixed(2)}°N, {currentPort.lon.toFixed(2)}°E).
                 </p>
 
                 <ReadoutGrid cols={3}>
-                  <Readout label={zT("Departure Port")} value={currentPort.name} />
+                  <Readout label={zT("Departure Port")} value={portName(currentPort.name)} />
                   <Readout
                     label={zT("Advised Depth")}
                     value={
@@ -547,7 +547,7 @@ export default function ZonesPage() {
                             <span className="flex size-4 items-center justify-center rounded-full bg-ocean-cyan/15 text-[9px] font-bold font-mono text-ocean-cyan">
                               {idx + 1}
                             </span>
-                            <span className="font-semibold text-xs text-ink truncate">{tSpecies(sp.common_name)}</span>
+                            <span className="font-semibold text-xs text-ink truncate">{tSpecies(sp.common_name || sp.scientific_name)}</span>
                           </div>
                           {sp.scientific_name && (
                             <p className="text-[10px] italic text-ink-dim truncate font-serif">{sp.scientific_name}</p>
