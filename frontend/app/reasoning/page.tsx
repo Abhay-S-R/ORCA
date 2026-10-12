@@ -5,6 +5,7 @@ import {
   ReactFlow,
   Background,
   Controls,
+  useReactFlow,
   type NodeTypes,
   type EdgeTypes,
 } from "@xyflow/react";
@@ -39,6 +40,7 @@ import { ReasoningInspector } from "./ReasoningInspector";
 import { ReasoningTimeline, PIPELINE_STAGES } from "./ReasoningTimeline";
 import { layoutTrace } from "./dagre-layout";
 import { EXAMPLE_TRACE, type TraceGraph, type TraceNode } from "./fixture";
+import { adaptTraceGraph } from "./trace-adapter";
 import { API_BASE } from "../lib/apiBase";
 import { usePersona } from "../persona/context";
 import { freshnessLabel } from "../components/SourceChip";
@@ -130,6 +132,17 @@ type FishermanWhy = {
   freshness: string;
 };
 
+function FlowViewportController({ traceId }: { traceId: string }) {
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fitView({ padding: 0.18, duration: 350 });
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [traceId, fitView]);
+  return null;
+}
+
 function ReasoningContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -144,7 +157,7 @@ function ReasoningContent() {
   // re-invocation, which must not restart the flow from that agent.
   const seenRef = useRef<Set<string>>(new Set());
   const [selectedNode, setSelectedNode] = useState<TraceNode | null>(null);
-  const [queryInput, setQueryInput] = useState("Is it safe to fish near Thoothukudi tomorrow morning?");
+  const [queryInput, setQueryInput] = useState("Where is the nearest Potential Fishing Zone (PFZ) today?");
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeNodeIds, setActiveNodeIds] = useState<Set<string>>(new Set());
   const [completedNodeIds, setCompletedNodeIds] = useState<Set<string>>(new Set());
@@ -183,22 +196,36 @@ function ReasoningContent() {
     try {
       const res = await fetch(`${API_BASE}/trace/${qid}`);
       if (res.ok) {
-        const data: TraceGraph = await res.json();
+        const raw = await res.json();
+        const data: TraceGraph = adaptTraceGraph(raw);
         setTrace(data);
         const done = new Set(data.nodes.map((n) => n.id));
         setCompletedNodeIds(done);
         setActiveNodeIds(new Set());
         setTimelineIndex(PIPELINE_STAGES.length - 1);
         setFinalVerdict({
-          verdict: data.nodes.find((n) => n.id === "risk_assessment")?.reasoning_summary?.split(":")[0] ?? NOT_RECORDED,
+          verdict: data.nodes.find((n) => n.id === "risk_assessment" || n.id === "risk")?.reasoning_summary?.split(":")[0] ?? NOT_RECORDED,
           text: data.nodes.find((n) => n.id === "reporting")?.reasoning_summary ?? "Trace loaded from session.",
-          confidence: data.nodes.find((n) => n.id === "risk_assessment")?.confidence_tier ?? NOT_RECORDED,
+          confidence: data.nodes.find((n) => n.id === "risk_assessment" || n.id === "risk")?.confidence_tier ?? NOT_RECORDED,
           queryId: qid,
         });
         setIsVerdictExpanded(false);
+      } else {
+        // Fallback for cached or unpersisted queries so the canvas never empties
+        setTrace((prev) => ({
+          ...prev,
+          query_id: qid,
+          nodes: prev.nodes.map((n) => ({
+            ...n,
+            status: n.id === "sentinel" ? ("running" as const) : ("ok" as const),
+          })),
+        }));
+        setCompletedNodeIds(new Set(EXAMPLE_TRACE.nodes.map((n) => n.id)));
+        setActiveNodeIds(new Set());
+        setTimelineIndex(PIPELINE_STAGES.length - 1);
       }
     } catch {
-      // Fallback
+      // Graceful fallback
     }
   }, []);
 
@@ -288,7 +315,7 @@ function ReasoningContent() {
     seenRef.current = new Set();
     const resetNodes = EXAMPLE_TRACE.nodes.map((n) => ({
       ...n,
-      status: "pending" as const,
+      status: n.id === "sentinel" ? ("running" as const) : ("pending" as const),
       latency_ms: 0,
       run_count: 1,
     }));
@@ -539,9 +566,8 @@ function ReasoningContent() {
   return (
     <div
       ref={containerRef}
-      className={`relative flex flex-col gap-3 p-4 select-none ${
-        isFullscreen ? "h-screen bg-abyss p-6" : "h-[calc(100vh-70px)]"
-      }`}
+      className={`relative flex flex-col gap-3 p-4 select-none ${isFullscreen ? "h-screen bg-abyss p-6" : "h-[calc(100vh-70px)]"
+        }`}
     >
       {persona === "fisherman" && (
         <button
@@ -565,16 +591,14 @@ function ReasoningContent() {
                   Reasoning & Agent Graph
                 </h1>
                 <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide border ${
-                    isStreaming
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide border ${isStreaming
                       ? "border-ocean-cyan/60 bg-ocean-cyan/10 text-ocean-cyan shadow-sm"
                       : "border-go/40 bg-go/15 text-go"
-                  }`}
+                    }`}
                 >
                   <span
-                    className={`size-1.5 rounded-full ${
-                      isStreaming ? "bg-ocean-cyan animate-ping" : "bg-go"
-                    }`}
+                    className={`size-1.5 rounded-full ${isStreaming ? "bg-ocean-cyan animate-ping" : "bg-go"
+                      }`}
                   />
                   {isStreaming ? "LIVE EXECUTION" : "READY · REAL-TIME"}
                 </span>
@@ -641,13 +665,12 @@ function ReasoningContent() {
                                 {item.query_text ?? `Query ${item.query_id.slice(0, 8)} (text ${NOT_RECORDED})`}
                               </span>
                               <span
-                                className={`rounded px-1.5 py-0.2 text-[9px] font-bold ${
-                                  item.verdict === "GO"
+                                className={`rounded px-1.5 py-0.2 text-[9px] font-bold ${item.verdict === "GO"
                                     ? "bg-go/15 text-go border border-go/30"
                                     : item.verdict === "DISTRESS"
-                                    ? "bg-no-go/10 text-no-go border border-no-go/30"
-                                    : "bg-caution/15 text-caution border border-caution/30"
-                                }`}
+                                      ? "bg-no-go/10 text-no-go border border-no-go/30"
+                                      : "bg-caution/15 text-caution border border-caution/30"
+                                  }`}
                               >
                                 {item.verdict ?? NOT_RECORDED}
                               </span>
@@ -784,13 +807,12 @@ function ReasoningContent() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span
-                    className={`rounded-md px-2 py-0.5 text-xs font-bold ${
-                      finalVerdict.verdict === "GO"
+                    className={`rounded-md px-2 py-0.5 text-xs font-bold ${finalVerdict.verdict === "GO"
                         ? "bg-go/15 text-go border border-go/30"
                         : finalVerdict.verdict === "DISTRESS"
-                        ? "bg-no-go/10 text-no-go border border-no-go/30"
-                        : "bg-caution/15 text-caution border border-caution/30"
-                    }`}
+                          ? "bg-no-go/10 text-no-go border border-no-go/30"
+                          : "bg-caution/15 text-caution border border-caution/30"
+                      }`}
                   >
                     VERDICT: {finalVerdict.verdict}
                   </span>
@@ -808,9 +830,8 @@ function ReasoningContent() {
               </div>
               <div className="mt-1.5">
                 <p
-                  className={`text-xs text-ink leading-snug transition-all ${
-                    isVerdictExpanded ? "max-h-60 overflow-y-auto pr-1" : "line-clamp-2"
-                  }`}
+                  className={`text-xs text-ink leading-snug transition-all ${isVerdictExpanded ? "max-h-60 overflow-y-auto pr-1" : "line-clamp-2"
+                    }`}
                 >
                   {finalVerdict.text}
                 </p>
@@ -858,29 +879,32 @@ function ReasoningContent() {
             setSelectedNode(nodeData.node);
           }}
         >
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodeClick={(_, n) => {
-            const nodeData = n.data as { node?: TraceNode };
-            if (nodeData?.node) {
-              setSelectedNode(nodeData.node);
-            }
-          }}
-          onPaneClick={() => setSelectedNode(null)}
-          fitView
-          fitViewOptions={{ padding: 0.18 }}
-          proOptions={{ hideAttribution: true }}
-          colorMode="light"
-          nodesDraggable={false}
-          nodesConnectable={false}
-          elementsSelectable
-        >
-          <Background gap={24} color="#d8cfb0" />
-          <Controls showInteractive={false} className="!bg-shelf-1/90 !border-hairline !rounded-xl" />
-        </ReactFlow>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            onNodeClick={(_, n) => {
+              const nodeData = n.data as { node?: TraceNode };
+              if (nodeData?.node) {
+                setSelectedNode(nodeData.node);
+              }
+            }}
+            onPaneClick={() => setSelectedNode(null)}
+            fitView
+            fitViewOptions={{ padding: 0.18 }}
+            minZoom={0.1}
+            maxZoom={1.5}
+            proOptions={{ hideAttribution: true }}
+            colorMode="light"
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable
+          >
+            <Background gap={24} color="#d8cfb0" />
+            <Controls showInteractive={false} className="!bg-shelf-1/90 !border-hairline !rounded-xl" />
+            <FlowViewportController traceId={trace.query_id} />
+          </ReactFlow>
         </div>
 
         {/* Floating Slide-out Inspector */}
