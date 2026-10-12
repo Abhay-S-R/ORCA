@@ -372,7 +372,7 @@ export function KpiStrip({
         note={sector.message}
       />
       <Kpi
-        label={tBase("zones.nearestZone") || t("Nearest advised zone")}
+        label={t("Highest profitable zone")}
         value={formattedNearestLabel}
         badge={nearest.zoneName ? zoneName(nearest.zoneName) : nearestBadge.text}
         tone={nearestBadge.tone}
