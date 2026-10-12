@@ -102,20 +102,24 @@ export default function AskPage() {
 
   // Resolved home port coordinates: prefer explicit profile home_port, then match
   // profile home_port_name from presets, otherwise default to Kochi [76.2673, 9.9312].
+  const authStatus = auth.status;
+  const homePortLon = auth.profile?.home_port?.lon;
+  const homePortLat = auth.profile?.home_port?.lat;
+  const homePortName = auth.profile?.home_port_name;
   const resolvedHomePortCoords: [number, number] = useMemo(() => {
-    if (auth.status === "signed_in") {
-      if (auth.profile?.home_port) {
-        return [auth.profile.home_port.lon, auth.profile.home_port.lat];
+    if (authStatus === "signed_in") {
+      if (homePortLon != null && homePortLat != null) {
+        return [homePortLon, homePortLat];
       }
-      if (auth.profile?.home_port_name) {
+      if (homePortName) {
         const port = PRESET_HOME_PORTS.find(
-          (p) => p.name.toLowerCase() === auth.profile?.home_port_name?.toLowerCase(),
+          (p) => p.name.toLowerCase() === homePortName.toLowerCase(),
         );
         if (port) return [port.lon, port.lat];
       }
     }
     return [76.2673, 9.9312];
-  }, [auth.status, auth.profile?.home_port, auth.profile?.home_port_name]);
+  }, [authStatus, homePortLon, homePortLat, homePortName]);
 
   // The latest distress call in this chat with a position — pinned on the map
   // for as long as the chat is open (P4.16). No position, no pin: the answer

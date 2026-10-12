@@ -534,13 +534,27 @@ export function MapView({
   // always reads the *current* home-port and GPS values rather than whatever
   // was captured when the effect was last registered.
   const homePortCoordsRef = useRef<[number, number] | null | undefined>(homePortCoords);
-  homePortCoordsRef.current = homePortCoords;
   const userLocationRef = useRef<[number, number] | null>(userLocation);
-  userLocationRef.current = userLocation;
   const suppressGpsZoomRef = useRef(suppressGpsZoom);
-  suppressGpsZoomRef.current = suppressGpsZoom;
   const queryFocusRef = useRef<QueryFocus | null | undefined>(queryFocus);
-  queryFocusRef.current = queryFocus;
+  const minZoomRef = useRef(minZoom);
+  const maxZoomRef = useRef(maxZoom);
+
+  useEffect(() => {
+    homePortCoordsRef.current = homePortCoords;
+    userLocationRef.current = userLocation;
+    suppressGpsZoomRef.current = suppressGpsZoom;
+    queryFocusRef.current = queryFocus;
+  }, [homePortCoords, userLocation, suppressGpsZoom, queryFocus]);
+
+  useEffect(() => {
+    minZoomRef.current = minZoom;
+    maxZoomRef.current = maxZoom;
+    if (map.current) {
+      if (minZoom !== undefined) map.current.setMinZoom(minZoom);
+      if (maxZoom !== undefined) map.current.setMaxZoom(maxZoom);
+    }
+  }, [minZoom, maxZoom]);
 
   const [nearNames, setNearNames] = useState<string[]>([]);
   const [clicked, setClicked] = useState<{ lat: number; lon: number } | null>(null);
@@ -826,8 +840,8 @@ export function MapView({
       // surfaces (§4.7) but is not the default — a tilted chart is harder to
       // take a bearing off, and bearings are the fisherman's job.
       maxPitch: 60,
-      minZoom: minZoom ?? 4.5,
-      maxZoom: maxZoom ?? 22,
+      minZoom: minZoomRef.current ?? 4.5,
+      maxZoom: maxZoomRef.current ?? 22,
       maxBounds: [[64.0, 3.0], [96.0, 27.0]],
     });
     map.current = m;
@@ -1994,7 +2008,7 @@ export function MapView({
       const on = layer.forecast_frames?.length ? layers.waveForecast : layers.srvBathymetry;
       vis(`srv-${layer.layer_id}-raster`, on);
     }
-  }, [ready, layers, rasterLayers, basemap]);
+  }, [ready, layers, rasterLayers, basemap, showCoastalBoundary]);
 
   /* ---- Port marker highlight: update the GeoJSON source whenever the
      spotlight port changes — drives the data-driven paint expressions above
