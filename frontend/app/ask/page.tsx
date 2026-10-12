@@ -72,6 +72,16 @@ export default function AskPage() {
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [mobileMapMode, setMobileMapMode] = useState<"half" | "full">("half");
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
   // Thread scrolling: threadRef is the scrollable container, latestTurnRef points
   // to the newest turn in the thread.
   const threadRef = useRef<HTMLDivElement>(null);
@@ -270,12 +280,13 @@ export default function AskPage() {
     collapseRail(true);
     setMapWidth(35);
     setMapCollapsed(false);
+    setMobileMapMode("half");
     try {
       localStorage.setItem(MAP_WIDTH_KEY, "35");
     } catch {
       /* storage disabled */
     }
-    window.dispatchEvent(new Event("resize"));
+    setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
     ask(q, {
       ...options,
       vessel_class: options?.vessel_class ?? activeVesselClass,
@@ -332,8 +343,95 @@ export default function AskPage() {
     </Button>
   );
 
+  const renderHeader = (isMobileTop: boolean) => (
+    <div
+      className={`flex items-center justify-between gap-2 sm:gap-3 border-b border-hairline/60 ${
+        isMobileTop ? "px-3 py-2 bg-shelf-1/95 backdrop-blur-md" : "pb-3"
+      }`}
+    >
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+        {railCollapsed && (
+          <button
+            type="button"
+            onClick={() => collapseRail(false)}
+            aria-label={t("common.chats")}
+            title={t("common.chats")}
+            className={`${iconButtonClass} hidden self-center lg:grid`}
+          >
+            <PanelLeftOpen className="size-4" aria-hidden="true" />
+          </button>
+        )}
+        <h1 className="min-w-0 truncate text-base sm:text-2xl font-bold uppercase tracking-wide text-ink">
+          {t("ask.title")}
+        </h1>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
+        {saveFailed && (
+          <span role="status" className="text-[11px] text-caution">
+            {t(saveFailed === "rejected" ? "ask.saveRejected" : "ask.notSaved")}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={newChat}
+          aria-label={t("common.newChat")}
+          title={t("common.newChat")}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-hairline/80 bg-shelf-1/90 px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-semibold text-ink shadow-xs transition-colors hover:border-ocean-cyan/60 hover:text-ocean-cyan"
+        >
+          <Plus className="size-3.5 sm:size-4" aria-hidden="true" />
+          <span>{t("common.newChat")}</span>
+        </button>
+        {historyButton}
+        {mapCollapsed ? (
+          <button
+            type="button"
+            onClick={() => {
+              setMapCollapsed(false);
+              setMobileMapMode("half");
+              setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
+            }}
+            aria-label={t("ask.expandMap")}
+            title={t("nav.map")}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-hairline/80 bg-shelf-1/90 px-2.5 py-1.5 text-xs font-semibold text-ink shadow-xs transition-colors hover:border-ocean-cyan/60 hover:text-ocean-cyan"
+          >
+            <Maximize2 className="size-3.5" aria-hidden="true" />
+            <span>{t("nav.map")}</span>
+          </button>
+        ) : (
+          <div className="flex items-center gap-1 lg:hidden">
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMapMode((prev) => (prev === "full" ? "half" : "full"));
+                setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
+              }}
+              aria-label={mobileMapMode === "full" ? "Half map split" : "Map only (full screen)"}
+              title={mobileMapMode === "full" ? "Half map split" : "Map only (full screen)"}
+              className={iconButtonClass}
+            >
+              {mobileMapMode === "full" ? (
+                <Minimize2 className="size-3.5" aria-hidden="true" />
+              ) : (
+                <Maximize2 className="size-3.5" aria-hidden="true" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapCollapsed(true)}
+              aria-label={t("ask.collapseMap")}
+              title={t("ask.collapseMap")}
+              className={iconButtonClass}
+            >
+              <Minimize2 className="size-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   return (
-    <div className="relative flex h-full min-h-0 gap-3 p-3 lg:p-4">
+    <div className="relative flex h-full min-h-0 lg:gap-3 p-0 lg:p-4">
       <AnimatePresence initial={false}>
         {!railCollapsed && (
           <motion.div
@@ -385,8 +483,8 @@ export default function AskPage() {
       )}
 
       {!hasStarted ? (
-        <div className="relative flex min-w-0 flex-1 flex-col items-center justify-center gap-8">
-          <div className="absolute top-0 left-0">{historyButton}</div>
+        <div className="relative flex min-w-0 flex-1 flex-col items-center justify-center gap-8 p-4 lg:p-0">
+          <div className="absolute top-3 left-3 lg:top-0 lg:left-0">{historyButton}</div>
           <div className="max-w-3xl text-center">
             <div className="mb-3 flex items-center justify-center gap-2">
               <span className="size-2 rounded-full bg-ocean-cyan beacon-pulse" aria-hidden="true" />
@@ -407,24 +505,26 @@ export default function AskPage() {
           <div className="flex flex-wrap items-center justify-center gap-2">
             <SavedLocationChips onSelect={askSavedLocation} addFrom={null} hideAdd={true} />
           </div>
-          <Composer
-            value={query}
-            onChange={setQuery}
-            onSubmit={submit}
-            disabled={streaming}
-            voice={voice}
-            isFisherman={persona === "fisherman"}
-            centered
-            presets={presets}
-            leading={
-              <VesselChip
-                auth={auth}
-                vesselClass={activeVesselClass}
-                onVesselChange={setSelectedVesselClass}
-                variant="icon"
-              />
-            }
-          />
+          <div className="mx-auto w-full max-w-4xl px-1 sm:px-0">
+            <Composer
+              value={query}
+              onChange={setQuery}
+              onSubmit={submit}
+              disabled={streaming}
+              voice={voice}
+              isFisherman={persona === "fisherman"}
+              centered
+              presets={presets}
+              leading={
+                <VesselChip
+                  auth={auth}
+                  vesselClass={activeVesselClass}
+                  onVesselChange={setSelectedVesselClass}
+                  variant="icon"
+                />
+              }
+            />
+          </div>
           {!tour.active && !tour.completed && (
             <button
               type="button"
@@ -436,58 +536,26 @@ export default function AskPage() {
           )}
         </div>
       ) : (
-        <div ref={containerRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-4 lg:flex-row lg:gap-0">
+        <div ref={containerRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row lg:gap-0">
           {/* Transparent drag barrier preventing pointer capture by iframes / map while resizing */}
           {isResizing && <div className="fixed inset-0 z-50 cursor-col-resize select-none" />}
 
+          {/* On mobile: Header row at the upper side (order-0), right after top navbar and above the map! */}
+          <div className={`order-0 w-full shrink-0 lg:hidden ${!mapCollapsed && mobileMapMode === "full" ? "hidden" : "block"}`}>
+            {renderHeader(true)}
+          </div>
+
           <div
-            style={!mapCollapsed ? { flex: `0 0 calc(${100 - mapWidth}% - 0.75rem)` } : undefined}
-            className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 lg:pr-2"
+            style={isDesktop && !mapCollapsed ? { flex: `0 0 calc(${100 - mapWidth}% - 0.75rem)` } : undefined}
+            className={`min-h-0 min-w-0 flex-col gap-1.5 sm:gap-3 px-2 sm:px-4 pt-1 sm:pt-4 pb-1 sm:pb-0 lg:p-0 lg:flex lg:pr-2 order-2 lg:order-1 ${
+              !isDesktop && !mapCollapsed && mobileMapMode === "full"
+                ? "hidden"
+                : "flex flex-1"
+            }`}
           >
-            <div className="flex items-center justify-between gap-3 border-b border-hairline/60 pb-3">
-              <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
-                {railCollapsed && (
-                  <button
-                    type="button"
-                    onClick={() => collapseRail(false)}
-                    aria-label={t("common.chats")}
-                    title={t("common.chats")}
-                    className={`${iconButtonClass} hidden self-center lg:grid`}
-                  >
-                    <PanelLeftOpen className="size-4" aria-hidden="true" />
-                  </button>
-                )}
-                <h1 className="shrink-0 text-lg sm:text-2xl font-bold uppercase tracking-wide text-ink">{t("ask.title")}</h1>
-              </div>
-              <div className="flex shrink-0 items-center gap-2 sm:gap-2.5">
-                {saveFailed && (
-                  <span role="status" className="text-[11px] text-caution">
-                    {t(saveFailed === "rejected" ? "ask.saveRejected" : "ask.notSaved")}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={newChat}
-                  aria-label={t("common.newChat")}
-                  title={t("common.newChat")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-hairline/80 bg-shelf-1/90 px-3 py-1.5 text-sm font-semibold text-ink shadow-xs transition-colors hover:border-ocean-cyan/60 hover:text-ocean-cyan"
-                >
-                  <Plus className="size-4" aria-hidden="true" />
-                  <span>{t("common.newChat")}</span>
-                </button>
-                {historyButton}
-                {mapCollapsed && (
-                  <button
-                    type="button"
-                    onClick={() => setMapCollapsed(false)}
-                    aria-label={t("ask.expandMap")}
-                    title={t("nav.map")}
-                    className={iconButtonClass}
-                  >
-                    <Maximize2 className="size-3.5" aria-hidden="true" />
-                  </button>
-                )}
-              </div>
+            {/* On desktop: Header row inside the chat column */}
+            <div className="hidden lg:block">
+              {renderHeader(false)}
             </div>
 
             {/* `relative` is load-bearing, not decoration: it makes this
@@ -501,7 +569,7 @@ export default function AskPage() {
               (so its scrollbar sits at the edge); the column inside it is
               the same centred max-w-4xl the composer uses. */}
             <div ref={threadRef} className="relative min-h-0 min-w-0 flex-1 overflow-y-auto">
-              <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 pr-2">
+              <div className="mx-auto flex w-full max-w-4xl flex-col gap-3.5 sm:gap-5 pr-1 sm:pr-2">
                 {turns.map((turn, i) => (
                   <div
                     key={turn.id}
@@ -523,30 +591,32 @@ export default function AskPage() {
               </div>
             </div>
 
-            <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center gap-2">
+            <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center gap-2 empty:hidden">
               <SavedLocationChips onSelect={askSavedLocation} addFrom={null} hideAdd={true} />
             </div>
-            <Composer
-              value={query}
-              onChange={setQuery}
-              onSubmit={submit}
-              disabled={streaming}
-              voice={voice}
-              isFisherman={persona === "fisherman"}
-              centered={false}
-              leading={
-                <VesselChip
-                  auth={auth}
-                  vesselClass={activeVesselClass}
-                  onVesselChange={setSelectedVesselClass}
-                  variant="icon"
-                />
-              }
-            />
+            <div className="mx-auto w-full max-w-4xl px-0 sm:px-0 mb-1.5 sm:mb-0">
+              <Composer
+                value={query}
+                onChange={setQuery}
+                onSubmit={submit}
+                disabled={streaming}
+                voice={voice}
+                isFisherman={persona === "fisherman"}
+                centered={false}
+                leading={
+                  <VesselChip
+                    auth={auth}
+                    vesselClass={activeVesselClass}
+                    onVesselChange={setSelectedVesselClass}
+                    variant="icon"
+                  />
+                }
+              />
+            </div>
           </div>
 
           {/* Resizer Splitter on Desktop (when map is expanded) */}
-          {!mapCollapsed && (
+          {!mapCollapsed && isDesktop && (
             <div
               role="separator"
               aria-orientation="vertical"
@@ -585,7 +655,7 @@ export default function AskPage() {
                 }
               }}
               title="Drag to resize map & chat · Double-click to reset (35%)"
-              className={`hidden lg:flex w-3 shrink-0 cursor-col-resize select-none items-center justify-center group relative z-20 transition-colors ${isResizing ? "bg-ocean-cyan/20" : "hover:bg-shelf-2/60"
+              className={`hidden lg:flex w-3 shrink-0 cursor-col-resize select-none items-center justify-center group relative z-20 transition-colors lg:order-2 ${isResizing ? "bg-ocean-cyan/20" : "hover:bg-shelf-2/60"
                 }`}
             >
               <div
@@ -605,28 +675,66 @@ export default function AskPage() {
             layout={!reduceMotion && !isResizing}
             transition={isResizing ? { duration: 0 } : { duration: 0.25, ease: "easeOut" }}
             style={
-              !mapCollapsed
+              isDesktop && !mapCollapsed
                 ? { width: `${mapWidth}%` }
                 : undefined
             }
-            className={
+            className={`order-1 lg:order-3 ${
               mapCollapsed
-                ? "pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl opacity-0 lg:right-0 lg:left-auto"
-                : "relative h-64 sm:h-72 w-full shrink-0 overflow-hidden rounded-2xl border border-hairline bg-shelf-1/60 shadow-2xl lg:h-full"
-            }
+                ? "pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-none lg:rounded-2xl opacity-0 lg:right-0 lg:left-auto"
+                : !isDesktop && mobileMapMode === "full"
+                  ? "relative w-full flex-1 h-full min-h-[70vh] shrink-0 overflow-hidden rounded-none border-0 border-b border-hairline/60 bg-shelf-1/60 shadow-none lg:h-full lg:rounded-2xl lg:border lg:border-hairline/80 lg:shadow-2xl"
+                  : "relative w-full h-[40dvh] min-h-[220px] max-h-[48dvh] sm:h-[45dvh] md:h-[48dvh] shrink-0 overflow-hidden rounded-none border-0 border-b border-hairline/60 bg-shelf-1/60 shadow-none lg:h-full lg:max-h-none lg:rounded-2xl lg:border lg:border-hairline/80 lg:shadow-2xl"
+            }`}
           >
             {!mapCollapsed && (
-              <div className="absolute top-2 left-2 z-10 flex items-center gap-1 rounded-lg border border-hairline/80 bg-shelf-1/90 p-1 shadow-sm backdrop-blur-sm">
+              <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 rounded-lg border border-hairline/80 bg-shelf-1/90 px-2 py-1 shadow-sm backdrop-blur-sm">
                 <button
                   type="button"
                   onClick={() => setMapCollapsed(true)}
                   aria-label={t("ask.collapseMap")}
-                  aria-expanded={true}
                   title={t("ask.collapseMap")}
-                  className="flex size-6 items-center justify-center rounded text-ink-dim hover:text-ocean-cyan"
+                  className="flex items-center gap-1 text-xs font-medium text-ink-muted transition-colors hover:text-ocean-cyan"
                 >
                   <Minimize2 className="size-3.5" />
+                  <span className="text-[11px] font-mono font-semibold lg:hidden">
+                    {mobileMapMode === "full" ? "Chat" : "Hide"}
+                  </span>
                 </button>
+
+                {/* Mobile controls: Half vs Map Only */}
+                <div className="flex items-center gap-0.5 border-l border-hairline/60 pl-1 ml-0.5 lg:hidden">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileMapMode("half");
+                      setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
+                    }}
+                    title="Half map split"
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors ${
+                      mobileMapMode === "half"
+                        ? "bg-ocean-cyan/20 text-ocean-cyan font-bold"
+                        : "text-ink-muted hover:text-ink"
+                    }`}
+                  >
+                    Half
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileMapMode("full");
+                      setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
+                    }}
+                    title="Map only (full screen)"
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors ${
+                      mobileMapMode === "full"
+                        ? "bg-ocean-cyan/20 text-ocean-cyan font-bold"
+                        : "text-ink-muted hover:text-ink"
+                    }`}
+                  >
+                    Map only
+                  </button>
+                </div>
 
                 <div className="hidden lg:flex items-center gap-0.5 border-l border-hairline/60 pl-1 ml-0.5">
                   <button

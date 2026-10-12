@@ -126,9 +126,9 @@ export function ChatTurn({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: "easeOut" }}
-      className="flex flex-col gap-3"
+      className="flex flex-col gap-2.5 sm:gap-3"
     >
-      <p className="flex items-start gap-2.5 self-end rounded-2xl rounded-tr-sm border border-hairline-strong bg-shelf-3 px-4 py-2.5 text-base sm:text-[17px] text-ink shadow-sm">
+      <p className="flex items-start gap-2 self-end rounded-2xl rounded-tr-sm border border-hairline-strong bg-shelf-3 px-3.5 py-2 sm:px-4 sm:py-2.5 text-base sm:text-[17px] text-ink shadow-sm">
         <span className="font-mono text-xs font-semibold tracking-wider text-ink-dim uppercase">{t("chatTurn.you")}</span>
         <span className="min-w-0 break-words">{askedQuery}</span>
       </p>
