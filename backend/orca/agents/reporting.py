@@ -1109,6 +1109,28 @@ _PERSONA_QUERY_GUIDES: dict[str, dict[str, str]] = {
             "3. Safe Operating Window (1 single line): `• **Safe Operating Window**: Depart **[Time] IST Day 1**; return before **[Time] IST Day [X]**`\n"
             "Rule: Metric units only. Highlight numbers in bold. NEVER tell the user to recheck."
         ),
+        "CHLOROPHYLL_SST": (
+            "Answer the fisherman's question about SST and/or chlorophyll. Keep it plain and useful (~90–120 words):\n\n"
+            "1. Reading (1 sentence): State the headline SST or chlorophyll at their location with sensor name and date.\n\n"
+            "2. What it means (Points Format — 2 to 3 points max):\n"
+            "   • **Sea Surface Temperature**: **[SST]°C** ([Normal/Warm/Cool for this season]) — observed by [Sensor] on [Date] (**[Age] days old**)\n"
+            "   • **Chlorophyll (Ocean Colour)**: **[Value] mg/m³** — [low/moderate/high productivity]; near-coast values are indicative only\n"
+            "   • **What this means for fishing**: [Warm SST + low chlorophyll = fewer fish near surface / Moderate SST + high chlorophyll = productive grounds]\n\n"
+            "3. Practical takeaway (1 sentence): Where the fish are likely to be based on the above.\n\n"
+            "Rule: Metric units. Highlight numbers in bold. Plain fishing language, no jargon. NEVER tell the user to recheck."
+        ),
+        "REGIONAL_RANKING": (
+            "Answer 'which region has best X' using only the measured data provided. Plain fishing language (~120–150 words):\n\n"
+            "1. Direct answer (1-2 sentences): Name the region from the data that best matches the query (highest chlorophyll, favourable SST, or both).\n"
+            "   - If data covers only one location: say so clearly — 'Live satellite data is held only for [Location]; readings here show…' — then explain what the data says.\n"
+            "   - NEVER fabricate readings for regions not in MEASURED TELEMETRY.\n\n"
+            "2. What the data shows (Points Format — 2 to 3 points max):\n"
+            "   • **At [Location]**: SST **[SST]°C**; Chlorophyll **[Value] mg/m³** ([low/moderate/high])\n"
+            "   • **Favourable SST range** for Indian coastal species: **26–30°C** (warmer water displaces fish deeper)\n"
+            "   • **High chlorophyll** (>0.5 mg/m³): indicates productive upwelling — better fish aggregation likely\n\n"
+            "3. Practical advice (1 sentence): Based on the reading, name the most productive grounds or direction to look.\n\n"
+            "Rule: Metric units. Highlight numbers in bold. If data is only for one location, be honest about that. NEVER invent regional readings. NEVER tell the user to recheck."
+        ),
     },
     "commercial_navigator": {
         "SAFETY_CHECK": (
@@ -1240,6 +1262,20 @@ _PERSONA_QUERY_GUIDES: dict[str, dict[str, str]] = {
             "3. Safe Sampling Window (1 single line): `• **Safe Sampling Window**: **[Start] to [End] IST**`\n\n"
             "Rule: Scientific units. Highlight numbers in bold. NEVER tell the user to recheck."
         ),
+        "REGIONAL_RANKING": (
+            "Answer which region shows highest chlorophyll / most favourable SST in academic register (~230–260 words):\n\n"
+            "1. Analytical Summary (1-2 sentences): State what the satellite observations show across the measured domain.\n"
+            "   - If data covers only the user's location: state this explicitly — 'Point readings from [Sensor] at [Location] indicate…' — and provide the most meaningful interpretation.\n"
+            "   - NEVER fabricate or estimate readings for regions not present in MEASURED TELEMETRY.\n\n"
+            "2. Measured Regional Parameters (Points Format — 4 to 5 points):\n"
+            "   • **SST at [Location]**: **[SST]°C** — anomaly **[Anomaly]°C** vs climatology ([Warm pool / Upwelling signal])\n"
+            "   • **Chlorophyll-a**: **[Value] mg/m³** (**[Oligotrophic / Mesotrophic / Eutrophic]**) from [Sensor] on [Date]\n"
+            "   • **SST-Chlorophyll Correlation**: r = **[r]** across **[N]** co-located grid cells ([weak/moderate/strong] positive/negative)\n"
+            "   • **Upwelling Signal**: [Present / Absent] — coastal upwelling index [active/suppressed]\n"
+            "   • **Trophic Implication**: [High chlorophyll + cooler SST = upwelling-driven productive zone / Low chlorophyll + warm SST = oligotrophic]\n\n"
+            "3. Recommendation (1 sentence): Name the area most likely to support fish aggregation based on the available data.\n\n"
+            "Rule: Scientific units. Highlight numbers in bold. State data coverage honestly. NEVER tell the user to recheck."
+        ),
         "CONDITIONS": (
             "Present oceanographic observation log in academic register (~230–260 words):\n\n"
             "1. Oceanographic Overview (1 sentence): Synthesis of physical and hydrodynamic observations.\n\n"
@@ -1360,6 +1396,18 @@ def _get_persona_query_guide(persona: str, intents: list[str] | None, query_lowe
         return _resolve("SAFETY_CHECK")
     if any(w in query_lower for w in ("tide", "sea conditions", "weather and sea conditions", "weather near", "wave height")):
         return _resolve("CONDITIONS")
+
+    # Regional ranking / comparison queries — must be checked BEFORE single-point CHLOROPHYLL_SST
+    # so that "which region has high chlorophyll" gets a comparative answer, not a point reading.
+    _REGIONAL_TRIGGERS = (
+        "which region", "which regions", "which area", "which areas",
+        "best region", "best area", "highest chlorophyll", "most productive region",
+        "favourable sst", "favorable sst", "favourable sea surface", "favorable sea surface",
+        "productive region", "productive area", "highest productivity",
+        "best chlorophyll", "most chlorophyll",
+    )
+    if any(w in query_lower for w in _REGIONAL_TRIGGERS):
+        return _resolve("REGIONAL_RANKING")
 
     # Intent-based match next
     intent_map = {

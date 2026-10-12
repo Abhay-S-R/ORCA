@@ -360,7 +360,7 @@ export type MapPin = { lat: number; lon: number; label: string; color: string };
 export type DistressMarker = { id: string; lat: number; lon: number; label: string };
 
 export type QueryFocus = {
-  intent: "fishing" | "boundary" | "safety" | "current" | "wave" | "wind" | "general";
+  intent: "fishing" | "boundary" | "safety" | "current" | "wave" | "wind" | "conditions" | "general";
   regionId?: string;
   coords?: [number, number];
   nonce: number;
@@ -383,6 +383,9 @@ const QUERY_INTENT_LAYERS: Partial<Record<QueryFocus["intent"], readonly string[
   wave: ["waveForecast", "wind"],
   wind: ["wind"],
   safety: ["currents", "boundaries"],
+  // Broad sea-conditions query (tide / weather / sea state): show wind + currents
+  // so the chart carries the atmospheric and ocean-surface evidence the answer describes.
+  conditions: ["wind", "currents"],
 };
 
 /**

@@ -150,6 +150,7 @@
   "intentLabel.current": "पृष्ठभागावरील वर्तमान वेग आणि दिशा",
   "intentLabel.wave": "लाटांची उंची आणि सूज",
   "intentLabel.wind": "wind speed and direction",
+  "intentLabel.conditions": "Sea conditions, tide \u0026 weather",
   "intentLabel.general": "तुमचा परिसर",
   "intentLabel.fishingAtDefault": "पूर्वनिर्धारीत प्रायोगिक क्षेत्रातील मासेमारी क्षेत्रे",
   "intentLabel.generalAtDefault": "पूर्वनिर्धारित पायलट क्षेत्र",

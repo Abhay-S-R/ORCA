@@ -30,6 +30,7 @@ const INTENT_TITLE: Record<QueryIntent, string> = {
   current: "Surface Current Outlook",
   wave: "Wave & Swell Outlook",
   wind: "Wind Speed & Direction",
+  conditions: "Tide, Weather & Sea Conditions",
   general: "Marine Conditions Summary",
 };
 const INTENT_ICON: Record<QueryIntent, typeof ShieldCheck> = {
@@ -39,6 +40,7 @@ const INTENT_ICON: Record<QueryIntent, typeof ShieldCheck> = {
   current: Waves,
   wave: Waves,
   wind: Cloud,
+  conditions: Waves,
   general: ShieldCheck,
 };
 

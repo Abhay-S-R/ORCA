@@ -3,22 +3,32 @@
 // waiting on a backend field that doesn't exist — Agent 9 returns facts, not
 // a map-focus hint. Keyword matching only: good enough to pick an emphasis,
 // not a routing decision anything depends on for correctness.
-export type QueryIntent = "fishing" | "boundary" | "safety" | "current" | "wave" | "wind" | "general";
+export type QueryIntent = "fishing" | "boundary" | "safety" | "current" | "wave" | "wind" | "conditions" | "general";
 
-const FISHING = /\bfish(ing)?\b|\bpfz\b|\btrawl|\bcatch\b|landing centre|landing center|\bsst\b|sea surface temp|\btemperature\b|thermal front|chlorophyll/i;
+// "fishing location/spot/area/ground/site" is a location qualifier, not a
+// fishing-zone intent — excluded via a negative lookahead so those queries
+// fall through to the CONDITIONS check instead of stopping here.
+const FISHING = /\bpfz\b|\btrawl|\bcatch\b|landing centre|landing center|\bsst\b|sea surface temp|thermal front|chlorophyll|\bfish(ing)?\b(?!\s+(location|spot|area|ground|site|base|port))/i;
 const BOUNDARY = /\bboundary\b|\bimbl\b|\bborder\b|\beez\b|international maritime/i;
 const WIND = /\bwind\b|\bgust(s)?\b|\bbeaufort\b|\bknots?\b|\bbreeze\b|\bwind speed\b|\bwind direction\b/i;
 const CURRENT = /\bcurrents?\b|\bdrift\b|\bset and drift\b|\bsurface current/i;
 const WAVE = /\bwaves?\b|\bswell\b|\bwave height\b/i;
 const SAFETY = /\bsafe\b|\bsafety\b|go out|\bcaution\b|\bstorm\b|\bcyclone\b/i;
+// Catches broad marine-conditions queries: tide + weather + sea conditions together,
+// or any mention of sea state / conditions / weather / tide without a more specific intent.
+const CONDITIONS = /\btide\b|\btidal\b|\bweather\b|\bsea conditions?\b|\bsea state\b|\bmarine conditions?\b|\bocean conditions?\b/i;
 
 export function classifyQueryIntent(query: string): QueryIntent {
-  if (FISHING.test(query)) return "fishing";
   if (BOUNDARY.test(query)) return "boundary";
   if (WIND.test(query)) return "wind";
   if (CURRENT.test(query)) return "current";
   if (WAVE.test(query)) return "wave";
   if (SAFETY.test(query)) return "safety";
+  // CONDITIONS before FISHING: "sea conditions near my fishing location" must
+  // resolve to wind + currents, not just PFZ. Pure fishing queries (asking about
+  // zones / catch / PFZ) have no conditions keywords and still reach FISHING below.
+  if (CONDITIONS.test(query)) return "conditions";
+  if (FISHING.test(query)) return "fishing";
   return "general";
 }
 
@@ -32,6 +42,7 @@ export const INTENT_LABEL_KEY: Record<QueryIntent, string> = {
   current: "intentLabel.current",
   wave: "intentLabel.wave",
   wind: "intentLabel.wind",
+  conditions: "intentLabel.conditions",
   general: "intentLabel.general",
 };
 

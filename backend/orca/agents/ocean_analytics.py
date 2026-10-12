@@ -457,6 +457,12 @@ def _sst_grid(bbox: dict[str, float] | None) -> dict[str, Any] | None:
 
 
 _SEA_COLOUR_WORDS = ("sst", "chlorophyll", "temperature", "plankton", "ocean colour", "ocean color", "water quality")
+# Phrases that imply a regional chlorophyll/SST ranking query — these also need the grids loaded.
+_SEA_COLOUR_REGIONAL = (
+    "which region", "which area", "best region", "best area",
+    "highest chlorophyll", "most productive", "favourable sst", "favorable sst",
+    "productive region", "productive area", "highest productivity",
+)
 _SEA_COLOUR_TURNS = 2   # a follow-up ("and for kundapura now?") inherits the question of the last two turns
 
 
@@ -464,9 +470,11 @@ def _asks_sea_colour(state: Any, query: str) -> bool:
     """SST / chlorophyll readings are only fetched when the question is about them (the planner's DIAGNOSTIC row, or the
     words as the fallback): reading four grids for every safety question would cost time for nothing. A FOLLOW-UP inherits the
     subject of the turns before it: "ok and for kundapura now" after an SST-and-chlorophyll question is still that question
-    (found live 2026-10-10: it was answered from another source and said chlorophyll was not available)."""
+    (found live 2026-10-10: it was answered from another source and said chlorophyll was not available).
+    Regional ranking queries ("which region has high chlorophyll") also need the grids."""
+    q = query.lower()
     rows = state.get("matched_intent_rows") or []
-    if "DIAGNOSTIC" in rows or any(w in query for w in _SEA_COLOUR_WORDS):
+    if "DIAGNOSTIC" in rows or any(w in q for w in _SEA_COLOUR_WORDS) or any(w in q for w in _SEA_COLOUR_REGIONAL):
         return True
     if state.get("understood_is_followup"):
         for turn in (state.get("session_history") or [])[-_SEA_COLOUR_TURNS:]:
