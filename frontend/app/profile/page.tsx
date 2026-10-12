@@ -14,7 +14,7 @@ import { Field, inputClass } from "../components/Field";
 import { Button } from "../components/Button";
 import { Badge } from "../components/Badge";
 import { Skeleton } from "../components/States";
-import { authFetch, invalidateProfile, useAuth, type Profile } from "../lib/auth";
+import { authFetch, invalidateProfile, isPortAuthority, useAuth, type Profile } from "../lib/auth";
 import { LANGUAGES, type LangCode } from "../i18n/languages";
 import { PERSONAS } from "../persona/config";
 import { useT } from "../i18n/useT";
@@ -697,32 +697,44 @@ function LanguagePanel({ profile }: { profile: Profile | null }) {
         </div>
       </div>
 
-      <div>
-        <p className="mb-2 flex items-center gap-1.5 text-[11px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
-          <Anchor className="size-3.5" aria-hidden="true" /> {t("profile.defaultRole")}
-        </p>
-        <div className="flex flex-wrap gap-1.5">
-          {PERSONAS.filter((p) => p.id !== "unresolved").map((p) => {
-            const active = profile?.default_persona === p.id;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                disabled={busyPersona}
-                onClick={() => choosePersona(p.id)}
-                className={`rounded-full border px-3 py-1.5 text-sm transition-colors disabled:opacity-50 ${
-                  active
-                    ? "border-ocean-cyan/60 bg-ocean-cyan/10 font-semibold text-ocean-cyan"
-                    : "border-hairline/70 bg-shelf-2/40 text-ink-muted hover:border-hairline-strong hover:text-ink"
-                }`}
-              >
-                {translatePersonaName(p.id, language)}
-              </button>
-            );
-          })}
+      {!isPortAuthority(profile) ? (
+        <div>
+          <p className="mb-2 flex items-center gap-1.5 text-[11px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
+            <Anchor className="size-3.5" aria-hidden="true" /> {t("profile.defaultRole")}
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {PERSONAS.filter((p) => p.id !== "unresolved").map((p) => {
+              const active = profile?.default_persona === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  disabled={busyPersona}
+                  onClick={() => choosePersona(p.id)}
+                  className={`rounded-full border px-3 py-1.5 text-sm transition-colors disabled:opacity-50 ${
+                    active
+                      ? "border-ocean-cyan/60 bg-ocean-cyan/10 font-semibold text-ocean-cyan"
+                      : "border-hairline/70 bg-shelf-2/40 text-ink-muted hover:border-hairline-strong hover:text-ink"
+                  }`}
+                >
+                  {translatePersonaName(p.id, language)}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[11px] text-ink-dim">{t("profile.defaultRoleHint")}</p>
         </div>
-        <p className="mt-2 text-[11px] text-ink-dim">{t("profile.defaultRoleHint")}</p>
-      </div>
+      ) : (
+        <div>
+          <p className="mb-2 flex items-center gap-1.5 text-[11px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
+            <Anchor className="size-3.5" aria-hidden="true" /> {t("profile.defaultRole")}
+          </p>
+          <div className="inline-flex items-center gap-2 rounded-full border border-ocean-cyan/60 bg-ocean-cyan/10 px-3 py-1.5 text-sm font-semibold text-ocean-cyan">
+            {translatePersonaName("coastal_authority", language)}
+          </div>
+          <p className="mt-2 text-[11px] text-ink-dim">Fixed persona for Coastal Authority accounts.</p>
+        </div>
+      )}
     </Panel>
   );
 }

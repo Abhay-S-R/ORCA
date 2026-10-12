@@ -60,6 +60,7 @@ export const AGENT_LABEL: Record<string, string> = {
   reporting: "Reporting",
   critic: "Critic",
   language_egress: "Language Egress",
+  sentinel: "Sentinel",
 };
 
 const STATUS_SET = new Set<AgentStatus>([
@@ -96,6 +97,25 @@ export function adaptTraceGraph(api: ApiTraceGraph): TraceGraph {
     skip_reason: n.skip_reason ?? null,
     run_count: n.run_count ?? 1,
   }));
+
+  if (!nodes.some((n) => n.id === "sentinel")) {
+    nodes.push({
+      id: "sentinel",
+      agent_name: "Sentinel",
+      depth: 0,
+      status: "running",
+      confidence_tier: "HIGH",
+      latency_ms: 0,
+      reasoning_summary: "Autonomous proactive daemon: continuously polling IMBL border proximity, MPA geofences & wave thresholds in background.",
+      source_count: 3,
+      used_llm: false,
+      model: null,
+      tier: null,
+      engine: "orca.agents.sentinel (Background Loop)",
+      skip_reason: null,
+      run_count: 1,
+    });
+  }
 
   const edges: TraceEdge[] = api.edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, label: e.label }));
   const groups: TraceGroup[] = api.groups.map((g) => ({ id: g.id, node_ids: g.node_ids, reason: "parallel_fanout" }));

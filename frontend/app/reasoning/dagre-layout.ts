@@ -32,7 +32,13 @@ export function layoutTrace(
   }
 
   for (const e of trace.edges) {
-    g.setEdge(e.from, e.to);
+    // Only forward pipeline edges determine horizontal rank hierarchy.
+    // Backward feedback loops (critic_loop or any loop from critic back to an upstream agent)
+    // must NEVER be fed to Dagre's ranker; otherwise Dagre reverses dependencies,
+    // tears the specialist node out of the parallel group, and scatters the graph.
+    if (e.kind !== "critic_loop" && !(e.from === "critic" && e.to !== "language_egress")) {
+      g.setEdge(e.from, e.to);
+    }
   }
 
   dagre.layout(g);
@@ -44,8 +50,8 @@ export function layoutTrace(
       grp.id === "fanout_0" || grp.id === "fanout-forecast"
         ? "Parallel Specialists · 3 Concurrent Streams"
         : grp.id === "fanout_1" || grp.id === "fanout-synthesis"
-        ? "Synthesis Hub · Multi-Criteria Arbitration"
-        : "Parallel Execution Group";
+          ? "Synthesis Hub · Multi-Criteria Arbitration"
+          : "Parallel Execution Group";
 
     return {
       id: grp.id,

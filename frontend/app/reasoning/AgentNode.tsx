@@ -15,6 +15,7 @@ import {
   Layers,
   ListChecks,
   Loader2,
+  Radar,
   ShieldAlert,
   Sparkles,
   Waves,
@@ -41,6 +42,7 @@ const ICON: Record<string, ComponentType<{ className?: string }>> = {
   reporting: FileText,
   critic: Eye,
   language_egress: Languages,
+  sentinel: Radar,
 };
 
 const STATUS_CONFIG: Record<
@@ -116,6 +118,7 @@ export function formatReasoningSummary(summary?: string): string {
 
 export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
   const { node } = data;
+  const isSentinel = node.id === "sentinel" || node.agent_name.toLowerCase().includes("sentinel");
   const Icon = ICON[node.id] ?? ICON[node.agent_name.toLowerCase().replace(/ /g, "_")] ?? Anchor;
   const reduce = useReducedMotion();
   const statusCfg = STATUS_CONFIG[node.status] ?? STATUS_CONFIG.pending;
@@ -125,82 +128,191 @@ export function AgentNode({ data, selected }: NodeProps<AgentFlowNode>) {
   const isDegraded = node.status === "degraded";
 
   return (
-    <div
-      className={`relative h-[124px] w-[270px] min-w-[270px] max-w-[270px] select-none overflow-hidden rounded-xl border p-3 text-left backdrop-blur-md transition-all duration-200 ${statusCfg.border} ${statusCfg.bg} ${statusCfg.glow} ${selected ? "!border-accent ring-2 ring-accent ring-offset-2 ring-offset-shelf-1 scale-[1.02]" : "hover:border-hairline-strong"}`}
-    >
-      <Handle
-        type="target"
-        position={Position.Left}
-        isConnectable={false}
-        className="!size-2 !-left-1 !border-0 !bg-ocean-cyan/80 shadow-sm"
-      />
-      <Handle
-        type="source"
-        position={Position.Right}
-        isConnectable={false}
-        className="!size-2 !-right-1 !border-0 !bg-ocean-cyan/80 shadow-sm"
-      />
+    <div className={`relative ${isSentinel ? "overflow-visible" : ""}`}>
+      {/* Animated glowing border and outer bloom for Sentinel background daemon */}
+      {isSentinel && (
+        <>
+          {/* Deep ambient luminous bloom spreading outward */}
+          <motion.div
+            aria-hidden="true"
+            animate={
+              reduce
+                ? {}
+                : {
+                    opacity: [0.55, 0.95, 0.55],
+                    scale: [0.99, 1.025, 0.99],
+                    boxShadow: [
+                      "0 0 16px 2px rgba(6, 182, 212, 0.4), 0 0 32px 6px rgba(6, 182, 212, 0.25)",
+                      "0 0 28px 4px rgba(6, 182, 212, 0.8), 0 0 56px 12px rgba(6, 182, 212, 0.45)",
+                      "0 0 16px 2px rgba(6, 182, 212, 0.4), 0 0 32px 6px rgba(6, 182, 212, 0.25)",
+                    ],
+                  }
+            }
+            transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+            className="pointer-events-none absolute -inset-1 rounded-2xl bg-ocean-cyan/20 blur-md"
+          />
 
-      {/* Top row: Icon, Name, and Status Glyph */}
-      <div className="flex items-center justify-between gap-1.5">
-        <div className="flex items-center gap-2 min-w-0">
-          <div
-            className={`grid size-6 shrink-0 place-items-center rounded-md border ${isRunning ? "border-ocean-cyan/60 bg-ocean-cyan/10 text-ocean-cyan" : isOk ? "border-hairline-strong bg-shelf-2/80 text-ink" : "border-hairline bg-shelf-2/40 text-ink-dim"}`}
-          >
-            {isRunning ? (
-              <motion.div
-                animate={reduce ? {} : { rotate: 360 }}
-                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-              >
-                <Loader2 className="size-3.5 text-ocean-cyan" />
-              </motion.div>
-            ) : (
-              <Icon className="size-3.5" />
-            )}
-          </div>
-          <span className="truncate text-[12px] font-semibold tracking-tight text-ink">
-            {node.agent_name}
-          </span>
-        </div>
+          {/* High-intensity glowing neon border ring */}
+          <motion.div
+            aria-hidden="true"
+            animate={
+              reduce
+                ? {}
+                : {
+                    borderColor: [
+                      "rgba(6, 182, 212, 0.7)",
+                      "rgba(6, 182, 212, 1)",
+                      "rgba(6, 182, 212, 0.7)",
+                    ],
+                    boxShadow: [
+                      "0 0 12px rgba(6, 182, 212, 0.6), inset 0 0 8px rgba(6, 182, 212, 0.3)",
+                      "0 0 26px rgba(6, 182, 212, 0.95), inset 0 0 16px rgba(6, 182, 212, 0.55)",
+                      "0 0 12px rgba(6, 182, 212, 0.6), inset 0 0 8px rgba(6, 182, 212, 0.3)",
+                    ],
+                  }
+            }
+            transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+            className="pointer-events-none absolute -inset-[1px] z-10 rounded-xl border-2 border-ocean-cyan"
+          />
+        </>
+      )}
 
-        <div className="flex items-center gap-1 shrink-0">
-          {isRunning && (
-            <motion.span
-              animate={reduce ? {} : { opacity: [1, 0.4, 1] }}
-              transition={{ duration: 0.8, repeat: Infinity }}
-              className="rounded-full bg-ocean-cyan/10 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-ocean-cyan border border-ocean-cyan/40"
+      {/* Main Card */}
+      <div
+        className={`relative h-[124px] w-[270px] min-w-[270px] max-w-[270px] select-none overflow-hidden rounded-xl border p-3 text-left backdrop-blur-md transition-all duration-200 ${
+          isSentinel
+            ? "border-ocean-cyan/90 bg-shelf-1/95 ring-1 ring-ocean-cyan/70 shadow-lg"
+            : `${statusCfg.border} ${statusCfg.bg} ${statusCfg.glow}`
+        } ${selected ? "!border-accent ring-2 ring-accent ring-offset-2 ring-offset-shelf-1 scale-[1.02]" : "hover:border-hairline-strong"}`}
+      >
+        {/* Subtle scanning sweep for Sentinel */}
+        {isSentinel && (
+          <>
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(6,182,212,0.18),transparent_70%)]"
+            />
+            <motion.div
+              aria-hidden="true"
+              animate={reduce ? {} : { x: ["-120%", "220%"] }}
+              transition={{ duration: 3.2, repeat: Infinity, ease: "linear" }}
+              className="pointer-events-none absolute -inset-y-2 w-14 -skew-x-12 bg-gradient-to-r from-transparent via-ocean-cyan/25 to-transparent"
+            />
+          </>
+        )}
+
+        {/* Handles only for pipeline nodes; independent Sentinel has no wire handles */}
+        {!isSentinel && (
+          <>
+            <Handle
+              type="target"
+              position={Position.Left}
+              isConnectable={false}
+              className="!size-2 !-left-1 !border-0 !bg-ocean-cyan/80 shadow-sm"
+            />
+            <Handle
+              type="source"
+              position={Position.Right}
+              isConnectable={false}
+              className="!size-2 !-right-1 !border-0 !bg-ocean-cyan/80 shadow-sm"
+            />
+          </>
+        )}
+
+        {/* Top row: Icon, Name, and Status Glyph */}
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-2 min-w-0">
+            <div
+              className={`grid size-6 shrink-0 place-items-center rounded-md border ${
+                isSentinel
+                  ? "border-ocean-cyan/70 bg-ocean-cyan/20 text-ocean-cyan shadow-[0_0_10px_rgba(6,182,212,0.5)]"
+                  : isRunning
+                  ? "border-ocean-cyan/60 bg-ocean-cyan/10 text-ocean-cyan"
+                  : isOk
+                  ? "border-hairline-strong bg-shelf-2/80 text-ink"
+                  : "border-hairline bg-shelf-2/40 text-ink-dim"
+              }`}
             >
-              RUNNING
-            </motion.span>
-          )}
-          {isOk && (
-            <span className="grid size-4 place-items-center rounded-full bg-go/15 text-go border border-go/30">
-              <Check className="size-2.5" />
+              {isSentinel ? (
+                <motion.div
+                  animate={reduce ? {} : { rotate: 360 }}
+                  transition={{ duration: 3.5, repeat: Infinity, ease: "linear" }}
+                  className="text-ocean-cyan"
+                >
+                  <Radar className="size-3.5 text-ocean-cyan" />
+                </motion.div>
+              ) : isRunning ? (
+                <motion.div
+                  animate={reduce ? {} : { rotate: 360 }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                >
+                  <Loader2 className="size-3.5 text-ocean-cyan" />
+                </motion.div>
+              ) : (
+                <Icon className="size-3.5" />
+              )}
+            </div>
+            <span className="truncate text-[12px] font-semibold tracking-tight text-ink">
+              {node.agent_name}
             </span>
-          )}
-          {isDegraded && (
-            <span className="grid size-4 place-items-center rounded-full bg-caution/15 text-caution border border-caution/30">
-              <AlertTriangle className="size-2.5" />
-            </span>
-          )}
-          {isFailed && (
-            <span className="grid size-4 place-items-center rounded-full bg-no-go/15 text-no-go border border-no-go/30">
-              <X className="size-2.5" />
-            </span>
-          )}
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            {isSentinel ? (
+              <span className="flex items-center gap-1.5 rounded-full bg-ocean-cyan/25 px-2 py-0.5 text-[9px] font-bold tracking-wider text-ocean-cyan border border-ocean-cyan/60 shadow-[0_0_10px_rgba(6,182,212,0.4)]">
+                <span className="relative flex size-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ocean-cyan opacity-90"></span>
+                  <span className="relative inline-flex size-2 rounded-full bg-ocean-cyan"></span>
+                </span>
+                RUNNING IN BACKGROUND
+              </span>
+            ) : isRunning ? (
+              <motion.span
+                animate={reduce ? {} : { opacity: [1, 0.4, 1] }}
+                transition={{ duration: 0.8, repeat: Infinity }}
+                className="rounded-full bg-ocean-cyan/10 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-ocean-cyan border border-ocean-cyan/40"
+              >
+                RUNNING
+              </motion.span>
+            ) : isOk ? (
+              <span className="grid size-4 place-items-center rounded-full bg-go/15 text-go border border-go/30">
+                <Check className="size-2.5" />
+              </span>
+            ) : isDegraded ? (
+              <span className="grid size-4 place-items-center rounded-full bg-caution/15 text-caution border border-caution/30">
+                <AlertTriangle className="size-2.5" />
+              </span>
+            ) : isFailed ? (
+              <span className="grid size-4 place-items-center rounded-full bg-no-go/15 text-no-go border border-no-go/30">
+                <X className="size-2.5" />
+              </span>
+            ) : null}
+          </div>
         </div>
-      </div>
 
-      {/* Middle row: Reasoning summary */}
-      <p className="mt-1.5 line-clamp-2 min-h-[28px] text-[11px] leading-snug text-ink-muted break-words overflow-hidden">
-        {formatReasoningSummary(node.reasoning_summary) || "Awaiting pipeline inputs..."}
-      </p>
+        {/* Middle row: Reasoning summary */}
+        <p className="mt-1.5 line-clamp-2 min-h-[28px] text-[11px] leading-snug text-ink-muted break-words overflow-hidden">
+          {formatReasoningSummary(node.reasoning_summary) || "Awaiting pipeline inputs..."}
+        </p>
 
-      {/* Bottom row: Confidence only */}
-      <div className="mt-2.5 flex items-center justify-between gap-1 border-t border-hairline/60 pt-2 text-[10px]">
-        <span className={confidenceClass(node.confidence_tier)}>
-          {confidenceLabel(node.confidence_tier)}
-        </span>
+        {/* Bottom row: Independent Sentinel badge vs Confidence */}
+        {isSentinel ? (
+          <div className="mt-2.5 flex items-center justify-between gap-1 border-t border-ocean-cyan/40 pt-2 text-[10px]">
+            <span className="inline-flex items-center gap-1.5 font-mono text-ocean-cyan text-[10px] font-semibold">
+              <span className="size-1.5 rounded-full bg-ocean-cyan animate-pulse shadow-[0_0_6px_rgba(6,182,212,0.8)]" />
+              INDEPENDENT DAEMON
+            </span>
+            <span className="rounded bg-ocean-cyan/15 px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wide text-ocean-cyan border border-ocean-cyan/40">
+              AUTONOMOUS 24/7
+            </span>
+          </div>
+        ) : (
+          <div className="mt-2.5 flex items-center justify-between gap-1 border-t border-hairline/60 pt-2 text-[10px]">
+            <span className={confidenceClass(node.confidence_tier)}>
+              {confidenceLabel(node.confidence_tier)}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

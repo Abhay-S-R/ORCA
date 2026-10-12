@@ -12,6 +12,7 @@ import {
   FileText,
   Languages,
   ListChecks,
+  Radar,
   ShieldAlert,
   Sparkles,
   Waves,
@@ -36,6 +37,7 @@ const ICON: Record<string, ComponentType<{ className?: string }>> = {
   reporting: FileText,
   critic: CheckCheck,
   language_egress: Languages,
+  sentinel: Radar,
 };
 
 interface ReasoningInspectorProps {
@@ -111,11 +113,10 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 rounded-md py-1 text-[11px] font-medium transition-all ${
-                activeTab === tab.id
+              className={`flex-1 rounded-md py-1 text-[11px] font-medium transition-all ${activeTab === tab.id
                   ? "bg-shelf-2 text-ink shadow-sm"
                   : "text-ink-dim hover:text-ink"
-              }`}
+                }`}
             >
               {tab.label}
             </button>
@@ -151,13 +152,12 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                 </span>
                 <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-hairline bg-shelf-2/30 p-2.5">
                   <div
-                    className={`size-2 rounded-full ${
-                      node.status === "ok"
+                    className={`size-2 rounded-full ${node.status === "ok"
                         ? "bg-go"
                         : node.status === "running"
-                        ? "bg-ocean-cyan animate-ping"
-                        : "bg-caution"
-                    }`}
+                          ? "bg-ocean-cyan animate-ping"
+                          : "bg-caution"
+                      }`}
                   />
                   <span className="text-[11px] font-medium text-ink capitalize">
                     {node.status}
@@ -173,8 +173,8 @@ export function ReasoningInspector({ node, onClose }: ReasoningInspectorProps) {
                   {node.used_llm
                     ? `Bounded synthesis pass using the ${node.tier ?? "mid"} LLM tier${node.engine ? ` (${node.engine})` : ""}. Evaluated under strict causal claims rubric.`
                     : node.skip_reason
-                    ? node.skip_reason
-                    : "Deterministic specialist agent. Executes strict scientific formulas, bathymetric lookups, or GeoJSON geofences with zero stochastic variation."}
+                      ? node.skip_reason
+                      : "Deterministic specialist agent. Executes strict scientific formulas, bathymetric lookups, or GeoJSON geofences with zero stochastic variation."}
                 </p>
               </div>
             </div>

@@ -81,6 +81,7 @@ class UserOut(BaseModel):
     active_vessel_id: uuid.UUID | None = None
     quiet_hours: dict | None = None
     typical_departure_hour: int | None = None
+    is_port_authority: bool = False
 
 
 class LanguageIn(BaseModel):

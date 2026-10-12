@@ -22,7 +22,7 @@ export function Panel({
   return (
     <section
       className={`glass tactical-frame relative rounded-xl border border-hairline/90 ${
-        dense ? "p-3.5" : "p-5"
+        dense ? "p-3 sm:p-3.5" : "p-3.5 sm:p-5"
       } shadow-lg ${className}`}
     >
       {title && (

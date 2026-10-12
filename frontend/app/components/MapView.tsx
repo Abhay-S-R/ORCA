@@ -351,6 +351,8 @@ export type RouteGeoJson = {
   }[];
 };
 export type MapPin = { lat: number; lon: number; label: string; color: string };
+/** A ship icon marker with bearing rotation — used by the IMBL demo. */
+export type ShipPin = { lat: number; lon: number; color: string; bearing: number };
 
 // Ask page's query -> chart behaviour (plan §7/§8): which real layer to bring
 // forward and where to look, derived from the query's classified intent.
@@ -455,6 +457,8 @@ export function MapView({
   onPointClick,
   routeGeoJson,
   pins,
+  shipPin,
+  disableRouteAutoZoom = false,
   showSoundingHud = true,
   defaultCollapsedSounding = false,
   initialLayers,
@@ -465,6 +469,8 @@ export function MapView({
   minZoom,
   maxZoom,
   showCoastalBoundary = true,
+  initialCenter,
+  initialZoom,
 }: {
   className?: string;
   showPanels?: boolean;
@@ -483,6 +489,10 @@ export function MapView({
   onPointClick?: (lat: number, lon: number) => void;
   routeGeoJson?: RouteGeoJson | null;
   pins?: MapPin[];
+  /** Ship icon marker with bearing, for the IMBL demo. */
+  shipPin?: ShipPin | null;
+  /** When true, the route update effect will NOT call fitBounds — keeps the map at a fixed zoom. */
+  disableRouteAutoZoom?: boolean;
   showSoundingHud?: boolean;
   defaultCollapsedSounding?: boolean;
   // Ask-page-only default: both /voyage and /map keep their own tuned
@@ -519,6 +529,10 @@ export function MapView({
   maxZoom?: number;
   /** Whether to show the coastal boundary highlight. Defaults to true. */
   showCoastalBoundary?: boolean;
+  /** Optional initial camera center [lon, lat]. Defaults to India center. */
+  initialCenter?: [number, number];
+  /** Optional initial camera zoom. Defaults to INDIA_VIEW.zoom. */
+  initialZoom?: number;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -545,6 +559,23 @@ export function MapView({
   const queryFocusRef = useRef<QueryFocus | null | undefined>(queryFocus);
   const minZoomRef = useRef(minZoom);
   const maxZoomRef = useRef(maxZoom);
+  const disableRouteAutoZoomRef = useRef(disableRouteAutoZoom);
+  useEffect(() => { disableRouteAutoZoomRef.current = disableRouteAutoZoom; }, [disableRouteAutoZoom]);
+
+  const initialCenterRef = useRef(initialCenter);
+  const initialZoomRef = useRef(initialZoom);
+  const lastJumpRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!ready || !map.current || !initialCenter || initialZoom === undefined) return;
+    const key = `${initialCenter[0]},${initialCenter[1]},${initialZoom}`;
+    if (lastJumpRef.current === key) return;
+    lastJumpRef.current = key;
+    map.current.jumpTo({
+      center: initialCenter,
+      zoom: initialZoom,
+    });
+  }, [ready, initialCenter, initialZoom]);
 
   useEffect(() => {
     homePortCoordsRef.current = homePortCoords;
@@ -605,6 +636,23 @@ export function MapView({
     cyclone: true,
     ...initialLayers,
   });
+
+  useEffect(() => {
+    if (initialLayers) {
+      setLayers((s) => ({ ...s, ...initialLayers }));
+    }
+  }, [
+    initialLayers?.boundaries,
+    initialLayers?.boundaryLines,
+    initialLayers?.pfz,
+    initialLayers?.seamarks,
+    initialLayers?.srvBathymetry,
+    initialLayers?.waveForecast,
+    initialLayers?.currents,
+    initialLayers?.wind,
+    initialLayers?.watchBadges,
+    initialLayers?.cyclone,
+  ]);
   const [rasterLayers, setRasterLayers] = useState<RasterLayerMeta[]>([]);
   const [currentVectors, setCurrentVectors] = useState<CurrentVector[] | null>(null);
   const [currentBounds, setCurrentBounds] = useState<[number, number, number, number] | null>(null);
@@ -830,13 +878,10 @@ export function MapView({
     const m = new maplibregl.Map({
       container: container.current,
       style: BASEMAP_STYLE,
-      // Fixed opening camera (INDIA_VIEW): all of India plus the current
-      // field's water, scale bar at 98.3 nm. Not derived from any dataset's
-      // bounds, so it is the same view every load — a query or the region
-      // switcher moves it from here, and the Gulf of Mannar pilot bounds are
-      // still available as a preset via COASTAL_REGIONS.
-      center: INDIA_VIEW.center,
-      zoom: INDIA_VIEW.zoom,
+      // Fixed opening camera: caller's initialCenter/initialZoom if provided,
+      // else INDIA_VIEW (all of India overview).
+      center: initialCenterRef.current ?? INDIA_VIEW.center,
+      zoom: initialZoomRef.current ?? INDIA_VIEW.zoom,
       // Attribution and scale live bottom-LEFT: the bottom-right corner is
       // reserved for the SOS button, which must never be covered or cover.
       // Attribution is added by hand below so it can sit bottom-LEFT: the
@@ -898,7 +943,7 @@ export function MapView({
       }
 
       m.addSource("boundaries", { type: "geojson", data: EMPTY as never });
-      m.addSource("boundary-lines", { type: "geojson", data: EMPTY as never });
+      m.addSource("boundary-lines", { type: "geojson", data: "/data/india_maritime_boundary_lines.geojson" });
       // Clustered so 3+ nearby advisories read as one tasteful cluster
       // instead of a pile of overlapping markers — real zoom-aware
       // decluttering via MapLibre's own supercluster, not a custom index.
@@ -965,18 +1010,52 @@ export function MapView({
       });
 
       // Delimited maritime boundary lines (VLIZ IMBL): treaty-drawn lines,
-      // not the edge of a polygon. Drawn long-dashed and darker than the EEZ
-      // fence so the two are never read as the same thing on the chart.
+      // rendered with high-contrast warning red styling and glow casing
+      // so the IMBL demarcation is immediately visible over satellite ocean imagery.
+      m.addLayer({
+        id: "boundary-lines-glow",
+        type: "line",
+        source: "boundary-lines",
+        layout: { "line-join": "round", "line-cap": "round", visibility: layers.boundaryLines ? "visible" : "none" },
+        paint: {
+          "line-color": "#ef4444",
+          "line-width": 5.5,
+          "line-opacity": 0.4,
+          "line-blur": 2.5,
+        },
+      });
+
       m.addLayer({
         id: "boundary-lines-line",
         type: "line",
         source: "boundary-lines",
-        layout: { "line-join": "round", "line-cap": "round", visibility: "none" },
+        layout: { "line-join": "round", "line-cap": "round", visibility: layers.boundaryLines ? "visible" : "none" },
         paint: {
-          "line-color": CHART.accent,
-          "line-width": 1.4,
-          "line-opacity": 0.85,
+          "line-color": "#ef4444",
+          "line-width": 2.5,
+          "line-opacity": 0.95,
           "line-dasharray": [6, 2.5],
+        },
+      });
+
+      m.addLayer({
+        id: "boundary-lines-labels",
+        type: "symbol",
+        source: "boundary-lines",
+        layout: {
+          "symbol-placement": "line",
+          "text-field": ["case", ["in", "Sri Lanka", ["get", "name"]], "IMBL · INDIA - SRI LANKA", ["get", "name"]],
+          "text-size": 11,
+          "text-font": ["Open Sans Bold", "Montserrat Medium"],
+          "text-letter-spacing": 0.12,
+          "text-max-angle": 30,
+          "text-offset": [0, -1],
+          visibility: layers.boundaryLines ? "visible" : "none",
+        },
+        paint: {
+          "text-color": "#fca5a5",
+          "text-halo-color": "#030d16",
+          "text-halo-width": 2.5,
         },
       });
 
@@ -1136,89 +1215,84 @@ export function MapView({
         },
       });
 
-      // Port markers: glowing anchor-dot icons for the 12 major Indian ports.
+      // Port markers: custom anchor icon (/assets/porticon.png) for Indian ports.
       // Layered below PFZ circles but above rasters — visible at all zoom
-      // levels where a port matters (z≥5), faded at overview zoom.
+      // levels where a port matters (z≥5).
       m.addSource("port-markers", { type: "geojson", data: buildPortMarkersGeoJson(null, language) as never });
-      // Outer glow ring — pulsing radiance, drawn below the fill dot.
+
+      // Load custom port anchor icon from /assets/porticon.png
+      const loadPortIcon = () => {
+        const img = new Image();
+        img.src = "/assets/porticon.png";
+        img.onload = () => {
+          const size = 30;
+          const px = 2;
+          const canvas = document.createElement("canvas");
+          canvas.width = size * px;
+          canvas.height = size * px;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          ctx.drawImage(img, 0, 0, size * px, size * px);
+          const imageData = ctx.getImageData(0, 0, size * px, size * px);
+          if (m.hasImage("port-icon")) m.removeImage("port-icon");
+          m.addImage("port-icon", imageData, { pixelRatio: px });
+        };
+      };
+      loadPortIcon();
+
       m.addLayer({
-        id: "port-glow",
-        type: "circle",
+        id: "port-icons",
+        type: "symbol",
         source: "port-markers",
         minzoom: 5,
-        paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 10, 9, 18, 12, 24],
-          "circle-color": [
-            "case",
-            ["==", ["get", "highlighted"], 1], CHART.eezNear,
-            "rgba(0,210,255,0.12)",
+        layout: {
+          "icon-image": "port-icon",
+          "icon-size": [
+            "interpolate", ["linear"], ["zoom"],
+            5, 0.65,
+            8, 0.95,
+            12, 1.25
           ],
-          "circle-opacity": [
-            "case",
-            ["==", ["get", "highlighted"], 1], 0.6,
-            0.0,
-          ],
-          "circle-blur": 1.0,
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "icon-anchor": "center",
         },
-      });
-      // Solid centre dot.
-      m.addLayer({
-        id: "port-dots",
-        type: "circle",
-        source: "port-markers",
-        minzoom: 5,
         paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 4, 9, 7, 12, 9],
-          "circle-color": [
-            "case",
-            ["==", ["get", "highlighted"], 1], CHART.eezNear,
-            "rgba(0,180,220,0.55)",
-          ],
-          "circle-stroke-color": "#fffdf6",
-          "circle-stroke-width": [
-            "case",
-            ["==", ["get", "highlighted"], 1], 2.0,
-            1.0,
-          ],
-          "circle-opacity": [
+          "icon-opacity": [
             "case",
             ["==", ["get", "highlighted"], 1], 1.0,
-            0.0,
-          ],
-          "circle-stroke-opacity": [
-            "case",
-            ["==", ["get", "highlighted"], 1], 1.0,
-            0.0,
+            0.65,
           ],
         },
       });
-      // Short name label above the dot — only shown when highlighted or zoomed in.
+
+      // Short name label placed cleanly below the anchor icon
       m.addLayer({
         id: "port-labels",
         type: "symbol",
         source: "port-markers",
-        minzoom: 7,
+        minzoom: 6.5,
         layout: {
           "text-field": ["get", "name"],
-          "text-font": ["Open Sans Bold"],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 7, 9, 10, 11, 13, 13],
-          "text-offset": [0, -1.6],
-          "text-anchor": "bottom",
+          "text-font": ["Open Sans Bold", "Montserrat Medium"],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 7, 10, 10, 12, 13, 14],
+          "text-offset": [0, 1.35],
+          "text-anchor": "top",
           "text-optional": true,
           "text-allow-overlap": false,
         },
         paint: {
           "text-color": [
             "case",
-            ["==", ["get", "highlighted"], 1], CHART.eezNear,
-            "rgba(200,230,240,0.7)",
+            ["==", ["get", "highlighted"], 1], "#ffffff",
+            "rgba(220,240,255,0.75)",
           ],
-          "text-halo-color": "rgba(4,16,26,0.92)",
-          "text-halo-width": 1.4,
+          "text-halo-color": "rgba(4,16,26,0.95)",
+          "text-halo-width": 2.0,
           "text-opacity": [
             "case",
             ["==", ["get", "highlighted"], 1], 1.0,
-            0.0,
+            0.6,
           ],
         },
       });
@@ -1413,7 +1487,8 @@ export function MapView({
     const source = map.current.getSource("route") as maplibregl.GeoJSONSource | undefined;
     if (!source) return;
     source.setData((routeGeoJson ?? EMPTY) as never);
-    if (routeGeoJson?.features.length) {
+    // Skip auto-zoom when the caller opts out (e.g. IMBL demo uses a fixed camera)
+    if (!disableRouteAutoZoomRef.current && routeGeoJson?.features.length) {
       const lons = routeGeoJson.features.flatMap((f) => f.geometry.coordinates.map((c) => c[0]));
       const lats = routeGeoJson.features.flatMap((f) => f.geometry.coordinates.map((c) => c[1]));
       map.current.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], {
@@ -1443,6 +1518,59 @@ export function MapView({
       for (const m of built) m.remove();
     };
   }, [ready, pins]);
+
+  /* ---- ship icon pin (IMBL demo): a directional vessel SVG, rotated to bearing ---- */
+  const shipPinMarkerRef = useRef<maplibregl.Marker | null>(null);
+  useEffect(() => {
+    if (!ready || !map.current) {
+      shipPinMarkerRef.current?.remove();
+      shipPinMarkerRef.current = null;
+      return;
+    }
+    if (!shipPin) {
+      shipPinMarkerRef.current?.remove();
+      shipPinMarkerRef.current = null;
+      return;
+    }
+    const color = shipPin.color;
+    if (!shipPinMarkerRef.current) {
+      // Outer wrapper: holds the glow ring + image
+      const el = document.createElement("div");
+      el.setAttribute("aria-label", "Vessel position");
+      el.style.cssText = `position:relative;width:48px;height:48px;cursor:default;`;
+      // Glow ring (updates color in the else-branch below)
+      const glow = document.createElement("div");
+      glow.className = "ship-pin-glow";
+      glow.style.cssText = `position:absolute;inset:-5px;border-radius:50%;background:${color};opacity:0.28;filter:blur(8px);transition:background 0.4s;pointer-events:none;`;
+      // Solid border ring
+      const ring = document.createElement("div");
+      ring.className = "ship-pin-ring";
+      ring.style.cssText = `position:absolute;inset:-3px;border-radius:50%;border:2.5px solid ${color};opacity:0.75;transition:border-color 0.4s;pointer-events:none;`;
+      // Ship image
+      const img = document.createElement("img");
+      img.src = "/assets/shipicon.png";
+      img.style.cssText = `width:48px;height:48px;object-fit:contain;filter:drop-shadow(0 3px 8px rgba(0,0,0,0.7));`;
+      el.appendChild(glow);
+      el.appendChild(ring);
+      el.appendChild(img);
+      shipPinMarkerRef.current = new maplibregl.Marker({ element: el, anchor: "center" })
+        .setLngLat([shipPin.lon, shipPin.lat])
+        .addTo(map.current);
+    } else {
+      shipPinMarkerRef.current.setLngLat([shipPin.lon, shipPin.lat]);
+      const el = shipPinMarkerRef.current.getElement() as HTMLDivElement;
+      // Update glow + ring colors to reflect new verdict
+      const glow = el.querySelector(".ship-pin-glow") as HTMLDivElement | null;
+      const ring = el.querySelector(".ship-pin-ring") as HTMLDivElement | null;
+      if (glow) glow.style.background = color;
+      if (ring) ring.style.borderColor = color;
+    }
+    return () => {
+      /* keep across re-renders — removed when shipPin becomes null */
+    };
+  }, [ready, shipPin]);
+
+  useEffect(() => () => { shipPinMarkerRef.current?.remove(); }, []);
 
   /* ---- distress markers (P4.16): text + icon, never colour alone ---- */
   const newestDistress = distressMarkers?.[0]?.id;
@@ -1561,14 +1689,15 @@ export function MapView({
       for (const id of [
         "boundaries-fill",
         "boundaries-line",
+        "boundary-lines-glow",
         "boundary-lines-line",
+        "boundary-lines-labels",
         "coastal-boundary-casing",
         "coastal-boundary-highlight",
         "watch-badges-circles",
         "route-corridor",
         "route-line",
-        "port-glow",
-        "port-dots",
+        "port-icons",
         "port-labels",
         "pfz-clusters",
         "pfz-cluster-count",
@@ -2009,7 +2138,9 @@ export function MapView({
     for (const id of Object.keys(BASEMAP_RASTERS)) vis(`basemap-${id}-raster`, basemap === id);
     vis("boundaries-fill", layers.boundaries);
     vis("boundaries-line", layers.boundaries);
+    vis("boundary-lines-glow", layers.boundaryLines);
     vis("boundary-lines-line", layers.boundaryLines);
+    vis("boundary-lines-labels", layers.boundaryLines);
     const showCoast = showCoastalBoundary; // India coastline boundary demarcation, controllable per page
     vis("coastal-boundary-casing", showCoast);
     vis("coastal-boundary-highlight", showCoast);

@@ -86,6 +86,11 @@ export const EXAMPLE_TRACE: TraceGraph = {
       source_count: 0, used_llm: false, model: null, tier: null,
     },
     {
+      id: "sentinel", agent_name: "Sentinel", depth: 0, status: "running", confidence_tier: "HIGH",
+      latency_ms: 0, reasoning_summary: "Autonomous proactive daemon: continuously polling IMBL border proximity, MPA geofences & wave thresholds in background.",
+      source_count: 3, used_llm: false, model: null, tier: null,
+    },
+    {
       id: "language_ingress", agent_name: "Language Ingress", depth: 1, status: "ok", confidence_tier: "HIGH",
       latency_ms: 340, reasoning_summary: "Detected Tamil, normalized to English: \"Is it safe to fish near Thoothukudi tomorrow?\"",
       source_count: 0, used_llm: false, model: null, tier: null,
