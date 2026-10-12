@@ -8,6 +8,9 @@
 import { useEffect, useState } from "react";
 import type { Verdict } from "./Badge";
 import { API_BASE } from "../lib/apiBase";
+import { useT } from "../i18n/useT";
+import { useLanguage } from "../language/context";
+import { translatePortName } from "../i18n/entities";
 
 type QuickConditions = {
   go_no_go: Verdict;
@@ -22,13 +25,13 @@ const VERDICT_COLOR: Record<Verdict, string> = {
   NO_GO: "text-no-go font-medium",
 };
 
-function timeOfDayGreeting(d: Date): string {
+function timeOfDayGreetingKey(d: Date): string {
   // Fixed to IST (UTC+5:30) — product-wide standard
   const istHour = (d.getUTCHours() + 5 + Math.floor((d.getUTCMinutes() + 30) / 60)) % 24;
-  if (istHour < 5) return "Good night";
-  if (istHour < 12) return "Good morning";
-  if (istHour < 17) return "Good afternoon";
-  return "Good evening";
+  if (istHour < 5) return "greeting.night";
+  if (istHour < 12) return "greeting.morning";
+  if (istHour < 17) return "greeting.afternoon";
+  return "greeting.evening";
 }
 
 // Module-level in-memory cache to guarantee instant, zero-flicker re-renders
@@ -74,7 +77,7 @@ export function useGreeting(
   }, [homePort, cacheKey]);
 
   return {
-    greeting: timeOfDayGreeting(now),
+    greetingKey: timeOfDayGreetingKey(now),
     conditions,
     placeName: homePortName ?? null,
   };
@@ -88,20 +91,24 @@ export function Greeting({
   homePortName?: string | null;
   fallback?: string;
 }) {
-  const { greeting, conditions, placeName } = useGreeting(homePort, homePortName);
+  const t = useT();
+  const { language } = useLanguage();
+  const { greetingKey, conditions, placeName } = useGreeting(homePort, homePortName);
+  const greeting = t(greetingKey);
 
   // If user has a registered home port with conditions
   if (homePort && conditions && conditions.wave_height_m != null) {
     const wave = conditions.wave_height_m;
     const waveStr = wave.toFixed(1);
-    const port = placeName || "your home port";
+    const rawPort = placeName || "your home port";
+    const port = translatePortName(rawPort, language);
 
     if (conditions.go_no_go === "GO") {
-      const seaFeel = wave <= 0.8 ? "calm" : "favourable";
+      const seaFeel = wave <= 0.8 ? t("greeting.calm") : t("greeting.favourable");
       return (
         <p className="text-sm sm:text-base leading-relaxed text-ink-muted text-center max-w-2xl mx-auto">
-          {greeting}. Seas off <strong className="font-semibold text-ink">{port}</strong> are {seaFeel} ({waveStr} m) —{" "}
-          <span className={VERDICT_COLOR.GO}>clear &amp; good to venture out</span>. Ask anything about your course, weather, or fishing zones.
+          {greeting}. {t("greeting.seasOff")} <strong className="font-semibold text-ink">{port}</strong> {seaFeel} ({waveStr} m) —{" "}
+          <span className={VERDICT_COLOR.GO}>{t("greeting.goVerdict")}</span>. {t("greeting.goPrompt")}
         </p>
       );
     }
@@ -109,8 +116,8 @@ export function Greeting({
     if (conditions.go_no_go === "CAUTION") {
       return (
         <p className="text-sm sm:text-base leading-relaxed text-ink-muted text-center max-w-2xl mx-auto">
-          {greeting}. Seas off <strong className="font-semibold text-ink">{port}</strong> show moderate waves ({waveStr} m) —{" "}
-          <span className={VERDICT_COLOR.CAUTION}>exercise caution before departing</span>. Ask anything about winds, safety, or safe harbours.
+          {greeting}. {t("greeting.seasOff")} <strong className="font-semibold text-ink">{port}</strong> {t("greeting.moderate")} ({waveStr} m) —{" "}
+          <span className={VERDICT_COLOR.CAUTION}>{t("greeting.cautionVerdict")}</span>. {t("greeting.cautionPrompt")}
         </p>
       );
     }
@@ -118,17 +125,18 @@ export function Greeting({
     // NO_GO
     return (
       <p className="text-sm sm:text-base leading-relaxed text-ink-muted text-center max-w-2xl mx-auto">
-        {greeting}. Seas off <strong className="font-semibold text-ink">{port}</strong> are rough ({waveStr} m) —{" "}
-        <span className={VERDICT_COLOR.NO_GO}>hazardous conditions detected</span>. Ask for live harbour forecasts or sheltered routes.
+        {greeting}. {t("greeting.seasOff")} <strong className="font-semibold text-ink">{port}</strong> {t("greeting.rough")} ({waveStr} m) —{" "}
+        <span className={VERDICT_COLOR.NO_GO}>{t("greeting.noGoVerdict")}</span>. {t("greeting.noGoPrompt")}
       </p>
     );
   }
 
   // If home port is set but conditions are still loading on first-ever mount
   if (homePort && placeName) {
+    const port = translatePortName(placeName, language);
     return (
       <p className="text-sm sm:text-base leading-relaxed text-ink-muted text-center max-w-2xl mx-auto">
-        {greeting}. Seas off <strong className="font-semibold text-ink">{placeName}</strong> are being monitored. Ask anything about your voyage, weather, or fishing zones.
+        {greeting}. {t("greeting.seasOff")} <strong className="font-semibold text-ink">{port}</strong> {t("greeting.monitored")}
       </p>
     );
   }
@@ -136,7 +144,7 @@ export function Greeting({
   // Signed out / guest / no home port set
   return (
     <p className="text-sm sm:text-base leading-relaxed text-ink-muted text-center max-w-2xl mx-auto">
-      {greeting}. Real-time coastal intelligence across Indian waters. Ask anything about sea state, weather, or navigation.
+      {greeting}. {t("greeting.defaultSignedOut")}
     </p>
   );
 }

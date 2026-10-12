@@ -45,8 +45,12 @@ function PointPointer() {
  * 3. Ensuring parameter labels before a colon are highlighted in bold
  */
 function cleanItemContent(text: string): string {
+  // Strip any leading bullet markers, dashes, or asterisks: e.g. "* Wave...", "* * Wave...", "• * Wave..."
+  let cleaned = text.replace(/^[•*\-\s]+/, "").replace(/\*\s+\*/g, "**").trim();
+  cleaned = cleaned.replace(/^\*+\s*/, "");
+
   // Strip "All Parameters Within Safe Operational Limits"
-  let cleaned = text.replace(/\bAll Parameters Within Safe Operational Limits\b[.:]?/gi, "").trim();
+  cleaned = cleaned.replace(/\bAll Parameters Within Safe Operational Limits\b[.:]?/gi, "").trim();
 
   // Remove scientific binomials in parentheses, e.g. "(Rastrelliger kanagurta)" or "(Harpadon nehereus)"
   cleaned = cleaned.replace(/\s*\([A-Z][a-z]+(?:\s+[a-z]+)?\)/g, "");
@@ -58,11 +62,11 @@ function cleanItemContent(text: string): string {
   );
 
   // Clean any duplicated labels at the start, e.g. "**Safe Operating Window**: Safe Operating Window: "
-  cleaned = cleaned.replace(/^(\*\*([A-Za-z\s&/—–-]+?)\*\*:\s*)(?:[•*\-]\s*)?(?:\*\*)?\2(?:\*\*)?:\s*/i, "$1");
+  cleaned = cleaned.replace(/^(\*\*([\p{L}\p{M}\p{N}\s&/—–\-_()]+?)\*\*:\s*)(?:[•*\-]\s*)?(?:\*\*)?\2(?:\*\*)?:\s*/iu, "$1");
 
-  // Ensure parameter label before colon is bolded: "Significant Wave Height: 0.56 m" -> "**Significant Wave Height**: 0.56 m"
+  // Ensure parameter label before colon is bolded and clean of leading asterisks
   if (!cleaned.startsWith("**") && cleaned.includes(":")) {
-    cleaned = cleaned.replace(/^([A-Za-z\s&/—–-]+?):\s*/, "**$1**: ");
+    cleaned = cleaned.replace(/^[*•\-\s]*([\p{L}\p{M}\p{N}\s&/—–\-_()]+?):\s*/u, "**$1**: ");
   }
 
   // If there's an odd count of '**', balance missing opening or remove dangling '**'
@@ -93,12 +97,27 @@ function cleanItemContent(text: string): string {
  */
 function renderInlineMarkdown(str: string, defaultBoldColor: "brown" | "black" = "brown"): ReactNode[] {
   if (!str) return [];
-  // Tokenize bold (**...**), inline code (`...`), and italics (*...*)
-  const tokens = str.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
+  // 1. Triple or more asterisks -> double asterisks
+  let normalized = str.replace(/\*{3,}/g, "**");
+  // 2. Spaced asterisks from translation -> double asterisks
+  normalized = normalized.replace(/\*\s+\*/g, "**");
+
+  // Fix unmatched '**' (e.g. "** ஆம், ...")
+  const boldMatches = normalized.match(/\*\*/g);
+  if (boldMatches && boldMatches.length % 2 !== 0) {
+    if (/^\s*\*\*[^*]+$/.test(normalized)) {
+      normalized = normalized.replace(/^\s*\*\*([^\n,.]+)([,.]?)/, "**$1**$2");
+    } else {
+      normalized = normalized.replace(/\*\*/, "");
+    }
+  }
+
+  // Tokenize bold (**...**) and inline code (`...`)
+  const tokens = normalized.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
 
   return tokens.map((token, idx) => {
     if (token.startsWith("**") && token.endsWith("**") && token.length >= 4) {
-      const content = token.slice(2, -2);
+      const content = token.slice(2, -2).replace(/[*#•\-]/g, "").trim();
       if (defaultBoldColor === "brown") {
         return (
           <strong key={idx} className="font-semibold text-accent tracking-tight">
@@ -122,14 +141,9 @@ function renderInlineMarkdown(str: string, defaultBoldColor: "brown" | "black" =
         </code>
       );
     }
-    if (token.startsWith("*") && token.endsWith("*") && token.length >= 2) {
-      return (
-        <em key={idx} className="italic text-ink-muted">
-          {token.slice(1, -1)}
-        </em>
-      );
-    }
-    return token;
+    // Clean any stray asterisks or hashes from plain text token
+    const cleanedToken = token.replace(/[*#]/g, "");
+    return cleanedToken;
   });
 }
 
@@ -140,16 +154,17 @@ function renderInlineMarkdown(str: string, defaultBoldColor: "brown" | "black" =
  * - Any highlighted content in the key point after the subheading is rendered in BROWN ONLY (`font-semibold text-accent`).
  */
 function renderPointItem(itemText: string): ReactNode {
-  const colonIdx = itemText.indexOf(":");
+  const cleaned = itemText.replace(/\*\s+\*/g, "**");
+  const colonIdx = cleaned.indexOf(":");
   if (colonIdx === -1) {
-    return renderInlineMarkdown(itemText, "brown");
+    return renderInlineMarkdown(cleaned, "brown");
   }
 
-  const labelRaw = itemText.slice(0, colonIdx);
-  const valueRaw = itemText.slice(colonIdx + 1);
+  const labelRaw = cleaned.slice(0, colonIdx);
+  const valueRaw = cleaned.slice(colonIdx + 1);
 
-  // Clean label of any ** markers: "**Safe Operating Window**" -> "Safe Operating Window"
-  const labelClean = labelRaw.replace(/\*\*/g, "").trim();
+  // Clean label of any *, #, •, or - markers: NO asterisk mark in headings
+  const labelClean = labelRaw.replace(/[*#•\-]/g, "").trim();
 
   return (
     <>
@@ -166,9 +181,10 @@ function renderPointItem(itemText: string): ReactNode {
  * - Any highlighted metrics or text in the rest of the paragraph is rendered in BROWN ONLY (`font-semibold text-accent`).
  */
 function renderParagraphBlock(paraText: string): ReactNode {
-  const match = paraText.match(/^(?:\*\*)?([A-Za-z\s&/—–-]+?)(?:\*\*)?:\s*([\s\S]*)$/);
+  const normalized = paraText.replace(/\*\s+\*/g, "**");
+  const match = normalized.match(/^(?:\*\*)?([\p{L}\p{M}\p{N}\s&/—–\-_()]+?)(?:\*\*)?:\s*([\s\S]*)$/u);
   if (match && match[1].trim().length < 60) {
-    const headingClean = match[1].replace(/\*\*/g, "").trim();
+    const headingClean = match[1].replace(/[*#•\-]/g, "").trim();
     const rest = match[2];
     return (
       <>
@@ -177,7 +193,7 @@ function renderParagraphBlock(paraText: string): ReactNode {
       </>
     );
   }
-  return renderInlineMarkdown(paraText, "brown");
+  return renderInlineMarkdown(normalized, "brown");
 }
 
 function getSectionIcon(title: string) {
@@ -213,27 +229,27 @@ type BlockElement =
  */
 function normalizeResponseText(raw: string): string {
   if (!raw) return "";
-  let text = raw;
+  let text = raw.replace(/\*\s+\*/g, "**");
 
   // Split accidental combined headers like "Hazard Parameters: Alert Classification: ..."
   text = text.replace(
-    /(?:^|\n)\s*(?:\*\*)?([A-Za-z\s&/—–-]+?\s+Parameters)(?:\*\*)?:\s*(?:\*\*)?([A-Za-z\s&/—–-]+?)(?:\*\*)?:\s*/gi,
+    /(?:^|\n)\s*(?:\*\*)?([\p{L}\p{M}\p{N}\s&/—–\-_()]+?\s+Parameters)(?:\*\*)?:\s*(?:\*\*)?([\p{L}\p{M}\p{N}\s&/—–\-_()]+?)(?:\*\*)?:\s*/giu,
     "\n\n**$1**:\n• **$2**: "
   );
 
-  // 1. Clean up duplicate consecutive labels, e.g.:
-  // "Safe Operating Window:\n• Safe Operating Window: 05:00" -> "• **Safe Operating Window**: 05:00"
+  // Clean up bullet markers followed by stray asterisks before labels:
+  // e.g. "• * Heading: value" or "* * Heading: value" -> "\n• **Heading**: value"
+  text = text.replace(/(?:^|\n)\s*[•*\-]?\s*\*+\s*([\p{L}\p{M}\p{N}\s&/—–\-_()]+?):\s*/gu, "\n• **$1**: ");
+
+  // 1. Clean up duplicate consecutive labels
   text = text.replace(
-    /(?:^|\n)\s*(?:[•*\-]|\d+\.)?\s*(?:\*\*)?([A-Za-z\s&/—–-]+?)(?:\*\*)?:\s*\n+\s*(?:[•*\-]|\d+\.)?\s*(?:\*\*)?\1(?:\*\*)?:\s*/gi,
+    /(?:^|\n)\s*(?:[•*\-]|\d+\.)?\s*(?:\*\*)?([\p{L}\p{M}\p{N}\s&/—–\-_()]+?)(?:\*\*)?:\s*\n+\s*(?:[•*\-]|\d+\.)?\s*(?:\*\*)?\1(?:\*\*)?:\s*/giu,
     "\n• **$1**: "
   );
 
-  // 2. Fix broken labels where answer was placed on next line:
-  // e.g.:
-  // • Safe Operating Window:
-  // 05:00 to 12:00 IST -> • **Safe Operating Window**: 05:00 to 12:00 IST
+  // 2. Fix broken labels where answer was placed on next line
   text = text.replace(
-    /(?:^|\n)\s*(?:[•*\-]|\d+\.)?\s*(?:\*\*)?([A-Za-z\s&/—–-]+?)(?:\*\*)?:\s*\n+([^\n]+)/g,
+    /(?:^|\n)\s*(?:[•*\-]|\d+\.)?\s*(?:\*\*)?([\p{L}\p{M}\p{N}\s&/—–\-_()]+?)(?:\*\*)?:\s*\n+([^\n]+)/gu,
     (match, label, value) => {
       const trimmedLabel = label.trim();
       if (/parameters|points|findings|assessment|directives|details|overview|summary/i.test(trimmedLabel)) {

@@ -146,6 +146,48 @@ export default function LandingPage() {
         {/* Hero */}
         <section className="mt-16 grid gap-10 lg:grid-cols-[1.2fr_1fr] lg:items-center">
           <div>
+            {/* Official Data Provider Seals: ISRO, INCOIS, IMD (Transparent PNGs, no white background, enlarged size) */}
+            <div className="mb-8 flex items-center gap-6 sm:gap-8">
+              <div
+                className="flex h-16 sm:h-20 items-center justify-center transition-transform hover:scale-105 cursor-pointer"
+                title="ISRO · Indian Space Research Organisation"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/assets/isro.png"
+                  alt="ISRO"
+                  className="h-full w-auto object-contain select-none drop-shadow-sm"
+                  draggable={false}
+                />
+              </div>
+
+              <div
+                className="flex h-16 sm:h-20 items-center justify-center transition-transform hover:scale-105 cursor-pointer"
+                title="INCOIS · Indian National Centre for Ocean Information Services"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/assets/incois.png"
+                  alt="INCOIS"
+                  className="h-full w-auto object-contain select-none drop-shadow-sm"
+                  draggable={false}
+                />
+              </div>
+
+              <div
+                className="flex h-16 sm:h-20 items-center justify-center transition-transform hover:scale-105 cursor-pointer"
+                title="IMD · India Meteorological Department"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/assets/imd.png"
+                  alt="IMD"
+                  className="h-full w-auto object-contain select-none drop-shadow-sm"
+                  draggable={false}
+                />
+              </div>
+            </div>
+
             <motion.h1
               initial={reduce ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}

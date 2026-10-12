@@ -11,6 +11,7 @@ import { Skeleton } from "../components/States";
 import { useT } from "../i18n/useT";
 import { SatelliteZoneMap } from "./SatelliteZoneMap";
 import { useZonesT } from "./translations";
+import { translatePortName } from "../i18n/entities";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -201,7 +202,7 @@ export function ZonesToolbar({
   profileVesselLabel?: string | null;
   isProfileVesselActive?: boolean;
 }) {
-  const { t } = useZonesT();
+  const { t, sectorName, portName } = useZonesT();
   const byState = useMemo(() => {
     const m = new Map<string, PortLite[]>();
     ports.forEach((p) => m.set(p.state, [...(m.get(p.state) ?? []), p]));
@@ -225,13 +226,13 @@ export function ZonesToolbar({
             className="cursor-pointer appearance-none rounded-lg border border-hairline bg-shelf-1 py-1.5 pl-3 pr-8 text-xs font-semibold text-ink focus:border-ocean-cyan focus:outline-none focus:ring-1 focus:ring-ocean-cyan"
           >
             <option value="default_home">
-              {registeredHomePortName ?? "Kochi"} {t("(profile default)")}
+              {portName(registeredHomePortName ?? "Kochi")} {t("(profile default)")}
             </option>
             {byState.map(([state, list]) => (
-              <optgroup key={state} label={state}>
+              <optgroup key={state} label={sectorName(state)}>
                 {list.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name}
+                    {portName(p.name)}
                   </option>
                 ))}
               </optgroup>
@@ -326,7 +327,7 @@ export function KpiStrip({
   ban?: unknown;
 }) {
   const tBase = useT();
-  const { t, zoneName, bearing } = useZonesT();
+  const { t, zoneName, bearing, sectorName } = useZonesT();
 
   const nearestBadge = !nearest.found
     ? { text: t("None charted"), tone: "neutral" as Tone }
@@ -366,13 +367,13 @@ export function KpiStrip({
     <div className="mb-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
       <Kpi
         label={tBase("zones.yourSector") || t("Your sector")}
-        value={sector.name}
+        value={sectorName(sector.name)}
         badge={sector.gap ? tBase("zones.noAdvisory") : t("Active coverage")}
         tone={sector.gap ? "caution" : "go"}
         note={sector.message}
       />
       <Kpi
-        label={tBase("zones.nearestZone") || t("Nearest advised zone")}
+        label={t("Highest profitable zone")}
         value={formattedNearestLabel}
         badge={nearest.zoneName ? zoneName(nearest.zoneName) : nearestBadge.text}
         tone={nearestBadge.tone}
@@ -412,7 +413,7 @@ function ZoneMap({
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [mapViewMode, setMapViewMode] = useState<"satellite" | "chart">("satellite");
-  const { t, zoneName, zoneDesc, bearing } = useZonesT();
+  const { t, zoneName, zoneDesc, bearing, portName, sectorName, language } = useZonesT();
 
   const W = 560;
   const H = 340;
@@ -526,10 +527,10 @@ function ZoneMap({
           </div>
           <div>
             <h3 className="text-sm font-bold text-ink">
-              {t("Fishing Grounds & Regional Map")} · {data.port_name}
+              {t("Fishing Grounds & Regional Map")} · {translatePortName(data.port_name, language) || portName(data.port_name)}
             </h3>
             <p className="text-[10px] font-mono text-ink-dim">
-              {data.port_lat.toFixed(2)}°N, {data.port_lon.toFixed(2)}°E · {data.port_state} Coast
+              {data.port_lat.toFixed(2)}°N, {data.port_lon.toFixed(2)}°E · {sectorName(data.port_state)} {t("Coast")}
             </p>
           </div>
         </div>
@@ -639,7 +640,7 @@ function ZoneMap({
               fill="#8c8672"
               fillOpacity="0.75"
             >
-              {data.port_state.toUpperCase()} COAST
+              {sectorName(data.port_state).toUpperCase()} {t("Coast").toUpperCase()}
             </text>
 
             {/* 4. Bathymetric Shelf Depth Contours & Soundings */}
@@ -813,7 +814,7 @@ function ZoneMap({
                 fontWeight="bold"
                 fill="#0f172a"
               >
-                ⚓ {data.port_name}
+                ⚓ {portName(data.port_name)}
               </text>
               <text
                 x={isWestCoast ? 2 : -2}
@@ -1040,7 +1041,7 @@ function RankedZoneList({
                         {Math.round(z.distance_km)} km
                       </span>
                       <span>·</span>
-                      <span className="line-clamp-1">{zoneDesc(z.zone_description)}</span>
+                      <span className="line-clamp-1">{zoneDesc(z.zone_description, z.zone_name)}</span>
                     </div>
                   </div>
                 </div>
@@ -1231,7 +1232,6 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
               {/* Formula: How Trip Economics is Calculated */}
               <div className="mt-3 rounded-lg border border-hairline/80 bg-shelf-2/50 p-3 text-xs">
                 <div className="flex items-center gap-1.5 font-semibold text-ink mb-2">
-                  <span className="text-ocean-cyan">📐</span>
                   <span>{t("Calculation Formula:")}</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
@@ -1265,7 +1265,7 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
                 {species.map((sp) => (
                   <li key={sp.aphia_id}>
                     <div className="mb-1 flex items-center justify-between text-xs">
-                      <span className="truncate font-medium text-ink">{tSpecies(sp.common_name)}</span>
+                      <span className="truncate font-medium text-ink">{tSpecies(sp.common_name || sp.scientific_name)}</span>
                       <div className="flex items-center gap-2 font-mono text-[11px]">
                         <span className="text-ink-dim">{sp.est_kg} kg</span>
                         <span className="font-bold text-ink">{sp.share_pct}%</span>
@@ -1401,7 +1401,7 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
                     return (
                       <tr key={sp.aphia_id} className="hover:bg-shelf-2/40">
                         <td className="px-2 py-1.5 text-ink">
-                          <div className="font-medium">{tSpecies(sp.common_name)}</div>
+                          <div className="font-medium">{tSpecies(sp.common_name || sp.scientific_name)}</div>
                           <div className="text-[10px] italic text-ink-dim">{sp.scientific_name}</div>
                         </td>
                         <td className="px-2 py-1.5 text-right font-mono text-ink-muted">{sp.share_pct}%</td>

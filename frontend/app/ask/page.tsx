@@ -18,18 +18,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Compass, Fish, History, Maximize2, MapPin, Minimize2, PanelLeftOpen, Plus, ShieldCheck, Waves, Wind } from "lucide-react";
+import { Compass, Fish, History, Maximize2, Minimize2, PanelLeftOpen, Plus, ShieldCheck } from "lucide-react";
 import { Button } from "../components/Button";
 import { Greeting } from "../components/Greeting";
 import { SavedLocationChips } from "../components/SavedLocationChips";
 import { VesselChip } from "../components/VesselChip";
-import { PRESET_HOME_PORTS } from "../profile/page";
+import { PRESET_HOME_PORTS } from "../lib/ports";
 import { Skeleton } from "../components/States";
 import { useVoiceInput } from "../components/VoiceInput";
 import { useAuth } from "../lib/auth";
 import { usePersona } from "../persona/context";
 import { useLanguage } from "../language/context";
-import { classifyQueryIntent, type QueryIntent } from "../lib/queryIntent";
 import { Composer } from "./Composer";
 import { ChatTurn } from "./ChatTurn";
 import { ChatHistoryRail, CollapsedChatRail, iconButtonClass } from "./ChatHistoryRail";
@@ -45,24 +44,6 @@ const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapV
   loading: () => <Skeleton className="h-full w-full" />,
 });
 
-const INTENT_ICON: Record<QueryIntent, typeof Waves> = {
-  fishing: Fish,
-  boundary: Compass,
-  safety: ShieldCheck,
-  current: Waves,
-  wave: Waves,
-  wind: Wind,
-  general: MapPin,
-};
-
-// Example queries in the fishermen & maritime users' own words
-const EXAMPLES = [
-  "Is it safe to venture into the sea tomorrow morning?",
-  "Where is the nearest Potential Fishing Zone (PFZ) today?",
-  "Which regions show high chlorophyll & favourable SST?",
-  "What is the safest route considering sea-state conditions?",
-];
-const PRESETS = EXAMPLES.map((label) => ({ label, icon: INTENT_ICON[classifyQueryIntent(label)] }));
 
 const RAIL_COLLAPSED_KEY = "orca-ask-rail-collapsed";
 const MAP_WIDTH_KEY = "orca-ask-map-width";
@@ -73,6 +54,15 @@ export default function AskPage() {
   const auth = useAuth();
   const t = useT();
   const { language } = useLanguage();
+  const presets = useMemo(
+    () => [
+      { label: t("ask.presetSafety"), icon: ShieldCheck },
+      { label: t("ask.presetPfz"), icon: Fish },
+      { label: t("ask.presetChlorophyll"), icon: Fish },
+      { label: t("ask.presetRoute"), icon: Compass },
+    ],
+    [t]
+  );
   const store = auth.status === "loading" ? null : auth.status === "signed_in" ? accountStore : browserStore;
   const [query, setQuery] = useState("");
   const [mapCollapsed, setMapCollapsed] = useState(false);
@@ -98,7 +88,7 @@ export default function AskPage() {
     showVersion,
     newChat,
     openChat,
-  } = useAskThread(persona, store, () => setHistoryVersion((v) => v + 1));
+  } = useAskThread(persona, store, () => setHistoryVersion((v) => v + 1), language);
 
   // Resolved home port coordinates: prefer explicit profile home_port, then match
   // profile home_port_name from presets, otherwise default to Kochi [76.2673, 9.9312].
@@ -401,7 +391,7 @@ export default function AskPage() {
             <div className="mb-3 flex items-center justify-center gap-2">
               <span className="size-2 rounded-full bg-ocean-cyan beacon-pulse" aria-hidden="true" />
               <span className="font-mono text-[10px] font-bold tracking-widest text-ocean-cyan uppercase">
-                SAGAR SARATHI INTELLIGENCE CONSOLE // VHF &amp; SATELLITE
+                {t("ask.consoleBadge")}
               </span>
             </div>
             <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">{t("ask.heading")}</h1>
@@ -425,7 +415,7 @@ export default function AskPage() {
             voice={voice}
             isFisherman={persona === "fisherman"}
             centered
-            presets={PRESETS}
+            presets={presets}
             leading={
               <VesselChip
                 auth={auth}
@@ -441,7 +431,7 @@ export default function AskPage() {
               onClick={tour.start}
               className="text-xs font-medium text-ink-dim underline-offset-2 hover:text-accent hover:underline"
             >
-              Take the 3-minute tour →
+              {t("ask.tourButton")}
             </button>
           )}
         </div>

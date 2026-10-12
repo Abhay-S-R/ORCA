@@ -6,9 +6,12 @@
 import { ChevronDown } from "lucide-react";
 import { PERSONAS } from "./config";
 import { usePersona } from "./context";
+import { useLanguage } from "../language/context";
+import { translatePersonaName } from "../i18n/entities";
 
 export function PersonaSelector() {
   const { persona, setPersona } = usePersona();
+  const { language } = useLanguage();
 
   return (
     <div className="relative flex items-center w-full">
@@ -23,7 +26,7 @@ export function PersonaSelector() {
       >
         {PERSONAS.map((p) => (
           <option key={p.id} value={p.id} className="bg-shelf-2 text-ink">
-            {p.label}
+            {translatePersonaName(p.id, language)}
           </option>
         ))}
       </select>

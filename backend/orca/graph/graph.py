@@ -650,7 +650,7 @@ def planning_node(state: ORCAState) -> dict:
         "understood_is_followup": outputs.get("is_followup", False),
         "planned_agents": outputs.get("agents", []),  # PC2.1
         "understood_english_reading": outputs.get("english_reading"),  # PC5.2, display only
-        "reply_language": outputs.get("reply_language"),  # PC5.8, only when explicitly requested
+        "reply_language": outputs.get("reply_language") or state.get("reply_language"),  # PC5.8, only when explicitly requested or provided by state
         # Validation / guard fields (PC2.3)
         "query_outcome": outputs.get("query_outcome"),
         # Routing fields

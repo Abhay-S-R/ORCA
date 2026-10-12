@@ -293,14 +293,6 @@ export function ChatTurn({
 
               <IntentActions actions={answer.intent_actions ?? []} />
 
-              {answer.final_vernacular_response &&
-                answer.detected_language !== "en" &&
-                answer.final_vernacular_response !== answer.final_english_response && (
-                  <div className="rounded-xl border border-hairline/60 bg-shelf-0/40 p-3 text-xs text-ink-muted">
-                    <span className="font-semibold text-ink-dim block mb-1.5">{t("chatTurn.englishTranslation")}</span>
-                    <FormattedResponse text={answer.final_english_response} />
-                  </div>
-              )}
 
               {/* P2.7/P2.12 — work deliberately not done, and why. */}
               {answer.skipped_agents && answer.skipped_agents.length > 0 && (

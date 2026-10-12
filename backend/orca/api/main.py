@@ -346,6 +346,7 @@ def _initial_state(
     demo_scenario: str | None = None,
     raw_fix: tuple[float, float] | None = None,
     pretranslated: dict[str, str] | None = None,
+    reply_language: str | None = None,
 ) -> ORCAState:
     return {  # type: ignore[typeddict-item]
         "session_id": session_id or "",
@@ -364,6 +365,7 @@ def _initial_state(
         # P3.1 — a signed-in user's stored language, consulted only when the
         # text itself carries no script signal (see language.run_ingress).
         "user_language_default": user_language_default,
+        "reply_language": reply_language,
         "pretranslated": pretranslated,
         # A real query-complexity classifier for reasoning_depth is Agent 2's
         # job (plan §9.5's rules-tier routing) and is not built yet — this
@@ -586,6 +588,7 @@ async def _query_stream(
     demo_scenario: str | None = None,
     raw_fix: tuple[float, float] | None = None,
     pretranslated: dict[str, str] | None = None,
+    reply_language: str | None = None,
 ) -> AsyncIterator[str]:
     """`on_final`, when given, is called once with the same dict that gets
     JSON-serialized into the `final_response` SSE frame — the query-cache
@@ -606,7 +609,7 @@ async def _query_stream(
     state = _initial_state(
         query, lat, lon, vessel_class, distress, persona, depth, place, session_id, session_history,
         resolution, fix_on_land, user_language_default, demo_scenario, raw_fix=raw_fix,
-        pretranslated=pretranslated,
+        pretranslated=pretranslated, reply_language=reply_language,
     )
     # P6.12 (orca_final §28) — every log line the graph emits from here on
     # carries this query_id, so an incident is one grep away instead of a
@@ -1186,6 +1189,7 @@ async def query(
     session_id: str | None = None, llm: str | None = None, drop: str | None = None,
     fresh: bool = False, fix_lat: OptLat = None, fix_lon: OptLon = None,
     demo_scenario: str | None = None,
+    lang: str | None = None, language: str | None = None,
     user: User | None = Depends(get_optional_user), db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """`llm=off` (P2.11, `R-NEW-3`) re-runs this exact query with every LLM
@@ -1267,9 +1271,11 @@ async def query(
     # place, priority lane — matches English words, so a Kannada "ಕೊಚ್ಚಿ"
     # never became Kochi and the question was answered at the pilot default.
     # Translate once here; ingress reuses it (state["pretranslated"]).
-    # Place resolution tries the raw text first, since the gazetteer also
-    # holds Tamil-script names.
-    q_language = query_language(q, user.language if user is not None else None)
+    req_lang = (lang or language or "").strip().lower() or None
+    if req_lang and req_lang not in ("en", "ta", "hi", "te", "ml", "kn", "bn", "mr", "gu", "or"):
+        req_lang = None
+    reply_language = req_lang or (user.language if user is not None else None)
+    q_language = query_language(q, reply_language or (user.language if user is not None else None))
     try:
         q_en, q_rung = english_query(q, q_language)
         pretranslated: dict[str, str] | None = {"raw": q, "language": q_language, "english": q_en, "rung": q_rung}
@@ -1425,6 +1431,7 @@ async def query(
                 user_id=user_id, user_language_default=user_language_default,
                 demo_scenario=demo_scenario,
                 raw_fix=raw_fix, pretranslated=pretranslated,
+                reply_language=reply_language,
             )),
             media_type="text/event-stream"
         )
@@ -1445,6 +1452,7 @@ async def query(
                 user_id=user_id, user_language_default=user_language_default,
                 demo_scenario=demo_scenario,
                 raw_fix=raw_fix, pretranslated=pretranslated,
+                reply_language=reply_language,
             ),
             media_type="text/event-stream",
         )
@@ -1454,6 +1462,8 @@ async def query(
         # written to the shared cache — the same rule the ordinary path below
         # applies, and the reason this is not simply `on_final=store`.
         shared_key = None if history else resolved_key(q, lat, lon, vessel_class, persona, depth) + fix_suffix
+        if shared_key is not None and reply_language:
+            shared_key = f"{shared_key}:lang={reply_language}"
         # P2.11 — same rule as the ordinary path below: an LLM-disabled run is
         # a DIFFERENT answer, so `fresh=1&llm=off` must not overwrite the
         # ordinary (LLM-on) answer sitting in the shared cache slot.
@@ -1467,11 +1477,14 @@ async def query(
                 llm=llm_override, fix_on_land=fix_on_land,
                 user_id=user_id, user_language_default=user_language_default,
                 raw_fix=raw_fix, pretranslated=pretranslated,
+                reply_language=reply_language,
             ),
             media_type="text/event-stream",
         )
 
     cache_key = resolved_key(q, lat, lon, vessel_class, persona, depth) + fix_suffix
+    if reply_language:
+        cache_key = f"{cache_key}:lang={reply_language}"
     # P2.11 — an LLM-disabled run is a DIFFERENT answer to the same question,
     # so it must not be served from, or written into, the ordinary answer's
     # cache slot. Without this the demo shows the cached LLM narration back
@@ -1502,6 +1515,7 @@ async def query(
                 llm=llm_override, fix_on_land=fix_on_land,
                 user_id=user_id, user_language_default=user_language_default,
                 raw_fix=raw_fix, pretranslated=pretranslated,
+                reply_language=reply_language,
             ):
                 yield line
 

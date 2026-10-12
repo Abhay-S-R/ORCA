@@ -1,10 +1,8 @@
 "use client";
 
 // The bezel's top edge: high-precision maritime bridge telemetry console strip.
-// Displays coverage status, IST chronometer, language and account.
-// No fixed coordinates here — the chart's own
-// "Your Location" marker (MapView) is the one place a real position ever
-// shows, and only once the browser actually grants a GPS fix.
+// Displays institutional affiliation (ISRO & INCOIS), coverage status, IST chronometer,
+// language selector and account dropdown.
 import { useEffect, useState } from "react";
 import { LanguageSelector } from "./LanguageSelector";
 import { Clock } from "lucide-react";
@@ -13,12 +11,51 @@ import { AccountMenu } from "./AccountMenu";
 export function StatusBar() {
   return (
     <header className="relative z-40 flex h-10 shrink-0 items-center justify-between border-b border-hairline bg-shelf-1/70 px-4 text-[11px] backdrop-blur-md">
-      <div className="flex items-center gap-3.5">
-        <div className="flex items-center gap-2">
-          <span className="font-bold tracking-wider text-ink">SAGAR SARATHI</span>
-          <span className="rounded bg-shelf-3/80 px-1.5 py-0.5 text-[9px] font-mono tracking-widest text-ocean-cyan uppercase border border-ocean-cyan/30">
-            ECDIS v2.4
-          </span>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
+          <span className="text-[13px] sm:text-sm font-extrabold tracking-wider text-ink shrink-0">SAGAR SARATHI</span>
+
+          {/* Official Partner Data Feeds: ISRO, INCOIS, IMD (Transparent PNGs, no white background, images alone) */}
+          <div className="flex items-center gap-2 pl-1">
+            <div
+              className="flex h-6 sm:h-7 items-center justify-center transition-transform hover:scale-110 cursor-pointer"
+              title="ISRO · Indian Space Research Organisation"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/assets/isro.png"
+                alt="ISRO"
+                className="h-full w-auto object-contain select-none"
+                draggable={false}
+              />
+            </div>
+
+            <div
+              className="flex h-6 sm:h-7 items-center justify-center transition-transform hover:scale-110 cursor-pointer"
+              title="INCOIS · Indian National Centre for Ocean Information Services"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/assets/incois.png"
+                alt="INCOIS"
+                className="h-full w-auto object-contain select-none"
+                draggable={false}
+              />
+            </div>
+
+            <div
+              className="flex h-6 sm:h-7 items-center justify-center transition-transform hover:scale-110 cursor-pointer"
+              title="IMD · India Meteorological Department"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/assets/imd.png"
+                alt="IMD"
+                className="h-full w-auto object-contain select-none"
+                draggable={false}
+              />
+            </div>
+          </div>
         </div>
 
         <div className="hidden h-3.5 w-px bg-hairline md:block" />

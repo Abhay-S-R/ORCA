@@ -18,6 +18,8 @@ import { Button } from "./Button";
 import { Readout, ReadoutGrid } from "./Readout";
 import { type Persona } from "../persona/config";
 import { type QueryIntent } from "../lib/queryIntent";
+import { useLanguage } from "../language/context";
+import { translateResponseHeading } from "../i18n/entities";
 
 // Header title/icon per query intent — the response now opens with "what
 // kind of answer is this" instead of a full-width Go/No-Go slab (removed
@@ -505,6 +507,7 @@ export function PersonaAnswerMatrix({
   // it. Optional because only the researcher branch reads it.
   rawAnswer?: unknown;
 }) {
+  const { language } = useLanguage();
   const [showTechnical, setShowTechnical] = useState(false);
   const tide = formatTideData(ocean.tide);
   const pfz = formatPfzData(ocean.nearest_pfz);
@@ -520,7 +523,7 @@ export function PersonaAnswerMatrix({
   } : undefined;
   const headerMeta = resolveHeaderMeta(intent, rawAnswer, verdict, hazard, weather, pfzForHeading);
   const HeaderIcon = headerMeta.icon;
-  const headerTitle = headerMeta.title;
+  const headerTitle = translateResponseHeading(headerMeta.title, language);
 
   return (
     <div className="flex flex-col gap-3.5">

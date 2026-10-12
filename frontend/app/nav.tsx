@@ -26,7 +26,6 @@ import {
   Navigation,
   Phone,
   Radio,
-  Sailboat,
   ShieldAlert,
   Workflow,
   type LucideIcon,
@@ -194,13 +193,18 @@ export function OrcaMark({ className = "size-6", animated = false }: { className
   const play = animated && !reduce;
   return (
     <motion.div
-      className={`relative grid place-items-center rounded-full border-[1.5px] border-current ${className}`}
-      style={{ color: "var(--color-ink)" }}
+      className={`relative inline-flex items-center justify-center shrink-0 ${className}`}
       initial={play ? { opacity: 0, scale: 0.85 } : false}
       animate={play ? { opacity: 1, scale: 1 } : undefined}
       transition={{ duration: 0.4, ease: "easeOut" }}
     >
-      <Sailboat className="size-[62%]" style={{ color: "var(--color-ocean-cyan)" }} strokeWidth={2} aria-hidden="true" />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/assets/LOGO.png"
+        alt="Sagar Sarathi logo"
+        className="size-full object-contain select-none"
+        draggable={false}
+      />
     </motion.div>
   );
 }

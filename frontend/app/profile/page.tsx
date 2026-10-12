@@ -18,6 +18,9 @@ import { authFetch, invalidateProfile, useAuth, type Profile } from "../lib/auth
 import { LANGUAGES, type LangCode } from "../i18n/languages";
 import { PERSONAS } from "../persona/config";
 import { useT } from "../i18n/useT";
+import { useLanguage } from "../language/context";
+import { translatePortName, translateVesselName, translatePersonaName } from "../i18n/entities";
+import { PRESET_HOME_PORTS } from "../lib/ports";
 
 type Vessel = {
   id: string;
@@ -123,50 +126,9 @@ function AccountPanel({ profile }: { profile: Profile | null }) {
 
 // --- Home port ---------------------------------------------------------------
 
-export const PRESET_HOME_PORTS: { name: string; lat: number; lon: number }[] = [
-  { name: "Kanyakumari", lat: 8.0771, lon: 77.5437 },
-  { name: "Thoothukudi (Tuticorin)", lat: 8.77, lon: 78.23 },
-  { name: "Rameswaram", lat: 9.2938, lon: 79.2979 },
-  { name: "Pamban", lat: 9.2833, lon: 79.2 },
-  { name: "Mandapam", lat: 9.2812, lon: 79.1312 },
-  { name: "Colachel", lat: 8.15, lon: 77.24 },
-  { name: "Nagapattinam", lat: 10.7646, lon: 79.8521 },
-  { name: "Cuddalore", lat: 11.7521, lon: 79.7896 },
-  { name: "Puducherry", lat: 11.93, lon: 79.87 },
-  { name: "Chennai", lat: 13.1, lon: 80.32 },
-  { name: "Vizhinjam", lat: 8.35, lon: 77.0 },
-  { name: "Kollam (Quilon)", lat: 8.8771, lon: 76.5854 },
-  { name: "Alappuzha (Alleppey)", lat: 9.4938, lon: 76.3187 },
-  { name: "Kochi (Cochin)", lat: 9.9667, lon: 76.2 },
-  { name: "Beypore (Kozhikode)", lat: 11.16, lon: 75.76 },
-  { name: "Kannur", lat: 11.8563, lon: 75.3771 },
-  { name: "Mangalore (Mangaluru)", lat: 12.85, lon: 74.65 },
-  { name: "Malpe (Udupi)", lat: 13.35, lon: 74.66 },
-  { name: "Karwar", lat: 14.8, lon: 73.9 },
-  { name: "Mormugao (Goa)", lat: 15.3979, lon: 73.7937 },
-  { name: "Panaji (Goa)", lat: 15.5, lon: 73.7 },
-  { name: "Ratnagiri", lat: 16.99, lon: 73.12 },
-  { name: "Mumbai", lat: 18.92, lon: 72.78 },
-  { name: "Veraval", lat: 20.9, lon: 70.37 },
-  { name: "Porbandar", lat: 21.64, lon: 69.5 },
-  { name: "Okha", lat: 22.47, lon: 69.05 },
-  { name: "Mundra", lat: 22.7, lon: 69.5 },
-  { name: "Kandla (Deendayal Port)", lat: 23.0313, lon: 70.2229 },
-  { name: "Krishnapatnam", lat: 14.2521, lon: 80.1312 },
-  { name: "Machilipatnam", lat: 16.1063, lon: 81.1937 },
-  { name: "Kakinada", lat: 16.93, lon: 82.25 },
-  { name: "Visakhapatnam (Vizag)", lat: 17.68, lon: 83.32 },
-  { name: "Gopalpur", lat: 19.2604, lon: 84.9146 },
-  { name: "Puri", lat: 19.8, lon: 85.85 },
-  { name: "Paradeep (Paradip)", lat: 20.2688, lon: 86.6771 },
-  { name: "Haldia", lat: 22.0188, lon: 88.0812 },
-  { name: "Digha", lat: 21.6146, lon: 87.5021 },
-  { name: "Port Blair", lat: 11.67, lon: 92.75 },
-  { name: "Kavaratti", lat: 10.57, lon: 72.64 },
-];
-
 function HomePortPanel({ profile }: { profile: Profile | null }) {
   const t = useT();
+  const { language } = useLanguage();
   const [editing, setEditing] = useState(false);
   const [lat, setLat] = useState(profile?.home_port ? String(profile.home_port.lat) : "");
   const [lon, setLon] = useState(profile?.home_port ? String(profile.home_port.lon) : "");
@@ -230,7 +192,7 @@ function HomePortPanel({ profile }: { profile: Profile | null }) {
       {!editing ? (
         profile?.home_port ? (
           <ReadoutGrid cols={3}>
-            <Readout label={t("profile.place")} value={profile.home_port_name ?? "—"} />
+            <Readout label={t("profile.place")} value={profile.home_port_name ? translatePortName(profile.home_port_name, language) : "—"} />
             <Readout label={t("profile.latitude")} value={profile.home_port.lat.toFixed(4)} />
             <Readout label={t("profile.longitude")} value={profile.home_port.lon.toFixed(4)} />
           </ReadoutGrid>
@@ -250,7 +212,7 @@ function HomePortPanel({ profile }: { profile: Profile | null }) {
                 <option value="">-- {t("profile.selectPort")} --</option>
                 {PRESET_HOME_PORTS.map((p) => (
                   <option key={p.name} value={p.name}>
-                    {p.name} ({p.lat > 0 ? `${p.lat}°N` : `${Math.abs(p.lat)}°S`}, {p.lon}°E)
+                    {translatePortName(p.name, language)} ({p.lat > 0 ? `${p.lat}°N` : `${Math.abs(p.lat)}°S`}, {p.lon}°E)
                   </option>
                 ))}
                 <option value="custom">-- {t("profile.customPort")} --</option>
@@ -291,6 +253,7 @@ function HomePortPanel({ profile }: { profile: Profile | null }) {
 
 function VesselPanel({ profile }: { profile: Profile | null }) {
   const t = useT();
+  const { language } = useLanguage();
   const [vessels, setVessels] = useState<Vessel[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -349,11 +312,11 @@ function VesselPanel({ profile }: { profile: Profile | null }) {
                 <div className="min-w-0">
                   <p className="flex items-center gap-2 text-sm font-semibold text-ink">
                     <Ship className="size-3.5 shrink-0 text-ink-dim" aria-hidden="true" />
-                    {v.name || VESSEL_CLASS_LABEL[v.vessel_class] || v.vessel_class}
+                    {v.name || translateVesselName(v.vessel_class, language)}
                     {active && <Badge tone="cyan">{t("profile.active")}</Badge>}
                   </p>
                   <p className="mt-0.5 truncate text-[11px] text-ink-dim">
-                    {VESSEL_CLASS_LABEL[v.vessel_class] || v.vessel_class}
+                    {translateVesselName(v.vessel_class, language)}
                     {v.cruise_speed_kn != null ? ` · ${v.cruise_speed_kn} kn` : ""}
                     {v.fuel_burn_lph != null ? ` · ${v.fuel_burn_lph} L/h` : ""}
                     {v.draft_m != null ? ` · draft ${v.draft_m} m` : ""}
@@ -384,6 +347,7 @@ function VesselPanel({ profile }: { profile: Profile | null }) {
 
 function AddVesselForm({ onDone, onCancel }: { onDone: (v: Vessel[]) => void; onCancel: () => void }) {
   const t = useT();
+  const { language } = useLanguage();
   const [vesselClass, setVesselClass] = useState("fibreglass");
   const [name, setName] = useState("");
   const [draft, setDraft] = useState("");
@@ -420,9 +384,9 @@ function AddVesselForm({ onDone, onCancel }: { onDone: (v: Vessel[]) => void; on
       <Field label={t("profile.vesselType")}>
         {(id) => (
           <select id={id} className={inputClass} value={vesselClass} onChange={(e) => setVesselClass(e.target.value)}>
-            {Object.entries(VESSEL_CLASS_LABEL).map(([value, label]) => (
+            {Object.keys(VESSEL_CLASS_LABEL).map((value) => (
               <option key={value} value={value}>
-                {label}
+                {translateVesselName(value, language)}
               </option>
             ))}
           </select>
@@ -681,6 +645,7 @@ function AlertsPanel({ profile }: { profile: Profile | null }) {
 
 function LanguagePanel({ profile }: { profile: Profile | null }) {
   const t = useT();
+  const { language } = useLanguage();
   const [busyLang, setBusyLang] = useState<string | null>(null);
   const [busyPersona, setBusyPersona] = useState(false);
 
@@ -751,7 +716,7 @@ function LanguagePanel({ profile }: { profile: Profile | null }) {
                     : "border-hairline/70 bg-shelf-2/40 text-ink-muted hover:border-hairline-strong hover:text-ink"
                 }`}
               >
-                {p.label}
+                {translatePersonaName(p.id, language)}
               </button>
             );
           })}

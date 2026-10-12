@@ -942,8 +942,8 @@ def run(state: ORCAState) -> AgentResult:
             "agents": understood_agents,  # PC2.1
             # PC5.2: display only. Nothing in planning, routing or validation reads it.
             "english_reading": understood.english_reading,
-            # PC5.8: validated in understand._clean_reply_language; None unless explicitly asked.
-            "reply_language": understood.reply_language,
+            # PC5.8: validated in understand._clean_reply_language; fallback to state.reply_language.
+            "reply_language": understood.reply_language or state.get("reply_language"),
             "language_only": understood.language_only,  # CONTEXT-2: planning_node checks it against the history
             # Validation / guard fields (PC2.3)
             "query_outcome": query_outcome,
