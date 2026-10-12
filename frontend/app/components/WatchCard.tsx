@@ -1,8 +1,7 @@
 "use client";
 
 // One subscription row on /watches. Design-system only: Card + Badge +
-// Readout + the shared button skin. Severity/state never colour-only — the
-// enabled state is a text token AND the toggle position.
+// Readout + the shared button skin. Supports all 10 official ORCA languages.
 import { useEffect, useState } from "react";
 import { Bell, BellOff, Trash2 } from "lucide-react";
 import { Badge, type BadgeTone } from "./Badge";
@@ -10,20 +9,8 @@ import { Readout, ReadoutGrid } from "./Readout";
 import { deleteWatch, updateWatch, watchHistory, type OrcaNotification, type Watch } from "../lib/watches";
 import { useAuth } from "../lib/auth";
 import { resolveWatchLocation } from "../lib/ports";
+import { useWatchesT } from "../watches/translations";
 
-const TYPE_LABEL: Record<string, string> = {
-  all: "All parameters",
-  weather: "Weather",
-  wave_height: "Wave height",
-  lightning: "Lightning",
-  cyclone: "Cyclone",
-  geofence_approach: "Boundary approach",
-  pfz_shift: "Fishing-zone shift",
-};
-
-// P5.6/P5.18 — the same graded bands `orca.agents.sentinel._GEOFENCE_BANDS`
-// fires on, so a boundary-approach watch reads as a warning ladder rather
-// than a bare distance the viewer has to already know how to interpret.
 const GEOFENCE_BANDS: { name: string; cut: string; tone: BadgeTone }[] = [
   { name: "Advisory", cut: "12–6 nm", tone: "accent" },
   { name: "Watch", cut: "6–3 nm", tone: "cyan" },
@@ -49,6 +36,7 @@ const DEFAULT_ALL_THRESHOLDS: Record<string, number> = {
 };
 
 export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => void }) {
+  const { t, watchType, portLocation, title: tTitle, body: tBody, language } = useWatchesT();
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<OrcaNotification[] | null>(null);
   const [showHistory, setShowHistory] = useState(true);
@@ -119,24 +107,28 @@ export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => v
     auth.profile?.home_port_name
   );
 
+  const translatedChannels = (watch.channels ?? []).map((ch) => t(ch)).join(", ") || t("in_app");
+
   return (
     <section className="rounded-md border border-hairline bg-shelf-1/70 p-4">
       <header className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold text-ink">
-            {TYPE_LABEL[watch.watch_type] ?? watch.watch_type}
-            <Badge tone={watch.enabled ? "go" : "neutral"}>{watch.enabled ? "Active" : "Paused"}</Badge>
+            {watchType(watch.watch_type)}
+            <Badge tone={watch.enabled ? "go" : "neutral"}>
+              {watch.enabled ? t("Active") : t("Paused")}
+            </Badge>
           </h3>
           <p className="mt-0.5 text-[11px] text-ink-dim">
-            Channels: {(watch.channels ?? []).join(", ") || "in_app"}
+            {t("Channels:")} {translatedChannels}
           </p>
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={toggle}
             disabled={busy}
-            aria-label={watch.enabled ? "Pause this watch" : "Resume this watch"}
+            aria-label={watch.enabled ? t("Pause this watch") : t("Resume this watch")}
             className="rounded-sm border border-hairline p-1.5 text-ink-muted hover:border-hairline-strong hover:text-ink disabled:opacity-50"
           >
             {watch.enabled ? <Bell className="size-4" aria-hidden="true" /> : <BellOff className="size-4" aria-hidden="true" />}
@@ -145,7 +137,7 @@ export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => v
             type="button"
             onClick={remove}
             disabled={busy}
-            aria-label="Delete this watch"
+            aria-label={t("Delete this watch")}
             className="rounded-sm border border-hairline p-1.5 text-ink-muted hover:border-no-go/50 hover:text-no-go disabled:opacity-50"
           >
             <Trash2 className="size-4" aria-hidden="true" />
@@ -155,26 +147,30 @@ export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => v
 
       <ReadoutGrid cols={3}>
         <Readout
-          label="Location"
-          value={locationInfo.portName}
+          label={t("Location")}
+          value={portLocation(locationInfo.portName)}
           hint={locationInfo.coords}
         />
-        <Readout label="Radius" value={watch.radius_km ?? "—"} unit={watch.radius_km ? "km" : undefined} />
+        <Readout label={t("Radius")} value={watch.radius_km ?? "—"} unit={watch.radius_km ? t("km") : undefined} />
         <Readout
-          label="Last fired"
-          value={watch.last_fired_at ? new Date(watch.last_fired_at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }) : "never"}
+          label={t("Last fired")}
+          value={
+            watch.last_fired_at
+              ? new Date(watch.last_fired_at).toLocaleDateString(language === "en" ? "en-IN" : `${language}-IN`, { timeZone: "Asia/Kolkata" })
+              : t("never")
+          }
         />
       </ReadoutGrid>
 
       {watch.watch_type === "geofence_approach" && (
         <div className="mt-3 rounded-lg border border-hairline/60 bg-shelf-2/30 p-2.5">
           <p className="mb-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-ink-dim">
-            Fires on entering — or clearing — any band
+            {t("Fires on entering — or clearing — any band")}
           </p>
           <div className="flex flex-wrap gap-1.5">
             {GEOFENCE_BANDS.map((b) => (
               <Badge key={b.name} tone={b.tone}>
-                {b.name} <span className="font-normal opacity-80">{b.cut}</span>
+                {t(b.name)} <span className="font-normal opacity-80">{b.cut}</span>
               </Badge>
             ))}
           </div>
@@ -185,40 +181,42 @@ export function WatchCard({ watch, onChange }: { watch: Watch; onChange: () => v
         <dl className="mt-3 flex flex-wrap gap-2 text-[11px]">
           {thresholdEntries.map(([k, v]) => (
             <div key={k} className="rounded-sm border border-hairline bg-shelf-2/50 px-2 py-1">
-              <dt className="inline text-ink-dim">{k}</dt> <dd className="inline" data-readout>{v}</dd>
+              <dt className="inline text-ink-dim">{t(k)}</dt> <dd className="inline font-semibold ml-1 text-ink" data-readout>{v}</dd>
             </div>
           ))}
         </dl>
       )}
 
-      <button
-        type="button"
-        onClick={toggleHistory}
-        className="mt-3 text-[11px] text-accent underline cursor-pointer"
-        aria-expanded={showHistory}
-      >
-        {showHistory ? "Hide alert history" : "Show alert history"}
-      </button>
+      <div className="mt-3 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={toggleHistory}
+          className="text-[11px] text-accent underline cursor-pointer"
+          aria-expanded={showHistory}
+        >
+          {showHistory ? t("Hide alert history") : t("Show alert history")}
+        </button>
+      </div>
 
       {showHistory && (
         <ul className="mt-2 flex flex-col gap-1.5">
           {history === null ? (
-            <li className="text-[11px] text-ink-dim">Loading alerts...</li>
+            <li className="text-[11px] text-ink-dim">{t("Loading alerts...")}</li>
           ) : history.length === 0 ? (
-            <li className="text-[11px] text-ink-dim">No alerts have fired for this watch.</li>
+            <li className="text-[11px] text-ink-dim">{t("No alerts have fired for this watch.")}</li>
           ) : (
             history.map((n) => {
               const snapshot = (n.rendered_payload as { snapshot?: { band?: string } } | undefined)?.snapshot;
               return (
                 <li key={n.id} className="rounded-sm border border-hairline bg-shelf-1/60 p-2 text-[11px]">
                   <p className="flex items-center gap-1.5 font-medium text-ink">
-                    {n.title}
-                    {snapshot?.band && <Badge tone={bandTone(snapshot.band)}>{snapshot.band}</Badge>}
+                    {tTitle(n.title)}
+                    {snapshot?.band && <Badge tone={bandTone(snapshot.band)}>{t(snapshot.band)}</Badge>}
                   </p>
-                  <p className="text-ink-muted">{n.body}</p>
+                  <p className="text-ink-muted">{tBody(n.body)}</p>
                   <p className="mt-0.5 text-ink-dim" data-readout>
-                    {new Date(n.created_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST
-                    {n.status !== "sent" && <span className="ml-2 text-caution">SIMULATED</span>}
+                    {new Date(n.created_at).toLocaleString(language === "en" ? "en-IN" : `${language}-IN`, { timeZone: "Asia/Kolkata" })} IST
+                    {n.status !== "sent" && <span className="ml-2 text-caution font-semibold">{t("SIMULATED")}</span>}
                   </p>
                 </li>
               );

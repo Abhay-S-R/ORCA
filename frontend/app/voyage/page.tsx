@@ -9,7 +9,6 @@ import { useSearchParams } from "next/navigation";
 import { AlertTriangle, Anchor, Bell, BellOff, Droplets, Download, MapPin, Navigation, Printer, Save, Trash2 } from "lucide-react";
 import { Badge, type ConfidenceTier, type Verdict } from "../components/Badge";
 import { Button } from "../components/Button";
-import { ConfidenceMeter } from "../components/ConfidenceMeter";
 import { Field, inputClass } from "../components/Field";
 import { type RouteGeoJson } from "../components/MapView";
 import { SeaRouteMap } from "./SeaRouteMap";
@@ -595,7 +594,6 @@ function VoyageContent() {
       return sec.includes(st) || name.includes(st) || zState === st;
     });
   }, [zones, routeMode, activePortState]);
-  const stateBoundary = zones?.state_fishing_boundary ?? null;
 
   // Reset selected zone if it is outside the legally active state's waters
   useEffect(() => {
@@ -719,16 +717,6 @@ function VoyageContent() {
                     )}
                   </Field>
 
-                  {/* State fishing boundary info — shown when zone list is state-filtered */}
-                  {stateBoundary && (
-                    <p className="mb-1 flex items-start gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[10px] text-ink-dim">
-                      <AlertTriangle className="mt-0.5 size-3 shrink-0 text-amber-400" />
-                      <span>
-                        Showing zones within <strong>{stateBoundary.state}</strong> waters (0–{stateBoundary.max_fishing_nm} NM).
-                        Fishing in another state&apos;s waters requires that state&apos;s licence (MFRA).
-                      </span>
-                    </p>
-                  )}
 
                   <Field label={t("Fishing zone")}>
                     {(id) => (
@@ -777,9 +765,6 @@ function VoyageContent() {
                       </select>
                     )}
                   </Field>
-                  <p className="mb-2 text-[11px] text-ink-dim">
-                    {t("Zones from INCOIS Potential Fishing Zone (PFZ) advisory, filtered to your state.")}
-                  </p>
                 </>
               )}
 
@@ -943,11 +928,7 @@ function VoyageContent() {
                 headerText={t("SAFETY TELEGRAPH")}
                 label={t(plan.verdict === "GO" ? "Go" : plan.verdict === "CAUTION" ? "Caution" : "No go")}
                 summary={plan.verdict_reason}
-              >
-                <div className="mt-3">
-                  <ConfidenceMeter tier={plan.confidence.score} />
-                </div>
-              </VerdictBadge>
+              />
 
               {/* Checklist P0 #2's own evidence: the direct line was blocked
                   and ORCA chose an alternate, not just reported the block. */}

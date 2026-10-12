@@ -17,11 +17,11 @@ export type LanguageMeta = {
 
 export const LANGUAGES: LanguageMeta[] = [
   { code: "en", native: "English", english: "English", bcp47: "en-IN" },
-  { code: "ta", native: "தமிழ்", english: "Tamil", bcp47: "ta-IN" },
+  { code: "kn", native: "ಕನ್ನಡ", english: "Kannada", bcp47: "kn-IN" },
   { code: "hi", native: "हिन्दी", english: "Hindi", bcp47: "hi-IN" },
   { code: "te", native: "తెలుగు", english: "Telugu", bcp47: "te-IN" },
   { code: "ml", native: "മലയാളം", english: "Malayalam", bcp47: "ml-IN" },
-  { code: "kn", native: "ಕನ್ನಡ", english: "Kannada", bcp47: "kn-IN" },
+  { code: "ta", native: "தமிழ்", english: "Tamil", bcp47: "ta-IN" },
   { code: "bn", native: "বাংলা", english: "Bengali", bcp47: "bn-IN" },
   { code: "mr", native: "मराठी", english: "Marathi", bcp47: "mr-IN" },
   { code: "gu", native: "ગુજરાતી", english: "Gujarati", bcp47: "gu-IN" },
