@@ -38,6 +38,8 @@ import { useGeolocation } from "../lib/useGeolocation";
 import { measureLayerToggle, reportLayerMetrics } from "../lib/layerPerf";
 import { watchBadges as fetchWatchBadges, type WatchBadge } from "../lib/watches";
 import { API_BASE } from "../lib/apiBase";
+import { matchRegionInQuery } from "../lib/queryIntent";
+import { PRESET_HOME_PORTS } from "../profile/page";
 
 // See scripts/copy-maplibre-worker.mjs — Turbopack will not emit the worker's
 // sibling module next to it, so the worker is served from public/ instead.
@@ -266,6 +268,58 @@ const COASTAL_REGIONS: MarinePortPreset[] = [
 ];
 
 
+// The 12 major Indian fishing/commercial ports — shown as glowing anchor icons
+// on the Ask-page map. Highlighted when a query mentions the port or its region;
+// dimmed (but not hidden) otherwise so the chart never looks bare.
+// `regionId` matches COASTAL_REGIONS so the existing region-focus logic applies.
+const PORT_MARKERS: { id: string; name: string; short: string; lon: number; lat: number; regionId: string }[] = [
+  { id: "mumbai",        name: "Mumbai",        short: "MUM", lon: 72.8479, lat: 18.9322, regionId: "mumbai" },
+  { id: "chennai",      name: "Chennai",      short: "CHN", lon: 80.2989, lat: 13.0836, regionId: "chennai" },
+  { id: "kochi",        name: "Kochi",        short: "KOC", lon: 76.2673, lat: 9.9312,  regionId: "kochi" },
+  { id: "thoothukudi", name: "Thoothukudi",  short: "TUT", lon: 78.1348, lat: 8.7642,  regionId: "gulf_mannar" },
+  { id: "visakhapatnam",name:"Visakhapatnam",short: "VIZ", lon: 83.2988, lat: 17.6868, regionId: "vizag" },
+  { id: "mangalore",    name: "Mangalore",    short: "MNG", lon: 74.8580, lat: 12.9141, regionId: "goa" },
+  { id: "rameswaram",   name: "Rameswaram",   short: "RAM", lon: 79.3129, lat: 9.2881,  regionId: "gulf_mannar" },
+  { id: "kanyakumari",  name: "Kanyakumari",  short: "KYK", lon: 77.5385, lat: 8.0884,  regionId: "gulf_mannar" },
+  { id: "paradip",      name: "Paradip",      short: "PAR", lon: 86.6714, lat: 20.3168, regionId: "kolkata" },
+  { id: "veraval",      name: "Veraval",      short: "VER", lon: 70.3629, lat: 20.9079, regionId: "gujarat" },
+  { id: "kakinada",     name: "Kakinada",     short: "KAK", lon: 82.2476, lat: 16.9891, regionId: "vizag" },
+  { id: "kolkata",      name: "Kolkata",      short: "KOL", lon: 88.3639, lat: 22.5726, regionId: "kolkata" },
+];
+
+// Build a GeoJSON FeatureCollection from PORT_MARKERS for the map source.
+function buildPortMarkersGeoJson(highlightId: string | null) {
+  return {
+    type: "FeatureCollection" as const,
+    features: PORT_MARKERS.map((p) => ({
+      type: "Feature" as const,
+      geometry: { type: "Point" as const, coordinates: [p.lon, p.lat] },
+      properties: {
+        id: p.id,
+        name: p.name,
+        short: p.short,
+        highlighted: highlightId ? (p.id === highlightId || p.regionId === highlightId ? 1 : 0) : 1,
+      },
+    })),
+  };
+}
+
+function findPortCoordsByName(name: string | undefined): [number, number] | undefined {
+  if (!name) return undefined;
+  const tn = name.toLowerCase().trim();
+  const p = PORT_MARKERS.find(
+    (port) => port.id === tn || port.name.toLowerCase() === tn || tn.includes(port.id) || port.id.includes(tn),
+  );
+  if (p) return [p.lon, p.lat];
+  const preset = PRESET_HOME_PORTS.find(
+    (port) =>
+      port.name.toLowerCase().includes(tn) ||
+      tn.includes(port.name.toLowerCase().split(" ")[0].toLowerCase()),
+  );
+  if (preset) return [preset.lon, preset.lat];
+  return undefined;
+}
+
 // `/tiles/{layer_id}/{time}/{z}/{x}/{y}.png` — the on-disk frame directory
 // has `:` replaced with `-` (illegal in a Windows path); orca/tiles.py keeps
 // the real ISO string in forecast_frames, so the frontend applies the same
@@ -310,6 +364,9 @@ export type QueryFocus = {
   regionId?: string;
   coords?: [number, number];
   nonce: number;
+  distanceKm?: number;
+  targetName?: string;
+  responseText?: string;
 };
 
 /** What a question actually asks the chart to show. Answering a query swaps
@@ -328,6 +385,62 @@ const QUERY_INTENT_LAYERS: Partial<Record<QueryFocus["intent"], readonly string[
   safety: ["currents", "boundaries"],
 };
 
+/**
+ * Filters the PFZ features down strictly to the query radius (or specific named landing center).
+ * Non-relevant features are excluded completely so only the nearest/queried zones render.
+ */
+function filterPfzForFocus(
+  allFeatures: PfzFeature[],
+  focus: QueryFocus,
+  anchor: [number, number],
+): PfzFeature[] {
+  if (!allFeatures.length) return [];
+
+  // Determine visibility radius:
+  // If response has distanceKm (e.g. 28.8 km), use distanceKm + 3km buffer.
+  // Otherwise fallback: maximum 50km radius.
+  let radiusKm: number;
+  if (focus.distanceKm != null && !isNaN(focus.distanceKm) && focus.distanceKm > 0) {
+    radiusKm = focus.distanceKm + 3;
+  } else {
+    radiusKm = 50;
+  }
+
+  // If a specific named landing center was queried (e.g. "Munambam") without a distance:
+  const targetName = focus.targetName?.toLowerCase()?.trim();
+  let visible: PfzFeature[] = [];
+
+  if (!focus.distanceKm && targetName && targetName.length > 2) {
+    const named = allFeatures.filter((f) => {
+      const lc = String(f.properties?.landing_center || "").toLowerCase().trim();
+      return lc.length > 0 && (lc.includes(targetName) || targetName.includes(lc));
+    });
+    if (named.length > 0) {
+      visible = named;
+    }
+  }
+
+  // Otherwise, STRICTLY filter by great-circle distance from the anchor
+  if (visible.length === 0) {
+    visible = allFeatures.filter((f) => {
+      const d = haversineKm(anchor[1], anchor[0], f.geometry.coordinates[1], f.geometry.coordinates[0]);
+      return d <= radiusKm;
+    });
+  }
+
+  // Fallback if no features were within the radius: take ONLY the single closest zone to the anchor
+  if (visible.length === 0) {
+    const sorted = allFeatures.slice().sort(
+      (a, b) =>
+        haversineKm(anchor[1], anchor[0], a.geometry.coordinates[1], a.geometry.coordinates[0]) -
+        haversineKm(anchor[1], anchor[0], b.geometry.coordinates[1], b.geometry.coordinates[0]),
+    );
+    visible = [sorted[0]];
+  }
+
+  return visible;
+}
+
 export function MapView({
   className = "h-full w-full",
   showPanels = true,
@@ -342,6 +455,8 @@ export function MapView({
   initialLayers,
   queryFocus,
   distressMarkers,
+  homePortCoords,
+  suppressGpsZoom = false,
   minZoom,
   maxZoom,
   showCoastalBoundary = true,
@@ -385,6 +500,15 @@ export function MapView({
    *  control — a distress marker is never dismissible from the map; it goes
    *  away only when the caller stops passing it (e.g. /ops closes the event). */
   distressMarkers?: DistressMarker[];
+  /** When provided, query-focus zoom prefers this position over the live GPS
+   *  fix as the fallback anchor (used by the Ask page to stay on the user's
+   *  home port rather than jumping to their real-time location). */
+  homePortCoords?: [number, number] | null;
+  /** When true, the query-focus camera effect never zooms to the live GPS
+   *  position as a fallback — it uses homePortCoords if set, then India overview.
+   *  Set on the Ask page so generic questions like "is it safe tomorrow?" don't
+   *  snap the map to the user's physical location. */
+  suppressGpsZoom?: boolean;
   /** Custom zoom limits. When omitted, defaults to minZoom: 4.5, maxZoom: 22 */
   minZoom?: number;
   maxZoom?: number;
@@ -406,6 +530,31 @@ export function MapView({
   // so this identity changes at most once — when the real fix lands — and the
   // layer fetch below re-runs then, which is the point of reading it at all.
   const focusPoint = useMemo(() => userLocation ?? INDIA_CENTER, [userLocation]);
+  // Refs so the stale-dependency camera effect (queryFocus?.nonce-only deps)
+  // always reads the *current* home-port and GPS values rather than whatever
+  // was captured when the effect was last registered.
+  const homePortCoordsRef = useRef<[number, number] | null | undefined>(homePortCoords);
+  const userLocationRef = useRef<[number, number] | null>(userLocation);
+  const suppressGpsZoomRef = useRef(suppressGpsZoom);
+  const queryFocusRef = useRef<QueryFocus | null | undefined>(queryFocus);
+  const minZoomRef = useRef(minZoom);
+  const maxZoomRef = useRef(maxZoom);
+
+  useEffect(() => {
+    homePortCoordsRef.current = homePortCoords;
+    userLocationRef.current = userLocation;
+    suppressGpsZoomRef.current = suppressGpsZoom;
+    queryFocusRef.current = queryFocus;
+  }, [homePortCoords, userLocation, suppressGpsZoom, queryFocus]);
+
+  useEffect(() => {
+    minZoomRef.current = minZoom;
+    maxZoomRef.current = maxZoom;
+    if (map.current) {
+      if (minZoom !== undefined) map.current.setMinZoom(minZoom);
+      if (maxZoom !== undefined) map.current.setMaxZoom(maxZoom);
+    }
+  }, [minZoom, maxZoom]);
 
   const [nearNames, setNearNames] = useState<string[]>([]);
   const [clicked, setClicked] = useState<{ lat: number; lon: number } | null>(null);
@@ -473,6 +622,11 @@ export function MapView({
   // Kept alongside the map-source copies of the same fetches (never a second
   // fetch) purely so the region dashboard below can filter them by distance.
   const [pfzFeatures, setPfzFeatures] = useState<PfzFeature[]>([]);
+  // Mirror of pfzFeatures as a ref — the camera-focus effect reads this so it
+  // always has the current set of zones without re-running when they change
+  // (its dep array is nonce-only on purpose: zones settle long before a second
+  // question arrives).
+  const pfzFeaturesRef = useRef<PfzFeature[]>([]);
   // Same reasoning, for the Ask-page query-focus effect below: it needs the
   // "near" flag already computed onto the boundary features to fit the chart
   // around the actual nearby boundary geometry, not just fly to a fixed zoom.
@@ -686,8 +840,8 @@ export function MapView({
       // surfaces (§4.7) but is not the default — a tilted chart is harder to
       // take a bearing off, and bearings are the fisherman's job.
       maxPitch: 60,
-      minZoom: minZoom ?? 4.5,
-      maxZoom: maxZoom ?? 22,
+      minZoom: minZoomRef.current ?? 4.5,
+      maxZoom: maxZoomRef.current ?? 22,
       maxBounds: [[64.0, 3.0], [96.0, 27.0]],
     });
     map.current = m;
@@ -901,7 +1055,11 @@ export function MapView({
           "icon-allow-overlap": true,
         },
         paint: {
-          "icon-opacity": ["match", ["get", "freshest"], 2, 1, 1, 0.55, 0.8],
+          "icon-opacity": [
+            "case",
+            ["==", ["get", "queryNear"], 0], 0.0,
+            ["match", ["get", "freshest"], 2, 1, 1, 0.55, 0.8],
+          ],
         },
       });
       m.addLayer({
@@ -918,6 +1076,11 @@ export function MapView({
           "text-allow-overlap": true,
         },
         paint: {
+          "text-opacity": [
+            "case",
+            ["==", ["get", "queryNear"], 0], 0.0,
+            1.0,
+          ],
           "text-color": "#ffffff",
           "text-halo-color": "rgba(4, 16, 26, 0.85)",
           "text-halo-width": 1.2,
@@ -951,10 +1114,106 @@ export function MapView({
           "text-optional": true,
         },
         paint: {
-          "icon-opacity": ["match", ["get", "band"], "hint", 0.55, "history", 0.8, 1],
+          "icon-opacity": [
+            "case",
+            ["==", ["get", "queryNear"], 0], 0.0,
+            ["match", ["get", "band"], "hint", 0.55, "history", 0.8, 1],
+          ],
+          "text-opacity": [
+            "case",
+            ["==", ["get", "queryNear"], 0], 0.0,
+            1.0,
+          ],
           "text-color": "#ffffff",
           "text-halo-color": "rgba(4, 16, 26, 0.85)",
           "text-halo-width": 1.2,
+        },
+      });
+
+      // Port markers: glowing anchor-dot icons for the 12 major Indian ports.
+      // Layered below PFZ circles but above rasters — visible at all zoom
+      // levels where a port matters (z≥5), faded at overview zoom.
+      m.addSource("port-markers", { type: "geojson", data: buildPortMarkersGeoJson(null) as never });
+      // Outer glow ring — pulsing radiance, drawn below the fill dot.
+      m.addLayer({
+        id: "port-glow",
+        type: "circle",
+        source: "port-markers",
+        minzoom: 5,
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 10, 9, 18, 12, 24],
+          "circle-color": [
+            "case",
+            ["==", ["get", "highlighted"], 1], CHART.eezNear,
+            "rgba(0,210,255,0.12)",
+          ],
+          "circle-opacity": [
+            "case",
+            ["==", ["get", "highlighted"], 1], 0.6,
+            0.0,
+          ],
+          "circle-blur": 1.0,
+        },
+      });
+      // Solid centre dot.
+      m.addLayer({
+        id: "port-dots",
+        type: "circle",
+        source: "port-markers",
+        minzoom: 5,
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 4, 9, 7, 12, 9],
+          "circle-color": [
+            "case",
+            ["==", ["get", "highlighted"], 1], CHART.eezNear,
+            "rgba(0,180,220,0.55)",
+          ],
+          "circle-stroke-color": "#fffdf6",
+          "circle-stroke-width": [
+            "case",
+            ["==", ["get", "highlighted"], 1], 2.0,
+            1.0,
+          ],
+          "circle-opacity": [
+            "case",
+            ["==", ["get", "highlighted"], 1], 1.0,
+            0.0,
+          ],
+          "circle-stroke-opacity": [
+            "case",
+            ["==", ["get", "highlighted"], 1], 1.0,
+            0.0,
+          ],
+        },
+      });
+      // Short name label above the dot — only shown when highlighted or zoomed in.
+      m.addLayer({
+        id: "port-labels",
+        type: "symbol",
+        source: "port-markers",
+        minzoom: 7,
+        layout: {
+          "text-field": ["get", "name"],
+          "text-font": ["Open Sans Bold"],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 7, 9, 10, 11, 13, 13],
+          "text-offset": [0, -1.6],
+          "text-anchor": "bottom",
+          "text-optional": true,
+          "text-allow-overlap": false,
+        },
+        paint: {
+          "text-color": [
+            "case",
+            ["==", ["get", "highlighted"], 1], CHART.eezNear,
+            "rgba(200,230,240,0.7)",
+          ],
+          "text-halo-color": "rgba(4,16,26,0.92)",
+          "text-halo-width": 1.4,
+          "text-opacity": [
+            "case",
+            ["==", ["get", "highlighted"], 1], 1.0,
+            0.0,
+          ],
         },
       });
 
@@ -1293,6 +1552,9 @@ export function MapView({
         "watch-badges-circles",
         "route-corridor",
         "route-line",
+        "port-glow",
+        "port-dots",
+        "port-labels",
         "pfz-clusters",
         "pfz-cluster-count",
         "pfz-circles",
@@ -1326,14 +1588,42 @@ export function MapView({
       setBoundaryFeatures(tagged as BoundaryGeoJson);
       const pfzRaw = (pfzRes.features ?? pfzRes.thermal_front_proxy?.features ?? []) as PfzFeature[];
       setPfzFeatures(pfzRaw);
-      (map.current.getSource("pfz") as maplibregl.GeoJSONSource)?.setData({
-        type: "FeatureCollection",
-        features: pfzRaw.map((f) => ({
-          type: "Feature",
-          geometry: { type: "Point", coordinates: f.geometry.coordinates },
-          properties: f.properties ?? {},
-        })),
-      } as never);
+      pfzFeaturesRef.current = pfzRaw;
+      const currentFocus = queryFocusRef.current;
+      if (currentFocus?.intent === "fishing") {
+        const portCoords = findPortCoordsByName(currentFocus.targetName);
+        const currentAnchor: [number, number] = currentFocus.coords
+          ? currentFocus.coords
+          : portCoords
+          ? portCoords
+          : homePortCoordsRef.current ?? (suppressGpsZoomRef.current ? null : userLocationRef.current) ?? COASTAL_REGIONS[1].center;
+        const visible = filterPfzForFocus(pfzRaw, currentFocus, currentAnchor);
+        (map.current.getSource("pfz") as maplibregl.GeoJSONSource)?.setData({
+          type: "FeatureCollection",
+          features: visible.map((f) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: f.geometry.coordinates },
+            properties: { ...(f.properties ?? {}), queryNear: 1 },
+          })),
+        } as never);
+        if (visible.length > 0 && map.current) {
+          const lons = [currentAnchor[0], ...visible.map((f) => f.geometry.coordinates[0])];
+          const lats = [currentAnchor[1], ...visible.map((f) => f.geometry.coordinates[1])];
+          map.current.fitBounds(
+            [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+            { padding: { top: 90, bottom: 90, left: 80, right: 80 }, maxZoom: 11, duration: 1200 },
+          );
+        }
+      } else {
+        (map.current.getSource("pfz") as maplibregl.GeoJSONSource)?.setData({
+          type: "FeatureCollection",
+          features: pfzRaw.map((f) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: f.geometry.coordinates },
+            properties: { ...(f.properties ?? {}), queryNear: 1 },
+          })),
+        } as never);
+      }
     })().catch(() => {
       /* A degraded chart, not a broken page — the readouts still answer. */
     });
@@ -1349,6 +1639,10 @@ export function MapView({
   // (https://react.dev/learn/you-might-not-need-an-effect) — the camera move
   // below is the actual external-system side effect, this isn't.
   const [focusedNonce, setFocusedNonce] = useState<number | undefined>(undefined);
+  // Which port is "spotlit" on the Ask page — null means all ports show at
+  // equal dim opacity (no query or a general query). Non-null highlights exactly
+  // one port (and dims the rest) so the chart reads as "anchored here."
+  const [queryFocusPortId, setQueryFocusPortId] = useState<string | null>(null);
   // The ship marker's heading — null points it at its resting orientation
   // (north). Set from the same real geometry the camera below fits to, so
   // it is never a bearing toward something not actually on screen.
@@ -1387,16 +1681,60 @@ export function MapView({
         return next;
       });
     }
-    // Same anchor the camera effect below uses: explicit coords, a named place,
+
+    // Determine which port to spotlight based on the query's region, targetName, or coords.
+    // When a fishing query mentions a specific port (e.g. Veraval, Munambam), spotlight that port.
+    // If no specific port is mentioned, spotlight the home port or nearest port to the anchor.
+    const focusRegionForPort = queryFocus.regionId ?? null;
+    if (queryFocus.intent === "fishing" || queryFocus.intent === "boundary" || queryFocus.intent === "safety") {
+      let matchedPortId: string | null = null;
+      if (queryFocus.targetName) {
+        const tn = queryFocus.targetName.toLowerCase();
+        const p = PORT_MARKERS.find(
+          (port) => port.id === tn || port.name.toLowerCase() === tn || tn.includes(port.id) || port.id.includes(tn),
+        );
+        if (p) {
+          matchedPortId = p.id;
+        } else {
+          const reg = matchRegionInQuery(queryFocus.targetName);
+          if (reg) {
+            const rp = PORT_MARKERS.find((port) => port.regionId === reg);
+            if (rp) matchedPortId = rp.id;
+          }
+        }
+      }
+      if (!matchedPortId && focusRegionForPort) {
+        const matchedPort = PORT_MARKERS.find((p) => p.regionId === focusRegionForPort);
+        matchedPortId = matchedPort?.id ?? null;
+      }
+      if (!matchedPortId) {
+        const anchorForPort: [number, number] = queryFocus.coords
+          ? queryFocus.coords
+          : homePortCoords ?? (suppressGpsZoom ? null : userLocation) ?? COASTAL_REGIONS[1].center;
+        let minDist = Infinity;
+        for (const p of PORT_MARKERS) {
+          const d = haversineKm(anchorForPort[1], anchorForPort[0], p.lat, p.lon);
+          if (d < minDist) { minDist = d; matchedPortId = p.id; }
+        }
+      }
+      setQueryFocusPortId(matchedPortId);
+    } else {
+      setQueryFocusPortId(null);
+    }
+
+    // Same anchor the camera effect below uses: explicit coords, a named place/port,
     // the reader's GPS position, or coastal pilot default.
     const focusRegion = queryFocus.regionId
       ? COASTAL_REGIONS.find((r) => r.id === queryFocus.regionId)
       : undefined;
+    const portCoords = findPortCoordsByName(queryFocus.targetName);
     const anchor: [number, number] = queryFocus.coords
       ? queryFocus.coords
+      : portCoords
+      ? portCoords
       : focusRegion
-        ? focusRegion.center
-        : userLocation ?? COASTAL_REGIONS[1].center;
+      ? focusRegion.center
+      : homePortCoords ?? (suppressGpsZoom ? null : userLocation) ?? COASTAL_REGIONS[1].center;
     let bearing: number | null = null;
     if (queryFocus.intent === "boundary") {
       const coords = boundaryFeatures.features.filter((f) => f.properties.near).flatMap((f) => flattenCoords(f.geometry));
@@ -1406,8 +1744,11 @@ export function MapView({
         bearing = bearingDeg(anchor[1], anchor[0], lat, lon);
       }
     } else if (queryFocus.intent === "fishing") {
+      const radiusKm = queryFocus.distanceKm != null && !isNaN(queryFocus.distanceKm) && queryFocus.distanceKm > 0
+        ? queryFocus.distanceKm + 3
+        : 50;
       const near = pfzFeatures.filter(
-        (f) => haversineKm(anchor[1], anchor[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
+        (f) => haversineKm(anchor[1], anchor[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= radiusKm,
       );
       if (near.length) {
         const lon = near.reduce((s, f) => s + f.geometry.coordinates[0], 0) / near.length;
@@ -1429,7 +1770,11 @@ export function MapView({
      real geometry already on screen (the nearest tagged boundary, the
      nearby PFZ points) — never a fabricated pin. Re-runs on every ask() via
      `nonce`, even for a repeated intent, so the chart re-settles each time
-     rather than only on the first change. */
+     rather than only on the first change.
+     Enhanced with cinematic pitch + bearing so the map "tilts toward" the
+     target geometry — a visual cue that the chart has actually locked onto
+     something, not just jumped to a coordinate. Pitch resets to 0 after the
+     camera settles so the chart is flat again for reading. */
   useEffect(() => {
     if (!ready || !map.current || !queryFocus) return;
     const m = map.current;
@@ -1443,52 +1788,117 @@ export function MapView({
     const region = queryFocus.regionId
       ? COASTAL_REGIONS.find((r) => r.id === queryFocus.regionId)
       : undefined;
+    const portCoords = findPortCoordsByName(queryFocus.targetName);
     const anchor: [number, number] = queryFocus.coords
       ? queryFocus.coords
+      : portCoords
+      ? portCoords
       : region
-        ? region.center
-        : userLocation ?? COASTAL_REGIONS[1].center;
+      ? region.center
+      : homePortCoordsRef.current ?? (suppressGpsZoomRef.current ? null : userLocationRef.current) ?? COASTAL_REGIONS[1].center;
+
+    // Cinematic: tilt toward the target, then level off. A ~15° pitch during
+    // the approach makes the chart read as "zooming in from altitude".
+    const cinematicFly = (opts: maplibregl.FlyToOptions) => {
+      m.flyTo({ ...opts, pitch: 12, duration: opts.duration ?? 1100 });
+      setTimeout(() => {
+        if (map.current) map.current.easeTo({ pitch: 0, duration: 600 });
+      }, (opts.duration ?? 1100) - 100);
+    };
+
+    // Restore PFZ icons to their original dataset and opacity (undoes any
+    // spotlight dimming/filtering from a previous fishing query). Called on every
+    // non-fishing intent so the chart doesn't stay in spotlight mode.
+    const resetPfzOpacity = () => {
+      if (m.getLayer("pfz-circles")) {
+        m.setPaintProperty("pfz-circles", "icon-opacity",
+          ["match", ["get", "band"], "hint", 0.55, "history", 0.8, 1.0]);
+        m.setPaintProperty("pfz-circles", "text-color", "#ffffff");
+      }
+      const fullPfzSource = m.getSource("pfz") as maplibregl.GeoJSONSource | undefined;
+      if (fullPfzSource && pfzFeaturesRef.current.length > 0) {
+        fullPfzSource.setData({
+          type: "FeatureCollection",
+          features: pfzFeaturesRef.current.map((f) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: f.geometry.coordinates },
+            properties: { ...(f.properties ?? {}), queryNear: 1 },
+          })),
+        } as never);
+      }
+    };
+
     // Where the camera lands when the topic has no geometry near the anchor:
-    // the named sector at its own framing, explicit coords, user position, or all-India coastal view.
-    const fallback = (zoom: number) =>
-      m.flyTo(
-        region
-          ? { center: region.center, zoom: region.zoom, duration: 1000 }
-          : queryFocus.coords
-            ? { center: queryFocus.coords, zoom, duration: 900 }
-            : userLocation
-              ? { center: userLocation, zoom, duration: 900 }
-              : { center: INDIA_VIEW.center, zoom: INDIA_VIEW.zoom, duration: 900 },
-      );
+    // the named sector at its own framing, explicit coords, home port, GPS position, or all-India coastal view.
+    const fallback = (zoom: number) => {
+      const target = region
+        ? { center: region.center as [number, number], zoom: region.zoom }
+        : queryFocus.coords
+        ? { center: queryFocus.coords, zoom }
+        : portCoords
+        ? { center: portCoords, zoom }
+        : homePortCoordsRef.current
+        ? { center: homePortCoordsRef.current, zoom }
+        : !suppressGpsZoomRef.current && userLocationRef.current
+        ? { center: userLocationRef.current, zoom }
+        : { center: INDIA_VIEW.center as [number, number], zoom: INDIA_VIEW.zoom };
+      cinematicFly({ ...target, duration: 1100 });
+    };
 
     if (queryFocus.intent === "boundary") {
+      resetPfzOpacity();
       const near = boundaryFeatures.features.filter((f) => f.properties.near);
       const coords = near.flatMap((f) => flattenCoords(f.geometry));
       if (coords.length) {
+        // Include anchor (home port / named place) in the fit bounds so the
+        // chart always shows where you are AND the boundary in the same frame.
         const lons = [anchor[0], ...coords.map((c) => c[0])];
         const lats = [anchor[1], ...coords.map((c) => c[1])];
         m.fitBounds(
           [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
-          { padding: 72, maxZoom: 18, duration: 900 },
+          { padding: { top: 80, bottom: 80, left: 72, right: 72 }, maxZoom: 12, duration: 1100 },
         );
+        setTimeout(() => { if (map.current) map.current.easeTo({ pitch: 0, duration: 500 }); }, 1000);
       } else {
         fallback(8.2);
       }
     } else if (queryFocus.intent === "fishing") {
-      const near = pfzFeatures.filter(
-        (f) => haversineKm(anchor[1], anchor[0], f.geometry.coordinates[1], f.geometry.coordinates[0]) <= 250,
-      );
-      if (near.length) {
-        const lons = [anchor[0], ...near.map((f) => f.geometry.coordinates[0])];
-        const lats = [anchor[1], ...near.map((f) => f.geometry.coordinates[1])];
+      // Fishing: spotlight the port and ONLY the fishing zone(s) within the query radius.
+      // Non-relevant and distant zones are completely excluded from the source and hidden.
+      const visible = filterPfzForFocus(pfzFeaturesRef.current, queryFocus, anchor);
+      const source = m.getSource("pfz") as maplibregl.GeoJSONSource | undefined;
+      if (source) {
+        source.setData({
+          type: "FeatureCollection",
+          features: visible.map((f) => ({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: f.geometry.coordinates },
+            properties: { ...(f.properties ?? {}), queryNear: 1 },
+          })),
+        } as never);
+      }
+      if (m.getLayer("pfz-circles")) {
+        m.setPaintProperty(
+          "pfz-circles",
+          "icon-opacity",
+          ["case", ["==", ["get", "queryNear"], 0], 0.0, ["match", ["get", "band"], "hint", 0.55, "history", 0.8, 1.0]],
+        );
+        m.setPaintProperty("pfz-circles", "text-color", "#ffffff");
+      }
+      if (visible.length > 0) {
+        // Frame both the anchor port and the visible fishing zones
+        const lons = [anchor[0], ...visible.map((f) => f.geometry.coordinates[0])];
+        const lats = [anchor[1], ...visible.map((f) => f.geometry.coordinates[1])];
         m.fitBounds(
           [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
-          { padding: 80, maxZoom: 18, duration: 900 },
+          { padding: { top: 90, bottom: 90, left: 80, right: 80 }, maxZoom: 11, duration: 1200 },
         );
+        setTimeout(() => { if (map.current) map.current.easeTo({ pitch: 0, duration: 600 }); }, 1100);
       } else {
-        fallback(8.6);
+        fallback(9.0);
       }
     } else if (queryFocus.intent === "current" || queryFocus.intent === "wave" || queryFocus.intent === "wind") {
+      resetPfzOpacity();
       // All three fields cover the whole basin — a named place keeps its own
       // sector, an unplaced question fits the full field extent.
       const bounds =
@@ -1502,12 +1912,18 @@ export function MapView({
         m.fitBounds([[w, s], [e, n]], {
           padding: 60,
           maxZoom: 16,
-          duration: 900,
+          duration: 1100,
         });
+        setTimeout(() => { if (map.current) map.current.easeTo({ pitch: 0, duration: 500 }); }, 1000);
       } else {
         fallback(8.2);
       }
+    } else if (queryFocus.intent === "safety") {
+      resetPfzOpacity();
+      // Safety: zoom to home port / anchor with good context zoom.
+      cinematicFly({ center: anchor, zoom: 8.5, duration: 1100 });
     } else {
+      resetPfzOpacity();
       fallback(8.2);
     }
     // Only the nonce should retrigger this — `boundaryFeatures`/`pfzFeatures`
@@ -1592,7 +2008,21 @@ export function MapView({
       const on = layer.forecast_frames?.length ? layers.waveForecast : layers.srvBathymetry;
       vis(`srv-${layer.layer_id}-raster`, on);
     }
-  }, [ready, layers, rasterLayers, basemap]);
+  }, [ready, layers, rasterLayers, basemap, showCoastalBoundary]);
+
+  /* ---- Port marker highlight: update the GeoJSON source whenever the
+     spotlight port changes — drives the data-driven paint expressions above
+     without a layer teardown. Also update PFZ symbol opacity to spotlight
+     the zones nearest the query anchor vs. fading the distant ones. ---- */
+  useEffect(() => {
+    if (!ready || !map.current) return;
+    const m = map.current;
+    // Rebuild the port markers GeoJSON with new highlighted flags.
+    const source = m.getSource("port-markers") as maplibregl.GeoJSONSource | undefined;
+    if (source) {
+      source.setData(buildPortMarkersGeoJson(queryFocusPortId) as never);
+    }
+  }, [ready, queryFocusPortId]);
 
   /* ---- Zoom & camera bounds: locked to the surface current domain
      [65.0°E, 4.0°N to 95.0°E, 26.0°N]. The chart cannot zoom out beyond the

@@ -23,6 +23,7 @@ import { Button } from "../components/Button";
 import { Greeting } from "../components/Greeting";
 import { SavedLocationChips } from "../components/SavedLocationChips";
 import { VesselChip } from "../components/VesselChip";
+import { PRESET_HOME_PORTS } from "../profile/page";
 import { Skeleton } from "../components/States";
 import { useVoiceInput } from "../components/VoiceInput";
 import { useAuth } from "../lib/auth";
@@ -98,6 +99,27 @@ export default function AskPage() {
     newChat,
     openChat,
   } = useAskThread(persona, store, () => setHistoryVersion((v) => v + 1));
+
+  // Resolved home port coordinates: prefer explicit profile home_port, then match
+  // profile home_port_name from presets, otherwise default to Kochi [76.2673, 9.9312].
+  const authStatus = auth.status;
+  const homePortLon = auth.profile?.home_port?.lon;
+  const homePortLat = auth.profile?.home_port?.lat;
+  const homePortName = auth.profile?.home_port_name;
+  const resolvedHomePortCoords: [number, number] = useMemo(() => {
+    if (authStatus === "signed_in") {
+      if (homePortLon != null && homePortLat != null) {
+        return [homePortLon, homePortLat];
+      }
+      if (homePortName) {
+        const port = PRESET_HOME_PORTS.find(
+          (p) => p.name.toLowerCase() === homePortName.toLowerCase(),
+        );
+        if (port) return [port.lon, port.lat];
+      }
+    }
+    return [76.2673, 9.9312];
+  }, [authStatus, homePortLon, homePortLat, homePortName]);
 
   // The latest distress call in this chat with a position — pinned on the map
   // for as long as the chat is open (P4.16). No position, no pin: the answer
@@ -673,6 +695,8 @@ export default function AskPage() {
                 initialLayers={{ wind: false, currents: false, pfz: false, seamarks: false, watchBadges: false, cyclone: false, boundaryLines: false, boundaries: false }}
                 queryFocus={activeFocus}
                 distressMarkers={distressMarkers}
+                homePortCoords={resolvedHomePortCoords}
+                suppressGpsZoom={true}
                 showLayerPanel={false}
                 showRegionSwitcher={false}
                 showLegends={false}

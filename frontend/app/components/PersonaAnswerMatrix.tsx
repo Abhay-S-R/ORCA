@@ -13,7 +13,7 @@
 // applies the amber "data limited" treatment identically to all five above.
 import { useState, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, Compass, Cloud, Crosshair, Download, OctagonX, ShieldCheck, Waves } from "lucide-react";
-import { Badge, verdictTone, type ConfidenceTier, type Verdict } from "./Badge";
+import { Badge, type ConfidenceTier, type Verdict } from "./Badge";
 import { Button } from "./Button";
 import { Readout, ReadoutGrid } from "./Readout";
 import { type Persona } from "../persona/config";
@@ -41,12 +41,6 @@ const INTENT_ICON: Record<QueryIntent, typeof ShieldCheck> = {
   wind: Cloud,
   general: ShieldCheck,
 };
-const VERDICT_ICON: Record<Verdict, typeof CheckCircle2> = {
-  GO: CheckCircle2,
-  CAUTION: AlertTriangle,
-  NO_GO: OctagonX,
-};
-const VERDICT_LABEL: Record<Verdict, string> = { GO: "Go", CAUTION: "Caution", NO_GO: "No go" };
 
 export type HazardBreakdown = {
   imbl_distance_nm: number | null;
@@ -469,7 +463,6 @@ export function PersonaAnswerMatrix({
   intent,
   verdict,
   reason,
-  leadWithVerdict = true,
   showBoundary = false,
   weather,
   hazard,
@@ -526,8 +519,6 @@ export function PersonaAnswerMatrix({
   const headerMeta = resolveHeaderMeta(intent, rawAnswer, verdict, hazard, weather, pfzForHeading);
   const HeaderIcon = headerMeta.icon;
   const headerTitle = headerMeta.title;
-  // Falls back rather than indexing with a verdict the table has never heard of.
-  const VerdictIcon = VERDICT_ICON[verdict] ?? AlertTriangle;
 
   return (
     <div className="flex flex-col gap-3.5">

@@ -11,10 +11,6 @@ import {
   Clock,
   MapPin,
   AlertTriangle,
-  Fish,
-  Navigation,
-  Thermometer,
-  Activity,
 } from "lucide-react";
 import { fontClassForLanguage } from "../i18n/languages";
 import { splitVerdictHeader } from "../lib/verdictHeader";
