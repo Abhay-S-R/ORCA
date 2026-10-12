@@ -3003,7 +3003,7 @@ const COMPASS_NAMES: Record<string, Partial<Record<LangCode, string>>> = {
 
 // ─── 5. COASTAL PORTS ─────────────────────────────────────────────────────────
 
-const PORT_TRANSLATIONS: Record<string, Partial<Record<LangCode, string>>> = {
+export const PORT_TRANSLATIONS: Record<string, Partial<Record<LangCode, string>>> = {
   Mumbai: {
     kn: "ಮುಂಬೈ",
     ta: "மும்பை",

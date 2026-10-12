@@ -23,12 +23,14 @@ import { usePersona } from "../persona/context";
 import { getToken, signIn, signOut, useAuth } from "../lib/auth";
 import { createWatch, listWatches, type Watch, type WatchType } from "../lib/watches";
 import { useT } from "../i18n/useT";
+import { useWatchesT } from "./translations";
 
 const DEFAULT_WAVE_THRESHOLD = 2.5;
 
 export default function WatchesPage() {
   const { persona } = usePersona();
   const t = useT();
+  const { portLocation } = useWatchesT();
   const auth = useAuth();
   const [signedIn, setSignedIn] = useState(false);
   const [watches, setWatches] = useState<Watch[] | null>(null);
@@ -112,7 +114,7 @@ export default function WatchesPage() {
           </Button>
           {hasHomePort ? (
             <span className="text-[11px] text-ink-dim">
-              {homePortName ? `${homePortName} — ` : ""}{t("watches.allDefault")}
+              {homePortName ? `${portLocation(homePortName)} — ` : ""}{t("watches.allDefault")}
             </span>
           ) : (
             <span className="text-[11px] text-ink-dim">
@@ -160,6 +162,7 @@ export default function WatchesPage() {
 
 function AdvancedWatchForm({ onCreated, defaultLat, defaultLon }: { onCreated: () => void; defaultLat?: number; defaultLon?: number }) {
   const t = useT();
+  const { t: wT } = useWatchesT();
   const [type, setType] = useState<WatchType>("all");
   // Pre-fill with the user's home port coordinates when available, otherwise blank.
   const [lat, setLat] = useState(defaultLat !== undefined ? String(defaultLat) : "");
@@ -226,20 +229,20 @@ function AdvancedWatchForm({ onCreated, defaultLat, defaultLon }: { onCreated: (
         )}
       </Field>
       <div className="mb-2 flex items-center gap-2 text-[11px]">
-        <span className="text-ink-dim">Geometry:</span>
+        <span className="text-ink-dim">{wT("Geometry:")}</span>
         <button
           type="button"
           onClick={() => setGeometryMode("point")}
           className={`rounded px-2 py-0.5 ${geometryMode === "point" ? "bg-accent/20 text-accent" : "text-ink-dim underline"}`}
         >
-          Point + radius
+          {wT("Point + radius")}
         </button>
         <button
           type="button"
           onClick={() => setGeometryMode("area")}
           className={`rounded px-2 py-0.5 ${geometryMode === "area" ? "bg-accent/20 text-accent" : "text-ink-dim underline"}`}
         >
-          Draw an area
+          {wT("Draw an area")}
         </button>
       </div>
       <div className="mb-3">
@@ -268,11 +271,11 @@ function AdvancedWatchForm({ onCreated, defaultLat, defaultLon }: { onCreated: (
             <Field label={t("watches.windThreshold")} hint={t("watches.windHint")}>{(id) => <input id={id} className={inputClass} value={wind} onChange={(e) => setWind(e.target.value)} inputMode="decimal" />}</Field>
             {type === "all" && (
               <>
-                <Field label="Wind Gust (kt)">{(id) => <input id={id} className={inputClass} value={gust} onChange={(e) => setGust(e.target.value)} inputMode="decimal" />}</Field>
-                <Field label="Swell Wave (m)">{(id) => <input id={id} className={inputClass} value={swell} onChange={(e) => setSwell(e.target.value)} inputMode="decimal" />}</Field>
-                <Field label="Current Drift (kt)">{(id) => <input id={id} className={inputClass} value={current} onChange={(e) => setCurrent(e.target.value)} inputMode="decimal" />}</Field>
-                <Field label="Visibility Limit (nm)">{(id) => <input id={id} className={inputClass} value={visibility} onChange={(e) => setVisibility(e.target.value)} inputMode="decimal" />}</Field>
-                <Field label="Lightning Alert (km)">{(id) => <input id={id} className={inputClass} value={lightning} onChange={(e) => setLightning(e.target.value)} inputMode="decimal" />}</Field>
+                <Field label={wT("Wind Gust (kt)")}>{(id) => <input id={id} className={inputClass} value={gust} onChange={(e) => setGust(e.target.value)} inputMode="decimal" />}</Field>
+                <Field label={wT("Swell Wave (m)")}>{(id) => <input id={id} className={inputClass} value={swell} onChange={(e) => setSwell(e.target.value)} inputMode="decimal" />}</Field>
+                <Field label={wT("Current Drift (kt)")}>{(id) => <input id={id} className={inputClass} value={current} onChange={(e) => setCurrent(e.target.value)} inputMode="decimal" />}</Field>
+                <Field label={wT("Visibility Limit (nm)")}>{(id) => <input id={id} className={inputClass} value={visibility} onChange={(e) => setVisibility(e.target.value)} inputMode="decimal" />}</Field>
+                <Field label={wT("Lightning Alert (km)")}>{(id) => <input id={id} className={inputClass} value={lightning} onChange={(e) => setLightning(e.target.value)} inputMode="decimal" />}</Field>
               </>
             )}
           </>
