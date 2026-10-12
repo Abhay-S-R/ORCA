@@ -62,9 +62,8 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
               a full-bleed chart can fill the viewport exactly. */}
           <main
             id="main-content"
-            className={`min-h-0 flex-1 overflow-y-auto ${
-              pathname === "/map" ? "pb-0" : "pb-16 sm:pb-0"
-            }`}
+            className={`min-h-0 flex-1 overflow-y-auto ${pathname === "/map" ? "pb-0" : "pb-16 sm:pb-0"
+              }`}
           >
             {children}
           </main>
