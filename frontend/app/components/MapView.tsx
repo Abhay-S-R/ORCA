@@ -1215,89 +1215,84 @@ export function MapView({
         },
       });
 
-      // Port markers: glowing anchor-dot icons for the 12 major Indian ports.
+      // Port markers: custom anchor icon (/assets/porticon.png) for Indian ports.
       // Layered below PFZ circles but above rasters — visible at all zoom
-      // levels where a port matters (z≥5), faded at overview zoom.
+      // levels where a port matters (z≥5).
       m.addSource("port-markers", { type: "geojson", data: buildPortMarkersGeoJson(null, language) as never });
-      // Outer glow ring — pulsing radiance, drawn below the fill dot.
+
+      // Load custom port anchor icon from /assets/porticon.png
+      const loadPortIcon = () => {
+        const img = new Image();
+        img.src = "/assets/porticon.png";
+        img.onload = () => {
+          const size = 30;
+          const px = 2;
+          const canvas = document.createElement("canvas");
+          canvas.width = size * px;
+          canvas.height = size * px;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          ctx.drawImage(img, 0, 0, size * px, size * px);
+          const imageData = ctx.getImageData(0, 0, size * px, size * px);
+          if (m.hasImage("port-icon")) m.removeImage("port-icon");
+          m.addImage("port-icon", imageData, { pixelRatio: px });
+        };
+      };
+      loadPortIcon();
+
       m.addLayer({
-        id: "port-glow",
-        type: "circle",
+        id: "port-icons",
+        type: "symbol",
         source: "port-markers",
         minzoom: 5,
-        paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 10, 9, 18, 12, 24],
-          "circle-color": [
-            "case",
-            ["==", ["get", "highlighted"], 1], CHART.eezNear,
-            "rgba(0,210,255,0.12)",
+        layout: {
+          "icon-image": "port-icon",
+          "icon-size": [
+            "interpolate", ["linear"], ["zoom"],
+            5, 0.65,
+            8, 0.95,
+            12, 1.25
           ],
-          "circle-opacity": [
-            "case",
-            ["==", ["get", "highlighted"], 1], 0.6,
-            0.0,
-          ],
-          "circle-blur": 1.0,
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "icon-anchor": "center",
         },
-      });
-      // Solid centre dot.
-      m.addLayer({
-        id: "port-dots",
-        type: "circle",
-        source: "port-markers",
-        minzoom: 5,
         paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 4, 9, 7, 12, 9],
-          "circle-color": [
-            "case",
-            ["==", ["get", "highlighted"], 1], CHART.eezNear,
-            "rgba(0,180,220,0.55)",
-          ],
-          "circle-stroke-color": "#fffdf6",
-          "circle-stroke-width": [
-            "case",
-            ["==", ["get", "highlighted"], 1], 2.0,
-            1.0,
-          ],
-          "circle-opacity": [
+          "icon-opacity": [
             "case",
             ["==", ["get", "highlighted"], 1], 1.0,
-            0.0,
-          ],
-          "circle-stroke-opacity": [
-            "case",
-            ["==", ["get", "highlighted"], 1], 1.0,
-            0.0,
+            0.65,
           ],
         },
       });
-      // Short name label above the dot — only shown when highlighted or zoomed in.
+
+      // Short name label placed cleanly below the anchor icon
       m.addLayer({
         id: "port-labels",
         type: "symbol",
         source: "port-markers",
-        minzoom: 7,
+        minzoom: 6.5,
         layout: {
           "text-field": ["get", "name"],
-          "text-font": ["Open Sans Bold"],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 7, 9, 10, 11, 13, 13],
-          "text-offset": [0, -1.6],
-          "text-anchor": "bottom",
+          "text-font": ["Open Sans Bold", "Montserrat Medium"],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 7, 10, 10, 12, 13, 14],
+          "text-offset": [0, 1.35],
+          "text-anchor": "top",
           "text-optional": true,
           "text-allow-overlap": false,
         },
         paint: {
           "text-color": [
             "case",
-            ["==", ["get", "highlighted"], 1], CHART.eezNear,
-            "rgba(200,230,240,0.7)",
+            ["==", ["get", "highlighted"], 1], "#ffffff",
+            "rgba(220,240,255,0.75)",
           ],
-          "text-halo-color": "rgba(4,16,26,0.92)",
-          "text-halo-width": 1.4,
+          "text-halo-color": "rgba(4,16,26,0.95)",
+          "text-halo-width": 2.0,
           "text-opacity": [
             "case",
             ["==", ["get", "highlighted"], 1], 1.0,
-            0.0,
+            0.6,
           ],
         },
       });
@@ -1702,8 +1697,7 @@ export function MapView({
         "watch-badges-circles",
         "route-corridor",
         "route-line",
-        "port-glow",
-        "port-dots",
+        "port-icons",
         "port-labels",
         "pfz-clusters",
         "pfz-cluster-count",
