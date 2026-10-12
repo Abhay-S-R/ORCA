@@ -16,6 +16,7 @@ import { PERSONAS, type Persona } from "../persona/config";
 import { usePersona } from "../persona/context";
 import { useT } from "../i18n/useT";
 import { PRESET_HOME_PORTS } from "../profile/page";
+import { translatePortName, translateVesselName } from "../i18n/entities";
 
 type Step = "language" | "role";
 
@@ -226,7 +227,7 @@ export default function OnboardingPage() {
               <option value="">-- {t("profile.selectPort")} --</option>
               {PRESET_HOME_PORTS.map((p) => (
                 <option key={p.name} value={p.name}>
-                  {p.name} ({p.lat > 0 ? `${p.lat.toFixed(2)}°N` : `${Math.abs(p.lat).toFixed(2)}°S`}, {p.lon.toFixed(2)}°E)
+                  {translatePortName(p.name, language)} ({p.lat > 0 ? `${p.lat.toFixed(2)}°N` : `${Math.abs(p.lat).toFixed(2)}°S`}, {p.lon.toFixed(2)}°E)
                 </option>
               ))}
               <option value="custom">-- {t("profile.customPort")} --</option>
@@ -271,7 +272,7 @@ export default function OnboardingPage() {
             >
               {VESSEL_OPTIONS.map((v) => (
                 <option key={v.value} value={v.value}>
-                  {v.label}
+                  {translateVesselName(v.value, language)}
                 </option>
               ))}
             </select>

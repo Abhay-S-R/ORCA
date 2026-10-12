@@ -18,6 +18,8 @@ import { authFetch, invalidateProfile, useAuth, type Profile } from "../lib/auth
 import { LANGUAGES, type LangCode } from "../i18n/languages";
 import { PERSONAS } from "../persona/config";
 import { useT } from "../i18n/useT";
+import { useLanguage } from "../language/context";
+import { translatePortName, translateVesselName, translatePersonaName } from "../i18n/entities";
 
 type Vessel = {
   id: string;
@@ -167,6 +169,7 @@ export const PRESET_HOME_PORTS: { name: string; lat: number; lon: number }[] = [
 
 function HomePortPanel({ profile }: { profile: Profile | null }) {
   const t = useT();
+  const { language } = useLanguage();
   const [editing, setEditing] = useState(false);
   const [lat, setLat] = useState(profile?.home_port ? String(profile.home_port.lat) : "");
   const [lon, setLon] = useState(profile?.home_port ? String(profile.home_port.lon) : "");
@@ -230,7 +233,7 @@ function HomePortPanel({ profile }: { profile: Profile | null }) {
       {!editing ? (
         profile?.home_port ? (
           <ReadoutGrid cols={3}>
-            <Readout label={t("profile.place")} value={profile.home_port_name ?? "—"} />
+            <Readout label={t("profile.place")} value={profile.home_port_name ? translatePortName(profile.home_port_name, language) : "—"} />
             <Readout label={t("profile.latitude")} value={profile.home_port.lat.toFixed(4)} />
             <Readout label={t("profile.longitude")} value={profile.home_port.lon.toFixed(4)} />
           </ReadoutGrid>
@@ -250,7 +253,7 @@ function HomePortPanel({ profile }: { profile: Profile | null }) {
                 <option value="">-- {t("profile.selectPort")} --</option>
                 {PRESET_HOME_PORTS.map((p) => (
                   <option key={p.name} value={p.name}>
-                    {p.name} ({p.lat > 0 ? `${p.lat}°N` : `${Math.abs(p.lat)}°S`}, {p.lon}°E)
+                    {translatePortName(p.name, language)} ({p.lat > 0 ? `${p.lat}°N` : `${Math.abs(p.lat)}°S`}, {p.lon}°E)
                   </option>
                 ))}
                 <option value="custom">-- {t("profile.customPort")} --</option>
@@ -291,6 +294,7 @@ function HomePortPanel({ profile }: { profile: Profile | null }) {
 
 function VesselPanel({ profile }: { profile: Profile | null }) {
   const t = useT();
+  const { language } = useLanguage();
   const [vessels, setVessels] = useState<Vessel[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -349,11 +353,11 @@ function VesselPanel({ profile }: { profile: Profile | null }) {
                 <div className="min-w-0">
                   <p className="flex items-center gap-2 text-sm font-semibold text-ink">
                     <Ship className="size-3.5 shrink-0 text-ink-dim" aria-hidden="true" />
-                    {v.name || VESSEL_CLASS_LABEL[v.vessel_class] || v.vessel_class}
+                    {v.name || translateVesselName(v.vessel_class, language)}
                     {active && <Badge tone="cyan">{t("profile.active")}</Badge>}
                   </p>
                   <p className="mt-0.5 truncate text-[11px] text-ink-dim">
-                    {VESSEL_CLASS_LABEL[v.vessel_class] || v.vessel_class}
+                    {translateVesselName(v.vessel_class, language)}
                     {v.cruise_speed_kn != null ? ` · ${v.cruise_speed_kn} kn` : ""}
                     {v.fuel_burn_lph != null ? ` · ${v.fuel_burn_lph} L/h` : ""}
                     {v.draft_m != null ? ` · draft ${v.draft_m} m` : ""}
@@ -384,6 +388,7 @@ function VesselPanel({ profile }: { profile: Profile | null }) {
 
 function AddVesselForm({ onDone, onCancel }: { onDone: (v: Vessel[]) => void; onCancel: () => void }) {
   const t = useT();
+  const { language } = useLanguage();
   const [vesselClass, setVesselClass] = useState("fibreglass");
   const [name, setName] = useState("");
   const [draft, setDraft] = useState("");
@@ -420,9 +425,9 @@ function AddVesselForm({ onDone, onCancel }: { onDone: (v: Vessel[]) => void; on
       <Field label={t("profile.vesselType")}>
         {(id) => (
           <select id={id} className={inputClass} value={vesselClass} onChange={(e) => setVesselClass(e.target.value)}>
-            {Object.entries(VESSEL_CLASS_LABEL).map(([value, label]) => (
+            {Object.keys(VESSEL_CLASS_LABEL).map((value) => (
               <option key={value} value={value}>
-                {label}
+                {translateVesselName(value, language)}
               </option>
             ))}
           </select>
@@ -681,6 +686,7 @@ function AlertsPanel({ profile }: { profile: Profile | null }) {
 
 function LanguagePanel({ profile }: { profile: Profile | null }) {
   const t = useT();
+  const { language } = useLanguage();
   const [busyLang, setBusyLang] = useState<string | null>(null);
   const [busyPersona, setBusyPersona] = useState(false);
 
@@ -751,7 +757,7 @@ function LanguagePanel({ profile }: { profile: Profile | null }) {
                     : "border-hairline/70 bg-shelf-2/40 text-ink-muted hover:border-hairline-strong hover:text-ink"
                 }`}
               >
-                {p.label}
+                {translatePersonaName(p.id, language)}
               </button>
             );
           })}

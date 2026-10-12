@@ -11,6 +11,7 @@ import { Skeleton } from "../components/States";
 import { useT } from "../i18n/useT";
 import { SatelliteZoneMap } from "./SatelliteZoneMap";
 import { useZonesT } from "./translations";
+import { translatePortName } from "../i18n/entities";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -201,7 +202,7 @@ export function ZonesToolbar({
   profileVesselLabel?: string | null;
   isProfileVesselActive?: boolean;
 }) {
-  const { t } = useZonesT();
+  const { t, language } = useZonesT();
   const byState = useMemo(() => {
     const m = new Map<string, PortLite[]>();
     ports.forEach((p) => m.set(p.state, [...(m.get(p.state) ?? []), p]));
@@ -225,13 +226,13 @@ export function ZonesToolbar({
             className="cursor-pointer appearance-none rounded-lg border border-hairline bg-shelf-1 py-1.5 pl-3 pr-8 text-xs font-semibold text-ink focus:border-ocean-cyan focus:outline-none focus:ring-1 focus:ring-ocean-cyan"
           >
             <option value="default_home">
-              {registeredHomePortName ?? "Kochi"} {t("(profile default)")}
+              {translatePortName(registeredHomePortName ?? "Kochi", language)} {t("(profile default)")}
             </option>
             {byState.map(([state, list]) => (
               <optgroup key={state} label={state}>
                 {list.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name}
+                    {translatePortName(p.name, language)}
                   </option>
                 ))}
               </optgroup>
@@ -412,7 +413,7 @@ function ZoneMap({
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [mapViewMode, setMapViewMode] = useState<"satellite" | "chart">("satellite");
-  const { t, zoneName, zoneDesc, bearing } = useZonesT();
+  const { t, zoneName, zoneDesc, bearing, language } = useZonesT();
 
   const W = 560;
   const H = 340;
@@ -526,7 +527,7 @@ function ZoneMap({
           </div>
           <div>
             <h3 className="text-sm font-bold text-ink">
-              {t("Fishing Grounds & Regional Map")} · {data.port_name}
+              {t("Fishing Grounds & Regional Map")} · {translatePortName(data.port_name, language)}
             </h3>
             <p className="text-[10px] font-mono text-ink-dim">
               {data.port_lat.toFixed(2)}°N, {data.port_lon.toFixed(2)}°E · {data.port_state} Coast
@@ -813,7 +814,7 @@ function ZoneMap({
                 fontWeight="bold"
                 fill="#0f172a"
               >
-                ⚓ {data.port_name}
+                ⚓ {translatePortName(data.port_name, language)}
               </text>
               <text
                 x={isWestCoast ? 2 : -2}

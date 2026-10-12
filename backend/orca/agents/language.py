@@ -424,11 +424,12 @@ _RUNG_LABEL: dict[str, tuple[str, str]] = {
 }
 
 
-def _translate_with_rung(text: str, source: Language, target: Language) -> tuple[str, str]:
-    """Two rungs: Bhashini NMT first (P3.8 — the primary path once
-    credentialed), IndicTrans2 local inference second. Returns (translation,
-    rung) so callers can tag their span with which one actually served,
-    rather than always claiming the local model regardless of which ran."""
+def _clean_translated_markdown(text: str) -> str:
+    # Fix broken asterisk spacing from NMT: "* * text * *" -> "**text**"
+    return re.sub(r"\*\s+\*", "**", text)
+
+
+def _translate_single_unit(text: str, source: Language, target: Language) -> tuple[str, str]:
     if source == "en":
         text = normalise_for_translation(text)
     masked, tokens = _mask_protected_terms(text)
@@ -436,12 +437,9 @@ def _translate_with_rung(text: str, source: Language, target: Language) -> tuple
     def _finish(translated: str, translate: Callable[[str], str]) -> str:
         restored, complete = _unmask_protected_terms(translated, tokens)
         if not complete:
-            # A protected phrase was dropped, moved or repeated. Translating the WHOLE answer again unmasked
-            # spells a compass point in letters and swaps numbers (seen in Tamil), so redo it a sentence at a
-            # time: a sentence that comes back whole is kept, and only one that does not is left unmasked.
             logging.getLogger("orca.language").warning("translation lost a protected term; retranslating by sentence")
             restored = _translate_by_sentence(text, translate)
-        return localize_product_name(restored, target)
+        return _clean_translated_markdown(localize_product_name(restored, target))
 
     try:
         from orca.agents import bhashini
@@ -455,6 +453,51 @@ def _translate_with_rung(text: str, source: Language, target: Language) -> tuple
     backend = _backend
     result = backend.translate(masked, source=source, target=target)
     return _finish(result, lambda t: backend.translate(t, source=source, target=target)), "indictrans2"
+
+
+def _translate_with_rung(text: str, source: Language, target: Language) -> tuple[str, str]:
+    """Translates text from source to target. If English text contains multiple
+    lines or bullet points, translates line-by-line to preserve bullet points,
+    paragraphs, and formatting structure cleanly.
+    """
+    if source != "en" or "\n" not in text:
+        return _translate_single_unit(text, source, target)
+
+    lines = text.split("\n")
+    translated_lines: list[str] = []
+    rung_used = "passthrough"
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            translated_lines.append("")
+            continue
+        # Preserve bullet point prefixes (e.g. "• ", "- ", "* ")
+        bullet_m = re.match(r"^(\s*[•*\-]\s+)(.*)$", line)
+        heading_m = re.match(r"^(\s*#{1,6}\s+)(.*)$", line)
+
+        if bullet_m:
+            prefix, body = bullet_m.group(1), bullet_m.group(2)
+            if body.strip():
+                tr, r = _translate_single_unit(body, source, target)
+                rung_used = r
+                translated_lines.append(f"{prefix}{_clean_translated_markdown(tr)}")
+            else:
+                translated_lines.append(line)
+        elif heading_m:
+            prefix, body = heading_m.group(1), heading_m.group(2)
+            if body.strip():
+                tr, r = _translate_single_unit(body, source, target)
+                rung_used = r
+                translated_lines.append(f"{prefix}{_clean_translated_markdown(tr)}")
+            else:
+                translated_lines.append(line)
+        else:
+            tr, r = _translate_single_unit(line, source, target)
+            rung_used = r
+            translated_lines.append(_clean_translated_markdown(tr))
+
+    return "\n".join(translated_lines), rung_used
 
 
 def _translate_by_sentence(text: str, translate: Callable[[str], str]) -> str:

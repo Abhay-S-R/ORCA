@@ -9,6 +9,8 @@ import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { authFetch, getToken } from "../lib/auth";
 import { useT } from "../i18n/useT";
+import { useLanguage } from "../language/context";
+import { translatePortName } from "../i18n/entities";
 
 export type SavedLocation = { id: string; name: string; lat: number; lon: number };
 
@@ -43,6 +45,7 @@ export function SavedLocationChips({
   hideAdd?: boolean;
 }) {
   const t = useT();
+  const { language } = useLanguage();
   const [locations, setLocations] = useState<SavedLocation[]>([]);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
@@ -107,12 +110,12 @@ export function SavedLocationChips({
           className="group inline-flex items-center gap-1 rounded-full border border-hairline/80 bg-shelf-1/70 py-1 pr-1 pl-3 text-xs text-ink-dim"
         >
           <button type="button" onClick={() => onSelect(loc)} className="hover:text-accent">
-            {loc.name}
+            {translatePortName(loc.name, language)}
           </button>
           <button
             type="button"
             onClick={() => void remove(loc.id)}
-            aria-label={`Remove ${loc.name}`}
+            aria-label={`Remove ${translatePortName(loc.name, language)}`}
             className="rounded-full p-0.5 opacity-0 group-hover:opacity-100 hover:bg-shelf-2"
           >
             <X className="size-3" aria-hidden="true" />

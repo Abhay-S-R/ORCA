@@ -15,6 +15,8 @@ import { authFetch, invalidateProfile, useAuth } from "../lib/auth";
 import { type Recency } from "../lib/recency";
 import { usePersona } from "../persona/context";
 import { useT } from "../i18n/useT";
+import { useLanguage } from "../language/context";
+import { translatePortName } from "../i18n/entities";
 import { KpiStrip, ZoneDashboard, ZonesToolbar, useFishingProfit, calculateBearing } from "./zones-dashboard";
 import { useZonesT } from "./translations";
 
@@ -247,6 +249,7 @@ export default function ZonesPage() {
   } | null>(null);
   const [error, setError] = useState(false);
   const t = useT();
+  const { language } = useLanguage();
   const { t: zT, zoneName, zoneDesc, species: tSpecies, bearing: tBearing } = useZonesT();
   const { persona } = usePersona();
   const reach = useVesselReachKm();
@@ -485,11 +488,11 @@ export default function ZonesPage() {
                 </div>
 
                 <p className="mb-3 text-xs text-ink-muted leading-relaxed">
-                  {zoneDesc(nearestChartedZone.zone_description, nearestChartedZone.zone_name)} · {currentPort.name} ({currentPort.lat.toFixed(2)}°N, {currentPort.lon.toFixed(2)}°E).
+                  {zoneDesc(nearestChartedZone.zone_description, nearestChartedZone.zone_name)} · {translatePortName(currentPort.name, language)} ({currentPort.lat.toFixed(2)}°N, {currentPort.lon.toFixed(2)}°E).
                 </p>
 
                 <ReadoutGrid cols={3}>
-                  <Readout label={zT("Departure Port")} value={currentPort.name} />
+                  <Readout label={zT("Departure Port")} value={translatePortName(currentPort.name, language)} />
                   <Readout
                     label={zT("Advised Depth")}
                     value={

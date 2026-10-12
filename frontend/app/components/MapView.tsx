@@ -40,6 +40,8 @@ import { watchBadges as fetchWatchBadges, type WatchBadge } from "../lib/watches
 import { API_BASE } from "../lib/apiBase";
 import { matchRegionInQuery } from "../lib/queryIntent";
 import { PRESET_HOME_PORTS } from "../profile/page";
+import { useLanguage } from "../language/context";
+import { translatePortName, translateZoneName } from "../i18n/entities";
 
 // See scripts/copy-maplibre-worker.mjs — Turbopack will not emit the worker's
 // sibling module next to it, so the worker is served from public/ instead.
@@ -288,7 +290,7 @@ const PORT_MARKERS: { id: string; name: string; short: string; lon: number; lat:
 ];
 
 // Build a GeoJSON FeatureCollection from PORT_MARKERS for the map source.
-function buildPortMarkersGeoJson(highlightId: string | null) {
+function buildPortMarkersGeoJson(highlightId: string | null, language?: string) {
   return {
     type: "FeatureCollection" as const,
     features: PORT_MARKERS.map((p) => ({
@@ -296,7 +298,7 @@ function buildPortMarkersGeoJson(highlightId: string | null) {
       geometry: { type: "Point" as const, coordinates: [p.lon, p.lat] },
       properties: {
         id: p.id,
-        name: p.name,
+        name: translatePortName(p.name, language),
         short: p.short,
         highlighted: highlightId ? (p.id === highlightId || p.regionId === highlightId ? 1 : 0) : 1,
       },
@@ -519,6 +521,7 @@ export function MapView({
   const map = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
   const [supported] = useState(webglAvailable);
+  const { language } = useLanguage();
 
   // The user's real GPS fix, when granted — never a hardcoded coordinate.
   // Every place this component previously used a fixed "you are here" point
@@ -1133,7 +1136,7 @@ export function MapView({
       // Port markers: glowing anchor-dot icons for the 12 major Indian ports.
       // Layered below PFZ circles but above rasters — visible at all zoom
       // levels where a port matters (z≥5), faded at overview zoom.
-      m.addSource("port-markers", { type: "geojson", data: buildPortMarkersGeoJson(null) as never });
+      m.addSource("port-markers", { type: "geojson", data: buildPortMarkersGeoJson(null, language) as never });
       // Outer glow ring — pulsing radiance, drawn below the fill dot.
       m.addLayer({
         id: "port-glow",
@@ -1456,6 +1459,14 @@ export function MapView({
       for (const m of built) m.remove();
     };
   }, [ready, distressMarkers]);
+
+  useEffect(() => {
+    if (!ready || !map.current) return;
+    const src = map.current.getSource("port-markers") as maplibregl.GeoJSONSource | undefined;
+    if (src) {
+      src.setData(buildPortMarkersGeoJson(null, language) as never);
+    }
+  }, [ready, language]);
   // Fly to a distress position the moment a new one appears.
   useEffect(() => {
     const d = distressMarkers?.[0];
@@ -2508,7 +2519,7 @@ export function MapView({
                 >
                   <Compass className="size-3.5 text-ocean-cyan shrink-0" />
                   <span className="max-w-[110px] sm:max-w-[170px] md:max-w-none truncate font-medium">
-                    {COASTAL_REGIONS.find((r) => r.id === selectedRegion)?.name ?? "Select Sector"}
+                    {translateZoneName(COASTAL_REGIONS.find((r) => r.id === selectedRegion)?.name ?? "Select Sector", language)}
                   </span>
                   <ChevronDown
                     className={`size-3 text-ink-dim transition-transform duration-200 shrink-0 ${regionDropdownOpen ? "rotate-180" : ""}`}
@@ -2538,7 +2549,7 @@ export function MapView({
                           : "text-ink hover:bg-shelf-2"
                           }`}
                       >
-                        <span className="truncate">{region.name}</span>
+                        <span className="truncate">{translateZoneName(region.name, language)}</span>
                         <span className="ml-2 text-[10px] text-ink-dim shrink-0">{region.sub}</span>
                       </button>
                     ))}

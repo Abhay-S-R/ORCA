@@ -7,6 +7,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Loader2, Ship } from "lucide-react";
 import { authFetch, invalidateProfile, type AuthState } from "../lib/auth";
+import { useLanguage } from "../language/context";
+import { translateVesselName, translateVesselHeader, translateVesselDescription } from "../i18n/entities";
 
 type VesselOption = {
   key: string;
@@ -74,6 +76,7 @@ export function VesselChip({
   // "icon": round button for composer pill, "chip": capsule pill
   variant?: "chip" | "icon";
 }) {
+  const { language } = useLanguage();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [userVessels, setUserVessels] = useState<RegisteredVessel[]>([]);
@@ -116,7 +119,7 @@ export function VesselChip({
   // 2. vesselClass (prop passed from latest turn or parent)
   // 3. activeVesselClass (from user profile)
   const currentKey = toCanonicalKey(localChoice || vesselClass || activeVesselClass);
-  const label = currentKey ? (CANONICAL_LABELS[currentKey] ?? currentKey) : "Vessel not set";
+  const label = currentKey ? translateVesselName(currentKey, language) : "Vessel not set";
   const unset = !currentKey;
 
   async function choose(opt: VesselOption) {
@@ -215,9 +218,9 @@ export function VesselChip({
           className="glass absolute bottom-full left-0 z-30 mb-2 w-72 rounded-xl border border-hairline bg-shelf-1/95 p-2 text-xs shadow-2xl backdrop-blur-md"
         >
           <div className="border-b border-hairline/60 px-2 pt-1 pb-2">
-            <p className="font-semibold text-ink">Select Vessel Type</p>
+            <p className="font-semibold text-ink">{translateVesselHeader("title", language)}</p>
             <p className="text-[11px] text-ink-dim">
-              Safety alerts &amp; sea limits adapt to your vessel class.
+              {translateVesselHeader("subtitle", language)}
             </p>
           </div>
 
@@ -237,10 +240,10 @@ export function VesselChip({
                 >
                   <div className="flex-1 pr-2">
                     <div className="flex items-center gap-1.5">
-                      <span>{opt.label}</span>
+                      <span>{translateVesselName(opt.key, language)}</span>
                       {isSelected && <Check className="size-3.5 text-ocean-cyan" />}
                     </div>
-                    <div className="text-[10.5px] font-normal text-ink-dim">{opt.description}</div>
+                    <div className="text-[10.5px] font-normal text-ink-dim">{translateVesselDescription(opt.key, language)}</div>
                   </div>
                 </button>
               );

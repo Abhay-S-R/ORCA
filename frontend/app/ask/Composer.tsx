@@ -8,6 +8,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import type { ReactNode } from "react";
 import { ArrowUp, Loader2, type LucideIcon } from "lucide-react";
 import { VoiceMicButton, VoiceInputPanel, type VoiceInputState } from "../components/VoiceInput";
+import { useT } from "../i18n/useT";
 
 export function Composer({
   value,
@@ -31,6 +32,7 @@ export function Composer({
   // The control at the left of the pill (the vessel button). Null for a signed-out visitor.
   leading?: ReactNode;
 }) {
+  const t = useT();
   const reduceMotion = useReducedMotion();
   const canSend = !disabled && value.trim().length > 0;
 
@@ -57,20 +59,18 @@ export function Composer({
       >
         {leading}
         <label htmlFor="query" className="sr-only">
-          Your question about marine conditions
+          {t("ask.inputLabel")}
         </label>
         <input
           id="query"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Is it safe to go out tomorrow morning?"
+          placeholder={t("ask.placeholder")}
           autoFocus={centered}
           autoComplete="off"
           // P4.4 — "≥18px body, maximum sunlight contrast" on the fisherman surface: the question box is the one piece
           // of text every fisherman query starts from.
-          className={`min-w-0 flex-1 bg-transparent px-2 py-2.5 text-ink outline-none placeholder:text-ink-dim/60 ${
-            isFisherman ? "text-xl sm:text-2xl" : "text-base sm:text-lg"
-          } ${leading ? "" : "pl-3"}`}
+          className={`min-w-0 flex-1 bg-transparent px-2 py-2.5 text-ink outline-none placeholder:text-ink-dim/60 text-base ${leading ? "" : "pl-3"}`}
         />
         {/* Voice ingress (plan §6 D1 Day 16-17): the mic sits beside send since both feed the same query pipeline: voice
             is a pre-step onto the text box, not a second, separate control. */}

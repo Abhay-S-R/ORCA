@@ -23,12 +23,15 @@ import { usePersona } from "../persona/context";
 import { getToken, signIn, signOut, useAuth } from "../lib/auth";
 import { createWatch, listWatches, type Watch, type WatchType } from "../lib/watches";
 import { useT } from "../i18n/useT";
+import { useLanguage } from "../language/context";
+import { translatePortName, translatePersonaName } from "../i18n/entities";
 
 const DEFAULT_WAVE_THRESHOLD = 2.5;
 
 export default function WatchesPage() {
   const { persona } = usePersona();
   const t = useT();
+  const { language } = useLanguage();
   const auth = useAuth();
   const [signedIn, setSignedIn] = useState(false);
   const [watches, setWatches] = useState<Watch[] | null>(null);
@@ -112,7 +115,7 @@ export default function WatchesPage() {
           </Button>
           {hasHomePort ? (
             <span className="text-[11px] text-ink-dim">
-              {homePortName ? `${homePortName} — ` : ""}{t("watches.allDefault")}
+              {homePortName ? `${translatePortName(homePortName, language)} — ` : ""}{t("watches.allDefault")}
             </span>
           ) : (
             <span className="text-[11px] text-ink-dim">
@@ -152,7 +155,7 @@ export default function WatchesPage() {
       )}
 
       <p className="mt-4 text-[11px] text-ink-dim">
-        {t("common.signOut").charAt(0).toUpperCase()} — <span className="text-ink-muted">{persona.replace(/_/g, " ")}</span>. {t("watches.simulated")}
+        {t("common.signOut").charAt(0).toUpperCase()} — <span className="text-ink-muted">{translatePersonaName(persona, language)}</span>. {t("watches.simulated")}
       </p>
     </PageBody>
   );

@@ -385,7 +385,7 @@ function criticalConditionFrom(data: {
   return null;
 }
 
-export function useAskThread(persona: Persona, store: ChatStore | null, onChatSaved?: () => void) {
+export function useAskThread(persona: Persona, store: ChatStore | null, onChatSaved?: () => void, language: string = "en") {
   const { raise: raiseCriticalAlert } = useCriticalAlert();
   // null means "not yet hydrated" — distinct from a real empty thread ([]).
   // Starting at null (rather than reading storage in useState's initializer)
@@ -646,6 +646,7 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     const sessionParam = `&session_id=${encodeURIComponent(sessionId)}`;
     const llmParam = options?.llm === "off" ? "&llm=off" : "";
     const dropParam = options?.drop?.length ? `&drop=${encodeURIComponent(options.drop.join(","))}` : "";
+    const langParam = language ? `&lang=${encodeURIComponent(language)}` : "";
     // P3.10 — a saved-location chip's own coordinates, an explicit position
     // that beats both the query text and the ambient GPS fix
     const positionParam = options?.position
@@ -663,7 +664,7 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
       // The user may have switched chats while the context was restoring.
       if (chatIdRef.current !== sessionId) return;
       const es = new EventSource(
-        `${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${locationParam}${vesselParam}${llmParam}${dropParam}${authParam}`,
+        `${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${locationParam}${vesselParam}${llmParam}${dropParam}${langParam}${authParam}`,
       );
       sourceRef.current = es;
       es.onmessage = (ev) => {

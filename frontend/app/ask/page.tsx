@@ -55,15 +55,6 @@ const INTENT_ICON: Record<QueryIntent, typeof Waves> = {
   general: MapPin,
 };
 
-// Example queries in the fishermen & maritime users' own words
-const EXAMPLES = [
-  "Is it safe to venture into the sea tomorrow morning?",
-  "Where is the nearest Potential Fishing Zone (PFZ) today?",
-  "Which regions show high chlorophyll & favourable SST?",
-  "What is the safest route considering sea-state conditions?",
-];
-const PRESETS = EXAMPLES.map((label) => ({ label, icon: INTENT_ICON[classifyQueryIntent(label)] }));
-
 const RAIL_COLLAPSED_KEY = "orca-ask-rail-collapsed";
 const MAP_WIDTH_KEY = "orca-ask-map-width";
 
@@ -73,6 +64,15 @@ export default function AskPage() {
   const auth = useAuth();
   const t = useT();
   const { language } = useLanguage();
+  const presets = useMemo(
+    () => [
+      { label: t("ask.presetSafety"), icon: ShieldCheck },
+      { label: t("ask.presetPfz"), icon: Fish },
+      { label: t("ask.presetChlorophyll"), icon: Fish },
+      { label: t("ask.presetRoute"), icon: Compass },
+    ],
+    [t]
+  );
   const store = auth.status === "loading" ? null : auth.status === "signed_in" ? accountStore : browserStore;
   const [query, setQuery] = useState("");
   const [mapCollapsed, setMapCollapsed] = useState(false);
@@ -98,7 +98,7 @@ export default function AskPage() {
     showVersion,
     newChat,
     openChat,
-  } = useAskThread(persona, store, () => setHistoryVersion((v) => v + 1));
+  } = useAskThread(persona, store, () => setHistoryVersion((v) => v + 1), language);
 
   // Resolved home port coordinates: prefer explicit profile home_port, then match
   // profile home_port_name from presets, otherwise default to Kochi [76.2673, 9.9312].
@@ -401,7 +401,7 @@ export default function AskPage() {
             <div className="mb-3 flex items-center justify-center gap-2">
               <span className="size-2 rounded-full bg-ocean-cyan beacon-pulse" aria-hidden="true" />
               <span className="font-mono text-[10px] font-bold tracking-widest text-ocean-cyan uppercase">
-                SAGAR SARATHI INTELLIGENCE CONSOLE // VHF &amp; SATELLITE
+                {t("ask.consoleBadge")}
               </span>
             </div>
             <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">{t("ask.heading")}</h1>
@@ -425,7 +425,7 @@ export default function AskPage() {
             voice={voice}
             isFisherman={persona === "fisherman"}
             centered
-            presets={PRESETS}
+            presets={presets}
             leading={
               <VesselChip
                 auth={auth}
@@ -441,7 +441,7 @@ export default function AskPage() {
               onClick={tour.start}
               className="text-xs font-medium text-ink-dim underline-offset-2 hover:text-accent hover:underline"
             >
-              Take the 3-minute tour →
+              {t("ask.tourButton")}
             </button>
           )}
         </div>
