@@ -1365,6 +1365,7 @@ export function MapView({
       m.remove();
       map.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- map instance is initialized once on mount; language changes are pushed to port-markers in the dedicated effect below
   }, [supported]);
 
   /* ---- "Your Location" marker: a ship's-bow pointer over a pulsing GPS

@@ -74,7 +74,7 @@ export function Composer({
         />
         {/* Voice ingress (plan §6 D1 Day 16-17): the mic sits beside send since both feed the same query pipeline: voice
             is a pre-step onto the text box, not a second, separate control. */}
-        <VoiceMicButton voice={voice} isFisherman={false} quiet />
+        <VoiceMicButton voice={voice} isFisherman={isFisherman} quiet />
         <button
           type="submit"
           disabled={!canSend}

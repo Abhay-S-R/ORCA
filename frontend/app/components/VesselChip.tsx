@@ -38,17 +38,6 @@ const VESSEL_OPTIONS: VesselOption[] = [
   },
 ];
 
-const CANONICAL_LABELS: Record<string, string> = {
-  small_fishing: "Small fishing boat",
-  mechanized_trawler: "Mechanized trawler",
-  cargo_vessel: "Cargo vessel",
-  catamaran: "Catamaran",
-  fibreglass: "Fibreglass boat",
-  mechanised: "Mechanised boat",
-  trawler: "Trawler",
-  cargo: "Cargo vessel",
-};
-
 // Map DB classes back to canonical key for highlighting
 function toCanonicalKey(c: string | null | undefined): string | null {
   if (!c) return null;

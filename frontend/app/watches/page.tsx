@@ -24,7 +24,7 @@ import { getToken, signIn, signOut, useAuth } from "../lib/auth";
 import { createWatch, listWatches, type Watch, type WatchType } from "../lib/watches";
 import { useT } from "../i18n/useT";
 import { useLanguage } from "../language/context";
-import { translatePortName } from "../i18n/entities";
+import { translatePersonaName, translatePortName } from "../i18n/entities";
 import { useWatchesT } from "./translations";
 
 const DEFAULT_WAVE_THRESHOLD = 2.5;

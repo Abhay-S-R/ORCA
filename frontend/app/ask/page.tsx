@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Compass, Fish, History, Maximize2, MapPin, Minimize2, PanelLeftOpen, Plus, ShieldCheck, Waves, Wind } from "lucide-react";
+import { Compass, Fish, History, Maximize2, Minimize2, PanelLeftOpen, Plus, ShieldCheck } from "lucide-react";
 import { Button } from "../components/Button";
 import { Greeting } from "../components/Greeting";
 import { SavedLocationChips } from "../components/SavedLocationChips";
@@ -29,7 +29,6 @@ import { useVoiceInput } from "../components/VoiceInput";
 import { useAuth } from "../lib/auth";
 import { usePersona } from "../persona/context";
 import { useLanguage } from "../language/context";
-import { classifyQueryIntent, type QueryIntent } from "../lib/queryIntent";
 import { Composer } from "./Composer";
 import { ChatTurn } from "./ChatTurn";
 import { ChatHistoryRail, CollapsedChatRail, iconButtonClass } from "./ChatHistoryRail";
@@ -45,15 +44,6 @@ const MapView = dynamic(() => import("../components/MapView").then((m) => m.MapV
   loading: () => <Skeleton className="h-full w-full" />,
 });
 
-const INTENT_ICON: Record<QueryIntent, typeof Waves> = {
-  fishing: Fish,
-  boundary: Compass,
-  safety: ShieldCheck,
-  current: Waves,
-  wave: Waves,
-  wind: Wind,
-  general: MapPin,
-};
 
 const RAIL_COLLAPSED_KEY = "orca-ask-rail-collapsed";
 const MAP_WIDTH_KEY = "orca-ask-map-width";
