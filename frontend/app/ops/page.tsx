@@ -45,6 +45,13 @@ const PORT_AUTHORITIES = [
   { name: "Veraval", email: "authority.veraval@orca.test", lat: 20.9074, lon: 70.3678 },
   { name: "Kakinada", email: "authority.kakinada@orca.test", lat: 16.9891, lon: 82.2475 },
   { name: "Kolkata", email: "authority.kolkata@orca.test", lat: 22.5726, lon: 88.3639 },
+  { name: "Kandla", email: "authority.kandla@orca.test", lat: 23.0033, lon: 70.2183 },
+  { name: "Mormugao", email: "authority.mormugao@orca.test", lat: 15.4132, lon: 73.8016 },
+  { name: "Port Blair", email: "authority.portblair@orca.test", lat: 11.6667, lon: 92.7333 },
+  { name: "Haldia", email: "authority.haldia@orca.test", lat: 22.0667, lon: 88.0667 },
+  { name: "Porbandar", email: "authority.porbandar@orca.test", lat: 21.6417, lon: 69.6000 },
+  { name: "Kozhikode", email: "authority.kozhikode@orca.test", lat: 11.1667, lon: 75.8000 },
+  { name: "Gopalpur", email: "authority.gopalpur@orca.test", lat: 19.3000, lon: 84.9667 },
 ];
 
 type SectorRow = {
@@ -62,7 +69,7 @@ const SEV_TONE: Record<string, BadgeTone> = { info: "neutral", advisory: "accent
 export default function OpsPage() {
   const { persona } = usePersona();
   const auth = useAuth();
-  const [rows, setRows] = useState<SectorRow[] | null>(null);
+  const [, setRows] = useState<SectorRow[] | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [error, setError] = useState<"forbidden" | "server" | null>(null);
 
@@ -139,8 +146,10 @@ export default function OpsPage() {
               composer's channel preview. */}
           <CapBuilder />
 
+          {/* Sector threat matrix commented out as requested */}
+          {/*
           <Panel title="Sector threat matrix" className="mb-4">
-            {rows === null ? (
+            {_rows === null ? (
               <Skeleton className="h-64" />
             ) : (
               <div className="overflow-x-auto">
@@ -154,7 +163,7 @@ export default function OpsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r) => (
+                    {_rows.map((r) => (
                       <tr key={r.sector_id} className="border-b border-hairline/60">
                         <td className="py-2 pr-3 text-ink">
                           {r.sector_id}
@@ -180,6 +189,7 @@ export default function OpsPage() {
               </div>
             )}
           </Panel>
+          */}
         </>
       )}
 
@@ -271,7 +281,7 @@ type BroadcastHistoryItem = {
 };
 
 const AUDIENCE_OPTIONS: {
-  id: "all" | "fisherman" | "commercial_navigator" | "researcher" | "port_users";
+  id: "all" | "fisherman" | "commercial_navigator" | "researcher";
   label: string;
   icon: string;
   desc: string;
@@ -280,7 +290,6 @@ const AUDIENCE_OPTIONS: {
     { id: "fisherman", label: "Fishermen", icon: "🎣", desc: "Artisanal, mechanized & traditional fishing craft" },
     { id: "commercial_navigator", label: "Commercial Navigators", icon: "🚢", desc: "Cargo vessels, container ships & tugs" },
     { id: "researcher", label: "Ocean Researchers", icon: "🔬", desc: "Research survey vessels & oceanographic teams" },
-    { id: "port_users", label: "Port Jurisdiction", icon: "⚓", desc: "Mariners registered in this port authority sector" },
   ];
 
 const SEVERITY_OPTIONS: { id: "danger" | "warning" | "advisory" | "info"; label: string; tone: BadgeTone }[] = [
@@ -306,7 +315,7 @@ function BroadcastComposer({
   authorityName?: string | null;
 }) {
   const [targetAudience, setTargetAudience] = useState<
-    "all" | "fisherman" | "commercial_navigator" | "researcher" | "port_users"
+    "all" | "fisherman" | "commercial_navigator" | "researcher"
   >("all");
   const [severity, setSeverity] = useState<"danger" | "warning" | "advisory" | "info">("warning");
   const [title, setTitle] = useState("Severe Cyclone & Wave Alert");
@@ -431,7 +440,7 @@ function BroadcastComposer({
         <label className="mb-2 block text-xs font-semibold text-ink">
           Target user type / Audience:
         </label>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {AUDIENCE_OPTIONS.map((opt) => {
             const isSelected = targetAudience === opt.id;
             return (
@@ -460,20 +469,22 @@ function BroadcastComposer({
       {/* Severity Selector */}
       <div className="mb-4">
         <label className="mb-2 block text-xs font-semibold text-ink">Alert severity level:</label>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 w-full">
           {SEVERITY_OPTIONS.map((sev) => {
             const isSelected = severity === sev.id;
             return (
               <button
                 key={sev.id}
                 type="button"
-                className={`flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-all ${isSelected
-                    ? "ring-2 ring-offset-1 ring-ocean-cyan"
-                    : "opacity-75 hover:opacity-100"
+                className={`flex w-full items-center justify-center rounded-sm px-3 py-2 text-xs font-medium transition-all border ${isSelected
+                    ? "border-ocean-cyan bg-shelf-1 ring-2 ring-ocean-cyan ring-offset-1 shadow-xs"
+                    : "border-hairline bg-shelf-1/60 opacity-80 hover:opacity-100 hover:bg-shelf-1"
                   }`}
                 onClick={() => setSeverity(sev.id)}
               >
-                <Badge tone={sev.tone}>{sev.label}</Badge>
+                <Badge tone={sev.tone} className="w-full justify-center text-center font-semibold">
+                  {sev.label}
+                </Badge>
               </button>
             );
           })}
@@ -495,13 +506,29 @@ function BroadcastComposer({
         </Field>
         <Field label="Sector location name">
           {(id) => (
-            <input
+            <select
               id={id}
-              className={inputClass}
+              className={`${inputClass} cursor-pointer`}
               value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="e.g. Mumbai Sector"
-            />
+              onChange={(e) => {
+                const val = e.target.value;
+                setLocation(val);
+                const portName = val.replace(/\s+Sector$/, "");
+                const matched = PORT_AUTHORITIES.find(
+                  (p) => p.name.toLowerCase() === portName.toLowerCase(),
+                );
+                if (matched) {
+                  setLat(String(matched.lat));
+                  setLon(String(matched.lon));
+                }
+              }}
+            >
+              {PORT_AUTHORITIES.map((p) => (
+                <option key={p.name} value={`${p.name} Sector`}>
+                  {p.name} Sector ({p.lat.toFixed(2)}°N, {p.lon.toFixed(2)}°E)
+                </option>
+              ))}
+            </select>
           )}
         </Field>
       </div>
