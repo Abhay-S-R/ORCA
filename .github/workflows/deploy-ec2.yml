@@ -1,0 +1,79 @@
+name: Deploy Backend to AWS EC2
+
+# Automatically builds and deploys the backend container to AWS EC2
+# whenever changes are pushed to main in backend/ or infra/ec2/.
+#
+# Mounts the persistent host /home/ec2-user/orca_data volume so data is
+# never lost or baked into the Docker image.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'infra/ec2/**'
+      - 'scripts/refresh_fishing_ban_order.py'
+      - '.github/workflows/deploy-ec2.yml'
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: infra/ec2/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "==== Step 1: Pulling latest image from Docker Hub ===="
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:latest
+
+            echo "==== Step 2: Stopping old container ===="
+            docker stop orca-backend || true
+            docker rm orca-backend || true
+
+            echo "==== Step 3: Launching updated container with mounted data ===="
+            docker run -d \
+              --name orca-backend \
+              --restart unless-stopped \
+              --env-file ~/.env \
+              -v /home/ec2-user/orca_data:/data \
+              -p 80:8000 \
+              -p 8000:8000 \
+              ${{ secrets.DOCKERHUB_USERNAME }}/orca-backend:latest
+
+            echo "==== Step 4: Pruning stale images ===="
+            docker image prune -f
+
+            echo "==== Step 5: Waiting 25s for backend warm-up sequence ===="
+            sleep 25
+
+            echo "==== Step 6: Verifying health check ===="
+            curl -f http://localhost:8000/health || (echo "Health check failed!" && exit 1)
+            echo "Deployment to EC2 was 100% successful!"

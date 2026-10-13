@@ -1,0 +1,22 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Dependencies for Cython extensions & rasterio
+RUN apt-get update && apt-get install --no-install-recommends -y build-essential libexpat1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt .
+# Pre-install CPU-only PyTorch to prevent downloading heavy CUDA wheels on Linux:
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
+
+COPY backend/orca ./orca
+COPY scripts/refresh_fishing_ban_order.py /scripts/
+
+ENV MALLOC_ARENA_MAX=2
+ENV ORCA_LOCAL_MODELS=0
+
+EXPOSE 8000
+
+CMD ["sh", "-c", "exec uvicorn orca.api.main:app --host 0.0.0.0 --port ${PORT:-8000} --timeout-graceful-shutdown 3"]
