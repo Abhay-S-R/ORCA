@@ -55,8 +55,10 @@ Thumbs.db
 .agents/
 skills-lock.json
 .playwright-mcp/
-.impeccable
+.impeccable/
 
 temp/
 # Local test checklists (personal working notes, not part of the repo)
 docs/testing/
+docs/competition/
+docs/data/
