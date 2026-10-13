@@ -46,7 +46,7 @@ def _real_position(user_location: dict | None) -> tuple[float, float, str | None
     try:
         lat = float(user_location["lat"])
         lon = float(user_location["lon"])
-        name = user_location.get("place_name") or ("Chennai" if user_location.get("place_source") == "home_port" else None)
+        name = user_location.get("place_name") or ("Home Port" if user_location.get("place_source") == "home_port" else None)
         return lat, lon, name
     except (KeyError, TypeError, ValueError):
         return None

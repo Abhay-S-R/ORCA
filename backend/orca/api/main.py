@@ -1190,6 +1190,7 @@ async def query(
     fresh: bool = False, fix_lat: OptLat = None, fix_lon: OptLon = None,
     demo_scenario: str | None = None,
     lang: str | None = None, language: str | None = None,
+    home_port_lat: OptLat = None, home_port_lon: OptLon = None, home_port_name: str | None = None,
     user: User | None = Depends(get_optional_user), db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """`llm=off` (P2.11, `R-NEW-3`) re-runs this exact query with every LLM
@@ -1352,6 +1353,9 @@ async def query(
         # situation from never having one, and Agent 9 has to be told which.
         fix_on_land = fix_lat is not None and fix_lon is not None and usable is None
         home_port = user_home_port(user) if user is not None else None
+        if home_port is None and home_port_lat is not None and home_port_lon is not None:
+            home_port = {"lat": float(home_port_lat), "lon": float(home_port_lon)}
+        hp_name = home_port_name or getattr(user, "home_port_name", None) or "Home Port"
         if resolved.place is not None and not (
             (usable is not None or home_port is not None) and resolved.place.source == "regional_default"
         ):
@@ -1386,13 +1390,18 @@ async def query(
             # Ambiguous is excluded for the same reason it is above — "Gujarat"
             # must keep asking, not be silently answered at the caller's own port.
             lat, lon, place_source = home_port["lat"], home_port["lon"], "home_port"
-            place_name = getattr(user, "home_port_name", None) or "Home Port"
+            place_name = hp_name
             resolution = {**(resolution or {}), "status": "resolved", "place_source": "home_port"}
         elif resolved.status not in ("ambiguous", "out_of_range", "unresolvable"):
-            # Open-ended query: Use registered operating home port (Chennai) so caller is never asked to specify a place
-            lat, lon, place_source = 13.10, 80.32, "home_port"
-            place_name = "Chennai"
-            resolution = {**(resolution or {}), "status": "resolved", "place_source": "home_port"}
+            # Open-ended query: use home port if available, otherwise regional default
+            if home_port is not None:
+                lat, lon, place_source = home_port["lat"], home_port["lon"], "home_port"
+                place_name = hp_name
+                resolution = {**(resolution or {}), "status": "resolved", "place_source": "home_port"}
+            else:
+                lat, lon, place_source = _DEFAULT_LAT, _DEFAULT_LON, "regional_default"
+                place_name = None
+                resolution = {**(resolution or {}), "status": "resolved", "place_source": "regional_default"}
         else:
             # Unresolvable or ambiguous: the graph will stop before any agent
             # reads this, and "regional_default" is what tells Agent 12 in the
