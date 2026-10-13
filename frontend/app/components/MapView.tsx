@@ -637,6 +637,22 @@ export function MapView({
     ...initialLayers,
   });
 
+  // Dynamic maxZoom management:
+  // When ocean currents / tides are active, maintain a maxZoom of 6.5 so streamlines
+  // never speed up unnaturally or look clumsy. Otherwise allow unrestricted deep zoom (22).
+  useEffect(() => {
+    if (!ready || !map.current) return;
+    const isCurrentsActive = layers.currents || queryFocus?.intent === "current" || queryFocus?.intent === "conditions";
+    if (isCurrentsActive) {
+      map.current.setMaxZoom(6.5);
+      if (map.current.getZoom() > 6.5) {
+        map.current.easeTo({ zoom: 6.2, duration: 600 });
+      }
+    } else {
+      map.current.setMaxZoom(maxZoomRef.current ?? 22);
+    }
+  }, [ready, layers.currents, queryFocus?.intent]);
+
 
   const [rasterLayers, setRasterLayers] = useState<RasterLayerMeta[]>([]);
   const [currentVectors, setCurrentVectors] = useState<CurrentVector[] | null>(null);
@@ -658,6 +674,10 @@ export function MapView({
   const [selectedPfzPos, setSelectedPfzPos] = useState<PfzScreenPos | null>(null);
   const selectedPfzCoordsRef = useRef<[number, number] | null>(null);
   const [selectedBadge, setSelectedBadge] = useState<WatchBadge | null>(null);
+  // Which port is "spotlit" on the Ask page — null means all ports show at
+  // equal dim opacity (no query or a general query). Non-null highlights exactly
+  // one port (and dims the rest) so the chart reads as "anchored here."
+  const [queryFocusPortId, setQueryFocusPortId] = useState<string | null>(null);
   // Kept alongside the map-source copies of the same fetches (never a second
   // fetch) purely so the region dashboard below can filter them by distance.
   const [pfzFeatures, setPfzFeatures] = useState<PfzFeature[]>([]);
@@ -1815,10 +1835,6 @@ export function MapView({
   // (https://react.dev/learn/you-might-not-need-an-effect) — the camera move
   // below is the actual external-system side effect, this isn't.
   const [focusedNonce, setFocusedNonce] = useState<number | undefined>(undefined);
-  // Which port is "spotlit" on the Ask page — null means all ports show at
-  // equal dim opacity (no query or a general query). Non-null highlights exactly
-  // one port (and dims the rest) so the chart reads as "anchored here."
-  const [queryFocusPortId, setQueryFocusPortId] = useState<string | null>(null);
   // The ship marker's heading — null points it at its resting orientation
   // (north). Set from the same real geometry the camera below fits to, so
   // it is never a bearing toward something not actually on screen.
@@ -2006,17 +2022,31 @@ export function MapView({
 
     // Where the camera lands when the topic has no geometry near the anchor:
     // the named sector at its own framing, explicit coords, home port, GPS position, or all-India coastal view.
+    const isCurrentsActive =
+      layers.currents ||
+      queryFocus.intent === "current" ||
+      queryFocus.intent === "conditions";
+
     const fallback = (zoom: number) => {
+      const effectiveZoom = isCurrentsActive
+        ? Math.min(zoom, 6.2)
+        : (queryFocus.intent === "fishing" ? Math.max(zoom, 9.5) : zoom);
+
       const target = region
-        ? { center: region.center as [number, number], zoom: region.zoom }
+        ? {
+            center: region.center as [number, number],
+            zoom: isCurrentsActive
+              ? Math.min(region.zoom, 6.2)
+              : (queryFocus.intent === "fishing" ? Math.max(region.zoom, 9.2) : region.zoom),
+          }
         : queryFocus.coords
-          ? { center: queryFocus.coords, zoom }
+          ? { center: queryFocus.coords, zoom: effectiveZoom }
           : portCoords
-            ? { center: portCoords, zoom }
+            ? { center: portCoords, zoom: isCurrentsActive ? 6.2 : (queryFocus.intent === "fishing" ? 9.8 : effectiveZoom) }
             : homePortCoordsRef.current
-              ? { center: homePortCoordsRef.current, zoom }
+              ? { center: homePortCoordsRef.current, zoom: isCurrentsActive ? 6.2 : (queryFocus.intent === "fishing" ? 9.5 : effectiveZoom) }
               : !suppressGpsZoomRef.current && userLocationRef.current
-                ? { center: userLocationRef.current, zoom }
+                ? { center: userLocationRef.current, zoom: isCurrentsActive ? 6.2 : effectiveZoom }
                 : { center: INDIA_VIEW.center as [number, number], zoom: INDIA_VIEW.zoom };
       cinematicFly({ ...target, duration: 1100 });
     };
@@ -2036,7 +2066,7 @@ export function MapView({
         );
         setTimeout(() => { if (map.current) map.current.easeTo({ pitch: 0, duration: 500 }); }, 1000);
       } else {
-        fallback(8.2);
+        fallback(8.5);
       }
     } else if (queryFocus.intent === "fishing") {
       // Fishing: spotlight the port and ONLY the fishing zone(s) within the query radius.
@@ -2062,7 +2092,7 @@ export function MapView({
         m.setPaintProperty("pfz-circles", "text-color", "#ffffff");
       }
       if (visible.length > 0) {
-        // Frame both the anchor port and the visible fishing zones
+        // Frame both the anchor port and the visible fishing zones with zoom-in
         const lons = [anchor[0], ...visible.map((f) => f.geometry.coordinates[0])];
         const lats = [anchor[1], ...visible.map((f) => f.geometry.coordinates[1])];
         m.fitBounds(
@@ -2071,28 +2101,47 @@ export function MapView({
         );
         setTimeout(() => { if (map.current) map.current.easeTo({ pitch: 0, duration: 600 }); }, 1100);
       } else {
-        fallback(9.0);
+        fallback(9.5);
       }
-    } else if (queryFocus.intent === "current" || queryFocus.intent === "wave" || queryFocus.intent === "wind") {
+    } else if (
+      queryFocus.intent === "current" ||
+      queryFocus.intent === "conditions" ||
+      queryFocus.intent === "wave" ||
+      queryFocus.intent === "wind"
+    ) {
       resetPfzOpacity();
-      // All three fields cover the whole basin — a named place keeps its own
-      // sector, an unplaced question fits the full field extent.
-      const bounds =
-        queryFocus.intent === "current" ? currentBounds :
-          queryFocus.intent === "wind" ? windBounds :
-            forecastLayer?.bounds;
-      if (region) {
-        fallback(8.2);
-      } else if (bounds) {
-        const [w, s, e, n] = bounds;
-        m.fitBounds([[w, s], [e, n]], {
-          padding: 60,
-          maxZoom: 16,
-          duration: 1100,
-        });
-        setTimeout(() => { if (map.current) map.current.easeTo({ pitch: 0, duration: 500 }); }, 1000);
+      // Ocean currents and tides: maintain zoom-in limits (<= 6.5) so currents/tides particles stay smooth and don't speed up clumsily
+      if (queryFocus.intent === "current" || queryFocus.intent === "conditions") {
+        const bounds = currentBounds;
+        if (region) {
+          fallback(Math.min(region.zoom, 6.2));
+        } else if (bounds) {
+          const [w, s, e, n] = bounds;
+          m.fitBounds([[w, s], [e, n]], {
+            padding: 50,
+            maxZoom: 6.2,
+            duration: 1100,
+          });
+          setTimeout(() => { if (map.current) map.current.easeTo({ pitch: 0, duration: 500 }); }, 1000);
+        } else {
+          fallback(6.2);
+        }
       } else {
-        fallback(8.2);
+        // Wind & wave forecasts
+        const bounds = queryFocus.intent === "wind" ? windBounds : forecastLayer?.bounds;
+        if (region) {
+          fallback(region.zoom);
+        } else if (bounds) {
+          const [w, s, e, n] = bounds;
+          m.fitBounds([[w, s], [e, n]], {
+            padding: 60,
+            maxZoom: 7.5,
+            duration: 1100,
+          });
+          setTimeout(() => { if (map.current) map.current.easeTo({ pitch: 0, duration: 500 }); }, 1000);
+        } else {
+          fallback(7.5);
+        }
       }
     } else if (queryFocus.intent === "safety") {
       resetPfzOpacity();
@@ -2100,7 +2149,7 @@ export function MapView({
       cinematicFly({ center: anchor, zoom: 8.5, duration: 1100 });
     } else {
       resetPfzOpacity();
-      fallback(8.2);
+      fallback(8.5);
     }
     // Only the nonce should retrigger this — `boundaryFeatures`/`pfzFeatures`
     // are read for their current value, not watched (both settle long

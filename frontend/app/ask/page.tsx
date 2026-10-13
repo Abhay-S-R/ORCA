@@ -162,7 +162,7 @@ export default function AskPage() {
         });
       }
     }
-  }, [turns]);
+  }, [turns, language]);
 
   const [selectedVesselClass, setSelectedVesselClass] = useState<string | null>(null);
 
@@ -803,7 +803,6 @@ export default function AskPage() {
                 showRegionSwitcher={false}
                 showLegends={false}
                 showSoundingHud={false}
-                maxZoom={6.5}
                 showCoastalBoundary={false}
               />
             </div>

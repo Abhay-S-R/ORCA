@@ -16,7 +16,7 @@ const WAVE = /\bwaves?\b|\bswell\b|\bwave height\b/i;
 const SAFETY = /\bsafe\b|\bsafety\b|go out|\bcaution\b|\bstorm\b|\bcyclone\b/i;
 // Catches broad marine-conditions queries: tide + weather + sea conditions together,
 // or any mention of sea state / conditions / weather / tide without a more specific intent.
-const CONDITIONS = /\btide\b|\btidal\b|\bweather\b|\bsea conditions?\b|\bsea state\b|\bmarine conditions?\b|\bocean conditions?\b/i;
+const CONDITIONS = /\btides?\b|\btidal\b|\bweather\b|\bsea conditions?\b|\bsea state\b|\bmarine conditions?\b|\bocean conditions?\b/i;
 
 export function classifyQueryIntent(query: string): QueryIntent {
   if (BOUNDARY.test(query)) return "boundary";

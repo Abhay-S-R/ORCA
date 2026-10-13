@@ -1881,14 +1881,10 @@ export function DistressAlertOverlay({ data, onClose }: DistressAlertOverlayProp
   const sirenRef = useRef<EmergencySirenSynthesizer | null>(null);
   const langMenuRef = useRef<HTMLDivElement | null>(null);
 
-  // Language precedence: data.language (if explicitly provided & valid) -> context language preference
-  const initialLang: LangCode = data?.language && isLangCode(data.language) ? data.language : contextLang;
-  const [activeLang, setActiveLang] = useState<LangCode>(initialLang);
-
-  useEffect(() => {
-    const nextLang = data?.language && isLangCode(data.language) ? data.language : contextLang;
-    setActiveLang(nextLang);
-  }, [data?.language, contextLang]);
+  // Language precedence: user selection in overlay -> data.language (if explicitly provided & valid) -> context language preference
+  const fallbackLang: LangCode = data?.language && isLangCode(data.language) ? data.language : contextLang;
+  const [selectedLang, setSelectedLang] = useState<LangCode | null>(null);
+  const activeLang = selectedLang ?? fallbackLang;
 
   useEffect(() => {
     if (data?.isOpen) {
@@ -1933,7 +1929,7 @@ export function DistressAlertOverlay({ data, onClose }: DistressAlertOverlayProp
   };
 
   const handleSelectLanguage = (langCode: LangCode) => {
-    setActiveLang(langCode);
+    setSelectedLang(langCode);
     setLanguage(langCode);
     setShowLangMenu(false);
   };
