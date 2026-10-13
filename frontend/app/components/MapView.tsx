@@ -309,6 +309,7 @@ function buildPortMarkersGeoJson(highlightId: string | null, language?: string) 
 function findPortCoordsByName(name: string | undefined): [number, number] | undefined {
   if (!name) return undefined;
   const tn = name.toLowerCase().trim();
+  if (tn === "home port" || tn === "home_port" || tn === "homeport") return undefined;
   const p = PORT_MARKERS.find(
     (port) => port.id === tn || port.name.toLowerCase() === tn || tn.includes(port.id) || port.id.includes(tn),
   );
@@ -465,6 +466,8 @@ export function MapView({
   queryFocus,
   distressMarkers,
   homePortCoords,
+  homePortName,
+  showUserLocation,
   suppressGpsZoom = false,
   minZoom,
   maxZoom,
@@ -519,6 +522,10 @@ export function MapView({
    *  fix as the fallback anchor (used by the Ask page to stay on the user's
    *  home port rather than jumping to their real-time location). */
   homePortCoords?: [number, number] | null;
+  /** Optional display name of the home port */
+  homePortName?: string | null;
+  /** Whether to show the live user location pin and recenter button. Defaults to !suppressGpsZoom */
+  showUserLocation?: boolean;
   /** When true, the query-focus camera effect never zooms to the live GPS
    *  position as a fallback — it uses homePortCoords if set, then India overview.
    *  Set on the Ask page so generic questions like "is it safe tomorrow?" don't
@@ -1505,9 +1512,19 @@ export function MapView({
      teardown/recreate, same "update in place" rule §4.7 uses everywhere
      else on this map — so a later position update (if the browser refines
      the fix) just moves the existing marker. */
+  const showUserLocationEffective = showUserLocation ?? !suppressGpsZoom;
+
+  /* ---- "Your Location" marker: a ship's-bow pointer over a pulsing GPS
+     halo, shown ONLY when showUserLocationEffective is true and position is granted. */
   const shipMarkerRef = useRef<maplibregl.Marker | null>(null);
   useEffect(() => {
-    if (!ready || !map.current || !userLocation) return;
+    if (!ready || !map.current || !userLocation || !showUserLocationEffective) {
+      if (shipMarkerRef.current) {
+        shipMarkerRef.current.remove();
+        shipMarkerRef.current = null;
+      }
+      return;
+    }
     if (!shipMarkerRef.current) {
       const el = document.createElement("div");
       el.setAttribute("aria-label", "Your location");
@@ -1529,7 +1546,68 @@ export function MapView({
       shipMarkerRef.current?.remove();
       shipMarkerRef.current = null;
     };
-  }, [ready, userLocation]);
+  }, [ready, userLocation, showUserLocationEffective]);
+
+  /* ---- Home Port marker: glowing port pin pinned to homePortCoords ---- */
+  const homePortMarkerRef = useRef<maplibregl.Marker | null>(null);
+  useEffect(() => {
+    if (!ready || !map.current || !homePortCoords) {
+      if (homePortMarkerRef.current) {
+        homePortMarkerRef.current.remove();
+        homePortMarkerRef.current = null;
+      }
+      return;
+    }
+    const isNearKnownPort = PORT_MARKERS.some(
+      (p) => haversineKm(homePortCoords[1], homePortCoords[0], p.lat, p.lon) < 15,
+    );
+    const label = homePortName ? `${homePortName} (Home Port)` : "Home Port";
+
+    if (homePortMarkerRef.current) {
+      homePortMarkerRef.current.remove();
+      homePortMarkerRef.current = null;
+    }
+
+    const el = document.createElement("div");
+    el.setAttribute("aria-label", label);
+    el.className = "home-port-marker";
+    el.style.cssText = "display:flex;flex-direction:column;align-items:center;cursor:pointer;pointer-events:auto;z-index:25;";
+
+    if (isNearKnownPort) {
+      // Port anchor icon already exists on the map layer: place a clean 'Home Port' badge directly above it
+      el.innerHTML = `
+        <div class="home-port-label" style="padding:2px 8px;background:rgba(15,23,42,0.92);border:1.5px solid rgba(56,189,248,0.7);border-radius:9999px;color:#38bdf8;font-family:ui-sans-serif,system-ui,sans-serif;font-size:10px;font-weight:700;letter-spacing:0.03em;box-shadow:0 2px 8px rgba(0,0,0,0.7);white-space:nowrap;backdrop-filter:blur(4px);">
+          Home Port
+        </div>
+      `;
+      homePortMarkerRef.current = new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, -22] })
+        .setLngLat(homePortCoords)
+        .addTo(map.current);
+    } else {
+      // Standalone home port not in the 12 major ports: show full icon + label
+      el.innerHTML = `
+        <div style="position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
+          <div style="position:absolute;inset:-4px;border-radius:50%;background:#0284c7;opacity:0.4;filter:blur(6px);"></div>
+          <div style="position:relative;width:36px;height:36px;border-radius:50%;background:#0369a1;border:2.5px solid #ffffff;box-shadow:0 3px 10px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22V8m0 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm0 14a8 8 0 0 1-8-8h2a6 6 0 0 0 12 0h2a8 8 0 0 1-8 8Z"/>
+            </svg>
+          </div>
+        </div>
+        <div class="home-port-label" style="margin-top:4px;padding:2.5px 9px;background:rgba(15,23,42,0.92);border:1px solid rgba(56,189,248,0.5);border-radius:9999px;color:#38bdf8;font-family:ui-sans-serif,system-ui,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(0,0,0,0.6);white-space:nowrap;backdrop-filter:blur(4px);">
+          ${label}
+        </div>
+      `;
+      homePortMarkerRef.current = new maplibregl.Marker({ element: el, anchor: "top" })
+        .setLngLat(homePortCoords)
+        .addTo(map.current);
+    }
+
+    return () => {
+      homePortMarkerRef.current?.remove();
+      homePortMarkerRef.current = null;
+    };
+  }, [ready, homePortCoords, homePortName]);
 
   /* ---- /voyage: route corridor + origin/destination pins (both optional,
      absent for every other page that mounts this component) ---- */
@@ -2822,33 +2900,32 @@ export function MapView({
 
 
 
-          {/* Quick recenter button — sits directly below the MapLibre
-              zoom/compass controls (NavigationControl, ~96px tall at top-right).
-              Your GPS fix when granted, otherwise the national overview.
-              Never flies to a fixed pilot sector. */}
-          <div className="pointer-events-auto absolute top-[120px] right-[10px] z-10">
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedRegion("all");
-                map.current?.flyTo(
-                  userLocation
-                    ? { center: userLocation, zoom: 8.5, duration: 800, essential: true }
-                    : { center: INDIA_VIEW.center, zoom: INDIA_VIEW.zoom, duration: 800, essential: true },
-                );
-              }}
-              title={userLocation ? "Recenter chart on your location" : "Recenter chart on India overview"}
-              aria-label={userLocation ? "Recenter chart on your location" : "Recenter chart on India overview"}
-              className="flex size-[34px] items-center justify-center rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-md text-ink-muted shadow transition-colors hover:bg-shelf-2 hover:text-ink focus:outline-none"
-            >
-              <Crosshair className="size-4 text-accent" />
-            </button>
-            {(geoStatus === "denied" || geoStatus === "unavailable") && (
-              <p className="mt-1.5 w-max max-w-[9rem] rounded-md border border-hairline/70 bg-shelf-1/95 px-1.5 py-1 text-right text-[9px] leading-snug text-ink-dim shadow">
-                Location unavailable — showing India overview
-              </p>
-            )}
-          </div>
+          {/* Quick recenter button — only shown when showUserLocationEffective is true */}
+          {showUserLocationEffective && (
+            <div className="pointer-events-auto absolute top-[120px] right-[10px] z-10">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedRegion("all");
+                  map.current?.flyTo(
+                    userLocation
+                      ? { center: userLocation, zoom: 8.5, duration: 800, essential: true }
+                      : { center: INDIA_VIEW.center, zoom: INDIA_VIEW.zoom, duration: 800, essential: true },
+                  );
+                }}
+                title={userLocation ? "Recenter chart on your location" : "Recenter chart on India overview"}
+                aria-label={userLocation ? "Recenter chart on your location" : "Recenter chart on India overview"}
+                className="flex size-[34px] items-center justify-center rounded-xl border border-hairline/80 bg-shelf-1/95 backdrop-blur-md text-ink-muted shadow transition-colors hover:bg-shelf-2 hover:text-ink focus:outline-none"
+              >
+                <Crosshair className="size-4 text-accent" />
+              </button>
+              {(geoStatus === "denied" || geoStatus === "unavailable") && (
+                <p className="mt-1.5 w-max max-w-[9rem] rounded-md border border-hairline/70 bg-shelf-1/95 px-1.5 py-1 text-right text-[9px] leading-snug text-ink-dim shadow">
+                  Location unavailable — showing India overview
+                </p>
+              )}
+            </div>
+          )}
 
           <div
             className={`pointer-events-auto absolute right-3 left-3 sm:left-auto sm:w-80 transition-all ${Boolean(layers.waveForecast && forecastLayer?.forecast_frames?.length)

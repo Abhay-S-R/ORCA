@@ -88,19 +88,6 @@ export default function AskPage() {
   const threadRef = useRef<HTMLDivElement>(null);
   const latestTurnRef = useRef<HTMLDivElement>(null);
   const prevTurnsLengthRef = useRef(0);
-  const {
-    turns,
-    chatId,
-    saveFailed,
-    streaming,
-    activeFocus,
-    ask,
-    rerun,
-    showVersion,
-    newChat,
-    openChat,
-  } = useAskThread(persona, store, () => setHistoryVersion((v) => v + 1), language);
-
   // Resolved home port coordinates: prefer explicit profile home_port, then match
   // profile home_port_name from presets, otherwise default to Kochi [76.2673, 9.9312].
   const authStatus = auth.status;
@@ -121,6 +108,34 @@ export default function AskPage() {
     }
     return [76.2673, 9.9312];
   }, [authStatus, homePortLon, homePortLat, homePortName]);
+
+  const resolvedHomePortName = useMemo(() => {
+    if (homePortName) return homePortName;
+    const match = PRESET_HOME_PORTS.find(
+      (p) => Math.abs(p.lon - resolvedHomePortCoords[0]) < 0.05 && Math.abs(p.lat - resolvedHomePortCoords[1]) < 0.05,
+    );
+    return match?.name ?? "Kochi";
+  }, [homePortName, resolvedHomePortCoords]);
+
+  const {
+    turns,
+    chatId,
+    saveFailed,
+    streaming,
+    activeFocus,
+    ask,
+    rerun,
+    showVersion,
+    newChat,
+    openChat,
+  } = useAskThread(
+    persona,
+    store,
+    () => setHistoryVersion((v) => v + 1),
+    language,
+    resolvedHomePortCoords,
+    resolvedHomePortName,
+  );
 
   // The latest distress call in this chat with a position — pinned on the map
   // for as long as the chat is open (P4.16). No position, no pin: the answer
@@ -798,6 +813,8 @@ export default function AskPage() {
                 queryFocus={activeFocus}
                 distressMarkers={distressMarkers}
                 homePortCoords={resolvedHomePortCoords}
+                homePortName={resolvedHomePortName}
+                showUserLocation={false}
                 suppressGpsZoom={true}
                 showLayerPanel={false}
                 showRegionSwitcher={false}

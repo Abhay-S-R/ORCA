@@ -298,28 +298,39 @@ export function extractPfzDistanceAndName(
     }
   }
 
-  // 3. Extract place name from query or response text if targetName is not set
-  if (!targetName) {
-    const combined = `${queryText} ${text}`.toLowerCase();
-    const candidatePlaces = [
-      "munambam", "chellanam", "kochi", "cochin", "veraval", "mumbai", "chennai",
-      "thoothukudi", "tuticorin", "visakhapatnam", "vizag", "mangalore", "mangaluru",
-      "rameswaram", "kanyakumari", "paradip", "kakinada", "kolkata", "porbandar",
-      "dwarka", "okha", "malpe", "karwar", "beypore", "neendakara", "goa",
-    ];
+  // 3. Extract place name: check user query text first
+  const candidatePlaces = [
+    "munambam", "chellanam", "kochi", "cochin", "veraval", "mumbai",
+    "thoothukudi", "tuticorin", "visakhapatnam", "vizag", "mangalore", "mangaluru",
+    "rameswaram", "kanyakumari", "paradip", "kakinada", "kolkata", "porbandar",
+    "dwarka", "okha", "malpe", "karwar", "beypore", "neendakara", "goa", "chennai",
+  ];
+  if (!targetName && queryText) {
+    const qLower = queryText.toLowerCase();
     for (const place of candidatePlaces) {
-      if (combined.includes(place)) {
+      if (qLower.includes(place)) {
         targetName = place;
         break;
       }
     }
   }
 
-  // 4. Fallback from user_location.place_name
+  // 4. Fallback from user_location.place_name (the user's home port or resolved location)
   if (!targetName) {
     const placeName = (data?.user_location as { place_name?: string } | undefined)?.place_name;
     if (placeName && typeof placeName === "string" && placeName.trim()) {
       targetName = placeName.toLowerCase().trim();
+    }
+  }
+
+  // 5. Fallback from response text if still unresolved
+  if (!targetName && text) {
+    const tLower = text.toLowerCase();
+    for (const place of candidatePlaces) {
+      if (tLower.includes(place)) {
+        targetName = place;
+        break;
+      }
     }
   }
 
@@ -385,7 +396,14 @@ function criticalConditionFrom(data: {
   return null;
 }
 
-export function useAskThread(persona: Persona, store: ChatStore | null, onChatSaved?: () => void, language: string = "en") {
+export function useAskThread(
+  persona: Persona,
+  store: ChatStore | null,
+  onChatSaved?: () => void,
+  language: string = "en",
+  homePortCoords?: [number, number] | null,
+  homePortName?: string | null,
+) {
   const { raise: raiseCriticalAlert } = useCriticalAlert();
   // null means "not yet hydrated" — distinct from a real empty thread ([]).
   // Starting at null (rather than reading storage in useState's initializer)
@@ -657,6 +675,9 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
     const vesselParam = options?.vessel_class
       ? `&vessel_class=${encodeURIComponent(options.vessel_class)}`
       : "";
+    const homePortParam = homePortCoords
+      ? `&home_port_lat=${homePortCoords[1]}&home_port_lon=${homePortCoords[0]}${homePortName ? `&home_port_name=${encodeURIComponent(homePortName)}` : ""}`
+      : "";
     // The token rides on the URL: an EventSource cannot send a header, and
     // without it /query answers a signed-in user as a guest — no home port,
     // and a chat row nobody owns (chatbot plan C0.1).
@@ -664,7 +685,7 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
       // The user may have switched chats while the context was restoring.
       if (chatIdRef.current !== sessionId) return;
       const es = new EventSource(
-        `${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${locationParam}${vesselParam}${llmParam}${dropParam}${langParam}${authParam}`,
+        `${API_BASE}/query?q=${encodeURIComponent(q)}${personaParam}${sessionParam}${locationParam}${vesselParam}${llmParam}${dropParam}${langParam}${homePortParam}${authParam}`,
       );
       sourceRef.current = es;
       es.onmessage = (ev) => {
@@ -744,10 +765,13 @@ export function useAskThread(persona: Persona, store: ChatStore | null, onChatSa
 
     const personaParam = persona !== "unresolved" ? `&persona=${persona}` : "";
     const geo = getGeoParam(turn.askedQuery);
+    const homePortParam = homePortCoords
+      ? `&home_port_lat=${homePortCoords[1]}&home_port_lon=${homePortCoords[0]}${homePortName ? `&home_port_name=${encodeURIComponent(homePortName)}` : ""}`
+      : "";
     // Same token as ask() sends, for the same reason (chatbot plan C0.1).
     void tokenParam().then((authParam) => {
       if (chatIdRef.current !== sessionId) return;
-      const url = `${API_BASE}/query?q=${encodeURIComponent(turn.askedQuery)}${personaParam}&session_id=${encodeURIComponent(sessionId)}${geo}&fresh=1${authParam}`;
+      const url = `${API_BASE}/query?q=${encodeURIComponent(turn.askedQuery)}${personaParam}&session_id=${encodeURIComponent(sessionId)}${geo}&fresh=1${homePortParam}${authParam}`;
       const es = new EventSource(url);
       sourceRef.current = es;
       es.onmessage = (ev) => {
