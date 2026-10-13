@@ -287,16 +287,16 @@ export function SatelliteZoneMap({
 
   return (
     <div
-      className="relative h-[400px] w-full overflow-hidden rounded-xl border border-hairline/80 bg-slate-900 shadow-inner"
+      className="relative h-52 w-full overflow-hidden rounded-xl border border-hairline/80 bg-slate-900 shadow-inner sm:h-[400px]"
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* Map container */}
       <div ref={containerRef} className="h-full w-full" />
 
       {/* Satellite badge overlay */}
-      <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-md bg-slate-950/85 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-ocean-cyan backdrop-blur-md border border-white/10 shadow-sm">
-        <span className="size-2 rounded-full bg-ocean-cyan animate-pulse" />
-        {t("Satellite Region View")} · ${data.port_name}
+      <div className="pointer-events-none absolute left-2 top-2 z-10 flex items-center gap-1.5 rounded-md bg-slate-950/85 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-ocean-cyan backdrop-blur-md border border-white/10 shadow-sm max-w-[65%] sm:left-3 sm:top-3 sm:max-w-none">
+        <span className="size-2 shrink-0 rounded-full bg-ocean-cyan animate-pulse" />
+        <span className="truncate">{t("Satellite Region View")} · {data.port_name}</span>
       </div>
 
       {/* Recenter & Zoom controls */}
