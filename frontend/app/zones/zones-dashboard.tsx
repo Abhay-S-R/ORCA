@@ -210,7 +210,7 @@ export function ZonesToolbar({
   }, [ports]);
 
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div className="mb-4 flex flex-row flex-wrap items-center justify-between gap-2">
       <div className="flex items-center gap-2.5">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-ocean-cyan/15 text-ocean-cyan">
           <Anchor className="size-4" aria-hidden="true" />
@@ -242,7 +242,7 @@ export function ZonesToolbar({
         </div>
       </div>
 
-      <div className="flex items-center gap-2.5">
+      <div className="flex flex-wrap items-center gap-2">
         <div
           role="group"
           aria-label="Vessel profile"
@@ -520,7 +520,7 @@ function ZoneMap({
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* Header bar with Satellite / Sea Chart toggle */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-hairline/60 pb-2">
+      <div className="flex flex-col gap-2 border-b border-hairline/60 pb-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-ocean-cyan/15 text-ocean-cyan">
             <Compass className="size-4" />
@@ -950,13 +950,13 @@ function ZoneMap({
           </div>
 
           {/* Bottom row: description and trip cost on left, net profit on right */}
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-t border-hairline/60 pt-2 text-xs">
-            <p className="min-w-0 flex-1 text-[11px] leading-normal text-ink-dim break-words">
+          <div className="flex flex-col gap-2 border-t border-hairline/60 pt-2 text-xs sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-x-4 sm:gap-y-1.5">
+            <p className="min-w-0 text-[11px] leading-normal text-ink-dim break-words sm:flex-1">
               {zoneDesc(activeZone.zone_description)} · {t("Trip cost:")} <strong className="font-semibold text-ink">{inr(activeZone.total_cost)}</strong> {t("(fuel + fixed)")}
             </p>
 
             {activeZone.show_profit && activeZone.profit_mid != null && (
-              <div className="flex items-center gap-1.5 shrink-0 font-mono text-[11px]">
+              <div className="flex flex-wrap items-center gap-1.5 font-mono text-[11px] sm:shrink-0">
                 <span className="text-[10px] uppercase font-bold text-ink-dim">{t("Est. Net Profit:")}</span>
                 <span className="font-bold text-ink">
                   {inrK(activeZone.profit_low ?? 0)} – {inrK(activeZone.profit_high ?? 0)}
@@ -1011,7 +1011,7 @@ function RankedZoneList({
                 type="button"
                 aria-pressed={sel}
                 onClick={() => onSelect(z.zone_id)}
-                className={`flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left transition ${
+                className={`flex w-full cursor-pointer items-start justify-between gap-2 px-3 py-3 text-left transition sm:gap-3 sm:px-4 ${
                   sel
                     ? "bg-ocean-cyan/10 border-l-3 border-ocean-cyan"
                     : "hover:bg-shelf-3/50 border-l-3 border-transparent"
@@ -1047,18 +1047,18 @@ function RankedZoneList({
                 </div>
 
                 {showProfit && z.profit_label !== "cargo" && (
-                  <div className="shrink-0 text-right pl-2">
-                    <div className="flex items-center justify-end gap-1.5">
+                  <div className="shrink-0 text-right pl-1 sm:pl-2">
+                    <div className="flex items-center justify-end gap-1">
                       {z.margin_pct != null && (
-                        <span className="font-mono text-[11px] font-bold text-go">
+                        <span className="hidden font-mono text-[11px] font-bold text-go sm:inline">
                           {z.margin_pct}%
                         </span>
                       )}
                       <Badge tone={tone}>{t(z.profit_label)}</Badge>
                     </div>
                     {z.profit_low != null && z.profit_high != null && (
-                      <span className={`mt-0.5 block font-mono text-[11px] font-semibold ${TONE_TEXT[tone]}`}>
-                        {inrK(z.profit_low)} – {inrK(z.profit_high)}
+                      <span className={`mt-0.5 block font-mono text-[10px] font-semibold ${TONE_TEXT[tone]}`}>
+                        {inrK(z.profit_low)}–{inrK(z.profit_high)}
                       </span>
                     )}
                   </div>
@@ -1092,17 +1092,17 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
   return (
     <div className={CARD}>
       {/* Header with Title & Status Badges */}
-      <div className="mb-3.5 flex flex-wrap items-center justify-between gap-2 border-b border-hairline/60 pb-2.5">
-        <div>
-          <div className="flex items-center gap-2">
-            <Fish className="size-4.5 text-ocean-cyan" />
-            <h3 className="text-sm font-bold text-ink">{zoneName(zone.zone_name)} {t("Catch & Profit Breakdown")}</h3>
+      <div className="mb-3.5 flex flex-col gap-2 border-b border-hairline/60 pb-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-start gap-2">
+            <Fish className="size-4 mt-0.5 shrink-0 text-ocean-cyan" />
+            <h3 className="text-sm font-bold text-ink leading-snug">{zoneName(zone.zone_name)} {t("Catch & Profit Breakdown")}</h3>
           </div>
           <p className="mt-0.5 text-[11px] text-ink-dim">
             {zone.distance_km.toFixed(1)} {t("km from port")} · {zoneDesc(zone.zone_description, zone.zone_name)}
           </p>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {zone.limited_data && zone.show_profit && <Badge tone="caution">{t("Limited data")}</Badge>}
           {zone.is_best_zone && zone.show_profit && <Badge tone="go">★ {t("Best Zone for You")}</Badge>}
           <Badge tone={tone}>{t(zone.profit_label)}</Badge>
@@ -1117,17 +1117,20 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
         <>
           {/* Top Banner: Prominent Low & High Approximate Profit Per Trip */}
           {zone.profit_low != null && zone.profit_high != null && (
-            <div className="mb-4 rounded-xl border border-hairline/80 bg-shelf-1/90 p-3.5 shadow-xs">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div className="mb-4 rounded-xl border border-hairline/80 bg-shelf-1/90 p-3 sm:p-3.5 shadow-xs">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between">
                 <div>
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
                     {t("Approximate profit per trip")}
                   </span>
-                  <div className="flex items-baseline gap-2 mt-0.5">
-                    <span className={`text-xl font-bold font-mono ${TONE_TEXT[tone]}`}>
+                  <div className="mt-0.5">
+                    <span className={`text-lg font-bold font-mono sm:text-xl ${TONE_TEXT[tone]}`}>
                       {inr(zone.profit_low)} – {inr(zone.profit_high)}
                     </span>
-                    <span className="text-xs text-ink-muted">
+                    <span className="block text-xs text-ink-muted mt-0.5 sm:hidden">
+                      {t("Normal day:")} <strong className="font-mono font-bold text-ink">{zone.profit_mid != null ? inr(zone.profit_mid) : "—"}</strong>
+                    </span>
+                    <span className="hidden sm:inline text-xs text-ink-muted ml-2">
                       ({t("Normal day:")} <strong className="font-mono font-bold text-ink">{zone.profit_mid != null ? inr(zone.profit_mid) : "—"}</strong>)
                     </span>
                   </div>
@@ -1144,7 +1147,7 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
 
               {/* Visual Boat Expenses vs Net Sales Kept Progress Bar */}
               <div className="mt-2.5">
-                <div className="flex items-center justify-between text-[11px] font-mono text-ink-dim mb-1">
+                <div className="flex flex-col gap-0.5 text-[11px] font-mono text-ink-dim mb-1 sm:flex-row sm:items-center sm:justify-between">
                   <span>{t("Boat expenses:")} {inr(zone.total_cost)}</span>
                   <span>{zone.margin_pct ?? 0}% {t("of sales kept")}</span>
                 </div>
@@ -1234,7 +1237,7 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
                 <div className="flex items-center gap-1.5 font-semibold text-ink mb-2">
                   <span>{t("Calculation Formula:")}</span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                <div className="grid grid-cols-1 gap-2 text-[11px] sm:grid-cols-3">
                   <div className="rounded border border-hairline/60 bg-shelf-1/80 p-2">
                     <span className="text-[10px] font-bold uppercase text-ink-dim block">{t("Expected Catch Value")}</span>
                     <span className="font-mono text-ink text-[11px] mt-0.5 block">{t("Catch Weight (kg) × Auction Price (₹/kg)")}</span>
@@ -1352,7 +1355,7 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center justify-between text-base font-bold font-mono">
+                  <div className="flex flex-col gap-1 text-sm font-bold font-mono sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-ink">{inr(zone.profit_low)} ({t("Low")})</span>
                     <span className="text-ink-dim font-normal text-xs">{t("to")}</span>
                     <span className={TONE_TEXT[tone]}>{inr(zone.profit_high)} ({t("Peak")})</span>
@@ -1381,7 +1384,8 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
                 {zone.priced_species.length} {t("species modeled")}
               </span>
             </summary>
-            <div className="mt-2.5 overflow-x-auto">
+            <div className="mt-2.5 -mx-1 overflow-x-auto rounded">
+              <div style={{minWidth: '520px'}}>
               <table className="w-full border-collapse text-left text-xs">
                 <thead>
                   <tr className="border-b border-hairline text-[11px] text-ink-dim bg-shelf-1/80">
@@ -1442,6 +1446,7 @@ function ZoneBreakdown({ zone }: { zone: ZoneProfitResult }) {
                   </tr>
                 </tfoot>
               </table>
+              </div>
             </div>
           </details>
         </>
