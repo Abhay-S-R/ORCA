@@ -256,7 +256,7 @@ export function SeaRouteMap({
         const el = document.createElement("div");
         el.className =
           "flex items-center justify-center w-6 h-6 rounded-full bg-emerald-600 text-white font-bold text-[10px] shadow-lg border-2 border-white pointer-events-none";
-        el.innerText = "A";
+        el.innerText = "S";
         startMarkerRef.current = new maplibregl.Marker({ element: el })
           .setLngLat([startPin[1], startPin[0]])
           .addTo(map);
@@ -278,7 +278,7 @@ export function SeaRouteMap({
         const el = document.createElement("div");
         el.className =
           "flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white font-bold text-[10px] shadow-lg border-2 border-white pointer-events-none";
-        el.innerText = "B";
+        el.innerText = "D";
         endMarkerRef.current = new maplibregl.Marker({ element: el })
           .setLngLat([endPin[1], endPin[0]])
           .addTo(map);

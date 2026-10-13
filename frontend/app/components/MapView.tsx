@@ -637,22 +637,7 @@ export function MapView({
     ...initialLayers,
   });
 
-  useEffect(() => {
-    if (initialLayers) {
-      setLayers((s) => ({ ...s, ...initialLayers }));
-    }
-  }, [
-    initialLayers?.boundaries,
-    initialLayers?.boundaryLines,
-    initialLayers?.pfz,
-    initialLayers?.seamarks,
-    initialLayers?.srvBathymetry,
-    initialLayers?.waveForecast,
-    initialLayers?.currents,
-    initialLayers?.wind,
-    initialLayers?.watchBadges,
-    initialLayers?.cyclone,
-  ]);
+
   const [rasterLayers, setRasterLayers] = useState<RasterLayerMeta[]>([]);
   const [currentVectors, setCurrentVectors] = useState<CurrentVector[] | null>(null);
   const [currentBounds, setCurrentBounds] = useState<[number, number, number, number] | null>(null);

@@ -104,6 +104,10 @@ export function IMBLCrossing() {
   const [index, setIndex] = useState(-1);
   const [running, setRunning] = useState(false);
   const spokenRef = useRef<Band | null>(null);
+  // Track the current app language in a ref so reset() can sync selectedLang
+  // without a setState-in-effect (which the linter forbids).
+  const languageRef = useRef(language);
+  useEffect(() => { languageRef.current = language as LangCode; }, [language]);
   const flashTimerRef = useRef<NodeJS.Timeout | null>(null);
   const flashCountRef = useRef(0);
   const [criticalFlash, setCriticalFlash] = useState(false);
@@ -119,10 +123,7 @@ export function IMBLCrossing() {
     return () => document.removeEventListener("mousedown", fn);
   }, [langOpen]);
 
-  // Sync language selector before demo starts
-  useEffect(() => {
-    if (!running && index < 0) setSelectedLang(language as LangCode);
-  }, [language, running, index]);
+
 
   // Auto-advance frames
   useEffect(() => {
@@ -209,6 +210,7 @@ export function IMBLCrossing() {
   const reset = useCallback(() => {
     setRunning(false);
     setIndex(-1);
+    setSelectedLang(languageRef.current as LangCode);
     spokenRef.current = null;
     setCriticalFlash(false);
     setCriticalOverlay(false);
