@@ -10,182 +10,172 @@ Format: `[ACTION on screen]` → what to show | **"narration text"**
 `[SCREEN: Show "THE PROBLEM" slide — Smart India Hackathon 2026 / Geekmaxxxers]`
 
 ### 30-Second Spoken Pitch (Word-for-Word Narration)
-**"India has over 7,500 kilometers of coastline supporting 3.7 million marine fisherfolk and 2.8 million small boat crews. Today, world-class marine data already exists: INCOIS delivers ocean state and wave advisories, IMD forecasts cyclones and lightning, and ISRO tracks vessels. But here is the critical gap: India has the marine data, but the boat still needs the decision. Signals remain scattered across disparate portals, in formats fishermen cannot decipher at sea, with zero vessel-specific context. In Cyclone Ockhi, 365 lives were lost because warnings were generic and uncoordinated. When a small boat heads out, the unanswered question is: *'What should this specific boat do right now?'* That is why we built ORCA."**
+**"India has 7,500 kilometers of coastline, 3.7 million fisherfolk, and 2.8 million small boat crews. World-class data already exists from INCOIS, IMD, and ISRO. But this is where existing systems stop: *India has the marine data, but the boat still needs the decision.*"**
+
+**"Signals are fragmented across separate portals, with zero vessel-level context, forcing dangerous manual guesswork. In Cyclone Ockhi, 365 lives were lost to generic warnings. Small boats are left asking: *'What should my boat do right now?'* That is why we built ORCA."**
+
+> *Pacing Note:* Natural, conversational pace. ~77 words (~28–30 seconds).
 
 ### Presenter Slide Talking Points & Key Facts
-- **The Core Dilemma:** *"India has the marine data but the boat still needs the decision."*
-- **Who Is Affected:**
-  - **2.8M Small Boat Crews:** Require timely, vessel-specific safety decisions and dynamic risk awareness to navigate safely.
-  - **3.7M Marine Fisherfolk:** Need vernacular safety advisories that remain accessible even when cellular signals die in coastal risk zones.
-  - **365 Lives Lost in Cyclone Ockhi (Nov 2017):** A stark reminder of what happens when rapid intensification meets generic, non-vessel-specific warnings.
-- **What Exists Today (The Data Silos):**
-  - **INCOIS (SAMUDRA / SVAS):** Potential Fishing Zones (PFZ) & ocean-state advisories, boat-specific wave forecasts.
-  - **IMD (SACHET / DAMINI):** Weather forecasts, cyclone alerts, lightning tracking.
-  - **ISRO (VCSS / NABHMITRA):** Satellite vessel tracking, SOS emergency beacons, boundary alerts.
-- **Where Existing Systems Stop:**
-  - **Fragmented Signals:** Critical marine parameters are scattered across disconnected departments.
-  - **No Vessel-Level Context:** Alerts fail to account for a boat's hull type, engine capacity, draft, route, or departure time.
-  - **Manual Human Reconciliation:** A fisherman or coastal officer has to manually cross-check multiple apps under high-stress, time-critical conditions.
-  - **The Unresolved Question:** Existing pipelines stop at data delivery, leaving the boat captain asking: *"What should this boat do now?"*
-- **The ORCA Solution:** A unified agentic marine decision intelligence platform that turns fragmented cross-source signals into a deterministic GO/NO-GO verdict in 10 regional Indian languages.
+- **The Core Headline:** *"India has the marine data but the boat still needs the decision"* (Cross-source, vessel-level reasoning remains fragmented).
+- **WHERE EXISTING SYSTEMS STOP (Key Slide Focus):**
+  - **1. Fragmented Signals:** Critical marine data is siloed across separate government systems (INCOIS, IMD, ISRO).
+  - **2. No Vessel-Level Context:** Broadcast alerts ignore a boat's hull type, draft, engine capacity, route, and timing.
+  - **3. No Cross-Source Answer:** Different sources never reconcile into one contextual decision.
+  - **4. Dangerous Manual Reconciliation:** Skippers are forced into high-stress guesswork while at sea.
+- **The Stakes & Victims:**
+  - **2.8M Small Boat Crews:** Need timely, vessel-specific safety decisions.
+  - **3.7M Marine Fisherfolk:** Need vernacular safety advisories in weak-signal risk zones.
+  - **365 Lives Lost in Cyclone Ockhi (Nov 2017):** Non-vessel-specific warnings cost lives during rapid storm intensification.
+- **The Unresolved Question:** *"What should this boat do now?"*
+- **The ORCA Solution:** Reconciles all signals with vessel physics and bathymetry in under 2 seconds, delivering a deterministic GO/NO-GO verdict in 10 Indian languages.
 
 ---
 
 ## SEGMENT 1 — System Foundation: Personas, Home Port, Language & the Agent Brain (0:30 – 1:25)
 
-### 0:30 – 0:40 | Persona Selection
+### 0:30 – 0:40 | Persona Selection (10s)
 
 `[SCREEN: Open /onboarding or PersonaSelector; show the 4 persona cards side by side]`
 
-**"ORCA serves four personas — Fisherman, Commercial Navigator, Researcher, and Coastal Authority. Your choice shapes the entire experience: the nav menu, the language of the answer, the depth of data shown, even which map layers load by default."**
+**"ORCA serves four personas — Fisherman, Navigator, Researcher, and Coastal Authority. Your choice tailors the interface, language, data depth, and default map layers."**
 
 `[ACTION: Click "Fisherman"]`
 
-### 0:40 – 0:52 | Language + Home Port (Hindi & Mumbai)
+### 0:40 – 0:52 | Language + Home Port (12s)
 
-`[SCREEN: Profile settings or onboarding — show Language dropdown selecting "Hindi" (हिन्दी), then Home Port showing "Mumbai"]`
+`[SCREEN: Profile settings or onboarding — select "Hindi" (हिन्दी), then Home Port "Mumbai"]`
 
-**"A fisherman in Mumbai selects Hindi as his language and registers his home port. Now — here's something important — ORCA is not limited to one state's waters. A fisherman from Maharashtra can safely query sea conditions near Veraval in Gujarat, Ratnagiri, Goa, or Mangalore. ORCA resolves every place along India's coastline to the right INCOIS sector and bathymetric grid. The home port just personalises defaults — it's never a restriction."**
+**"A fisherman in Mumbai selects Hindi and sets his home port. ORCA isn't restricted to Maharashtra — he can query anywhere along India's coastline. The home port simply personalises defaults."**
 
-### 0:52 – 1:10 | Agent Pipeline Overview
+### 0:52 – 1:10 | Agent Pipeline Overview (18s)
 
-`[SCREEN: Navigate to /reasoning — show the agent graph / pipeline diagram with node names visible]`
+`[SCREEN: Navigate to /reasoning — show 15-node LangGraph pipeline diagram]`
 
-**"Under every question runs a 15-node LangGraph pipeline. Language Ingress detects and translates the question. Planning reads intent and validates place and time against real data — no hallucinated coordinates. Then specialist agents fire in parallel: Weather Intelligence, Geospatial, Ocean Analytics. Risk Assessment computes the GO or NO-GO verdict using deterministic code — never an LLM guess. Reporting writes the answer around the facts. And the Critic checks it for accuracy before anything goes out."**
+**"Under every query runs a 15-node LangGraph pipeline. Planning validates coordinates, then Weather, Geospatial, and Ocean agents run in parallel. Risk Assessment computes a deterministic verdict, Reporting drafts the answer, and Critic verifies accuracy."**
 
-### 1:10 – 1:25 | Confidence & Determinism callout
+### 1:10 – 1:25 | Confidence & Determinism Callout (15s)
 
-`[SCREEN: Zoom into agent strip from a previous answer — show confidence tier badges: HIGH / MEDIUM / LOW-DATA on individual agents]`
+`[SCREEN: Zoom into agent strip — show confidence badges: HIGH / MEDIUM / LOW-DATA]`
 
-**"Every agent carries a confidence score — HIGH, MEDIUM, or LOW-DATA. Agents that decide whether a boat leaves port — Weather, Geospatial, Risk Assessment — never call a language model. The verdict is deterministic. The Sentinel agent runs in the background 24 by 7, watching registered locations and pushing alerts the moment a threshold is crossed, without the user opening the app."**
+**"Every agent displays a confidence tier: HIGH, MEDIUM, or LOW-DATA. Safety-critical agents never call an LLM — the verdict is purely deterministic. Meanwhile, Sentinel monitors watch zones 24/7 in the background."**
 
 ---
 
 ## SEGMENT 2 — Fisherman Persona Demo & Marine Chart (1:25 – 2:40)
 
-### 1:25 – 1:35 | Navigation Menu
+### 1:25 – 1:35 | Navigation Menu (10s)
 
-`[SCREEN: Show the nav rail with Fisherman persona active — Ask, Map, Zones, Voyage, Watches highlighted]`
+`[SCREEN: Show nav rail in Fisherman mode: Ask, Map, Zones, Voyage, Watches]`
 
-**"In Fisherman mode, the interface is streamlined. The navigation shows: Ask, the interactive Marine Chart, Fishing Zones, Voyage planning, and Watches. Zero clutter."**
+**"In Fisherman mode, navigation is distraction-free: Ask, Marine Chart, Fishing Zones, Voyage planning, and Watches."**
 
-### 1:35 – 1:50 | Interactive Marine Chart & Map Explorer (15 Seconds)
+### 1:35 – 1:50 | Interactive Marine Chart & Map Explorer (15s)
 
-`[SCREEN: Navigate to /map — show MapLibre GL marine chart with animated particle flow field (winds/currents), GEBCO bathymetry depth contours, active PFZ zones, and maritime boundaries]`
+`[SCREEN: Navigate to /map — show MapLibre GL chart: particle flow field (winds/currents), GEBCO depth contours, PFZ markers, boundary lines]`
 
-**"Clicking into the Marine Chart reveals ORCA's real-time geospatial canvas powered by MapLibre GL. It visualizes dynamic particle flow fields for live wind and ocean currents, GEBCO bathymetric depth contours, and active INCOIS PFZ fishing sectors. Fishermen and navigators can inspect depth soundings, satellite SST overlays, and hazard boundaries with zero latency — giving complete visual situational awareness before untying from the jetty."**
+**"The Marine Chart is our real-time MapLibre canvas. It visualizes live wind and current flow fields, GEBCO depth contours, and INCOIS fishing zones — giving skippers instant spatial awareness before leaving the jetty."**
 
-### 1:50 – 2:10 | Safety Query in Hindi
+### 1:50 – 2:10 | Safety Query in Hindi (20s)
 
-`[SCREEN: Navigate to /ask; type or use voice input in Hindi: "क्या कल सुबह समुद्र में जाना सुरक्षित है?" (Is it safe to go to sea tomorrow morning?)]`
-`[Show agent strip streaming live: pills lighting up — Planning → Weather → Geospatial → Ocean Analytics → Risk Assessment → Reporting → Critic]`
+`[SCREEN: /ask — type or speak in Hindi: "क्या कल सुबह समुद्र में जाना सुरक्षित है?"]`
+`[Show agent strip streaming: Planning → Weather → Geospatial → Ocean Analytics → Risk Assessment → Reporting → Critic]`
 
-**"He types — or speaks — his question in Hindi: *'क्या कल सुबह समुद्र में जाना सुरक्षित है?'* Watch the agent strip stream live: Planning fires first, validates Mumbai as his position, then Weather Intelligence, Geospatial, and Ocean Analytics run in parallel. Risk Assessment computes the verdict. Reporting synthesizes the answer in Hindi. And Critic verifies it."**
+**"He asks in Hindi: *'क्या कल सुबह समुद्र में जाना सुरक्षित है?'* Watch the agents stream live — validating Mumbai, fetching weather, and computing risk."**
 
-`[Answer arrives: large GO or CAUTION banner in Hindi, with wave height, wind speed, distance from hazards/shipping corridors, tide state shown as readouts]`
+`[Answer arrives: large GO/CAUTION banner in Hindi, wave height, wind speed, hazard distance readouts]`
 
-**"The verdict: bold, unmistakable, in Hindi. Wave height compared against his boat's exact safety envelope. Wind speed, tide state, and distance to restricted zones — all citing INCOIS, Open-Meteo, and GEBCO with acquisition timestamps."**
+**"The verdict is immediate and clear in Hindi. Wave height, wind, and boundary distance are evaluated against his boat's limits, citing INCOIS and GEBCO with timestamps."**
 
-### 2:10 – 2:20 | Voice Playback + Source Chips
+### 2:10 – 2:20 | Voice Playback + Source Chips (10s)
 
-`[ACTION: Tap the speaker icon on the Hindi answer — play Bhashini TTS Hindi audio]`
-`[Show source chips below the answer — INCOIS, Open-Meteo, GEBCO]`
+`[ACTION: Tap speaker icon for Bhashini Hindi TTS audio; highlight INCOIS/Open-Meteo/GEBCO chips]`
 
-**"He can have the advisory read aloud in Hindi using Bhashini text-to-speech. Every fact links directly to its authoritative source — INCOIS for waves, Open-Meteo for wind, GEBCO for bathymetry. Nothing is hallucinated."**
+**"He can listen via Bhashini Hindi text-to-speech. Every data point cites its authoritative source — zero hallucination."**
 
-### 2:20 – 2:32 | Distress Demo
+### 2:20 – 2:32 | Distress Demo (12s)
 
-`[SCREEN: Trigger distress in /ask or Navigate to /demo Scenario 5: enter Hindi SOS phrase "हमारी नाव डूब रही है" (Our boat is sinking)]`
-`[Distress card appears instantly with Mumbai Port Control & Coast Guard MRCC 1554 details]`
+`[SCREEN: In /ask or /demo Scenario 5: enter Hindi SOS "हमारी नाव डूब रही है" (Our boat is sinking)]`
+`[Distress card appears with Mumbai Port Control & Coast Guard MRCC 1554]`
 
-**"Now — a life-critical safety override. If a fisherman types a Hindi SOS like *'हमारी नाव डूब रही है'*, ORCA's deterministic keyword gate intercepts it before any LLM sees it. It immediately locks coordinates and surfaces the local Mumbai Port Control and Coast Guard MRCC helpline (1554 / 022-22612348) with VHF Channel 16 protocols. The model can only escalate — it can never dismiss a distress signal."**
+**"If a fisherman sends an SOS like *'हमारी नाव डूब रही है'*, deterministic pattern-matching intercepts it instantly — surfacing Mumbai Port Control and Coast Guard MRCC (1554). The system can only escalate distress, never dismiss it."**
 
-### 2:32 – 2:40 | Zones + Watches Quick Flash
+### 2:32 – 2:40 | Zones + Watches Quick Flash (8s)
 
-`[SCREEN: Flash to /zones — show PFZ sector list with ranked zones and profit estimates]`
-`[Then flash to /watches — show "Watch my home port" button locked to Mumbai]`
+`[SCREEN: Flash to /zones (PFZ list + profit) → flash to /watches ("Watch my home port" Mumbai)]`
 
-**"The Fishing Zones page ranks every sector with PFZ status and calculates estimated catch profit after fuel costs. On Watches, one tap subscribes to Sentinel alerts for his home port Mumbai — monitoring hazards round-the-clock."**
+**"Fishing Zones rank profitable catches after fuel costs, while Watches lets him monitor Mumbai's waters with one tap."**
 
 ---
 
 ## SEGMENT 3 — Commercial Navigator + Researcher (2:40 – 3:55)
 
-### 2:40 – 2:48 | Switch persona to Commercial Navigator
+### 2:40 – 2:48 | Switch to Commercial Navigator (8s)
 
-`[SCREEN: PersonaSelector — click "Commercial Navigator"; nav rail updates: Voyage is now the primary landing page]`
+`[SCREEN: PersonaSelector — click "Commercial Navigator"; auto-lands on /voyage]`
 
-**"Switch to Commercial Navigator — the default landing page is now the Voyage Planner."**
+**"Switching to Commercial Navigator — the interface automatically shifts to the Voyage Planner."**
 
-### 2:48 – 3:08 | Voyage Planning
+### 2:48 – 3:08 | Voyage Planning (20s)
 
-`[SCREEN: /voyage — select origin port "Thoothukudi", destination port "Rameswaram", vessel class "Mechanized Trawler", set departure time; click Plan Voyage]`
-`[Route polyline appears on map — segments colour-coded CLEAR / CAUTION / BLOCKED]`
+`[SCREEN: /voyage — select origin port "Thoothukudi", destination "Rameswaram", vessel "Mechanized Trawler"; click Plan Voyage]`
+`[Route polyline shows segments: CLEAR / CAUTION / BLOCKED]`
 
-**"The navigator picks origin, destination and vessel. ORCA walks the hazard cascade along every leg at its own ETA — wave height, wind, bathymetry clearance — geofencing constraints on the IMBL and the Marine Protected Area are baked in. Blocked legs are rerouted with alternatives shown and the extra nautical miles disclosed."**
+**"The navigator selects ports and vessel type. ORCA checks weather and depth clearances along every leg at its calculated ETA. Shallow zones and protected areas are automatically skirted, showing clear alternative routes with extra nautical miles disclosed."**
 
-### 3:08 – 3:22 | IMBL Crossing Demo (demo page stepper)
+### 3:08 – 3:22 | IMBL Crossing Demo (14s)
 
-`[SCREEN: Navigate to /demo — scroll to Scenario 2 "IMBL Border Crossing, Palk Bay"; play the stepper]`
-`[Stepper advances: 12 nm → advisory badge; 6 nm → regional voice alert plays; 3 nm → CAUTION + SMS render; 1 nm → NO-GO full-screen takeover]`
+`[SCREEN: /demo Scenario 2 "IMBL Border Crossing"; run stepper: 12nm → 6nm → 3nm → 1nm]`
 
-**"This is our geofence demo. A vessel track is stepped through the production geofence in real-time. At 12 nautical miles — advisory. At 6 — a voice alert fires. At 3 — CAUTION with SMS broadcast rendered. At 1 nautical mile from the international boundary — full-screen NO-GO takeover with a reciprocal heading instruction. All computed live, not scripted."**
+**"Here, a vessel approaches the international border. At 12 miles — advisory. At 6 — voice warning. At 3 — caution SMS. And at 1 mile — a full-screen NO-GO takeover with a reciprocal escape heading."**
 
-### 3:22 – 3:34 | Switch to Researcher persona
+### 3:22 – 3:34 | Switch to Researcher Persona (12s)
 
-`[SCREEN: PersonaSelector — click "Researcher"; nav rail shows Data page and Reasoning as primary]`
+`[SCREEN: PersonaSelector — click "Researcher"; nav shows Data & Reasoning]`
 
-**"Researcher persona. The answer card now shows a full statistical summary — sensor metadata, measurement ranges, and a CSV export button. Let's ask a relevant question."**
+**"In Researcher mode, answers include full statistical ranges and CSV export. Let's query seasonal ocean productivity."**
 
-### 3:34 – 3:55 | Researcher query & Reasoning Trace
+### 3:34 – 3:55 | Researcher Query & Reasoning Trace (21s)
 
-`[SCREEN: /ask — type: "Which regions show high chlorophyll and favourable SST for fishing this season?"]`
-`[Answer arrives with expanded statistical breakdown — SST value, chlorophyll reading, sector productivity diagnosis]`
+`[SCREEN: /ask — type chlorophyll/SST query → answer with statistical breakdown]`
+`[Flash to /reasoning — show trace table: agent, dataset, confidence, latency]`
 
-`[SCREEN: Flash to /reasoning — show expanded agent trace with each agent's dataset, value, confidence and latency]`
-
-**"The answer includes SST and chlorophyll readings with full provenance. Flip to the Reasoning page — every agent's exact dataset, confidence tier and latency is there for audit. This is the trace that gets stored and is always available after the query."**
+**"The response breaks down Sea Surface Temperature and chlorophyll. On the Reasoning page, auditors can inspect each agent's underlying dataset, latency, and confidence score with complete transparency."**
 
 ---
 
 ## SEGMENT 4 — Coastal Authority Demo (3:55 – 5:00)
 
-### 3:55 – 4:05 | Switch to Coastal Authority; show /ops
+### 3:55 – 4:05 | District Operations (/ops) (10s)
 
-`[SCREEN: PersonaSelector — click "Coastal Authority"; auto-routes to /ops]`
-`[Show the full /ops page: Sector Threat Matrix at the bottom — 14 sectors with GO/CAUTION/NO-GO column and vessel counts]`
+`[SCREEN: PersonaSelector — click "Coastal Authority"; loads /ops]`
+`[Show Sector Threat Matrix with 14 INCOIS sectors & vessel counts]`
 
-**"Coastal Authority lands on the District Operations centre. The sector threat matrix shows all 14 INCOIS sectors — PFZ status, vessel count, alert severity — aggregated. Individual vessel positions are never shown; only counts, by design."**
+**"Coastal Authority opens District Operations. The Threat Matrix aggregates all 14 sectors, displaying active risk levels and fleet density without exposing private vessel coordinates."**
 
-### 4:05 – 4:17 | Distress Queue
+### 4:05 – 4:17 | Distress Queue (12s)
 
-`[SCREEN: Scroll up on /ops to show the Distress Queue panel — show a distress event row with SOS phrase, timestamp, MRCC payload]`
+`[SCREEN: Scroll to Distress Queue panel on /ops — show active SOS incident row]`
 
-**"The Distress Queue shows every SOS raised in the district — the exact phrase, when it was detected, which MRCC was surfaced. Operators can act directly from here."**
+**"The Distress Queue logs active SOS signals across the district, allowing operators to coordinate rescue handoffs instantly."**
 
-### 4:17 – 4:33 | CAP 1.2 Builder + Broadcast
+### 4:17 – 4:33 | CAP 1.2 Builder & Multi-Channel Broadcast (16s)
 
-`[SCREEN: CAP 1.2 Alert Builder panel — fill: Verdict = NO-GO, Hazard = "High waves 4.5 m", Location = "Mumbai Offshore"; click Build CAP alert]`
-`[Generated CAP 1.2 XML appears in the panel]`
+`[SCREEN: Generate CAP 1.2 XML alert → Scroll to Broadcast Composer → click Publish]`
 
-**"The CAP 1.2 builder generates a valid OASIS-standard XML alert — the exact format used by NDMA, SACHET and IMD — with one click. Now the authority composes a broadcast."**
+**"One click generates a standard CAP 1.2 XML alert for NDMA and IMD. The authority can then publish multi-channel broadcasts across SMS, IVR voice calls, in-app push, and VHF Channel 16 scripts simultaneously."**
 
-`[SCREEN: Scroll to Broadcast Composer — set severity to Danger, target audience to Fishermen, channels: In-App + SMS + VHF, click Preview then Publish]`
+### 4:33 – 4:48 | Alert Received in Fisherman View (15s)
 
-**"The broadcast goes to all fishermen in the sector. In-app notification — live. SMS formatted to 160 GSM characters. VHF Channel 16 script. IVR voice advisory. All previewed before sending."**
+`[SCREEN: Switch to fisherman tab /alerts — new alert arrives live]`
 
-### 4:33 – 4:48 | Alert received in Fisherman's notification
+**"The fisherman immediately receives the alert in-app with multi-channel details. Autonomous Sentinel monitoring and authority broadcasts unite to protect the boat."**
 
-`[SCREEN: Switch to a second browser tab or phone screen — show the fisherman's /alerts page or notification bell with the new alert appearing]`
-`[Alert row shows: NO-GO, High waves 4.5 m, triggered by Coastal Authority, with per-channel detail expanded]`
+### 4:48 – 5:00 | Closing Shot (12s)
 
-**"The fisherman immediately receives the alert in-app — severity ranked, with the exact SMS text, IVR script and what was sent on each channel. The Sentinel loop and the authority broadcast are two paths to the same fisherman's safety."**
+`[SCREEN: Pull back to ORCA home / landing page with glowing GO verdict]`
 
-### 4:48 – 5:00 | Closing shot
-
-`[SCREEN: Pull back to the ORCA home / landing page or the ask page with a GO verdict glowing]`
-
-**"ORCA: one platform for India's entire marine safety stack. Deterministic verdicts. Evidence-cited answers. Ten Indian languages. Real-time agent intelligence — for the fisherman who just wants to know if it's safe, and the authority who needs to act when it isn't."**
+**"ORCA unifies India's marine safety: deterministic verdicts, ten regional languages, and real-time agent intelligence. One answer for the fisherman, one console for the authority."**
 
 `[Fade out]`
 

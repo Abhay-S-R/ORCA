@@ -35,6 +35,9 @@ import { usePersona } from "./persona/context";
 import { API_BASE } from "./lib/apiBase";
 import { useAuth } from "./lib/auth";
 import { useT } from "./i18n/useT";
+import { useLanguage } from "./language/context";
+import { fontClassForLanguage } from "./i18n/languages";
+import { tDistress, translateAuthorityName } from "./components/DistressAlertOverlay";
 import {
   resolveDistressContact,
 } from "./lib/distressContacts";
@@ -225,6 +228,7 @@ export function SosButton() {
   const [sentPosition, setSentPosition] = useState<{ lat: number; lon: number } | null>(null);
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedCoords, setCopiedCoords] = useState(false);
+  const { language } = useLanguage();
   const auth = useAuth();
   const pathname = usePathname();
   const isMapPage = pathname === "/map";
@@ -322,20 +326,20 @@ export function SosButton() {
       <dialog
         ref={dialog}
         aria-labelledby="sos-title"
-        className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-no-go/50 bg-shelf-1 p-5 text-ink shadow-2xl backdrop:bg-abyss/85"
+        className={`m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-no-go/50 bg-shelf-1 p-5 text-ink shadow-2xl backdrop:bg-abyss/85 ${fontClassForLanguage(language)}`}
       >
         <div className="flex items-center gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-no-go/15 text-no-go border border-no-go/30">
             <ShieldAlert className="size-5" />
           </div>
           <h2 id="sos-title" className="text-lg font-bold tracking-tight text-no-go">
-            Maritime Distress Alert
+            {tDistress(language, "distress_registered")}
           </h2>
         </div>
 
         {/* Primary Contact Card */}
         <div className="mt-4 rounded-lg border border-no-go/40 bg-no-go/10 p-4">
-          <div className="text-sm font-bold text-ink">{primary.name}</div>
+          <div className="text-sm font-bold text-ink">{translateAuthorityName(primary.name, language)}</div>
           <div className="text-xs text-ink-muted">{primary.stationName}</div>
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-no-go/20">
@@ -348,7 +352,7 @@ export function SosButton() {
                 className="flex items-center gap-1.5 rounded-md bg-no-go px-3.5 py-2 text-xs font-bold text-white hover:brightness-110 active:scale-95 transition-all"
               >
                 <Phone className="size-3.5" />
-                Call
+                {tDistress(language, "call", { phone: "" }).replace(":", "").trim()}
               </a>
               <button
                 type="button"
@@ -388,7 +392,7 @@ export function SosButton() {
           )}
           <div className="flex items-center gap-2 rounded-md border border-hairline bg-shelf-2/60 px-3 py-2.5">
             <Radio className="size-3.5 text-amber-500 shrink-0" />
-            <span className="font-mono font-semibold text-ink">VHF Channel 16</span>
+            <span className="font-mono font-semibold text-ink">{tDistress(language, "vhf_channel_16")}</span>
             <span className="text-ink-dim">— 156.8 MHz</span>
           </div>
         </div>
@@ -399,7 +403,7 @@ export function SosButton() {
           </p>
           <form method="dialog">
             <button className="rounded-lg border border-hairline bg-shelf-2 px-4 py-1.5 text-xs font-semibold text-ink hover:border-hairline-strong active:scale-95 transition-all">
-              Close
+              {tDistress(language, "close")}
             </button>
           </form>
         </div>

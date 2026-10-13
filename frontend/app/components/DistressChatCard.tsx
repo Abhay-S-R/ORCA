@@ -3,6 +3,16 @@
 import { LifeBuoy, Maximize2, Phone, ShieldAlert } from "lucide-react";
 import type { FinalResponse } from "../ask/useAskThread";
 import type { DistressOverlayData } from "./DistressAlertOverlay";
+import { useLanguage } from "../language/context";
+import { fontClassForLanguage, isLangCode, type LangCode } from "../i18n/languages";
+import {
+  tDistress,
+  resolveDistressCategoryKey,
+  translateSurvivalCategory,
+  translateAuthorityName,
+  translateEmergencyUnit,
+  translateSurvivalStep,
+} from "./DistressAlertOverlay";
 
 interface DistressChatCardProps {
   answer: FinalResponse;
@@ -11,16 +21,25 @@ interface DistressChatCardProps {
 }
 
 export function DistressChatCard({ answer, onOpenOverlay, actions }: DistressChatCardProps) {
+  const { language: contextLang } = useLanguage();
+  const lang: LangCode = isLangCode(answer.detected_language ?? "")
+    ? (answer.detected_language as LangCode)
+    : contextLang;
+
+  const fontClass = fontClassForLanguage(lang);
+
   const mrcc = answer.mrcc_contact;
   const mrccPhone = mrcc?.primary?.phone ?? "1554";
   const auth = answer.target_authority;
-  const authName = auth?.display_name ?? auth?.authority_name ?? (auth?.port_name ? `${auth.port_name} Coastal Authority` : "Coastal Authority");
+  const rawAuthName = auth?.display_name ?? auth?.authority_name ?? (auth?.port_name ? `${auth.port_name} Coastal Authority` : "Coastal Authority");
+  const translatedAuthName = translateAuthorityName(rawAuthName, lang);
   const authPhone = auth?.phone ?? "1093";
-  const authUnit = auth?.emergency_unit ?? "Port Control & Marine Police";
+  const rawAuthUnit = auth?.emergency_unit ?? "Port Control & Marine Police";
+  const translatedAuthUnit = translateEmergencyUnit(rawAuthUnit, lang);
 
   // Parse survival steps from structured data or text
   let steps: string[] = answer.survival_suggestions ?? answer.survival_advice?.steps ?? [];
-  const categoryTitle = answer.survival_advice?.category ?? "Emergency Maritime Survival Actions";
+  const rawCategoryTitle = answer.survival_advice?.category ?? "Emergency Maritime Survival Actions";
 
   if (steps.length === 0 && answer.final_english_response) {
     const lines = answer.final_english_response.split("\n");
@@ -47,9 +66,13 @@ export function DistressChatCard({ answer, onOpenOverlay, actions }: DistressCha
     ];
   }
 
+  const categoryKey = resolveDistressCategoryKey(rawCategoryTitle, answer.survival_advice?.category_key, answer.final_english_response);
+  const categoryTitle = translateSurvivalCategory(categoryKey, rawCategoryTitle, lang);
+
   const overlayPayload: DistressOverlayData = {
     isOpen: true,
     queryId: answer.query_id,
+    language: lang,
     mrccContact: answer.mrcc_contact,
     targetAuthority: answer.target_authority,
     survivalAdvice: answer.survival_advice,
@@ -59,7 +82,7 @@ export function DistressChatCard({ answer, onOpenOverlay, actions }: DistressCha
   };
 
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border-2 border-red-500/80 bg-red-950/20 p-4 sm:p-5 shadow-xl">
+    <div className={`flex flex-col gap-4 rounded-2xl border-2 border-red-500/80 bg-red-950/20 p-4 sm:p-5 shadow-xl ${fontClass}`}>
       {/* Emergency Header with Button to Launch Fullscreen Red Alert */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-red-500/30 pb-3.5">
         <div className="flex items-center gap-2.5">
@@ -70,11 +93,11 @@ export function DistressChatCard({ answer, onOpenOverlay, actions }: DistressCha
             <div className="flex items-center gap-2">
               <span className="size-2 rounded-full bg-red-500 animate-ping" />
               <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-red-400">
-                MARITIME DISTRESS SIGNAL REGISTERED
+                {tDistress(lang, "distress_registered")}
               </span>
             </div>
             <h3 className="text-sm sm:text-base font-bold text-white tracking-tight">
-              Indian Coast Guard &amp; Port Authorities Dispatched
+              {tDistress(lang, "authorities_dispatched")}
             </h3>
           </div>
         </div>
@@ -86,7 +109,7 @@ export function DistressChatCard({ answer, onOpenOverlay, actions }: DistressCha
             className="flex items-center gap-1.5 rounded-xl border-2 border-red-500 bg-red-600/90 px-3.5 py-2 text-xs font-bold text-white shadow-lg shadow-red-600/30 hover:bg-red-500 active:scale-95 transition-all"
           >
             <Maximize2 className="size-3.5" />
-            <span>Open Red Alert Screen (Sound)</span>
+            <span>{tDistress(lang, "open_red_alert")}</span>
           </button>
         )}
       </div>
@@ -97,14 +120,14 @@ export function DistressChatCard({ answer, onOpenOverlay, actions }: DistressCha
         <div className="rounded-xl border border-red-500/40 bg-black/40 p-3.5 text-xs text-white">
           <div className="flex items-center justify-between">
             <span className="font-mono text-[10px] uppercase font-bold text-red-300">
-              Coordinating Rescue Centre
+              {tDistress(lang, "coordinating_rescue_centre")}
             </span>
             <span className="rounded bg-red-500/20 px-2 py-0.5 font-mono text-[10px] font-bold text-red-200 border border-red-500/30">
-              VHF CH 16
+              {tDistress(lang, "vhf_channel_16")}
             </span>
           </div>
           <p className="mt-1 font-bold text-sm text-white">
-            {mrcc?.primary?.name ?? "Indian Coast Guard MRCC"}
+            {translateAuthorityName(mrcc?.primary?.name, lang)}
           </p>
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <a
@@ -112,13 +135,13 @@ export function DistressChatCard({ answer, onOpenOverlay, actions }: DistressCha
               className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-500 shadow transition-colors"
             >
               <Phone className="size-3" />
-              <span>Call: {mrccPhone}</span>
+              <span>{tDistress(lang, "call", { phone: mrccPhone })}</span>
             </a>
             <a
               href="tel:1554"
               className="inline-flex items-center gap-1 rounded-lg border border-red-400/50 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-red-200 hover:bg-white/10"
             >
-              <span>1554 (Toll-Free)</span>
+              <span>{tDistress(lang, "toll_free_1554")}</span>
             </a>
           </div>
         </div>
@@ -127,21 +150,21 @@ export function DistressChatCard({ answer, onOpenOverlay, actions }: DistressCha
         <div className="rounded-xl border border-red-500/40 bg-black/40 p-3.5 text-xs text-white">
           <div className="flex items-center justify-between">
             <span className="font-mono text-[10px] uppercase font-bold text-red-300">
-              Local Coastal Authority Alerted
+              {tDistress(lang, "local_authority_alerted")}
             </span>
             <span className="rounded bg-red-500/20 px-2 py-0.5 font-mono text-[10px] font-bold text-red-200 border border-red-500/30">
-              ACTIVE
+              {tDistress(lang, "active")}
             </span>
           </div>
-          <p className="mt-1 font-bold text-sm text-white">{authName}</p>
-          <p className="mt-0.5 text-[11px] text-red-200/80">{authUnit}</p>
+          <p className="mt-1 font-bold text-sm text-white">{translatedAuthName}</p>
+          <p className="mt-0.5 text-[11px] text-red-200/80">{translatedAuthUnit}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <a
               href={`tel:${authPhone}`}
               className="inline-flex items-center gap-1.5 rounded-lg bg-red-700/80 border border-red-500/60 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-600 transition-colors"
             >
               <Phone className="size-3" />
-              <span>Call Authority: {authPhone}</span>
+              <span>{tDistress(lang, "call_authority", { phone: authPhone })}</span>
             </a>
           </div>
         </div>
@@ -154,23 +177,21 @@ export function DistressChatCard({ answer, onOpenOverlay, actions }: DistressCha
             <LifeBuoy className="size-4 text-red-400 animate-spin" style={{ animationDuration: "10s" }} />
             <div>
               <h4 className="text-xs sm:text-sm font-black uppercase tracking-wide text-white">
-                CRITICAL SURVIVAL ACTIONS WHILE AUTHORITIES REACH YOU
+                {tDistress(lang, "critical_actions_heading")}
               </h4>
               <p className="text-[11px] text-red-200 font-medium">
-                Category: <strong className="text-white">{categoryTitle}</strong>
+                {tDistress(lang, "category_subhead", { category: categoryTitle })}
               </p>
             </div>
           </div>
           <span className="rounded-full bg-red-600/40 border border-red-400 px-2 py-0.5 text-[10px] font-mono font-bold text-white">
-            {steps.length} STEPS
+            {tDistress(lang, "steps_count", { count: steps.length })}
           </span>
         </div>
 
         <div className="space-y-2">
           {steps.map((step, idx) => {
-            const colonIdx = step.indexOf(":");
-            const title = colonIdx !== -1 ? step.slice(0, colonIdx).trim() : `ACTION STEP ${idx + 1}`;
-            const details = colonIdx !== -1 ? step.slice(colonIdx + 1).trim() : step.trim();
+            const translatedItem = translateSurvivalStep(step, idx, categoryKey, lang);
 
             return (
               <div
@@ -182,10 +203,10 @@ export function DistressChatCard({ answer, onOpenOverlay, actions }: DistressCha
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="font-bold text-red-100 uppercase text-xs">
-                    {title}
+                    {translatedItem.title}
                   </p>
                   <p className="mt-0.5 text-xs text-red-200/90 leading-relaxed font-normal">
-                    {details}
+                    {translatedItem.details}
                   </p>
                 </div>
               </div>
@@ -196,7 +217,7 @@ export function DistressChatCard({ answer, onOpenOverlay, actions }: DistressCha
 
       {/* Simulation note and action row */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-red-500/20 text-[11px] text-red-300/80">
-        <p>This handoff is SIMULATED — no live DAT-SG / telephony integration exists yet.</p>
+        <p>{tDistress(lang, "simulated_note")}</p>
         <div className="-ml-2">{actions}</div>
       </div>
     </div>

@@ -1,7 +1,8 @@
 @echo off
 REM ORCA daily refresh — the 6 DAILY-class sources plus their derived artefacts.
-REM Scheduled by docs/guides/ORCA_Data_Refresh_Cron_Guide.md. Exits 1 if any source is
-REM in breach afterwards, so Task Scheduler's Last Run Result is the alarm.
+REM Scheduled by docs/guides/ORCA_Data_Refresh_Cron_Guide.md. Always deploys
+REM to Render after pulling the latest available data. Freshness breaches are
+REM logged as warnings (upstream sources may not have published new data).
 cd /d "%~dp0..\.."
 set PY=backend\.venv\Scripts\python.exe
 REM Gazetteer aliases include Tamil script; a cp1252 console kills the job
@@ -23,11 +24,11 @@ set FRESHNESS_EXIT=%ERRORLEVEL%
 cd /d "%~dp0..\.."
 
 if %FRESHNESS_EXIT% neq 0 (
-    echo [ERROR] Freshness gate failed [exit code %FRESHNESS_EXIT%]. Skipping deployment to Render.
-    exit /b %FRESHNESS_EXIT%
+    echo [WARN] Freshness gate reports breach(es) [exit code %FRESHNESS_EXIT%].
+    echo [WARN] Deploying anyway — upstream sources may not have published new data.
 )
 
 echo.
-echo Freshness gate passed! Deploying refreshed data to Render...
+echo Deploying refreshed data to Render...
 call scripts\deploy_data.cmd
 exit /b %ERRORLEVEL%

@@ -36,6 +36,7 @@ import { accountStore, browserStore } from "./chatStore";
 import { useAskThread, type Turn } from "./useAskThread";
 import { useT } from "../i18n/useT";
 import { useTour } from "../tour/useTour";
+import { isLangCode, type LangCode } from "../i18n/languages";
 import { DistressAlertOverlay, type DistressOverlayData } from "../components/DistressAlertOverlay";
 import { TourCard, TOUR_PRESET, TOUR_FOLLOWUP } from "../tour/TourCard";
 
@@ -155,6 +156,9 @@ export default function AskPage() {
           survivalSuggestions: latestDistress.answer.survival_suggestions,
           position: latestDistress.answer.user_location,
           rawText: latestDistress.answer.final_english_response,
+          language: isLangCode(latestDistress.answer.detected_language ?? "")
+            ? (latestDistress.answer.detected_language as LangCode)
+            : (isLangCode(language) ? language : undefined),
         });
       }
     }
