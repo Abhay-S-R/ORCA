@@ -1407,6 +1407,19 @@ export function MapView({
     m.on("click", "pfz-clusters", onClusterClick);
     m.on("click", "pfz-cluster-count", onClusterClick);
 
+    // Clicking a port icon or its label spotlights that port and centers the view
+    const onPortClick = (e: maplibregl.MapMouseEvent) => {
+      const feat = m.queryRenderedFeatures(e.point, { layers: ["port-icons", "port-labels"] })[0];
+      const portId = feat?.properties?.id as string | undefined;
+      if (portId) {
+        setQueryFocusPortId(portId);
+        const coords = (feat.geometry as { type: "Point"; coordinates: [number, number] }).coordinates;
+        m.easeTo({ center: coords, zoom: Math.max(m.getZoom(), 8.2), duration: 650 });
+      }
+    };
+    m.on("click", "port-icons", onPortClick);
+    m.on("click", "port-labels", onPortClick);
+
     m.on("click", (e) => {
       const badgeFeatures = m.queryRenderedFeatures(e.point, { layers: ["watch-badges-circles"] });
       if (badgeFeatures.length && badgeFeatures[0].properties) {
@@ -1438,7 +1451,7 @@ export function MapView({
       if (!selectedPfzCoordsRef.current) return;
       setSelectedPfzPos(projectPfzPos(m, selectedPfzCoordsRef.current));
     });
-    for (const id of ["boundaries-fill", "pfz-circles", "pfz-clusters", "pfz-cluster-count", "watch-badges-circles"]) {
+    for (const id of ["boundaries-fill", "pfz-circles", "pfz-clusters", "pfz-cluster-count", "watch-badges-circles", "port-icons", "port-labels"]) {
       m.on("mouseenter", id, () => {
         m.getCanvas().style.cursor = "pointer";
       });
@@ -1715,6 +1728,7 @@ export function MapView({
         "watch-badges-circles",
         "route-corridor",
         "route-line",
+        "port-icons-glow",
         "port-icons",
         "port-labels",
         "pfz-clusters",
