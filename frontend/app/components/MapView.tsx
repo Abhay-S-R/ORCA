@@ -275,18 +275,18 @@ const COASTAL_REGIONS: MarinePortPreset[] = [
 // dimmed (but not hidden) otherwise so the chart never looks bare.
 // `regionId` matches COASTAL_REGIONS so the existing region-focus logic applies.
 const PORT_MARKERS: { id: string; name: string; short: string; lon: number; lat: number; regionId: string }[] = [
-  { id: "mumbai",        name: "Mumbai",        short: "MUM", lon: 72.8479, lat: 18.9322, regionId: "mumbai" },
-  { id: "chennai",      name: "Chennai",      short: "CHN", lon: 80.2989, lat: 13.0836, regionId: "chennai" },
-  { id: "kochi",        name: "Kochi",        short: "KOC", lon: 76.2673, lat: 9.9312,  regionId: "kochi" },
-  { id: "thoothukudi", name: "Thoothukudi",  short: "TUT", lon: 78.1348, lat: 8.7642,  regionId: "gulf_mannar" },
-  { id: "visakhapatnam",name:"Visakhapatnam",short: "VIZ", lon: 83.2988, lat: 17.6868, regionId: "vizag" },
-  { id: "mangalore",    name: "Mangalore",    short: "MNG", lon: 74.8580, lat: 12.9141, regionId: "goa" },
-  { id: "rameswaram",   name: "Rameswaram",   short: "RAM", lon: 79.3129, lat: 9.2881,  regionId: "gulf_mannar" },
-  { id: "kanyakumari",  name: "Kanyakumari",  short: "KYK", lon: 77.5385, lat: 8.0884,  regionId: "gulf_mannar" },
-  { id: "paradip",      name: "Paradip",      short: "PAR", lon: 86.6714, lat: 20.3168, regionId: "kolkata" },
-  { id: "veraval",      name: "Veraval",      short: "VER", lon: 70.3629, lat: 20.9079, regionId: "gujarat" },
-  { id: "kakinada",     name: "Kakinada",     short: "KAK", lon: 82.2476, lat: 16.9891, regionId: "vizag" },
-  { id: "kolkata",      name: "Kolkata",      short: "KOL", lon: 88.3639, lat: 22.5726, regionId: "kolkata" },
+  { id: "mumbai", name: "Mumbai", short: "MUM", lon: 72.8479, lat: 18.9322, regionId: "mumbai" },
+  { id: "chennai", name: "Chennai", short: "CHN", lon: 80.2989, lat: 13.0836, regionId: "chennai" },
+  { id: "kochi", name: "Kochi", short: "KOC", lon: 76.2673, lat: 9.9312, regionId: "kochi" },
+  { id: "thoothukudi", name: "Thoothukudi", short: "TUT", lon: 78.1348, lat: 8.7642, regionId: "gulf_mannar" },
+  { id: "visakhapatnam", name: "Visakhapatnam", short: "VIZ", lon: 83.2988, lat: 17.6868, regionId: "vizag" },
+  { id: "mangalore", name: "Mangalore", short: "MNG", lon: 74.8580, lat: 12.9141, regionId: "goa" },
+  { id: "rameswaram", name: "Rameswaram", short: "RAM", lon: 79.3129, lat: 9.2881, regionId: "gulf_mannar" },
+  { id: "kanyakumari", name: "Kanyakumari", short: "KYK", lon: 77.5385, lat: 8.0884, regionId: "gulf_mannar" },
+  { id: "paradip", name: "Paradip", short: "PAR", lon: 86.6714, lat: 20.3168, regionId: "kolkata" },
+  { id: "veraval", name: "Veraval", short: "VER", lon: 70.3629, lat: 20.9079, regionId: "gujarat" },
+  { id: "kakinada", name: "Kakinada", short: "KAK", lon: 82.2476, lat: 16.9891, regionId: "vizag" },
+  { id: "kolkata", name: "Kolkata", short: "KOL", lon: 88.3639, lat: 22.5726, regionId: "kolkata" },
 ];
 
 // Build a GeoJSON FeatureCollection from PORT_MARKERS for the map source.
@@ -939,9 +939,9 @@ export function MapView({
         type: "geojson",
         data: EMPTY as never,
         cluster: true,
-        clusterMaxZoom: 4,
-        clusterMinPoints: 3,
-        clusterRadius: 48,
+        clusterMaxZoom: 9,
+        clusterMinPoints: 2,
+        clusterRadius: 55,
         // 2 fresh, 1 hint, 0 history — a cluster looks as current as its
         // freshest zone, so one old point never greys out a live group.
         clusterProperties: {
@@ -1208,9 +1208,9 @@ export function MapView({
       // Load custom port anchor icon from /assets/porticon.png
       const loadPortIcon = () => {
         const img = new Image();
-        img.src = "/assets/porticon.png";
+        img.src = "/assets/porticon.png?v=3";
         img.onload = () => {
-          const size = 30;
+          const size = 34;
           const px = 2;
           const canvas = document.createElement("canvas");
           canvas.width = size * px;
@@ -1225,18 +1225,39 @@ export function MapView({
       };
       loadPortIcon();
 
+      // Glowing highlight ring behind spotlighted port icon
+      m.addLayer({
+        id: "port-icons-glow",
+        type: "circle",
+        source: "port-markers",
+        minzoom: 4.8,
+        filter: ["==", ["get", "highlighted"], 1],
+        paint: {
+          "circle-radius": [
+            "interpolate", ["linear"], ["zoom"],
+            5, 18,
+            8, 25,
+            12, 32,
+          ],
+          "circle-color": "rgba(14, 165, 233, 0.35)",
+          "circle-blur": 0.4,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#38bdf8",
+        },
+      });
+
       m.addLayer({
         id: "port-icons",
         type: "symbol",
         source: "port-markers",
-        minzoom: 5,
+        minzoom: 4.8,
         layout: {
           "icon-image": "port-icon",
           "icon-size": [
             "interpolate", ["linear"], ["zoom"],
-            5, 0.65,
-            8, 0.95,
-            12, 1.25
+            5, ["case", ["==", ["get", "highlighted"], 1], 0.8, 0.7],
+            8, ["case", ["==", ["get", "highlighted"], 1], 1.15, 0.95],
+            12, ["case", ["==", ["get", "highlighted"], 1], 1.45, 1.25],
           ],
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
@@ -1246,7 +1267,7 @@ export function MapView({
           "icon-opacity": [
             "case",
             ["==", ["get", "highlighted"], 1], 1.0,
-            0.65,
+            0.9,
           ],
         },
       });
@@ -1256,28 +1277,38 @@ export function MapView({
         id: "port-labels",
         type: "symbol",
         source: "port-markers",
-        minzoom: 6.5,
+        minzoom: 4.8,
         layout: {
           "text-field": ["get", "name"],
           "text-font": ["Open Sans Bold", "Montserrat Medium"],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 7, 10, 10, 12, 13, 14],
-          "text-offset": [0, 1.35],
+          "text-size": [
+            "interpolate", ["linear"], ["zoom"],
+            5, ["case", ["==", ["get", "highlighted"], 1], 11.5, 10.5],
+            8, ["case", ["==", ["get", "highlighted"], 1], 13.5, 12],
+            12, ["case", ["==", ["get", "highlighted"], 1], 16, 14],
+          ],
+          "text-offset": [0, 1.5],
           "text-anchor": "top",
-          "text-optional": true,
-          "text-allow-overlap": false,
+          "text-optional": false,
+          "text-allow-overlap": true,
         },
         paint: {
           "text-color": [
             "case",
-            ["==", ["get", "highlighted"], 1], "#ffffff",
-            "rgba(220,240,255,0.75)",
+            ["==", ["get", "highlighted"], 1], "#38bdf8",
+            "#ffffff",
           ],
-          "text-halo-color": "rgba(4,16,26,0.95)",
-          "text-halo-width": 2.0,
+          "text-halo-color": "rgba(4, 16, 26, 0.95)",
+          "text-halo-width": [
+            "case",
+            ["==", ["get", "highlighted"], 1], 2.8,
+            2.2,
+          ],
+          "text-halo-blur": 0.3,
           "text-opacity": [
             "case",
             ["==", ["get", "highlighted"], 1], 1.0,
-            0.6,
+            0.92,
           ],
         },
       });
@@ -1363,16 +1394,18 @@ export function MapView({
 
     // Clicking a cluster zooms in on it — the standard supercluster
     // interaction, so "3+ zones nearby" is one tap away from "which 3".
-    m.on("click", "pfz-clusters", (e) => {
-      const feature = m.queryRenderedFeatures(e.point, { layers: ["pfz-clusters"] })[0];
+    const onClusterClick = (e: maplibregl.MapMouseEvent) => {
+      const feature = m.queryRenderedFeatures(e.point, { layers: ["pfz-clusters", "pfz-cluster-count"] })[0];
       const clusterId = feature?.properties?.cluster_id;
       const source = m.getSource("pfz") as maplibregl.GeoJSONSource | undefined;
       if (clusterId == null || !source) return;
       source.getClusterExpansionZoom(clusterId).then((zoom) => {
         const geometry = feature.geometry as { type: "Point"; coordinates: [number, number] };
-        m.easeTo({ center: geometry.coordinates, zoom, duration: 500 });
+        m.easeTo({ center: geometry.coordinates, zoom: Math.max(zoom, m.getZoom() + 1.5), duration: 500 });
       }).catch(() => { });
-    });
+    };
+    m.on("click", "pfz-clusters", onClusterClick);
+    m.on("click", "pfz-cluster-count", onClusterClick);
 
     m.on("click", (e) => {
       const badgeFeatures = m.queryRenderedFeatures(e.point, { layers: ["watch-badges-circles"] });
@@ -1405,7 +1438,7 @@ export function MapView({
       if (!selectedPfzCoordsRef.current) return;
       setSelectedPfzPos(projectPfzPos(m, selectedPfzCoordsRef.current));
     });
-    for (const id of ["boundaries-fill", "pfz-circles", "pfz-clusters", "watch-badges-circles"]) {
+    for (const id of ["boundaries-fill", "pfz-circles", "pfz-clusters", "pfz-cluster-count", "watch-badges-circles"]) {
       m.on("mouseenter", id, () => {
         m.getCanvas().style.cursor = "pointer";
       });
@@ -1724,8 +1757,8 @@ export function MapView({
         const currentAnchor: [number, number] = currentFocus.coords
           ? currentFocus.coords
           : portCoords
-          ? portCoords
-          : homePortCoordsRef.current ?? (suppressGpsZoomRef.current ? null : userLocationRef.current) ?? COASTAL_REGIONS[1].center;
+            ? portCoords
+            : homePortCoordsRef.current ?? (suppressGpsZoomRef.current ? null : userLocationRef.current) ?? COASTAL_REGIONS[1].center;
         const visible = filterPfzForFocus(pfzRaw, currentFocus, currentAnchor);
         (map.current.getSource("pfz") as maplibregl.GeoJSONSource)?.setData({
           type: "FeatureCollection",
@@ -1860,10 +1893,10 @@ export function MapView({
     const anchor: [number, number] = queryFocus.coords
       ? queryFocus.coords
       : portCoords
-      ? portCoords
-      : focusRegion
-      ? focusRegion.center
-      : homePortCoords ?? (suppressGpsZoom ? null : userLocation) ?? COASTAL_REGIONS[1].center;
+        ? portCoords
+        : focusRegion
+          ? focusRegion.center
+          : homePortCoords ?? (suppressGpsZoom ? null : userLocation) ?? COASTAL_REGIONS[1].center;
     let bearing: number | null = null;
     if (queryFocus.intent === "boundary") {
       const coords = boundaryFeatures.features.filter((f) => f.properties.near).flatMap((f) => flattenCoords(f.geometry));
@@ -1921,10 +1954,10 @@ export function MapView({
     const anchor: [number, number] = queryFocus.coords
       ? queryFocus.coords
       : portCoords
-      ? portCoords
-      : region
-      ? region.center
-      : homePortCoordsRef.current ?? (suppressGpsZoomRef.current ? null : userLocationRef.current) ?? COASTAL_REGIONS[1].center;
+        ? portCoords
+        : region
+          ? region.center
+          : homePortCoordsRef.current ?? (suppressGpsZoomRef.current ? null : userLocationRef.current) ?? COASTAL_REGIONS[1].center;
 
     // Cinematic: tilt toward the target, then level off. A ~15° pitch during
     // the approach makes the chart read as "zooming in from altitude".
@@ -1963,14 +1996,14 @@ export function MapView({
       const target = region
         ? { center: region.center as [number, number], zoom: region.zoom }
         : queryFocus.coords
-        ? { center: queryFocus.coords, zoom }
-        : portCoords
-        ? { center: portCoords, zoom }
-        : homePortCoordsRef.current
-        ? { center: homePortCoordsRef.current, zoom }
-        : !suppressGpsZoomRef.current && userLocationRef.current
-        ? { center: userLocationRef.current, zoom }
-        : { center: INDIA_VIEW.center as [number, number], zoom: INDIA_VIEW.zoom };
+          ? { center: queryFocus.coords, zoom }
+          : portCoords
+            ? { center: portCoords, zoom }
+            : homePortCoordsRef.current
+              ? { center: homePortCoordsRef.current, zoom }
+              : !suppressGpsZoomRef.current && userLocationRef.current
+                ? { center: userLocationRef.current, zoom }
+                : { center: INDIA_VIEW.center as [number, number], zoom: INDIA_VIEW.zoom };
       cinematicFly({ ...target, duration: 1100 });
     };
 
@@ -2294,8 +2327,8 @@ export function MapView({
               at the fishing zone marker it describes. */}
           <div
             className={`absolute z-10 size-3.5 -translate-y-1/2 rotate-45 bg-shelf-3 ${selectedPfzPos.side === "right"
-                ? "-left-[7px] border-b border-l border-go/40"
-                : "-right-[7px] border-t border-r border-go/40"
+              ? "-left-[7px] border-b border-l border-go/40"
+              : "-right-[7px] border-t border-r border-go/40"
               }`}
             style={{ top: selectedPfzPos.arrowY }}
           />
@@ -2506,8 +2539,8 @@ export function MapView({
                             aria-pressed={basemap === id}
                             onClick={() => setBasemap(id)}
                             className={`rounded-sm border px-2 py-1 text-[11px] transition-colors ${basemap === id
-                                ? "border-accent bg-accent/10 font-semibold text-ink"
-                                : "border-hairline text-ink-muted hover:bg-shelf-2/70"
+                              ? "border-accent bg-accent/10 font-semibold text-ink"
+                              : "border-hairline text-ink-muted hover:bg-shelf-2/70"
                               }`}
                           >
                             {BASEMAP_LABELS[id]}
