@@ -1275,8 +1275,17 @@ async def query(
     req_lang = (lang or language or "").strip().lower() or None
     if req_lang and req_lang not in ("en", "ta", "hi", "te", "ml", "kn", "bn", "mr", "gu", "or"):
         req_lang = None
-    reply_language = req_lang or (user.language if user is not None else None)
-    q_language = query_language(q, reply_language or (user.language if user is not None else None))
+    pref_lang = req_lang or (user.language if user is not None else None)
+    q_language = query_language(q, pref_lang)
+    # PC5.8: A query written in native Indic script (Kannada, Tamil, etc.) must be answered
+    # in its own language by default. An ambient UI/profile locale of 'en' must never force
+    # an English reply on native-script text; only an explicit in-prompt instruction (parsed
+    # by understand.py into understood.reply_language) can override native script.
+    # For Latin/English queries, the user's preferred language (pref_lang) applies.
+    if q_language != "en":
+        reply_language = pref_lang if pref_lang and pref_lang != "en" else None
+    else:
+        reply_language = pref_lang
     try:
         q_en, q_rung = english_query(q, q_language)
         pretranslated: dict[str, str] | None = {"raw": q, "language": q_language, "english": q_en, "rung": q_rung}

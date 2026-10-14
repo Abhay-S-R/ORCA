@@ -34,6 +34,7 @@ def _disable_bhashini(monkeypatch: pytest.MonkeyPatch) -> None:
         raise RuntimeError("bhashini disabled for this test")
 
     monkeypatch.setattr("orca.agents.bhashini.nmt", _unreachable)
+    monkeypatch.setenv("ORCA_LLM_ENABLED", "0")
 
 _HF_HUB = Path.home() / ".cache" / "huggingface" / "hub"
 _INDICTRANS2_WEIGHTS_PRESENT = (
@@ -165,6 +166,25 @@ def test_run_egress_degrades_to_english_without_a_backend(monkeypatch: pytest.Mo
     result = run_egress(_state(detected_language="hi", final_english_response="GO: all clear."))
     assert result.status == "degraded"
     assert result.outputs["final_vernacular_response"] == "GO: all clear."  # degraded to English, not crashed
+
+
+def test_llm_translation_fallback_when_bhashini_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest import mock
+
+    class _MockLLM:
+        def complete(self, messages: list[dict[str, str]], **kwargs) -> str:
+            return "ಕನ್ಯಾಕುಮಾರಿಯ ಹತ್ತಿರದ ಮೀನುಗಾರಿಕೆ ವಲಯ"
+
+    monkeypatch.setattr("orca.agents.language._backend", None)
+    monkeypatch.setattr("orca.agents.bhashini.nmt", mock.Mock(side_effect=RuntimeError("bhashini timeout")))
+    monkeypatch.setenv("ORCA_LLM_ENABLED", "1")
+    monkeypatch.setattr("orca.llm.tiers.llm", lambda tier: _MockLLM())
+    monkeypatch.setattr("orca.llm.tiers.llm_enabled", lambda: True)
+
+    result = run_egress(_state(detected_language="kn", final_english_response="Nearest fishing zone in Kanyakumari."))
+    assert result.status == "ok"
+    assert result.outputs["final_vernacular_response"] == "ಕನ್ಯಾಕುಮಾರಿಯ ಹತ್ತಿರದ ಮೀನುಗಾರಿಕೆ ವಲಯ"
+    assert result.engine == "LLM Translation"
 
 
 # --- Real IndicTrans2 integration — only runs where the actual gated ------
