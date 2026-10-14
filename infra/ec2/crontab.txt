@@ -8,4 +8,4 @@
 # Runs daily data every day, and weekly data automatically on Sundays.
 # ==============================================================================
 
-0 2 * * * docker exec orca-backend /bin/sh /scripts/cron_refresh.sh >> /home/ec2-user/cron.log 2>&1
+0 2 * * * docker exec orca-backend /bin/bash /scripts/cron_refresh.sh >> /home/ec2-user/cron.log 2>&1

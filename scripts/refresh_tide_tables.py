@@ -166,6 +166,20 @@ MSL_ONLY_DATUM = (
 SOURCE = "Survey of India / Stormglass Calibrated Harmonic"
 CSV_PATH = DATA / "tier1" / "tides" / "soi_tide_tables_2026.csv"
 META_PATH = DATA / "tier1" / "tides" / "soi_tide_stations_metadata.json"
+
+
+def display_data_path(path: Path) -> str:
+    """Render output paths consistently for repo-local and mounted data dirs."""
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        # In Docker, ORCA_DATA_DIR is /data while the code lives under /app.
+        # Keep the familiar data/... label without requiring the data volume
+        # to be mounted inside the source tree.
+        try:
+            return str(Path("data") / path.relative_to(DATA))
+        except ValueError:
+            return str(path)
 CACHE_DIR = DATA / "tier2" / "stormglass"
 FIELDS = [
     "station_code",
@@ -335,9 +349,9 @@ def main() -> int:
     if merged:
         write_csv(merged)
         last = max(r["datetime_utc"] for r in merged)
-        print(f"\n{len(merged)} rows -> {CSV_PATH.relative_to(REPO_ROOT)}; window ends {last}")
+        print(f"\n{len(merged)} rows -> {display_data_path(CSV_PATH)}; window ends {last}")
     on_cd = sum(1 for s in STATIONS.values() if s.get("msl_above_chart_datum_m") is not None)
-    print(f"{len(STATIONS)} stations -> {META_PATH.relative_to(REPO_ROOT)} "
+    print(f"{len(STATIONS)} stations -> {display_data_path(META_PATH)} "
           f"({on_cd} on chart datum, {len(STATIONS) - on_cd} on MSL)")
     print(f"fetched {len(fetched)}, cache still good {len(skipped)}, failed {len(failed)}")
     return 1 if failed else 0
