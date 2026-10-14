@@ -39,10 +39,133 @@ function PointPointer() {
 }
 
 /**
+ * Repairs smashed tokens, unclosed/inverted asterisks, and ensures that:
+ * 1. Numbers and measurements with units (e.g. "53 to 58 km SW", "0.52 m", "10.1 km/h", "06:00 to 18:00 IST")
+ * 2. Key operational statuses & terms (e.g. "Yes, sea conditions are safe and favorable", "All Clear", "calm and favorable conditions", "Within state waters (0–12 NM)", "No active ban")
+ * 3. Specific zone names (e.g. "Belapur offshore zone", "Sector MAHARASHTRA")
+ * are properly wrapped in markdown bold (**...**) so they render in clean brown highlight.
+ * Fish species names (e.g. "Indian mackerel", "Bombay duck") are explicitly kept plain text.
+ */
+function formatAndHighlightContent(str: string): string {
+  if (!str) return "";
+  let text = str;
+
+  // 1. Spacing repair
+  text = text.replace(/,([^\s])/g, ", $1");
+  text = text.replace(/([NESW]{1,3})\s*(of|off)\b/gi, "$1 $2");
+  text = text.replace(/\b(km|NM|nm)\s*([NESW]{1,3})/gi, "$1 $2");
+  text = text.replace(/(\d+(?:\.\d+)?)\s*(km\/h|kmh|km\/hr|kph|km|NM|nm|knots|kt|hPa|m\/s|hours?|hrs?|mins?|minutes?|days?)(?=[A-Za-z\s\d,;().\-]|$)/gi, "$1 $2");
+  text = text.replace(/(\d+(?:\.\d+)?)\s*m(?=[A-Z\s,;().\-]|$)(?![a-zA-Z]{2,})/g, "$1 m");
+  text = text.replace(/\b(km|NM|nm)\s*([NESW]{1,3})/gi, "$1 $2");
+  text = text.replace(/([a-zA-Z])(\d+(?:\.\d+)?\s*(?:km\/h|km|NM|nm|knots|kt|hPa|m\/s|m|hours?|hrs?|days?))/gi, "$1 $2");
+  text = text.replace(/(\d{1,2}:\d{2})\s*(?:to|-|–)\s*(\d{1,2}:\d{2})\s*(IST|UTC|AM|PM)?/gi, "$1 to $2 $3");
+  text = text.replace(/(\d{1,2}:\d{2})(IST|UTC|AM|PM)\b/gi, "$1 $2");
+  text = text.replace(/(\d+)\s*-\s*(\d+)\s*(km|m|NM|nm|hours?|hrs?)/gi, "$1–$2 $3");
+  text = text.replace(/[ \t]{2,}/g, " ");
+
+  // 2. Fix inverted / broken asterisks
+  text = text.replace(/(\d{1,2}:\d{2})\s*\*\*to\*\*\s*(\d{1,2}:\d{2})\s*(?:\*\*([A-Za-z]+)\*\*)?/gi, "**$1 to $2 $3**");
+  text = text.replace(/\*\*(\d+(?:\.\d+)?)\*\*\s*(km|NM|nm|m|km\/h|knots|hPa|hours?|hrs?)\s*\*\*([NESW]{1,3})\*\*/gi, "**$1 $2 $3**");
+  text = text.replace(/\*\*(\d+(?:\.\d+)?)\*\*\s*(km|NM|nm|m|km\/h|knots|hPa|hours?|hrs?)\b/gi, "**$1 $2**");
+  text = text.replace(/\*\*(\d+(?:\.\d+)?)\s*(?:to|–|-)\s*(\d+(?:\.\d+)?)\*\*\s*(km|NM|nm|m|km\/h|knots|hPa|hours?|hrs?)\b/gi, "**$1 to $2 $3**");
+  text = text.replace(/\*\*(wave height|wind speed|water depth)\*\*\s*([0-9.]+)\s*\*\*([a-z/]+)\*\*/gi, "$1 **$2 $3**");
+  text = text.replace(/\*\*([NESW]{1,3})\s*(?:of|off)\s+([A-Za-z]+),\s*(\d+[–-]\d+\s*km)\*\*/gi, "**$1** of $2, **$3**");
+
+  // 3. Unbold fish names
+  text = text.replace(
+    /\*\*(Indian\s+mackerel|Bombay\s*duck|Silver\s*pomfret|Sardine[s]?|Tuna|Mackerel|Ribbonfish|Seer\s*fish|Anchov(?:y|ies)|Squid|Cuttlefish|Shrimp|Prawn[s]?|Carangid[s]?)\*\*/gi,
+    "$1"
+  );
+
+  // 4. Helper to apply highlight pattern only to non-bold parts of text
+  function highlightMatches(input: string, regex: RegExp, replacement: string) {
+    const parts = input.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+    return parts
+      .map((part) => {
+        if (!part || (part.startsWith("**") && part.endsWith("**")) || (part.startsWith("`") && part.endsWith("`"))) {
+          return part;
+        }
+        return part.replace(regex, replacement);
+      })
+      .join("");
+  }
+
+  // Time window e.g. 06:00 to 18:00 IST
+  text = highlightMatches(text, /\b(\d{1,2}:\d{2}\s+to\s+\d{1,2}:\d{2}(?:\s*(?:IST|UTC|AM|PM))?)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(\d{1,2}:\d{2}\s*(?:IST|UTC))\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(\d{1,3}°T)\b/g, "**$1**");
+
+  // Legal / State jurisdiction bounds
+  text = highlightMatches(text, /\b(Within state waters(?:\s*\(\s*0[–-]12\s*NM\s*\))?)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(No active ban)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Active [A-Za-z]+ ban)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Zero tolerance border)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(strictly prohibited)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(ZERO TOLERANCE)\b/g, "**$1**");
+
+  // Operational verdicts and affirmations
+  text = highlightMatches(text, /\b(Yes,\s+sea conditions are safe and favorable(?: for [^.,;()]+)?)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Passage approved and hydrographically clear(?: for [^.,;()]+)?)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Normal maritime operations permitted)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Fisheries exploitation permitted)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Caution advised)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Unsafe\s*[—–-]\s*remain in harbor)\b/gi, "**$1**");
+
+  // Alerts & tiers
+  text = highlightMatches(text, /\b(All Clear(?:\s*\/\s*Green Tier)?)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Green Tier|Yellow Tier|Orange Tier|Red Tier)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(No active (?:lightning|cyclone|severe storm)[^.,;()]*)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(No severe marine meteorological hazards in force)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(No severe weather warnings active)\b/gi, "**$1**");
+
+  // Sea conditions & trends
+  text = highlightMatches(text, /\b(calm and favorable(?: conditions)?)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Calm, safe, and favorable(?: \([^)]+\))?)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Gentle and safe breeze)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Steady)\b/g, "**$1**");
+  text = highlightMatches(text, /\b(Oligotrophic|Mesotrophic|Eutrophic)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(permitted with standard vigilance)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(fully cleared)\b/gi, "**$1**");
+
+  // Window phrases
+  text = highlightMatches(text, /\b(Optimal departure window)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Advisory validity timeframe)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Tidal departure & daylight passage window)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(Optimal oceanographic observation window)\b/gi, "**$1**");
+
+  // Zone names in phrases like "Belapur offshore zone" or "of Belapur"
+  text = highlightMatches(text, /\b([A-Z][a-zA-Z]+(?:\s+[a-zA-Z]+)*\s+offshore zone)\b/gi, "**$1**");
+  text = highlightMatches(text, /\b(located\s+[0-9–\sA-Za-z]+?\s+of\s+)([A-Z][a-zA-Z]+)\b/gi, "$1**$2**");
+  text = highlightMatches(text, /\bSector\s+([A-Z_]+)\b/g, "Sector **$1**");
+
+  // Measurements with units (e.g. 53 to 58 km SW, 25 to 30 m, 0.52 m, 10.1 km/h, 14 knots, 1012 hPa)
+  text = highlightMatches(text, /(^|[\s(])([<>]?\s*\d+(?:\.\d+)?(?:\s*(?:to|–|-)\s*\d+(?:\.\d+)?)?\s*(?:km\/h|kmh|km|NM|nm|knots|kt|hPa|m\/s|°C\/km|°C|mg\/m³|s|m)\b(?:\s+[NESW]{1,3}\b)?)/gi, "$1**$2**");
+
+  // Durations (e.g. 2 to 3 hours, 1 day old)
+  text = highlightMatches(text, /(^|[\s(])(\d+(?:\.\d+)?(?:\s*(?:to|–|-)\s*\d+(?:\.\d+)?)?\s*(?:hours?|hrs?|minutes?|mins?))\b/gi, "$1**$2**");
+  text = highlightMatches(text, /\b(\d+\s+days?\s+old)\b/gi, "**$1**");
+
+  // Date/advisory integer (e.g. 20261013)
+  text = highlightMatches(text, /\b(20\d{6})\b/g, "**$1**");
+
+  // Prices (e.g. ₹180–220/kg, ₹200/kg)
+  text = highlightMatches(text, /(₹\s*\d+(?:[–-]\d+)?(?:\/kg)?)/g, "**$1**");
+
+  // Ensure fish names stay unbolded
+  text = text.replace(
+    /\*\*(Indian\s+mackerel|Bombay\s*duck|Silver\s*pomfret|Sardine[s]?|Tuna|Mackerel|Ribbonfish|Seer\s*fish|Anchov(?:y|ies)|Squid|Cuttlefish|Shrimp|Prawn[s]?|Carangid[s]?)\*\*/gi,
+    "$1"
+  );
+
+  return text;
+}
+
+/**
  * Sanitizes item text by:
  * 1. Removing scientific/Latin names in parentheses following fish/species names
  * 2. Unbolding fish species names so they are not highlighted
  * 3. Ensuring parameter labels before a colon are highlighted in bold
+ * 4. Applying comprehensive spacing repair and brown highlighting
  */
 function cleanItemContent(text: string): string {
   // Strip any leading bullet markers, dashes, or asterisks: e.g. "* Wave...", "* * Wave...", "• * Wave..."
@@ -82,18 +205,12 @@ function cleanItemContent(text: string): string {
     }
   }
 
-  // Auto-bold time window in Safe Operating Window if not bolded, so it highlights in brown
-  cleaned = cleaned.replace(
-    /((?:Safe\s+)?Operating\s+Window:\s*)(?!\*\*)(\d{2}:\d{2}\s+to\s+\d{2}:\d{2}\s*(?:IST|UTC|AM|PM)?)/i,
-    "$1**$2**"
-  );
-
   return cleaned.trim();
 }
 
 /**
  * Parses inline markdown tokens (**bold**, `code`, *italic*) safely into React nodes.
- * Just clean text highlighting — NO green boxes or bordered pill backgrounds.
+ * Bold text (**...**) is rendered with brown highlighting (`font-semibold text-accent`).
  */
 function renderInlineMarkdown(str: string, defaultBoldColor: "brown" | "black" = "brown"): ReactNode[] {
   if (!str) return [];
@@ -157,7 +274,7 @@ function renderPointItem(itemText: string): ReactNode {
   const cleaned = itemText.replace(/\*\s+\*/g, "**");
   const colonIdx = cleaned.indexOf(":");
   if (colonIdx === -1) {
-    return renderInlineMarkdown(cleaned, "brown");
+    return renderInlineMarkdown(formatAndHighlightContent(cleaned), "brown");
   }
 
   const labelRaw = cleaned.slice(0, colonIdx);
@@ -169,7 +286,7 @@ function renderPointItem(itemText: string): ReactNode {
   return (
     <>
       <strong className="font-bold text-ink tracking-tight">{labelClean}: </strong>
-      {renderInlineMarkdown(valueRaw, "brown")}
+      {renderInlineMarkdown(formatAndHighlightContent(valueRaw), "brown")}
     </>
   );
 }
@@ -189,11 +306,11 @@ function renderParagraphBlock(paraText: string): ReactNode {
     return (
       <>
         <strong className="font-bold text-ink tracking-tight">{headingClean}: </strong>
-        {renderInlineMarkdown(rest, "brown")}
+        {renderInlineMarkdown(formatAndHighlightContent(rest), "brown")}
       </>
     );
   }
-  return renderInlineMarkdown(normalized, "brown");
+  return renderInlineMarkdown(formatAndHighlightContent(normalized), "brown");
 }
 
 function getSectionIcon(title: string) {
