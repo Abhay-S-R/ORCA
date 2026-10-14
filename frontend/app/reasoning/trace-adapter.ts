@@ -11,7 +11,7 @@
 // node) and P2.7/P2.12's `skip_reason`.
 import type { AgentStatus } from "../components/AgentPill";
 import type { ConfidenceTier } from "../components/Badge";
-import type { TraceEdge, TraceGraph, TraceGroup, TraceNode } from "./fixture";
+import type { ConfidenceDetail, TraceEdge, TraceGraph, TraceGroup, TraceNode } from "./fixture";
 
 type ApiTraceNode = {
   id: string;
@@ -22,6 +22,15 @@ type ApiTraceNode = {
   latency_ms: number | null;
   reasoning_summary: string;
   source_count: number;
+  confidence_score?: number | null;
+  confidence_detail?: ConfidenceDetail | null;
+  inputs_consumed?: Record<string, unknown> | null;
+  outputs?: Record<string, unknown> | null;
+  source_provenance?: {
+    dataset: string;
+    acquisition_timestamp: string;
+    freshness_minutes: number;
+  } | null;
   used_llm: boolean;
   engine?: string;
   model?: string | null;
@@ -90,6 +99,11 @@ export function adaptTraceGraph(api: ApiTraceGraph): TraceGraph {
     latency_ms: n.latency_ms ?? 0,
     reasoning_summary: n.reasoning_summary,
     source_count: n.source_count,
+    confidence_score: n.confidence_score ?? null,
+    confidence_detail: n.confidence_detail ?? null,
+    inputs_consumed: n.inputs_consumed ?? {},
+    outputs: n.outputs ?? {},
+    source_provenance: n.source_provenance ?? null,
     used_llm: n.used_llm,
     model: n.model ?? null,
     tier: LLM_TIERS.has(n.tier ?? "") ? (n.tier as "cheap" | "mid" | "reasoning") : null,
