@@ -25,6 +25,7 @@ import type { TraceGraph } from "../reasoning/fixture";
 import { adaptTraceGraph, AGENT_LABEL } from "../reasoning/trace-adapter";
 import { API_BASE } from "../lib/apiBase";
 import type { AgentStatus } from "./AgentPill";
+import { LANGUAGES } from "../i18n/languages";
 import { AgentTraceCollapsed } from "./AgentTraceCollapsed";
 import {
   AgentTraceExpanded,
@@ -50,6 +51,8 @@ export interface AgentTraceUIProps {
   queryId?: string;
   /** Persisted measured duration for cache hits/reloaded turns with untimed spans. */
   fallbackTotalTimeMs?: number;
+  /** Language of the answer, used to name a completed translation step. */
+  responseLanguage?: string;
   /** Optional className for styling */
   className?: string;
 }
@@ -412,6 +415,7 @@ export function AgentTraceUI({
   streaming,
   queryId,
   fallbackTotalTimeMs,
+  responseLanguage,
   className = "",
 }: AgentTraceUIProps) {
   // State management for expanded/collapsed view and trace data
@@ -445,7 +449,23 @@ export function AgentTraceUI({
     return spansToTraceGraph(debouncedSpans);
   }, [debouncedSpans]);
 
-  const activeGraph = state.traceGraph ?? streamingTraceGraph;
+  const sourceGraph = state.traceGraph ?? streamingTraceGraph;
+  const activeGraph = useMemo(() => {
+    if (!sourceGraph || !responseLanguage || responseLanguage === "en") {
+      return sourceGraph;
+    }
+    const languageName = LANGUAGES.find((language) => language.code === responseLanguage)?.english;
+    if (!languageName) return sourceGraph;
+    return {
+      ...sourceGraph,
+      nodes: sourceGraph.nodes.map((node) =>
+        node.agent_name.toLowerCase().includes("language egress") ||
+        node.id.toLowerCase().includes("language_egress")
+          ? { ...node, reasoning_summary: `Response translated to ${languageName}.` }
+          : node,
+      ),
+    };
+  }, [sourceGraph, responseLanguage]);
 
   const currentText = useMemo(() => {
     if (!streaming) {
