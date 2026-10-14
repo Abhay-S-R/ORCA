@@ -12,7 +12,7 @@ on:
     paths:
       - 'backend/**'
       - 'infra/ec2/**'
-      - 'scripts/refresh_fishing_ban_order.py'
+      - 'scripts/**'
       - '.github/workflows/deploy-ec2.yml'
   workflow_dispatch:
 
