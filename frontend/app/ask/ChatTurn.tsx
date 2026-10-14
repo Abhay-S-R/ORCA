@@ -144,6 +144,7 @@ export function ChatTurn({
             spans={displaySpans}
             streaming={streaming}
             queryId={answer?.query_id}
+            fallbackTotalTimeMs={answer?.latency?.agent_time_ms}
           />
         ) : (
           <div className="flex min-w-0 max-w-full flex-col gap-1.5">

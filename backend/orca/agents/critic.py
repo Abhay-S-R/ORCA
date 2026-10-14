@@ -79,7 +79,11 @@ _RUBRIC = (
 class CritiqueIssue:
     rubric_item: str
     description: str
-    reinvoke_agent: str  # deterministic issue -> agent mapping, never a free-text guess
+    reinvoke_agent: str | None  # deterministic issue -> agent mapping, never a free-text guess
+    claim: str = ""
+    fact_key: str = ""
+    narrative_value: float | None = None
+    measured_value: float | None = None
 
 
 # Deterministic issue->agent re-invocation mapping (plan §6 D1 Day 18) — the
@@ -180,10 +184,9 @@ def _resolve_reinvoke_agent(
     """Determine the specialist to re-invoke deterministically.
     Defaults to _REINVOKE_MAP[rubric_item], but refines temporal and factual issues
     based on domain semantics in the critique description."""
-    if explicit_agent and (
-        explicit_agent in REINVOCABLE_AGENTS or explicit_agent == "reporting"
-    ):
-        return explicit_agent
+    # The judge's optional `agent` field (accepted for call compatibility) is deliberately ignored. It is not
+    # part of the contract and used to let the model send unrelated complaints
+    # to Geospatial. Routing remains derived from the fixed rubric and domain.
 
     desc_lower = description.lower()
 
@@ -285,9 +288,86 @@ def _parse_judge_response(raw: str) -> list[CritiqueIssue]:
                 rubric_item=rubric_item,
                 description=str(item.get("description", "")),
                 reinvoke_agent=target_agent,
+                claim=str(item.get("claim", "")),
+                fact_key=str(item.get("fact_key", "")),
+                narrative_value=_optional_number(item.get("narrative_value")),
+                measured_value=_optional_number(item.get("measured_value")),
             )
         )
     return issues
+
+
+def _optional_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+_SPATIAL_FACT_KEYS = {
+    "distance_to_maritime_boundary_nautical_miles",
+    "maritime_boundary_bearing_deg",
+    "bathymetric_depth_m",
+    "nearest_fishing_zone_distance_km",
+    "nearest_fishing_zone_depth_m",
+}
+
+
+def _has_checkable_spatial_mismatch(
+    issue: CritiqueIssue, narrative: str, facts_block: str
+) -> bool:
+    """Require a quoted claim and matching measured numeric fact before a
+    geospatial re-run. A generic judge description is not sufficient evidence."""
+    if (
+        issue.fact_key not in _SPATIAL_FACT_KEYS
+        or not issue.claim.strip()
+        or issue.claim.casefold() not in narrative.casefold()
+        or issue.narrative_value is None
+        or issue.measured_value is None
+    ):
+        return False
+
+    fact_line = next(
+        (
+            line
+            for line in facts_block.splitlines()
+            if line.lstrip("- ").startswith(f"{issue.fact_key}:")
+        ),
+        None,
+    )
+    if fact_line is None:
+        return False
+    value_text = fact_line.split(":", 1)[1]
+    fact_values = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", value_text)]
+    # The supplied measured value must actually be present under the named key.
+    if not any(
+        abs(v - issue.measured_value) <= max(1e-6, abs(v) * 1e-6)
+        for v in fact_values
+    ):
+        return False
+    # Likewise, the claimed figure must occur in the quoted narrative excerpt.
+    claim_values = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", issue.claim)]
+    if not any(
+        abs(v - issue.narrative_value) <= max(1e-6, abs(v) * 1e-6)
+        for v in claim_values
+    ):
+        return False
+
+    claimed, measured = issue.narrative_value, issue.measured_value
+    delta = abs(claimed - measured)
+    if issue.fact_key == "maritime_boundary_bearing_deg":
+        delta = min(delta, abs(360 - delta))
+        return delta >= 5
+    if issue.fact_key in {
+        "distance_to_maritime_boundary_nautical_miles",
+        "nearest_fishing_zone_distance_km",
+    }:
+        # Existing rubric tolerances: ignore rounding under 10% and under 1 km
+        # (0.54 nm) when the distance exceeds 10 km.
+        one_km = 0.54 if issue.fact_key.endswith("nautical_miles") else 1.0
+        return delta / max(abs(measured), 1e-9) > 0.10 and not (
+            abs(measured) > (5.4 if one_km == 0.54 else 10.0) and delta < one_km
+        )
+    return delta > max(0.1, abs(measured) * 0.10)
 
 
 def _judge_prompt(
@@ -323,9 +403,10 @@ How to judge — this matters more than the rubric wording:
 - Only the facts relevant to the USER QUERY can be contradicted by it.
 - For spatial_accuracy: Only flag SIGNIFICANT discrepancies (>10% difference in distance/bearing). Minor rounding differences (<1 km for distances >10km, <5° for bearings) are acceptable and should NOT be flagged. Approximate language ("about", "roughly", "approximately") implies the narrative knows the value is rounded.
 - Be conservative with spatial_accuracy critiques. Only flag when the narrative states a specific number that is clearly wrong, not when it uses reasonable approximations or rounds numbers for readability.
+- A geospatial re-invocation is expensive. For any issue that would route to Geospatial, include all four evidence fields: `claim` (an exact short quote from NARRATIVE UNDER REVIEW containing the claimed number), `fact_key` (the exact matching key from MEASURED FACTS), `narrative_value` (the number in that quote), and `measured_value` (the number for that key). Never use a different spatial fact as a substitute. If you cannot identify a concrete, materially wrong numeric claim and its matching fact, do not raise the issue. An issue missing this evidence can be used to revise prose, but will not trigger a specialist re-run.
 
 Respond with STRICT JSON only, no prose: a list of objects
-{{"rubric_item": "<one of the five above>", "description": "<one sentence, what is wrong>"}}.
+{{"rubric_item": "<one of the five above>", "description": "<one sentence, what is wrong>", "claim": "<exact narrative quote, spatial issues only>", "fact_key": "<exact measured fact key, spatial issues only>", "narrative_value": <number, spatial issues only>, "measured_value": <number, spatial issues only>}}.
 Return [] if the narrative passes on all five."""
 
 
@@ -505,6 +586,26 @@ def run_critic_pass(
         )
         _note_engine(client, engine_out)
         issues = _parse_judge_response(raw)
+        # A rubric label alone must not cause another geospatial pass. Keep the
+        # critique for prose revision, but only route it back when its claim,
+        # fact key, and material numeric mismatch are independently checkable.
+        issues = [
+            CritiqueIssue(
+                rubric_item=i.rubric_item,
+                description=i.description,
+                reinvoke_agent=(
+                    i.reinvoke_agent
+                    if i.reinvoke_agent != "geospatial"
+                    or _has_checkable_spatial_mismatch(i, current, facts_block)
+                    else None
+                ),
+                claim=i.claim,
+                fact_key=i.fact_key,
+                narrative_value=i.narrative_value,
+                measured_value=i.measured_value,
+            )
+            for i in issues
+        ]
         if not issues:
             return current, True, iteration, issues_found
 
@@ -969,6 +1070,10 @@ def run(state: ORCAState) -> AgentResult:
             "rubric_item": i.rubric_item,
             "description": i.description,
             "reinvoke_agent": i.reinvoke_agent,
+            "claim": i.claim,
+            "fact_key": i.fact_key,
+            "narrative_value": i.narrative_value,
+            "measured_value": i.measured_value,
         }
         for i in issues
     ]

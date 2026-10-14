@@ -48,6 +48,8 @@ export interface AgentTraceUIProps {
   streaming: boolean;
   /** Query ID for fetching full trace data */
   queryId?: string;
+  /** Persisted measured duration for cache hits/reloaded turns with untimed spans. */
+  fallbackTotalTimeMs?: number;
   /** Optional className for styling */
   className?: string;
 }
@@ -409,6 +411,7 @@ export function AgentTraceUI({
   spans,
   streaming,
   queryId,
+  fallbackTotalTimeMs,
   className = "",
 }: AgentTraceUIProps) {
   // State management for expanded/collapsed view and trace data
@@ -426,8 +429,12 @@ export function AgentTraceUI({
   // Requirement 4.3, 15.3: Calculate total execution time from spans (memoized)
   // Updates incrementally as new spans complete
   const totalTimeMs = useMemo(() => {
-    return debouncedSpans.reduce((sum, span) => sum + (span.latency_ms ?? 0), 0);
-  }, [debouncedSpans]);
+    const spanTotal = debouncedSpans.reduce(
+      (sum, span) => sum + (span.latency_ms ?? 0),
+      0,
+    );
+    return spanTotal > 0 ? spanTotal : (fallbackTotalTimeMs ?? 0);
+  }, [debouncedSpans, fallbackTotalTimeMs]);
 
   // Requirement 4.1, 15.2: Build TraceGraph from spans for real-time rendering
   // This allows the expanded view to show incremental updates without API fetch
@@ -502,14 +509,15 @@ export function AgentTraceUI({
       setState((prev) => ({ ...prev, loading: !prev.traceGraph, error: null }));
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutId = setTimeout(
+        () => controller.abort(new DOMException("Trace request timed out", "TimeoutError")),
+        5000,
+      );
 
       try {
         const response = await fetch(`${API_BASE}/trace/${queryId}`, {
           signal: controller.signal,
         });
-
-        clearTimeout(timeoutId);
 
         if (!response.ok) {
           if (response.status === 404) {
@@ -534,13 +542,20 @@ export function AgentTraceUI({
           error: null,
         }));
       } catch (err) {
-        clearTimeout(timeoutId);
-        console.error("AgentTraceUI: Failed to fetch trace data", err);
+        if (!controller.signal.aborted) {
+          console.error("AgentTraceUI: Failed to fetch trace data", err);
+        }
         setState((prev) => ({
           ...prev,
           loading: false,
-          error: prev.traceGraph ? null : (err instanceof Error && err.name === "AbortError" ? "Trace request timed out" : "Failed to load trace details"),
+          error: prev.traceGraph
+            ? null
+            : controller.signal.aborted
+              ? "Trace request timed out"
+              : "Failed to load trace details",
         }));
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
   }, [queryId, streaming, streamingTraceGraph]);

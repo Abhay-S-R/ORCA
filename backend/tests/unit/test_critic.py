@@ -260,7 +260,7 @@ Please let me know if you need more details."""
     assert issues[1].reinvoke_agent == "weather_intelligence"
 
 
-def test_standard_depth_skips_redundant_revise_when_specialist_reinvocation_targeted():
+def test_standard_depth_requires_spatial_evidence_before_reinvocation():
     fake_client = MagicMock()
     judge_response = json.dumps([{"rubric_item": "spatial_accuracy", "description": "wrong distance to boundary"}])
     fake_client.complete.return_value = judge_response
@@ -271,12 +271,12 @@ def test_standard_depth_skips_redundant_revise_when_specialist_reinvocation_targ
             max_iterations=1, can_reinvoke=True,
         )
 
-    # D3: The revise call was skipped to save LLM tokens since specialist will be re-invoked
-    assert fake_client.complete.call_count == 1
-    assert passed is False
+    # A bare rubric label is insufficient evidence for another Geospatial pass.
+    assert fake_client.complete.call_count == 2
+    assert passed is True
     assert iterations == 1
     assert len(issues) == 1
-    assert issues[0].reinvoke_agent == "geospatial"
+    assert issues[0].reinvoke_agent is None
     assert final == _NARRATIVE
 
 
@@ -322,8 +322,8 @@ def test_semantic_reinvoke_agent_resolution_d4():
     assert _resolve_reinvoke_agent("factual_consistency", "Distance to IMBL contradicts 16.3 nm") == "geospatial"
     assert _resolve_reinvoke_agent("factual_consistency", "Prose says advisory is current but text notes expired") == "reporting"
 
-    # Explicit agent in issue is respected
-    assert _resolve_reinvoke_agent("factual_consistency", "err", explicit_agent="weather_intelligence") == "weather_intelligence"
+    # Agent hints from the judge cannot override deterministic routing.
+    assert _resolve_reinvoke_agent("factual_consistency", "err", explicit_agent="weather_intelligence") == "reporting"
 
 
 def test_figure_tolerance_in_revision_is_safe_d5():
