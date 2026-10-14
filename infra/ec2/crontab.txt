@@ -1,0 +1,11 @@
+# ==============================================================================
+# ORCA Unified Data Refresh Cron Schedule (EC2 Host crontab)
+#
+# Runs inside the running `orca-backend` container at 2:00 AM UTC (7:30 AM IST).
+# Reuses all container Python libraries, credentials, and writes directly to
+# /data (mounted to /home/ec2-user/orca_data).
+#
+# Runs daily data every day, and weekly data automatically on Sundays.
+# ==============================================================================
+
+0 2 * * * docker exec orca-backend /bin/sh /scripts/cron_refresh.sh >> /home/ec2-user/cron.log 2>&1

@@ -736,27 +736,27 @@ def planning_node(state: ORCAState) -> dict:
         update["understood_kind"] == "sea_question" and not update["understood_places"] and needs_a_place
         and loc_now.get("place_source") == "regional_default"
     )
-    if placeless:
-        # User prompt requirement: consider home port for all open-ended questions rather than refusing.
-        default_hp_name = loc_now.get("place_name") or "Chennai"
-        default_hp_lat = loc_now.get("lat") or 13.10
-        default_hp_lon = loc_now.get("lon") or 80.32
-        update["user_location"] = {
-            "lat": default_hp_lat,
-            "lon": default_hp_lon,
-            "place_name": default_hp_name,
-            "place_source": "home_port",
-        }
-        update["place_resolution"] = {
-            "status": "resolved",
-            "place_name": default_hp_name,
-            "place_source": "home_port",
-            "lat": default_hp_lat,
-            "lon": default_hp_lon,
-            "candidates": [],
-            "disclosure": f"Answered for {default_hp_name} home port operating waters.",
-        }
-        placeless = False
+    if placeless and loc_now.get("place_source") == "home_port":
+        default_hp_name = loc_now.get("place_name") or "Home Port"
+        default_hp_lat = loc_now.get("lat")
+        default_hp_lon = loc_now.get("lon")
+        if default_hp_lat is not None and default_hp_lon is not None:
+            update["user_location"] = {
+                "lat": default_hp_lat,
+                "lon": default_hp_lon,
+                "place_name": default_hp_name,
+                "place_source": "home_port",
+            }
+            update["place_resolution"] = {
+                "status": "resolved",
+                "place_name": default_hp_name,
+                "place_source": "home_port",
+                "lat": default_hp_lat,
+                "lon": default_hp_lon,
+                "candidates": [],
+                "disclosure": f"Answered for {default_hp_name} home port operating waters.",
+            }
+            placeless = False
 
     if not update["query_outcome"] and (
         (pending and update["understood_kind"] == "sea_question" and not update["understood_places"]

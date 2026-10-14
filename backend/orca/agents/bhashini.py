@@ -46,6 +46,7 @@ response shape — so every caller's existing `except (RuntimeError, OSError):
 continue` rung-fallback pattern (voice.py, language.py) catches it with no
 change to that pattern.
 """
+
 from __future__ import annotations
 
 import base64
@@ -72,6 +73,10 @@ _ALD_SERVICE_ID = "bhashini/iitmandi/audio-lang-detection/gpu"
 # government portal must never hold a query open indefinitely, safety path
 # or not.
 TIMEOUT_S = 3.0
+# Translation of multi-line answers over higher-latency networks (AWS deployment) needs more time
+# than simple lookups, similar to TTS. The 3s timeout was causing inconsistent Kannada responses
+# on AWS when network latency to Bhashini exceeded the limit, falling back to English instead.
+NMT_TIMEOUT_S = 8.0
 # Speech synthesis of a whole answer takes longer than a lookup or a translation, and a 3 s limit
 # was dropping it to the local robotic voice, which is then cached for that text (FIX-VOICE-1).
 TTS_TIMEOUT_S = 12.0
@@ -104,7 +109,9 @@ def _ulca_config_headers() -> dict[str, str]:
     }
 
 
-def _pipeline_config(task_type: TaskType, source_lang: str, target_lang: str | None = None) -> dict[str, Any]:
+def _pipeline_config(
+    task_type: TaskType, source_lang: str, target_lang: str | None = None
+) -> dict[str, Any]:
     """Step 1 of the ULCA contract, cached per language pair."""
     key = (task_type, source_lang, target_lang)
     cached = _config_cache.get(key)
@@ -123,7 +130,9 @@ def _pipeline_config(task_type: TaskType, source_lang: str, target_lang: str | N
         "pipelineRequestConfig": {"pipelineId": _PIPELINE_ID},
     }
     try:
-        resp = requests.post(_CONFIG_URL, headers=_ulca_config_headers(), json=body, timeout=TIMEOUT_S)
+        resp = requests.post(
+            _CONFIG_URL, headers=_ulca_config_headers(), json=body, timeout=TIMEOUT_S
+        )
         resp.raise_for_status()
         data = resp.json()
     except requests.RequestException as exc:
@@ -140,13 +149,18 @@ def _pipeline_config(task_type: TaskType, source_lang: str, target_lang: str | N
             },
         }
     except (KeyError, IndexError) as exc:
-        raise BhashiniError(f"Bhashini pipeline config: unexpected response shape: {data}") from exc
+        raise BhashiniError(
+            f"Bhashini pipeline config: unexpected response shape: {data}"
+        ) from exc
     _config_cache[key] = resolved
     return resolved
 
 
 def _inference(
-    config: dict[str, Any], pipeline_task: dict[str, Any], input_data: dict[str, Any], timeout_s: float | None = None,
+    config: dict[str, Any],
+    pipeline_task: dict[str, Any],
+    input_data: dict[str, Any],
+    timeout_s: float | None = None,
 ) -> dict[str, Any]:
     headers = {
         config["inference_api_key"]["name"]: config["inference_api_key"]["value"],
@@ -154,7 +168,12 @@ def _inference(
     }
     body: dict[str, Any] = {"pipelineTasks": [pipeline_task], "inputData": input_data}
     try:
-        resp = requests.post(config["callback_url"], headers=headers, json=body, timeout=timeout_s or TIMEOUT_S)
+        resp = requests.post(
+            config["callback_url"],
+            headers=headers,
+            json=body,
+            timeout=timeout_s or TIMEOUT_S,
+        )
         resp.raise_for_status()
         return resp.json()
     except requests.RequestException as exc:
@@ -168,7 +187,10 @@ def _direct_config() -> dict[str, Any]:
         raise BhashiniError("Bhashini not configured (BHASHINI_* env vars empty).")
     return {
         "callback_url": _COMPUTE_URL,
-        "inference_api_key": {"name": "Authorization", "value": os.environ["BHASHINI_INFERENCE_API_KEY"]},
+        "inference_api_key": {
+            "name": "Authorization",
+            "value": os.environ["BHASHINI_INFERENCE_API_KEY"],
+        },
     }
 
 
@@ -182,7 +204,9 @@ def _audio_format(audio: bytes) -> str:
     return "wav" if audio[:4] == b"RIFF" else "webm"
 
 
-def asr(audio: bytes, source_lang: str, *, clean: bool = True) -> tuple[str, float | None]:
+def asr(
+    audio: bytes, source_lang: str, *, clean: bool = True
+) -> tuple[str, float | None]:
     """Voice in: ASR. Returns (transcript, confidence-if-reported).
 
     `clean` runs Bhashini's VAD + denoiser before recognition and ITN +
@@ -209,7 +233,9 @@ def asr(audio: bytes, source_lang: str, *, clean: bool = True) -> tuple[str, flo
         raise BhashiniError(f"Bhashini ASR: unexpected response shape: {data}") from exc
 
 
-def nmt(text: str, source_lang: str, target_lang: str) -> str:
+def nmt(
+    text: str, source_lang: str, target_lang: str, *, timeout_s: float | None = None
+) -> str:
     """Text translation — the NMT leg of both voice-in (post-ASR) and
     text-in, and the rung `language.py`'s `_translate_with_rung` tries
     before the local IndicTrans2 fallback."""
@@ -224,7 +250,7 @@ def nmt(text: str, source_lang: str, target_lang: str) -> str:
         },
     }
     payload = {"input": [{"source": text}]}
-    data = _inference(config, task, payload)
+    data = _inference(config, task, payload, timeout_s=timeout_s or NMT_TIMEOUT_S)
     try:
         return data["pipelineResponse"][0]["output"][0]["target"]
     except (KeyError, IndexError) as exc:
@@ -232,7 +258,12 @@ def nmt(text: str, source_lang: str, target_lang: str) -> str:
 
 
 def tts(
-    text: str, target_lang: str, gender: str = "female", *, timeout_s: float | None = None, retry: bool = True,
+    text: str,
+    target_lang: str,
+    gender: str = "female",
+    *,
+    timeout_s: float | None = None,
+    retry: bool = True,
 ) -> bytes:
     """Voice out: TTS. Returns audio bytes (ULCA's default WAV format).
 
@@ -297,7 +328,9 @@ def transliterate(text: str, source_lang: str, target_lang: str) -> str:
         # a ranked list a caller would have to know to index into.
         return data["pipelineResponse"][0]["output"][0]["target"][0]
     except (KeyError, IndexError) as exc:
-        raise BhashiniError(f"Bhashini transliteration: unexpected response shape: {data}") from exc
+        raise BhashiniError(
+            f"Bhashini transliteration: unexpected response shape: {data}"
+        ) from exc
 
 
 def _lang_prediction(data: dict[str, Any], what: str) -> tuple[str, float]:
@@ -305,7 +338,9 @@ def _lang_prediction(data: dict[str, Any], what: str) -> tuple[str, float]:
         top = data["pipelineResponse"][0]["output"][0]["langPrediction"][0]
         return top["langCode"], float(top["langScore"])
     except (KeyError, IndexError, TypeError, ValueError) as exc:
-        raise BhashiniError(f"Bhashini {what}: unexpected response shape: {data}") from exc
+        raise BhashiniError(
+            f"Bhashini {what}: unexpected response shape: {data}"
+        ) from exc
 
 
 def detect_language(text: str) -> str:
@@ -327,7 +362,11 @@ def detect_spoken_language(audio: bytes) -> tuple[str, float]:
         "taskType": "audio-lang-detection",
         "config": {"serviceId": _ALD_SERVICE_ID, "audioFormat": _audio_format(audio)},
     }
-    data = _inference(_direct_config(), task, {"audio": [{"audioContent": base64.b64encode(audio).decode("ascii")}]})
+    data = _inference(
+        _direct_config(),
+        task,
+        {"audio": [{"audioContent": base64.b64encode(audio).decode("ascii")}]},
+    )
     return _lang_prediction(data, "audio language detection")
 
 
@@ -341,7 +380,10 @@ if __name__ == "__main__":
     # database.
     from orca.db import engine as _  # noqa: F401  (triggers load_dotenv)
 
-    assert _audio_format(b"RIFF....WAVE") == "wav" and _audio_format(bytes.fromhex("1a45dfa3")) == "webm"
+    assert (
+        _audio_format(b"RIFF....WAVE") == "wav"
+        and _audio_format(bytes.fromhex("1a45dfa3")) == "webm"
+    )
     if bhashini_configured():
         # Live round-trip of every service ORCA uses: translation, TTS,
         # ASR-on-that-TTS-audio, transliteration, and both detectors.
@@ -356,11 +398,15 @@ if __name__ == "__main__":
         assert detect_language("naalai kadalukku pogalama") == "ta"
         spoken, score = detect_spoken_language(tts(translated, "ta"))
         assert spoken == "ta" and score > 0.9, (spoken, score)
-        print(f"bhashini self-check ok (LIVE): nmt={translated!r} asr_roundtrip={transcript!r} translit={romanized!r} ald=({spoken}, {score:.3f})")
+        print(
+            f"bhashini self-check ok (LIVE): nmt={translated!r} asr_roundtrip={transcript!r} translit={romanized!r} ald=({spoken}, {score:.3f})"
+        )
     else:
         try:
             nmt("hello", "en", "ta")
-            raise AssertionError("expected BhashiniError with no credentials configured")
+            raise AssertionError(
+                "expected BhashiniError with no credentials configured"
+            )
         except BhashiniError:
             pass
         print(

@@ -24,6 +24,7 @@ first in the graph) — the Critic only ever reviews and amends the
 delay, or alter the verdict itself; asserted in the self-check below by
 confirming the verdict header text survives every critique path unchanged.
 """
+
 from __future__ import annotations
 
 import json
@@ -34,7 +35,12 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from orca import engines
 from orca.agents.reporting import _ist_clock, conversation_context
-from orca.contracts import AgentResult, Confidence, SourceProvenance, coerce_reasoning_depth
+from orca.contracts import (
+    AgentResult,
+    Confidence,
+    SourceProvenance,
+    coerce_reasoning_depth,
+)
 
 if TYPE_CHECKING:
     from orca.state import ORCAState
@@ -61,11 +67,11 @@ MAX_ITERATIONS_STANDARD = 1
 
 # Architecture §3.2 five-part rubric, verbatim.
 _RUBRIC = (
-    "factual_consistency",   # does the prose contradict a measured value it cites?
-    "temporal_coherence",    # does it mix forecast and observed tenses, or wrong time windows?
-    "causal_claim_strength", # does it say "caused" where the data only supports "correlated"?
-    "citation_completeness", # does every non-trivial claim carry a source?
-    "spatial_accuracy",      # does a stated distance/bearing/boundary match the geospatial data?
+    "factual_consistency",  # does the prose contradict a measured value it cites?
+    "temporal_coherence",  # does it mix forecast and observed tenses, or wrong time windows?
+    "causal_claim_strength",  # does it say "caused" where the data only supports "correlated"?
+    "citation_completeness",  # does every non-trivial claim carry a source?
+    "spatial_accuracy",  # does a stated distance/bearing/boundary match the geospatial data?
 )
 
 
@@ -101,13 +107,19 @@ REINVOCABLE_AGENTS: frozenset[str] = frozenset(
 )
 
 
-def reinvocation_target(issues: list[dict[str, Any]] | list[CritiqueIssue]) -> str | None:
+def reinvocation_target(
+    issues: list[dict[str, Any]] | list[CritiqueIssue],
+) -> str | None:
     """Which agent, if any, this critique sends the query back to. The first
     issue naming a re-invocable specialist wins — deterministic, ordered, and
     never a free-text guess: the agent comes from `_REINVOKE_MAP`, which is
     keyed on the rubric item the judge picked from a fixed list of five."""
     for issue in issues:
-        target = issue.get("reinvoke_agent") if isinstance(issue, dict) else issue.reinvoke_agent
+        target = (
+            issue.get("reinvoke_agent")
+            if isinstance(issue, dict)
+            else issue.reinvoke_agent
+        )
         if target in REINVOCABLE_AGENTS:
             return target
     return None
@@ -161,19 +173,32 @@ def _normalize_rubric_item(name: Any) -> str | None:
 
 
 def _resolve_reinvoke_agent(
-    rubric_item: str, description: str = "", explicit_agent: str | None = None,
+    rubric_item: str,
+    description: str = "",
+    explicit_agent: str | None = None,
 ) -> str:
     """Determine the specialist to re-invoke deterministically.
     Defaults to _REINVOKE_MAP[rubric_item], but refines temporal and factual issues
     based on domain semantics in the critique description."""
-    if explicit_agent and (explicit_agent in REINVOCABLE_AGENTS or explicit_agent == "reporting"):
+    if explicit_agent and (
+        explicit_agent in REINVOCABLE_AGENTS or explicit_agent == "reporting"
+    ):
         return explicit_agent
 
     desc_lower = description.lower()
 
     if rubric_item == "temporal_coherence":
         # Ocean domains (tides, PFZ validity dates, seasonal bans) route to ocean_analytics
-        ocean_keywords = ("tide", "tidal", "pfz", "chlorophyll", "sst", "fishing ban", "ban window", "seasonal ban")
+        ocean_keywords = (
+            "tide",
+            "tidal",
+            "pfz",
+            "chlorophyll",
+            "sst",
+            "fishing ban",
+            "ban window",
+            "seasonal ban",
+        )
         if any(kw in desc_lower for kw in ocean_keywords):
             return "ocean_analytics"
         return _REINVOKE_MAP.get("temporal_coherence", "weather_intelligence")
@@ -181,13 +206,43 @@ def _resolve_reinvoke_agent(
     if rubric_item == "factual_consistency":
         # If the factual contradiction specifically names a specialist's telemetry domain,
         # route to that specialist so fresh measurements can be re-acquired:
-        ocean_keywords = ("tide", "pfz", "chlorophyll", "sst", "species", "fish", "fishing ban", "water temperature")
+        ocean_keywords = (
+            "tide",
+            "pfz",
+            "chlorophyll",
+            "sst",
+            "species",
+            "fish",
+            "fishing ban",
+            "water temperature",
+        )
         if any(kw in desc_lower for kw in ocean_keywords):
             return "ocean_analytics"
-        weather_keywords = ("wave", "swell", "wind", "weather", "cyclone", "nowcast", "lightning", "incois", "rain", "gust")
+        weather_keywords = (
+            "wave",
+            "swell",
+            "wind",
+            "weather",
+            "cyclone",
+            "nowcast",
+            "lightning",
+            "incois",
+            "rain",
+            "gust",
+        )
         if any(kw in desc_lower for kw in weather_keywords):
             return "weather_intelligence"
-        geo_keywords = ("distance", "bearing", "boundary", "imbl", "depth", "bathymetry", "mpa", "zone", "coordinates")
+        geo_keywords = (
+            "distance",
+            "bearing",
+            "boundary",
+            "imbl",
+            "depth",
+            "bathymetry",
+            "mpa",
+            "zone",
+            "coordinates",
+        )
         if any(kw in desc_lower for kw in geo_keywords):
             return "geospatial"
         return _REINVOKE_MAP.get("factual_consistency", "reporting")
@@ -225,15 +280,19 @@ def _parse_judge_response(raw: str) -> list[CritiqueIssue]:
             description=str(item.get("description", "")),
             explicit_agent=explicit if isinstance(explicit, str) else None,
         )
-        issues.append(CritiqueIssue(
-            rubric_item=rubric_item,
-            description=str(item.get("description", "")),
-            reinvoke_agent=target_agent,
-        ))
+        issues.append(
+            CritiqueIssue(
+                rubric_item=rubric_item,
+                description=str(item.get("description", "")),
+                reinvoke_agent=target_agent,
+            )
+        )
     return issues
 
 
-def _judge_prompt(query: str, narrative: str, facts_block: str, context: str = "") -> str:
+def _judge_prompt(
+    query: str, narrative: str, facts_block: str, context: str = ""
+) -> str:
     rubric_lines = "\n".join(f"- {item}" for item in _RUBRIC)
     # The narrator saw the conversation and the device position, so the judge
     # must too — or a correct "unlike your earlier question about Kochi" or
@@ -241,7 +300,8 @@ def _judge_prompt(query: str, narrative: str, facts_block: str, context: str = "
     context_block = (
         f"\nCONTEXT THE NARRATIVE WAS WRITTEN WITH (a valid source for references to the conversation "
         f"or the caller's position — NOT for sea readings):\n{context}\n"
-        if context else ""
+        if context
+        else ""
     )
     return f"""You are the ORCA Critic (Agent 10), judging a marine-advisory narrative against measured facts. \
 Judge ONLY the explanatory prose that follows the verdict line — you never question or alter the verdict itself.
@@ -261,21 +321,28 @@ How to judge — this matters more than the rubric wording:
 - Flag only what the narrative ASSERTS. A rubric item is violated when a claim the narrative actually makes contradicts the measured facts, mixes up time frames, overstates causation, or states something non-trivial with no source.
 - The ABSENCE of a fact is never a defect. The narrative answers the USER QUERY, not the fact list: a fishing-zone answer does not have to mention the maritime boundary, and a safety answer does not have to recite every reading. Never write "fails to mention", "does not include" or "omits" a measured value.
 - Only the facts relevant to the USER QUERY can be contradicted by it.
+- For spatial_accuracy: Only flag SIGNIFICANT discrepancies (>10% difference in distance/bearing). Minor rounding differences (<1 km for distances >10km, <5° for bearings) are acceptable and should NOT be flagged. Approximate language ("about", "roughly", "approximately") implies the narrative knows the value is rounded.
+- Be conservative with spatial_accuracy critiques. Only flag when the narrative states a specific number that is clearly wrong, not when it uses reasonable approximations or rounds numbers for readability.
 
 Respond with STRICT JSON only, no prose: a list of objects
 {{"rubric_item": "<one of the five above>", "description": "<one sentence, what is wrong>"}}.
 Return [] if the narrative passes on all five."""
 
 
-def _revise_prompt(narrative: str, issues: list[CritiqueIssue], verdict_header: str, facts_block: str = "") -> str:
+def _revise_prompt(
+    narrative: str,
+    issues: list[CritiqueIssue],
+    verdict_header: str,
+    facts_block: str = "",
+) -> str:
     issue_lines = "\n".join(f"- [{i.rubric_item}] {i.description}" for i in issues)
     # Two different instructions, not one with a blank in it: an answer with no verdict header
     # (any answer to a question that was not about safety) used to be told it "MUST still begin
     # with the exact verdict header """ — and the model invented one ("VERDICT: REVISED").
     header_rule = (
         f'The response MUST still begin with the exact verdict header "{verdict_header}" — copy it unchanged.'
-        if verdict_header else
-        "ORIGINAL has no verdict header and the revision must not get one: no heading, title, bold label "
+        if verdict_header
+        else "ORIGINAL has no verdict header and the revision must not get one: no heading, title, bold label "
         "or verdict line. Start directly with the first sentence of the prose."
     )
     return f"""Revise ONLY the explanatory prose below to fix these issues. {header_rule}
@@ -319,7 +386,8 @@ def _opens_with_heading(text: str) -> bool:
 
 def _extract_figures(text: str) -> set[float]:
     """Extract numerical figures from text, filtering out markdown list numbering (e.g. '1. ', '2. ')
-    so structural enumeration indices are not confused with physical telemetry readings."""
+    so structural enumeration indices are not confused with physical telemetry readings.
+    """
     cleaned = re.sub(r"(?:^|\n|\s+)(?:\d+\.|\(\d+\))\s+", " ", text)
     return {float(n) for n in _FIGURE.findall(cleaned)}
 
@@ -332,7 +400,12 @@ def _is_figure_known_or_derived(fig: float, known: set[float]) -> bool:
         return True
     for k in known:
         # Rounding or integer truncation (e.g. 0.66 -> 0.7, 16.27 -> 16.3, 9.1 -> 9)
-        if round(k, 1) == fig or round(k, 2) == fig or round(k, 0) == fig or int(k) == fig:
+        if (
+            round(k, 1) == fig
+            or round(k, 2) == fig
+            or round(k, 0) == fig
+            or int(k) == fig
+        ):
             return True
         # 12-hour AM/PM vs 24-hour clock conversion (e.g. 15:00 -> 3:00, 14:30 -> 2:30, 00:00 -> 12:00)
         if 13 <= k <= 23 and (k - 12) == fig:
@@ -360,7 +433,9 @@ def _is_figure_known_or_derived(fig: float, known: set[float]) -> bool:
     return False
 
 
-def _revision_is_safe(current: str, revised: str, verdict_header: str | None, facts_block: str) -> bool:
+def _revision_is_safe(
+    current: str, revised: str, verdict_header: str | None, facts_block: str
+) -> bool:
     """Whether a revision may replace the text. The Critic fixes prose; it may not
     invent a header, and it may not introduce a figure that is in neither the text
     it was given nor the measured facts. A refused revision keeps the previous text."""
@@ -376,7 +451,11 @@ def _revision_is_safe(current: str, revised: str, verdict_header: str | None, fa
 
 
 def run_critic_pass(
-    query: str, narrative: str, facts_block: str, *, is_safety_check: bool,
+    query: str,
+    narrative: str,
+    facts_block: str,
+    *,
+    is_safety_check: bool,
     engine_out: list[str] | None = None,
     max_iterations: int = MAX_ITERATIONS,
     context: str = "",
@@ -416,7 +495,14 @@ def run_critic_pass(
         # constraint and omits it for the same reason. A provider-specific
         # token budget belongs in the tier's own config, not a per-call kwarg
         # here.
-        raw = client.complete([{"role": "user", "content": _judge_prompt(query, current, facts_block, context)}])
+        raw = client.complete(
+            [
+                {
+                    "role": "user",
+                    "content": _judge_prompt(query, current, facts_block, context),
+                }
+            ]
+        )
         _note_engine(client, engine_out)
         issues = _parse_judge_response(raw)
         if not issues:
@@ -431,7 +517,14 @@ def run_critic_pass(
             return current, False, iteration, issues_found
 
         revised = client.complete(
-            [{"role": "user", "content": _revise_prompt(current, issues, verdict_header or "", facts_block)}]
+            [
+                {
+                    "role": "user",
+                    "content": _revise_prompt(
+                        current, issues, verdict_header or "", facts_block
+                    ),
+                }
+            ]
         ).strip()
         _note_engine(client, engine_out)
 
@@ -476,13 +569,14 @@ def _colour_facts(block: dict[str, Any] | None) -> str | None:
     if block.get("level"):
         text += f", level {block['level']}"
     if block.get("cross_checks"):
-        text += "; cross-checks (a normal offset, not a contradiction): " + "; ".join(one(r) for r in block["cross_checks"])
+        text += "; cross-checks (a normal offset, not a contradiction): " + "; ".join(
+            one(r) for r in block["cross_checks"]
+        )
     if block.get("near_shore_indicative"):
         text += "; near the coast the satellite chlorophyll is only indicative"
     if block.get("unusual_gap"):
         text += f"; UNUSUAL GAP: {block['unusual_gap']}"
     return text
-
 
 
 def _fmt_incois_hazards(hazard: Any) -> str | None:
@@ -495,7 +589,11 @@ def _fmt_incois_hazards(hazard: Any) -> str | None:
     for w in warnings[:5]:
         if not isinstance(w, dict):
             continue
-        htype = (w.get("hazard_type") or w.get("disaster_type") or "marine hazard").replace("_", " ").title()
+        htype = (
+            (w.get("hazard_type") or w.get("disaster_type") or "marine hazard")
+            .replace("_", " ")
+            .title()
+        )
         dist = w.get("district") or ""
         msg = w.get("message") or w.get("headline") or ""
         entry = f"{dist} ({htype})" if dist else htype
@@ -553,7 +651,11 @@ def _fmt_cyclone_tracks(tracks: Any) -> str | None:
         if dist is not None:
             details.append(f"{dist:.0f} km away")
         if wind is not None:
-            w_str = f"{wind:.0f}" if isinstance(wind, (int, float)) and wind == int(wind) else str(wind)
+            w_str = (
+                f"{wind:.0f}"
+                if isinstance(wind, (int, float)) and wind == int(wind)
+                else str(wind)
+            )
             details.append(f"winds {w_str} km/h")
         if intensity:
             details.append(f"intensity {intensity}")
@@ -566,7 +668,11 @@ def _fmt_cyclone_tracks(tracks: Any) -> str | None:
 def _fmt_mpa_regulatory(reg: Any) -> str | None:
     if not reg or not isinstance(reg, list):
         return None
-    items = [f"{entry['name']} ({entry.get('designation', 'regulatory')})" for entry in reg if isinstance(entry, dict) and entry.get("name")]
+    items = [
+        f"{entry['name']} ({entry.get('designation', 'regulatory')})"
+        for entry in reg
+        if isinstance(entry, dict) and entry.get("name")
+    ]
     return ", ".join(items) if items else None
 
 
@@ -575,7 +681,9 @@ def _fmt_nearby_zones(zones: Any) -> str | None:
         return None
     items = []
     for z in zones[:5]:
-        if not isinstance(z, dict) or "Indian Exclusive Economic Zone" in (z.get("name") or ""):
+        if not isinstance(z, dict) or "Indian Exclusive Economic Zone" in (
+            z.get("name") or ""
+        ):
             continue
         name = z.get("name") or ""
         desig = z.get("designation") or ""
@@ -587,13 +695,21 @@ def _fmt_nearby_zones(zones: Any) -> str | None:
     return "; ".join(items) if items else None
 
 
-def _fmt_fishing_ban(ban: dict[str, Any] | None, ban_note: str | None = None) -> str | None:
+def _fmt_fishing_ban(
+    ban: dict[str, Any] | None, ban_note: str | None = None
+) -> str | None:
     ban = ban or {}
     if ban.get("available") and ban.get("in_ban_period"):
         coast = ban.get("coast") or ""
         win = ban.get("window") or ""
         msg = ban.get("message") or ""
-        parts = [f"annual uniform fishing ban in force on {coast} coast" if coast else "annual uniform fishing ban in force"]
+        parts = [
+            (
+                f"annual uniform fishing ban in force on {coast} coast"
+                if coast
+                else "annual uniform fishing ban in force"
+            )
+        ]
         if win:
             parts.append(f"window {win}")
         if ban.get("exemptions"):
@@ -706,15 +822,21 @@ def build_facts_block(state: ORCAState) -> str:
         "inside_marine_protected_area": geo.get("mpa_violation"),
         "inside_mpa_names": geo.get("mpa_names", []),
         "inside_regulatory_mpa": _fmt_mpa_regulatory(geo.get("mpa_regulatory")),
-        "nearby_avoidance_zones_within_50nm": _fmt_nearby_zones(geo.get("nearby_zones")),
+        "nearby_avoidance_zones_within_50nm": _fmt_nearby_zones(
+            geo.get("nearby_zones")
+        ),
         "shallow_water_hazard": geo.get("shallow_hazard"),
         "bathymetric_depth_m": geo.get("depth_m"),
         # A fishing zone's distance, NOT the boundary's: named so they cannot be confused.
         "nearest_fishing_zone_distance_km": pfz.get("distance_km") if found else None,
-        "nearest_fishing_zone_distance_measured_from": pfz.get("measured_from") if found else None,
+        "nearest_fishing_zone_distance_measured_from": (
+            pfz.get("measured_from") if found else None
+        ),
         # INCOIS's own landmark wording — a separate origin; a narrative that
         # pairs the distance above with this landmark's name is wrong.
-        "nearest_fishing_zone_incois_reference": pfz.get("incois_reference") if found else None,
+        "nearest_fishing_zone_incois_reference": (
+            pfz.get("incois_reference") if found else None
+        ),
         "nearest_fishing_zone_direction": pfz.get("compass") if found else None,
         "nearest_fishing_zone_depth_m": pfz.get("depth_m") if found else None,
         # Stale-data policy: the zone's own date and age, so a narrative that
@@ -725,14 +847,23 @@ def build_facts_block(state: ORCAState) -> str:
         "nearest_fishing_zone_advisory_expired": pfz.get("expired") if found else None,
         # A zone past this reach is still the nearest held; a narrative that
         # presents it as close by is contradicted.
-        "nearest_fishing_zone_beyond_reach_km": pfz.get("max_km") if found and pfz.get("beyond_reach") else None,
+        "nearest_fishing_zone_beyond_reach_km": (
+            pfz.get("max_km") if found and pfz.get("beyond_reach") else None
+        ),
         "nearest_fishing_zone_boundary_note": pfz.get("boundary_note"),
-        "seasonal_fishing_ban": _fmt_fishing_ban(pfz.get("fishing_ban") or ocean.get("fishing_ban"), pfz.get("ban_note")),
-        "top_target_fish_species": _fmt_top_species(pfz.get("top_species") or ocean.get("top_species")),
+        "seasonal_fishing_ban": _fmt_fishing_ban(
+            pfz.get("fishing_ban") or ocean.get("fishing_ban"), pfz.get("ban_note")
+        ),
+        "top_target_fish_species": _fmt_top_species(
+            pfz.get("top_species") or ocean.get("top_species")
+        ),
         # Why the user's own sector has no advisory today (INCOIS's words), so
         # "no data due to cloud cover" is confirmable and "no zones here" is not.
-        "todays_sector_advisory_gap": (ocean.get("sector_status") or {}).get("message")
-        if (ocean.get("sector_status") or {}).get("is_data_gap") else None,
+        "todays_sector_advisory_gap": (
+            (ocean.get("sector_status") or {}).get("message")
+            if (ocean.get("sector_status") or {}).get("is_data_gap")
+            else None
+        ),
         "sector_fallback_disclosure": ocean.get("sector_disclosure"),
         "tidal_state": tide.get("tidal_state"),
         "tide_station_name": tide.get("station_name"),
@@ -740,15 +871,28 @@ def build_facts_block(state: ORCAState) -> str:
         "next_high_tide_in_hours": next_high.get("in_hours"),
         "next_high_tide_time": _fmt_tide_high_time(next_high.get("when")),
         "productivity_diagnosis": ocean.get("productivity_diagnosis"),
-        "sst_chlorophyll_correlation": _fmt_correlation(ocean.get("sst_chlorophyll_correlation")),
+        "sst_chlorophyll_correlation": _fmt_correlation(
+            ocean.get("sst_chlorophyll_correlation")
+        ),
         "wind_anomaly_against_era5": _fmt_wind_anomaly(ocean.get("wind_anomaly")),
-        "historical_climate_comparison": _fmt_historical_comparison(ocean.get("historical_comparison")),
+        "historical_climate_comparison": _fmt_historical_comparison(
+            ocean.get("historical_comparison")
+        ),
         # NOTE-CHL-1: the SST / chlorophyll the narrative may quote. Without these the critic could not confirm a reading
         # it was asked to judge, and deleted the answer to "what is the SST and chlorophyll at X".
-        "sea_surface_temperature_readings": _colour_facts((ocean.get("sea_colour_readings_at_the_place") or {}).get("sea_surface_temperature")),
-        "chlorophyll_a_readings": _colour_facts((ocean.get("sea_colour_readings_at_the_place") or {}).get("chlorophyll_a")),
+        "sea_surface_temperature_readings": _colour_facts(
+            (ocean.get("sea_colour_readings_at_the_place") or {}).get(
+                "sea_surface_temperature"
+            )
+        ),
+        "chlorophyll_a_readings": _colour_facts(
+            (ocean.get("sea_colour_readings_at_the_place") or {}).get("chlorophyll_a")
+        ),
     }
-    return "\n".join(f"- {k}: {v}" for k, v in facts.items() if v is not None) or "No measured facts available."
+    return (
+        "\n".join(f"- {k}: {v}" for k, v in facts.items() if v is not None)
+        or "No measured facts available."
+    )
 
 
 def run(state: ORCAState) -> AgentResult:
@@ -772,17 +916,30 @@ def run(state: ORCAState) -> AgentResult:
     try:
         facts_block = build_facts_block(state)
         revised, critic_pass, iterations, issues = run_critic_pass(
-            query, narrative, facts_block, is_safety_check=is_safety,
+            query,
+            narrative,
+            facts_block,
+            is_safety_check=is_safety,
             engine_out=engine_out,
-            max_iterations=MAX_ITERATIONS if depth == "DEEP" else MAX_ITERATIONS_STANDARD,
-            context=conversation_context(state.get("session_history"), state.get("user_location")),
+            max_iterations=(
+                MAX_ITERATIONS if depth == "DEEP" else MAX_ITERATIONS_STANDARD
+            ),
+            context=conversation_context(
+                state.get("session_history"), state.get("user_location")
+            ),
             can_reinvoke=can_reinvoke,
         )
         status: Literal["ok", "degraded"] = "ok"
         confidence = Confidence(
             score="HIGH" if critic_pass else "MEDIUM",
-            rationale="passed all 5 rubric items" if (critic_pass and not issues) else (
-                "prose revised and verified safe" if critic_pass else f"{len(issues)} issue(s) on final pass"
+            rationale=(
+                "passed all 5 rubric items"
+                if (critic_pass and not issues)
+                else (
+                    "prose revised and verified safe"
+                    if critic_pass
+                    else f"{len(issues)} issue(s) on final pass"
+                )
             ),
         )
         error_detail = None
@@ -792,9 +949,13 @@ def run(state: ORCAState) -> AgentResult:
         # land here as LLMUnavailable, and both are ordinary degraded runs, not
         # errors — which is exactly what the demo toggle has to demonstrate.
         revised, critic_pass, iterations, issues = narrative, False, 0, []
-        status, confidence = "degraded", Confidence(score="LOW_DATA", rationale=f"Critic unavailable: {exc}")
+        status, confidence = "degraded", Confidence(
+            score="LOW_DATA", rationale=f"Critic unavailable: {exc}"
+        )
         error_detail = str(exc)
-        engine_out = [engines.deterministic(getattr(exc, "reason", "critic unavailable"))]
+        engine_out = [
+            engines.deterministic(getattr(exc, "reason", "critic unavailable"))
+        ]
 
     # Assert-by-construction: whatever happened above, the verdict header
     # text must be byte-identical to what Reporting emitted. If a bug ever
@@ -804,13 +965,21 @@ def run(state: ORCAState) -> AgentResult:
         revised = narrative
 
     issue_dicts = [
-        {"rubric_item": i.rubric_item, "description": i.description, "reinvoke_agent": i.reinvoke_agent}
+        {
+            "rubric_item": i.rubric_item,
+            "description": i.description,
+            "reinvoke_agent": i.reinvoke_agent,
+        }
         for i in issues
     ]
     # D3: Only ask for a re-invocation the graph is still allowed to grant, AND
     # only when the critique did not pass. If critic_pass is True (clean initially
     # or safely revised prose), reinvoke_agent is None so graph routes to egress.
-    reinvoke_agent = reinvocation_target(issue_dicts) if (not critic_pass and spent < MAX_REINVOCATIONS) else None
+    reinvoke_agent = (
+        reinvocation_target(issue_dicts)
+        if (not critic_pass and spent < MAX_REINVOCATIONS)
+        else None
+    )
 
     return AgentResult(
         agent_name="critic",
@@ -829,11 +998,15 @@ def run(state: ORCAState) -> AgentResult:
             "reinvoke_agent": reinvoke_agent,
             # The sentence(s) that agent is re-invoked *with*. A re-invocation
             # that does not carry the critique is just a re-run.
-            "critique": "; ".join(f"[{i['rubric_item']}] {i['description']}" for i in issue_dicts) or None,
+            "critique": "; ".join(
+                f"[{i['rubric_item']}] {i['description']}" for i in issue_dicts
+            )
+            or None,
         },
         source_provenance=SourceProvenance(
             dataset="ORCA Critic (Agent 10) — LLM-as-judge, reasoning tier",
-            acquisition_timestamp=now, freshness_minutes=0,
+            acquisition_timestamp=now,
+            freshness_minutes=0,
         ),
         confidence=confidence,
         status=status,
@@ -851,10 +1024,17 @@ if __name__ == "__main__":
     assert _verdict_header("NO_GO: lightning active") == "NO_GO:"
     assert _verdict_header("no header here") is None
     assert set(_REINVOKE_MAP) == set(_RUBRIC)
-    issues = _parse_judge_response(json.dumps([
-        {"rubric_item": "causal_claim_strength", "description": "overclaims causation"},
-        {"rubric_item": "not_a_real_item", "description": "ignored"},
-    ]))
+    issues = _parse_judge_response(
+        json.dumps(
+            [
+                {
+                    "rubric_item": "causal_claim_strength",
+                    "description": "overclaims causation",
+                },
+                {"rubric_item": "not_a_real_item", "description": "ignored"},
+            ]
+        )
+    )
     assert len(issues) == 1 and issues[0].reinvoke_agent == "ocean_analytics"
     assert _parse_judge_response("not json") == []
     # Test fenced codeblock & normalized rubric matching (D2)
@@ -864,12 +1044,38 @@ if __name__ == "__main__":
     assert parsed_fenced[0].rubric_item == "spatial_accuracy"
     assert parsed_fenced[0].reinvoke_agent == "geospatial"
     # Test semantic re-invocation resolution (D4)
-    tide_issue = _parse_judge_response(json.dumps([{"rubric_item": "temporal_coherence", "description": "tide prediction is expired"}]))
+    tide_issue = _parse_judge_response(
+        json.dumps(
+            [
+                {
+                    "rubric_item": "temporal_coherence",
+                    "description": "tide prediction is expired",
+                }
+            ]
+        )
+    )
     assert len(tide_issue) == 1 and tide_issue[0].reinvoke_agent == "ocean_analytics"
-    wave_issue = _parse_judge_response(json.dumps([{"rubric_item": "factual_consistency", "description": "wave height contradicts measured 0.8m"}]))
-    assert len(wave_issue) == 1 and wave_issue[0].reinvoke_agent == "weather_intelligence"
+    wave_issue = _parse_judge_response(
+        json.dumps(
+            [
+                {
+                    "rubric_item": "factual_consistency",
+                    "description": "wave height contradicts measured 0.8m",
+                }
+            ]
+        )
+    )
+    assert (
+        len(wave_issue) == 1 and wave_issue[0].reinvoke_agent == "weather_intelligence"
+    )
     # Test figure derivation tolerance: clock, metric scale, rounding (D5)
-    assert _revision_is_safe("At 15:00 IST waves are 0.5m.", "At 3:00 PM IST waves are 50 cm.", None, "facts")
-    assert _revision_is_safe("Wave height is 0.66 m.", "Wave height is 0.7 m.", None, "facts")
-    assert not _revision_is_safe("Wave height is 0.5m.", "Wave height is 4.5m.", None, "facts")
+    assert _revision_is_safe(
+        "At 15:00 IST waves are 0.5m.", "At 3:00 PM IST waves are 50 cm.", None, "facts"
+    )
+    assert _revision_is_safe(
+        "Wave height is 0.66 m.", "Wave height is 0.7 m.", None, "facts"
+    )
+    assert not _revision_is_safe(
+        "Wave height is 0.5m.", "Wave height is 4.5m.", None, "facts"
+    )
     print("critic self-check ok")
