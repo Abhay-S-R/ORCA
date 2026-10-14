@@ -644,17 +644,17 @@ export function MapView({
     ...initialLayers,
   });
 
-  // Dynamic maxZoom management:
-  // When ocean currents / tides are active, maintain a maxZoom of 6.5 so streamlines
-  // never speed up unnaturally or look clumsy. Otherwise allow unrestricted deep zoom (22).
+  // Keep the chart zoomable past the PFZ cluster threshold even with currents
+  // enabled. Clusters dissolve above zoom 9; the previous 6.5 cap made every
+  // cluster permanently unexpandable whenever the currents layer was on.
+  // A modestly higher cap preserves the flow-field view while allowing users
+  // to inspect and click individual advisories. Without currents, retain the
+  // normal deep-zoom limit.
   useEffect(() => {
     if (!ready || !map.current) return;
     const isCurrentsActive = layers.currents || queryFocus?.intent === "current" || queryFocus?.intent === "conditions";
     if (isCurrentsActive) {
-      map.current.setMaxZoom(6.5);
-      if (map.current.getZoom() > 6.5) {
-        map.current.easeTo({ zoom: 6.2, duration: 600 });
-      }
+      map.current.setMaxZoom(12);
     } else {
       map.current.setMaxZoom(maxZoomRef.current ?? 22);
     }

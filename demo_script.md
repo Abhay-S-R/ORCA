@@ -1,6 +1,6 @@
 # ORCA — 5-Minute Demo Video Script
 
-**Total runtime: 5:00 min**
+**Total runtime: 5:24 min**
 Format: `[ACTION on screen]` → what to show | **"narration text"**
 
 ---
@@ -108,7 +108,7 @@ Format: `[ACTION on screen]` → what to show | **"narration text"**
 
 ---
 
-## SEGMENT 3 — Commercial Navigator + Researcher (2:40 – 3:55)
+## SEGMENT 3 — Commercial Navigator + Researcher (2:40 – 4:19)
 
 ### 2:40 – 2:48 | Switch to Commercial Navigator (8s)
 
@@ -135,43 +135,47 @@ Format: `[ACTION on screen]` → what to show | **"narration text"**
 
 **"In Researcher mode, answers include full statistical ranges and CSV export. Let's query seasonal ocean productivity."**
 
-### 3:34 – 3:55 | Researcher Query & Reasoning Trace (21s)
+### 3:34 – 4:19 | Researcher Query & Reasoning Trace (45s)
 
-`[SCREEN: /ask — type chlorophyll/SST query → answer with statistical breakdown]`
-`[Flash to /reasoning — show trace table: agent, dataset, confidence, latency]`
+`[SCREEN: /ask — submit the prepared seasonal productivity question; briefly show SST and chlorophyll statistics]`
+`[Open /reasoning for this query. Follow Planning → Marine Data Discovery → Geospatial, Weather Intelligence, Ocean Analytics → Risk Assessment → Visualization → Reporting → Critic. Click Risk Assessment, then Ocean Analytics; show Reasoning, Sources, Payload, and Telemetry tabs.]`
 
-**"The response breaks down Sea Surface Temperature and chlorophyll. On the Reasoning page, auditors can inspect each agent's underlying dataset, latency, and confidence score with complete transparency."**
+**"The Researcher answer gives us the measured sea-surface temperature and chlorophyll findings, with their statistical context. Now I’ll open the reasoning trace behind that answer. Planning shows how the question was routed, and Marine Data Discovery records which sources were selected. The specialist agents then do distinct jobs: Geospatial checks the location, Weather Intelligence and Ocean Analytics process their respective conditions, and Risk Assessment applies the safety rules to the validated inputs."**
+
+**"The confidence score is calculated deterministically from measured factors: execution status, data age, fallback depth, and coverage. The score is capped by the agent's rule-based confidence label. If a factor wasn't measured, it is marked as not measured and left out; it isn't silently treated as perfect. This score explains evidence quality—it does not replace or alter the safety verdict."**
+
+**"For each agent, I can inspect its reasoning summary and confidence breakdown, source provenance and freshness, the exact inputs it consumed and outputs it produced, plus its latency and execution status. Visualization shows the map or chart payload, while Reporting and Critic show how the answer was assembled and checked. That makes the path from source data to final answer inspectable."**
 
 ---
 
-## SEGMENT 4 — Coastal Authority Demo (3:55 – 5:00)
+## SEGMENT 4 — Coastal Authority Demo (4:19 – 5:24)
 
-### 3:55 – 4:05 | District Operations (/ops) (10s)
+### 4:19 – 4:29 | District Operations (/ops) (10s)
 
 `[SCREEN: PersonaSelector — click "Coastal Authority"; loads /ops]`
 `[Show District Operations console with 24h severity rollups & threat counters]`
 
 **"Coastal Authority opens District Operations. The console aggregates district-wide risk levels and active emergency signals in real time without exposing private vessel coordinates."**
 
-### 4:05 – 4:17 | Distress Queue (12s)
+### 4:29 – 4:41 | Distress Queue (12s)
 
 `[SCREEN: Scroll to Distress Queue panel on /ops — show active SOS incident row]`
 
 **"The Distress Queue logs active SOS signals across the district, allowing operators to coordinate rescue handoffs instantly."**
 
-### 4:17 – 4:33 | CAP 1.2 Builder & Multi-Channel Broadcast (16s)
+### 4:41 – 4:57 | CAP 1.2 Builder & Multi-Channel Broadcast (16s)
 
 `[SCREEN: Generate CAP 1.2 XML alert → Scroll to Broadcast Composer → click Publish]`
 
 **"One click generates a standard CAP 1.2 XML alert for NDMA and IMD. The authority can then publish multi-channel broadcasts across SMS, IVR voice calls, in-app push, and VHF Channel 16 scripts simultaneously."**
 
-### 4:33 – 4:48 | Alert Received in Fisherman View (15s)
+### 4:57 – 5:12 | Alert Received in Fisherman View (15s)
 
 `[SCREEN: Switch to fisherman tab /alerts — new alert arrives live]`
 
 **"The fisherman immediately receives the alert in-app with multi-channel details. Autonomous Sentinel monitoring and authority broadcasts unite to protect the boat."**
 
-### 4:48 – 5:00 | Closing Shot (12s)
+### 5:12 – 5:24 | Closing Shot (12s)
 
 `[SCREEN: Pull back to ORCA home / landing page with glowing GO verdict]`
 
@@ -199,12 +203,12 @@ Format: `[ACTION on screen]` → what to show | **"narration text"**
 | 2:48 | `/voyage` | Plan route (origin, destination, vessel, hazard clearance) |
 | 3:08 | `/demo` | Run Scenario 2 — IMBL Crossing stepper (12nm → 6nm → 3nm → 1nm NO-GO takeover) |
 | 3:22 | PersonaSelector | Switch → Researcher |
-| 3:34 | `/ask` & `/reasoning` | Type chlorophyll/SST question → show expanded audit trace with latency & datasets |
-| 3:55 | PersonaSelector | Switch → Coastal Authority → `/ops` |
-| 4:05 | `/ops` | Show Distress Queue panel |
-| 4:17 | `/ops` | Build CAP 1.2 XML alert → Broadcast Composer → Preview & Publish |
-| 4:33 | Second tab / `/alerts` | Show broadcast alert received live in fisherman's view |
-| 4:48 | `/ask` or landing | Closing GO verdict shot |
+| 3:34 | `/ask` & `/reasoning` | Ask seasonal productivity question; walk through deterministic confidence factors, provenance, payloads, and key agents |
+| 4:19 | PersonaSelector | Switch → Coastal Authority → `/ops` |
+| 4:29 | `/ops` | Show Distress Queue panel |
+| 4:41 | `/ops` | Build CAP 1.2 XML alert → Broadcast Composer → Preview & Publish |
+| 4:57 | Second tab / `/alerts` | Show broadcast alert received live in fisherman's view |
+| 5:12 | `/ask` or landing | Closing GO verdict shot |
 
 ---
 
