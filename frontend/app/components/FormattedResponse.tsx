@@ -231,6 +231,30 @@ function normalizeResponseText(raw: string): string {
   if (!raw) return "";
   let text = raw.replace(/\*\s+\*/g, "**");
 
+  // LLMs sometimes attach a word to a bold numeric token ("speed**0.12m/s**setting")
+  // or omit the space after a closing parenthesis. Repair those boundaries
+  // before tokenizing markdown so the styled spans cannot hide the separator.
+  text = text
+    .replace(/([\p{L}\p{N}])(?=\*\*(?=[+\-−]?\d))/gu, "$1 ")
+    .replace(/(\*\*[^*]+\*\*)(?=[\p{L}\p{N}])/gu, "$1 ")
+    .replace(/(\*\*[^*]+\*\*)(?=\*\*[^*]+\*\*)/g, "$1 ")
+    .replace(/([)])(?=[\p{L}\p{N}])/gu, "$1 ")
+    // Separate a metric label accidentally joined to a numeric measurement.
+    .replace(/\b(speed|depth|height|temperature|current|wave|wind)(?=[+\-−]?\d)/giu, "$1 ");
+
+  // Narrative text should use the same concise date style in every persona.
+  // Keep time/zone suffixes intact when formatting ISO calendar dates.
+  text = text
+    .replace(/\b(20\d{2})-(\d{2})-(\d{2})\b/g, "$3/$2/$1")
+    .replace(/\b(20\d{2})(\d{2})(\d{2})\b/g, "$3/$2/$1");
+
+  // Keep date/time ranges readable even when the model wraps each value in
+  // its own adjacent bold span: **14/10/2026****00:00to** ...
+  text = text
+    .replace(/(\d{2}\/\d{2}\/\d{4})(\*\*)(?=\*\*\d{2}:\d{2}\b)/g, "$1$2 ")
+    .replace(/(\d{2}\/\d{2}\/\d{4})(?=(?:\*\*)?\d{2}:\d{2}\b)/g, "$1 ")
+    .replace(/(\d{2}:\d{2})(?=to\b)/gi, "$1 ");
+
   // Split accidental combined headers like "Hazard Parameters: Alert Classification: ..."
   text = text.replace(
     /(?:^|\n)\s*(?:\*\*)?([\p{L}\p{M}\p{N}\s&/—–\-_()]+?\s+Parameters)(?:\*\*)?:\s*(?:\*\*)?([\p{L}\p{M}\p{N}\s&/—–\-_()]+?)(?:\*\*)?:\s*/giu,
