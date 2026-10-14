@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # The model check used to run on every ordinary marine question. These cues
 # are only a cheap gate for the model call; they never declare an emergency or
 # suppress a phrase-list match. Keep them focused on danger, injury, or vessel

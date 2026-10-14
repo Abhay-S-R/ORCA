@@ -449,7 +449,12 @@ export function AgentTraceUI({
     return spansToTraceGraph(debouncedSpans);
   }, [debouncedSpans]);
 
-  const sourceGraph = state.traceGraph ?? streamingTraceGraph;
+  // Prefer the latest SSE-derived graph while the expanded trace is streaming;
+  // after streaming ends, keep the complete API trace stored in state.
+  const sourceGraph =
+    (state.isExpanded && streaming ? streamingTraceGraph : null) ??
+    state.traceGraph ??
+    streamingTraceGraph;
   const activeGraph = useMemo(() => {
     if (!sourceGraph || !responseLanguage || responseLanguage === "en") {
       return sourceGraph;
@@ -587,21 +592,6 @@ export function AgentTraceUI({
   const handleCollapse = useCallback(() => {
     setState((prev) => ({ ...prev, isExpanded: false }));
   }, []);
-
-  /**
-   * Update trace graph when streaming and expanded
-   * Requirement 4.1: Implement incremental step updates as agent_span events arrive
-   * Requirement 4.3: Update collapsed view total time as new spans complete
-   * Requirement 15.2: Update incrementally when new agent spans arrive via SSE
-   */
-  useEffect(() => {
-    if (state.isExpanded && streamingTraceGraph) {
-      setState((prev) => ({
-        ...prev,
-        traceGraph: streamingTraceGraph,
-      }));
-    }
-  }, [state.isExpanded, streamingTraceGraph]);
 
   /**
    * When streaming concludes while trace is already expanded, refetch full graph from API
