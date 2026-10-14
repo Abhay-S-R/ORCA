@@ -21,6 +21,47 @@ from __future__ import annotations
 from typing import Any
 
 
+# The model check used to run on every ordinary marine question. These cues
+# are only a cheap gate for the model call; they never declare an emergency or
+# suppress a phrase-list match. Keep them focused on danger, injury, or vessel
+# failure so routine questions about fishing, weather, and navigation skip the
+# network round-trip.
+_LATIN_ESCALATION_CUES = (
+    "engine", "trouble", "broken", "failed", "failure", "stopped", "not starting",
+    "leak", "taking water", "water coming in", "overturned", "turned over",
+    "swept away", "stranded", "adrift", "overboard", "drowning", "injur",
+    "bleed", "unconscious", "not breathing", "heart attack", "fire on board",
+    "collision", "grounded", "missing crew", "lost at sea", "mayday", "sos",
+)
+
+_SCRIPT_CUES: dict[str, tuple[tuple[int, int], tuple[str, ...]]] = {
+    "kn": ((0x0C80, 0x0CFF), ("ಎಂಜಿನ್", "ಮುಳು", "ಸಹಾಯ", "ರಕ್ಷ", "ಅಪಾಯ", "ಗಾಯ", "ರಕ್ತ", "ಉಸಿರ", "ಬೆಂಕಿ", "ಸಿಲುಕ")),
+    "hi": ((0x0900, 0x097F), ("इंजन", "डूब", "मदद", "बचाओ", "फंस", "फँस", "घायल", "खून", "बेहोश", "सांस", "आग", "खराब")),
+    "mr": ((0x0900, 0x097F), ("इंजन", "बुड", "मदत", "अडक", "जखम", "रक्त", "बेशुद्ध", "श्वास", "आग", "बंद पड")),
+    "ta": ((0x0B80, 0x0BFF), ("இயந்திர", "மூழ்", "உதவி", "காப்பாற்ற", "ஆபத்து", "காய", "ரத்த", "மயக்க", "மூச்சு", "தீ", "சிக்க")),
+    "te": ((0x0C00, 0x0C7F), ("ఇంజిన్", "మునిగ", "సహాయం", "రక్ష", "ప్రమాద", "గాయం", "రక్త", "స్పృహ", "ఊపిరి", "మంట", "చిక్క")),
+    "ml": ((0x0D00, 0x0D7F), ("എഞ്ചിൻ", "മുങ്ങ", "സഹായ", "രക്ഷ", "അപകട", "പരിക്ക്", "രക്ത", "ബോധം", "ശ്വാസ", "തീ", "കുടുങ്ങ")),
+    "bn": ((0x0980, 0x09FF), ("ইঞ্জিন", "ডুব", "সাহায্য", "বাঁচ", "বিপদ", "আহত", "রক্ত", "অজ্ঞান", "শ্বাস", "আগুন", "আটক")),
+    "gu": ((0x0A80, 0x0AFF), ("એન્જિન", "ડૂબ", "મદદ", "બચાવ", "જોખમ", "ઇજા", "લોહી", "બેભાન", "શ્વાસ", "આગ", "ફસ")),
+    "or": ((0x0B00, 0x0B7F), ("ଇଞ୍ଜିନ", "ବୁଡ଼", "ସାହାଯ୍ୟ", "ବଞ୍ଚା", "ବିପଦ", "ଆହତ", "ରକ୍ତ", "ଅଚେତ", "ନିଶ୍ୱାସ", "ନିଆଁ", "ଫସ")),
+}
+
+
+def _may_describe_distress(text: str) -> bool:
+    folded = text.casefold()
+    if any(cue in folded for cue in _LATIN_ESCALATION_CUES):
+        return True
+    script_cues: list[str] = []
+    for (start, end), cues in _SCRIPT_CUES.values():
+        if any(start <= ord(char) <= end for char in text):
+            script_cues.extend(cues)
+    if script_cues:
+        return any(cue in text for cue in script_cues)
+    # Unknown scripts keep the conservative model path until we have reviewed
+    # a language-specific cue list rather than silently disabling coverage.
+    return any(ord(char) > 0x024F for char in text)
+
+
 def escalate_with_model(text: str, phrase_detection: dict[str, Any]) -> dict[str, Any]:
     """Prompt Routing Revamp §7.4 — Distress model check (escalate-only).
 
@@ -31,6 +72,12 @@ def escalate_with_model(text: str, phrase_detection: dict[str, Any]) -> dict[str
     """
     # If phrase list already detected distress, don't run model (escalate-only)
     if phrase_detection.get("is_distress"):
+        return phrase_detection
+
+    # Avoid paying for a remote classifier on routine requests. The candidate
+    # gate is intentionally one-way: it can skip this model call, but a cue
+    # alone never raises an alarm; the model still must return a clear YES.
+    if not _may_describe_distress(text):
         return phrase_detection
 
     # If no model available, return phrase list result

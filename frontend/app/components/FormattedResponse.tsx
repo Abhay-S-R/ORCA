@@ -208,6 +208,46 @@ function cleanItemContent(text: string): string {
   return cleaned.trim();
 }
 
+/** Decode text entities without injecting HTML into the DOM. Model output can
+ * occasionally contain escaped digits (for example `202&#x36;`) and React
+ * correctly displays those as literal characters unless we decode the text. */
+function decodeTextEntities(text: string): string {
+  const named: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    mdash: "—",
+    ndash: "–",
+    nbsp: " ",
+    quot: '"',
+    rsquo: "’",
+    lsquo: "‘",
+    rdquo: "”",
+    ldquo: "“",
+    deg: "°",
+  };
+  return text.replace(/&(#(?:x[\da-f]+|\d+)|[a-z]+);/gi, (entity, body: string) => {
+    if (body[0] !== "#") return named[body.toLowerCase()] ?? entity;
+    const hex = body[1]?.toLowerCase() === "x";
+    const value = Number.parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
+    if (!Number.isFinite(value) || value < 0 || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff)) {
+      return entity;
+    }
+    return String.fromCodePoint(value);
+  });
+}
+
+/** Enforce spaces at inline-markdown boundaries before React creates separate
+ * styled and plain-text nodes. This is deliberately shared by every persona. */
+function repairInlineBoundaries(text: string): string {
+  return text
+    .replace(/(\*\*[^*]+\*\*|`[^`]+`)(?=[\p{L}\p{M}\p{N}])/gu, "$1 ")
+    .replace(/([\p{L}\p{M}\p{N}])(?=(?:\*\*[^*]+\*\*|`[^`]+`))/gu, "$1 ")
+    .replace(/(\*\*[^*]+\*\*|`[^`]+`)(?=(?:\*\*|`))/g, "$1 ")
+    .replace(/,([^\s])/g, ", $1");
+}
+
 /**
  * Parses inline markdown tokens (**bold**, `code`, *italic*) safely into React nodes.
  * Bold text (**...**) is rendered with brown highlighting (`font-semibold text-accent`).
@@ -215,9 +255,10 @@ function cleanItemContent(text: string): string {
 function renderInlineMarkdown(str: string, defaultBoldColor: "brown" | "black" = "brown"): ReactNode[] {
   if (!str) return [];
   // 1. Triple or more asterisks -> double asterisks
-  let normalized = str.replace(/\*{3,}/g, "**");
+  let normalized = decodeTextEntities(str).replace(/\*{3,}/g, "**");
   // 2. Spaced asterisks from translation -> double asterisks
   normalized = normalized.replace(/\*\s+\*/g, "**");
+  normalized = repairInlineBoundaries(normalized);
 
   // Fix unmatched '**' (e.g. "** ஆம், ...")
   const boldMatches = normalized.match(/\*\*/g);
@@ -346,7 +387,7 @@ type BlockElement =
  */
 function normalizeResponseText(raw: string): string {
   if (!raw) return "";
-  let text = raw.replace(/\*\s+\*/g, "**");
+  let text = decodeTextEntities(raw).replace(/\*\s+\*/g, "**");
 
   // LLMs sometimes attach a word to a bold numeric token ("speed**0.12m/s**setting")
   // or omit the space after a closing parenthesis. Repair those boundaries
