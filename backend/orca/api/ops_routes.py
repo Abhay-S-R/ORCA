@@ -182,6 +182,22 @@ def broadcast_publish(
     query_id = uuid.uuid4()
     breakdown = {"fisherman": 0, "commercial_navigator": 0, "researcher": 0, "unresolved": 0, "other": 0}
 
+    # Build by_channel payload for each selected channel so the fisherman UI shows multi-channel dispatch
+    preview_data = four_channel_preview(
+        verdict=body.severity.upper(),
+        hazard=body.title,
+        location=target_location,
+    )
+    by_channel: dict[str, dict[str, Any]] = {}
+    for ch in body.channels:
+        if ch == "in_app":
+            ch_body = body.body
+        elif ch in preview_data:
+            ch_body = preview_data[ch].get("body", body.body)
+        else:
+            ch_body = body.body
+        by_channel[ch] = {"status": "sent", "body": ch_body}
+
     for r in recipients:
         persona = r.default_persona
         if persona in breakdown:
@@ -229,6 +245,7 @@ def broadcast_publish(
                 "authority_port": user.home_port_name or target_location,
                 "target_audience": body.target_audience,
                 "channels": body.channels,
+                "by_channel": by_channel,
                 "location": target_location,
                 "lat": target_lat,
                 "lon": target_lon,

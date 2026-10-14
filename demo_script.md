@@ -149,9 +149,9 @@ Format: `[ACTION on screen]` → what to show | **"narration text"**
 ### 3:55 – 4:05 | District Operations (/ops) (10s)
 
 `[SCREEN: PersonaSelector — click "Coastal Authority"; loads /ops]`
-`[Show Sector Threat Matrix with 14 INCOIS sectors & vessel counts]`
+`[Show District Operations console with 24h severity rollups & threat counters]`
 
-**"Coastal Authority opens District Operations. The Threat Matrix aggregates all 14 sectors, displaying active risk levels and fleet density without exposing private vessel coordinates."**
+**"Coastal Authority opens District Operations. The console aggregates district-wide risk levels and active emergency signals in real time without exposing private vessel coordinates."**
 
 ### 4:05 – 4:17 | Distress Queue (12s)
 
