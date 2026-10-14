@@ -421,6 +421,13 @@ def _unmask_protected_terms(text: str, tokens: list[str]) -> tuple[str, bool]:
 _RUNG_LABEL: dict[str, tuple[str, str]] = {
     "bhashini": ("Bhashini ASR/NMT pipeline", "Bhashini"),
     "indictrans2": ("IndicTrans2 (local, indictrans2-indic-en-dist-200M)", "IndicTrans2, local inference"),  # only if a backend is registered (tests)
+    "llm": ("LLM Translation Fallback", "LLM Translation"),
+}
+
+_LANGUAGE_NAMES: dict[Language, str] = {
+    "ta": "Tamil", "hi": "Hindi", "te": "Telugu", "ml": "Malayalam",
+    "kn": "Kannada", "bn": "Bengali", "mr": "Marathi", "gu": "Gujarati",
+    "or": "Odia", "en": "English",
 }
 
 
@@ -448,11 +455,45 @@ def _translate_single_unit(text: str, source: Language, target: Language) -> tup
         return _finish(result, lambda t: bhashini.nmt(t, source, target)), "bhashini"
     except Exception:
         pass  # not configured, unreachable, or timed out — fall to the local rung
-    if _backend is None:
-        raise RuntimeError("Bhashini could not translate this and no other translation backend is registered.")
-    backend = _backend
-    result = backend.translate(masked, source=source, target=target)
-    return _finish(result, lambda t: backend.translate(t, source=source, target=target)), "indictrans2"
+
+    if _backend is not None:
+        backend = _backend
+        result = backend.translate(masked, source=source, target=target)
+        return _finish(result, lambda t: backend.translate(t, source=source, target=target)), "indictrans2"
+
+    try:
+        from orca.llm.tiers import llm, llm_enabled
+        if llm_enabled():
+            client = llm("cheap")
+            tgt_name = _LANGUAGE_NAMES.get(target, target)
+            src_name = _LANGUAGE_NAMES.get(source, source)
+            prompt = (
+                f"You are a translator for an Indian marine intelligence system. "
+                f"Translate the following text from {src_name} to {tgt_name}. "
+                f"Preserve all placeholder numbers (e.g. 801, 802, etc.), coordinates, distances, units, "
+                f"and punctuation exactly. Output ONLY the translation without any introduction, "
+                f"notes, explanations or markdown code fences:\n\n{masked}"
+            )
+            llm_result = client.complete([{"role": "user", "content": prompt}]).strip()
+            if llm_result.startswith("```") and llm_result.endswith("```"):
+                llm_result = re.sub(r"^```[a-zA-Z]*\n?", "", llm_result)
+                llm_result = re.sub(r"\n?```$", "", llm_result).strip()
+            if llm_result:
+                def _llm_translate(t: str) -> str:
+                    p = (
+                        f"Translate the following text from {src_name} to {tgt_name}. "
+                        f"Preserve all numbers, tokens and technical terms exactly:\n\n{t}"
+                    )
+                    r = client.complete([{"role": "user", "content": p}]).strip()
+                    if r.startswith("```") and r.endswith("```"):
+                        r = re.sub(r"^```[a-zA-Z]*\n?", "", r)
+                        r = re.sub(r"\n?```$", "", r).strip()
+                    return r
+                return _finish(llm_result, _llm_translate), "llm"
+    except Exception as exc:
+        logging.getLogger("orca.language").warning(f"LLM translation fallback failed: {exc}")
+
+    raise RuntimeError("Bhashini could not translate this and no other translation backend is registered.")
 
 
 def _translate_with_rung(text: str, source: Language, target: Language) -> tuple[str, str]:
@@ -479,23 +520,32 @@ def _translate_with_rung(text: str, source: Language, target: Language) -> tuple
         if bullet_m:
             prefix, body = bullet_m.group(1), bullet_m.group(2)
             if body.strip():
-                tr, r = _translate_single_unit(body, source, target)
-                rung_used = r
-                translated_lines.append(f"{prefix}{_clean_translated_markdown(tr)}")
+                try:
+                    tr, r = _translate_single_unit(body, source, target)
+                    rung_used = r
+                    translated_lines.append(f"{prefix}{_clean_translated_markdown(tr)}")
+                except Exception:
+                    translated_lines.append(line)
             else:
                 translated_lines.append(line)
         elif heading_m:
             prefix, body = heading_m.group(1), heading_m.group(2)
             if body.strip():
-                tr, r = _translate_single_unit(body, source, target)
-                rung_used = r
-                translated_lines.append(f"{prefix}{_clean_translated_markdown(tr)}")
+                try:
+                    tr, r = _translate_single_unit(body, source, target)
+                    rung_used = r
+                    translated_lines.append(f"{prefix}{_clean_translated_markdown(tr)}")
+                except Exception:
+                    translated_lines.append(line)
             else:
                 translated_lines.append(line)
         else:
-            tr, r = _translate_single_unit(line, source, target)
-            rung_used = r
-            translated_lines.append(_clean_translated_markdown(tr))
+            try:
+                tr, r = _translate_single_unit(line, source, target)
+                rung_used = r
+                translated_lines.append(_clean_translated_markdown(tr))
+            except Exception:
+                translated_lines.append(line)
 
     return "\n".join(translated_lines), rung_used
 
@@ -586,9 +636,13 @@ def run_ingress(state: ORCAState) -> AgentResult:
             dataset = engines.NO_TRANSLATION
             engine = engines.NO_TRANSLATION
             confidence = Confidence(score="HIGH", rationale="already English, no translation needed")
+        elif rung == "llm":
+            dataset = _RUNG_LABEL["llm"][0]
+            engine = "LLM Translation"
+            confidence = Confidence(score="MEDIUM", rationale=f"LLM Translation {detected}->en")
         else:
-            dataset, rung_label = _RUNG_LABEL[rung]
-            engine = "Bhashini NMT" if rung == "bhashini" else None
+            dataset, rung_label = _RUNG_LABEL.get(rung, ("Translation", "Translation"))
+            engine = "Bhashini NMT" if rung == "bhashini" else (rung_label if rung == "indictrans2" else None)
             confidence = Confidence(
                 score="MEDIUM",  # neither rung independently WER/BLEU-validated yet
                 rationale=f"{rung_label} {detected}->en",
@@ -640,10 +694,14 @@ def run_egress(state: ORCAState) -> AgentResult:
         if rung == "passthrough":
             dataset = engine = engines.NO_TRANSLATION
             confidence = Confidence(score="HIGH", rationale="already English, no translation needed")
+        elif rung == "llm":
+            dataset = _RUNG_LABEL["llm"][0]
+            engine = "LLM Translation"
+            confidence = Confidence(score="MEDIUM", rationale=f"LLM Translation en->{target}")
         else:
-            dataset = _RUNG_LABEL["bhashini"][0]
-            engine = "Bhashini NMT"
-            confidence = Confidence(score="MEDIUM", rationale=f"Bhashini en->{target}")
+            dataset = _RUNG_LABEL.get(rung, ("Bhashini ASR/NMT pipeline", "Bhashini"))[0]
+            engine = "Bhashini NMT" if rung == "bhashini" else "IndicTrans2"
+            confidence = Confidence(score="MEDIUM", rationale=f"{engine} en->{target}")
         error_detail = None
     except RuntimeError as exc:
         vernacular = english_text  # degrade to English rather than crash the response

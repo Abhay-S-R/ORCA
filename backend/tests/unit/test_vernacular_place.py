@@ -45,3 +45,24 @@ def test_a_kannada_place_is_resolved_from_the_translation(monkeypatch: pytest.Mo
 def test_no_place_in_either_text_still_falls_to_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
     seen = _asked(monkeypatch, "ನಾಳೆ ಸಮುದ್ರಕ್ಕೆ ಹೋಗಬಹುದೇ?", "Can I go to sea tomorrow?")
     assert seen["place"][1] == "regional_default", seen
+
+
+def test_kannada_query_with_lang_en_keeps_reply_language_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(main, "query_language", lambda raw, default=None: "kn")
+    monkeypatch.setattr(main, "english_query", lambda raw, lang: ("fishing zones near Kochi", "bhashini"))
+    seen: dict = {}
+
+    async def fake_stream(query, lat, lon, vessel_class, distress, persona, depth, place, **kw):
+        seen.update(reply_language=kw.get("reply_language"))
+        yield ""
+
+    monkeypatch.setattr(main, "_query_stream", fake_stream)
+    resp = asyncio.run(main.query(q=KANNADA, lang="en", fresh=True, session_id="t-kannada-en", user=None, db=None))  # type: ignore[arg-type]
+
+    async def drain() -> None:
+        async for _ in resp.body_iterator:
+            pass
+
+    asyncio.run(drain())
+    assert seen["reply_language"] is None
+
