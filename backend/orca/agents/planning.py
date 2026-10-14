@@ -943,7 +943,13 @@ def run(state: ORCAState) -> AgentResult:
             # PC5.2: display only. Nothing in planning, routing or validation reads it.
             "english_reading": understood.english_reading,
             # PC5.8: validated in understand._clean_reply_language; fallback to state.reply_language.
-            "reply_language": understood.reply_language or state.get("reply_language"),
+            # An ambient default of 'en' from state must not override native script unless
+            # explicitly requested in the prompt (understood.reply_language).
+            "reply_language": (
+                understood.reply_language
+                if understood.reply_language is not None
+                else (None if state.get("detected_language", "en") != "en" and state.get("reply_language") == "en" else state.get("reply_language"))
+            ),
             "language_only": understood.language_only,  # CONTEXT-2: planning_node checks it against the history
             # Validation / guard fields (PC2.3)
             "query_outcome": query_outcome,

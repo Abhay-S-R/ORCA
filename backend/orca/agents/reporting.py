@@ -106,8 +106,13 @@ _PERSONA_RENDERING_INSTRUCTIONS: dict[str, str] = {
         "   • **Wind Speed & Direction**: **[Speed] km/h** from **[Direction]** — affirmative condition (e.g., **Gentle and safe breeze**)\n"
         "   • **Weather & Storm Hazards**: **All Clear** — No active storms, rain, or lightning threat\n"
         "   • **Target Fish Species**: [Species 1], [Species 2]; catch depth **[Range] m** (Common names ONLY, never Latin scientific names, unbolded)\n"
-        "   • **Fishing Rules & Limits**: Extremely short and simple (under 12 words, e.g., 'Clear within state waters (0–12 NM). No active ban.').\n"
+        "   • **Fishing Rules & Limits**: Extremely short and simple (under 12 words, e.g., '**Within state waters (0–12 NM)**. **No active ban**.').\n"
         "3. Safe Operating Window (1 single line): Put on the same line as bullet: `• **Safe Operating Window**: **[Start] to [End] IST** (Optimal departure window)`.\n\n"
+        "Highlighting & Spacing:\n"
+        "Always highlight all numbers and their units together in bold (e.g., **58 km SW**, **0.52 m**, **10.1 km/h**, **2 to 3 hours**). "
+        "Always keep a proper space between numbers and units (write '58 km', NEVER '58km'). Bold time windows (e.g., **06:00 to 18:00 IST**), "
+        "key zone names, and status conditions (e.g., **calm and favorable conditions**, **Within state waters (0–12 NM)**, **No active ban**). "
+        "NEVER bold or highlight fish species names.\n\n"
         "Units:\n"
         "Metric only: **km**, **km/h**, **m**, and **IST** time. Do NOT use knots, nautical miles, or degrees True (°T).\n\n"
         "STRICT OPERATIONAL RULES:\n"
@@ -133,6 +138,10 @@ _PERSONA_RENDERING_INSTRUCTIONS: dict[str, str] = {
         "   • **Passage Waypoint & Heading**: Steer **[Heading]°T**, distance **[Dist] NM**; surface drift **[Current] knots**\n"
         "   • **Boundary & Standoff Compliance**: Standoff **[Dist] NM** from International Boundary (IMBL); **[Buffer] NM** clearance from nearest MPA\n"
         "3. **Safe Operating Window**: Put on the SAME line as bullet: `• **Safe Operating Window**: **[Start] to [End] IST**` (NEVER break onto the next line).\n\n"
+        "Highlighting & Spacing:\n"
+        "Always highlight all numbers and their units together in bold (e.g., **15 knots**, **0.8 m**, **1012 hPa**, **12 NM**, **045°T**). "
+        "Always keep a proper space between numbers and units. Bold time windows (e.g., **06:00 to 18:00 IST**), route waypoints, "
+        "and operational verdicts (e.g., **Passage approved and hydrographically clear**, **Steady**, **ZERO TOLERANCE**).\n\n"
         "Units:\n"
         "Nautical standards: **NM** (nautical miles), **knots**, **m**, **hPa**, and degrees True (°T).\n\n"
         "STRICT OPERATIONAL RULES:\n"
@@ -160,6 +169,10 @@ _PERSONA_RENDERING_INSTRUCTIONS: dict[str, str] = {
         "   • **Taxonomic Biomass Distribution**: Pelagic community dominated by [Species 1], [Species 2] (epipelagic horizon **[Range] m**, common names only, unbolded)\n"
         "   • **Dataset Provenance & Observation Timestamps**: Observation timestamp in UTC/IST (INCOIS OSF / ECMWF / Survey of India)\n"
         "3. **Sampling Window**: Put on the SAME line as bullet: `• **Safe Sampling Window**: **[Start] to [End] IST**`.\n\n"
+        "Highlighting & Spacing:\n"
+        "Always highlight all measurements, numbers, and scientific units together in bold (e.g., **28.4°C**, **0.42 mg/m³**, **0.8 m**, **7.2s**, **0.15°C/km**). "
+        "Always maintain space between numbers and units. Bold observation windows, trophic classes (**Oligotrophic**, **Mesotrophic**, **Eutrophic**), "
+        "and key oceanographic features. NEVER bold fish species names.\n\n"
         "Units:\n"
         "Scientific standard: **°C**, **°C/km**, **mg/m³**, **m/s**, **m**, **s**, and **UTC/IST** timestamps.\n\n"
         "STRICT OPERATIONAL RULES:\n"
@@ -185,6 +198,9 @@ _PERSONA_RENDERING_INSTRUCTIONS: dict[str, str] = {
         "   • **Jurisdictional & Spatial Scope**: [District] coastal waters out to 12 NM territorial limit; port limits of [Port]\n"
         "   • **Statutory Advisory Reference**: INCOIS Ocean State Bulletin & IMD Coastal Nowcast\n"
         "3. **Safe Operating Window**: Put on the SAME line as bullet: `• **Safe Operating Window**: **[Start] to [End] IST**` (Advisory validity timeframe).\n\n"
+        "Highlighting & Spacing:\n"
+        "Always highlight all numbers, units, alert classifications, and directives in bold (e.g., **Normal maritime operations permitted**, "
+        "**All Clear / Green Tier**, **1.2 m**, **22 km/h**, **12 NM**, **06:00 to 18:00 IST**). Always keep a space between numbers and units.\n\n"
         "Units:\n"
         "Administrative metrics: **km/h** (with knots in parens), **m**, and **IST** time.\n\n"
         "STRICT OPERATIONAL RULES:\n"
@@ -455,8 +471,9 @@ def facts_paragraph(
             sp_strs = []
             for sp in species_list[:3]:
                 name = sp.get("name")
+                sci = f" ({sp['scientific_name']})" if sp.get("scientific_name") else ""
                 if name:
-                    sp_strs.append(name)
+                    sp_strs.append(f"{name}{sci}")
             if sp_strs:
                 lines.append(_sentence(f"Top target fish species for this zone: {', '.join(sp_strs)}"))
         if pfz.get("boundary_note"):
@@ -944,6 +961,106 @@ _SAFE_LIMITS_PATTERN = re.compile(
 )
 
 
+def _format_and_highlight_narrative(text: str) -> str:
+    """Repairs smashed tokens and ensures numbers, units, time windows, and key operational
+    terms are cleanly highlighted in markdown bold (**...**) across all personas."""
+    if not text:
+        return ""
+    s = text
+
+    # 1. Spacing repair
+    s = re.sub(r",([^\s])", r", \1", s)
+    s = re.sub(r"([NESW]{1,3})\s*(of|off)\b", r"\1 \2", s, flags=re.IGNORECASE)
+    s = re.sub(r"\b(km|NM|nm)\s*([NESW]{1,3})", r"\1 \2", s, flags=re.IGNORECASE)
+    s = re.sub(r"(\d+(?:\.\d+)?)\s*(km/h|kmh|km/hr|kph|km|NM|nm|knots|kt|hPa|m/s|hours?|hrs?|mins?|minutes?|days?)(?=[A-Za-z\s\d,;().\-]|$)", r"\1 \2", s, flags=re.IGNORECASE)
+    s = re.sub(r"(\d+(?:\.\d+)?)\s*m(?=[A-Z\s,;().\-]|$)(?![a-zA-Z]{2,})", r"\1 m", s)
+    s = re.sub(r"\b(km|NM|nm)\s*([NESW]{1,3})", r"\1 \2", s, flags=re.IGNORECASE)
+    s = re.sub(r"([a-zA-Z])(\d+(?:\.\d+)?\s*(?:km/h|km|NM|nm|knots|kt|hPa|m/s|m|hours?|hrs?|days?))", r"\1 \2", s)
+    s = re.sub(r"(\d{1,2}:\d{2})\s*(?:to|-|–)\s*(\d{1,2}:\d{2})\s*(IST|UTC|AM|PM)?", r"\1 to \2 \3", s, flags=re.IGNORECASE)
+    s = re.sub(r"(\d{1,2}:\d{2})(IST|UTC|AM|PM)\b", r"\1 \2", s, flags=re.IGNORECASE)
+    s = re.sub(r"(\d+)\s*-\s*(\d+)\s*(km|m|NM|nm|hours?|hrs?)", r"\1–\2 \3", s, flags=re.IGNORECASE)
+    s = re.sub(r"[ \t]{2,}", " ", s)
+
+    # 2. Fix inverted / broken asterisks
+    s = re.sub(r"(\d{1,2}:\d{2})\s*\*\*to\*\*\s*(\d{1,2}:\d{2})\s*(?:\*\*([A-Za-z]+)\*\*)?", r"**\1 to \2 \3**", s, flags=re.IGNORECASE)
+    s = re.sub(r"\*\*(\d+(?:\.\d+)?)\*\*\s*(km|NM|nm|m|km/h|knots|hPa|hours?|hrs?)\s*\*\*([NESW]{1,3})\*\*", r"**\1 \2 \3**", s, flags=re.IGNORECASE)
+    s = re.sub(r"\*\*(\d+(?:\.\d+)?)\*\*\s*(km|NM|nm|m|km/h|knots|hPa|hours?|hrs?)\b", r"**\1 \2**", s, flags=re.IGNORECASE)
+    s = re.sub(r"\*\*(\d+(?:\.\d+)?)\s*(?:to|–|-)\s*(\d+(?:\.\d+)?)\*\*\s*(km|NM|nm|m|km/h|knots|hPa|hours?|hrs?)\b", r"**\1 to \2 \3**", s, flags=re.IGNORECASE)
+    s = re.sub(r"\*\*(wave height|wind speed|water depth)\*\*\s*([0-9.]+)\s*\*\*([a-z/]+)\*\*", r"\1 **\2 \3**", s, flags=re.IGNORECASE)
+    s = re.sub(r"\*\*([NESW]{1,3})\s*(?:of|off)\s+([A-Za-z]+),\s*(\d+[–-]\d+\s*km)\*\*", r"**\1** of \2, **\3**", s, flags=re.IGNORECASE)
+
+    # Ensure fish names stay unbolded
+    s = _BOLD_FISH_PATTERN.sub(r"\1", s)
+
+    # 3. Helper to highlight only non-bold segments
+    def _hl(target: str, pat: str, repl: str) -> str:
+        parts = re.split(r"(\*\*[^*]+\*\*|`[^`]+`)", target)
+        return "".join(
+            part if (part.startswith("**") and part.endswith("**")) or (part.startswith("`") and part.endswith("`"))
+            else re.sub(pat, repl, part)
+            for part in parts
+        )
+
+    # Time windows
+    s = _hl(s, r"\b(\d{1,2}:\d{2}\s+to\s+\d{1,2}:\d{2}(?:\s*(?:IST|UTC|AM|PM))?)\b", r"**\1**")
+    s = _hl(s, r"\b(\d{1,2}:\d{2}\s*(?:IST|UTC))\b", r"**\1**")
+    s = _hl(s, r"\b(\d{1,3}°T)\b", r"**\1**")
+
+    # Legal / State bounds
+    s = _hl(s, r"(?i)\b(Within state waters(?:\s*\(\s*0[–-]12\s*NM\s*\))?)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(No active ban)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Active [A-Za-z]+ ban)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Zero tolerance border)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(strictly prohibited)\b", r"**\1**")
+    s = _hl(s, r"\b(ZERO TOLERANCE)\b", r"**\1**")
+
+    # Operational verdicts & affirmations
+    s = _hl(s, r"(?i)\b(Yes,\s+sea conditions are safe and favorable(?: for [^.,;()]+)?)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Passage approved and hydrographically clear(?: for [^.,;()]+)?)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Normal maritime operations permitted)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Fisheries exploitation permitted)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Caution advised)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Unsafe\s*[—–-]\s*remain in harbor)\b", r"**\1**")
+
+    # Alerts & tiers
+    s = _hl(s, r"(?i)\b(All Clear(?:\s*/\s*Green Tier)?)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Green Tier|Yellow Tier|Orange Tier|Red Tier)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(No active (?:lightning|cyclone|severe storm)[^.,;()]*)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(No severe marine meteorological hazards in force)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(No severe weather warnings active)\b", r"**\1**")
+
+    # Conditions
+    s = _hl(s, r"(?i)\b(calm and favorable(?: conditions)?)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Calm, safe, and favorable(?: \([^)]+\))?)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Gentle and safe breeze)\b", r"**\1**")
+    s = _hl(s, r"\b(Steady)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Oligotrophic|Mesotrophic|Eutrophic)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(permitted with standard vigilance)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(fully cleared)\b", r"**\1**")
+
+    # Windows
+    s = _hl(s, r"(?i)\b(Optimal departure window)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Advisory validity timeframe)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Tidal departure & daylight passage window)\b", r"**\1**")
+    s = _hl(s, r"(?i)\b(Optimal oceanographic observation window)\b", r"**\1**")
+
+    # Zone names
+    s = _hl(s, r"(?i)(^|[:•*\-]\s+)([A-Z][a-zA-Z]+(?:\s+[a-zA-Z]+)?\s+offshore zone)\b", r"\1**\2**")
+    s = _hl(s, r"(?i)\b(located\s+[0-9–\sA-Za-z]+?\s+of\s+)([A-Z][a-zA-Z]+)\b", r"\1**\2**")
+    s = _hl(s, r"\bSector\s+([A-Z_]+)\b", r"Sector **\1**")
+
+    # Measurements with units
+    s = _hl(s, r"(?i)(^|[\s(])([<>+±-]?\s*\d+(?:\.\d+)?(?:\s*(?:to|–|-)\s*\d+(?:\.\d+)?)?\s*(?:km/h|kmh|km|NM|nm|knots|kt|hPa|m/s|°C/km|°C|mg/m³|s|m)\b(?:\s+[NESW]{1,3}\b)?)", r"\1**\2**")
+    s = _hl(s, r"(?i)(^|[\s(])(\d+(?:\.\d+)?(?:\s*(?:to|–|-)\s*\d+(?:\.\d+)?)?\s*(?:hours?|hrs?|minutes?|mins?))\b", r"\1**\2**")
+    s = _hl(s, r"(?i)\b(\d+\s+days?\s+old)\b", r"**\1**")
+    s = _hl(s, r"\b(20\d{6})\b", r"**\1**")
+    s = _hl(s, r"(₹\s*\d+(?:[–-]\d+)?(?:/kg)?)", r"**\1**")
+
+    # Unbold fish names
+    s = _BOLD_FISH_PATTERN.sub(r"\1", s)
+    return s.strip()
+
+
 def _scrub_recheck_phrases(text: str) -> str:
     """Strip out accidental model hedging, advisory recency lines, scientific fish names, bold fish names, and generic safe limits phrases."""
     cleaned = text
@@ -986,6 +1103,7 @@ def _scrub_recheck_phrases(text: str) -> str:
     )
     cleaned = re.sub(r"^(GO|CAUTION|NO_GO):\s*", r"\1: ", cleaned.strip(), flags=re.IGNORECASE)
     cleaned = re.sub(r" {2,}", " ", cleaned)
+    cleaned = _format_and_highlight_narrative(cleaned)
     return cleaned.strip()
 
 
@@ -1000,12 +1118,12 @@ _PERSONA_QUERY_GUIDES: dict[str, dict[str, str]] = {
             "   Lead directly with the specific fishing zone name: '**Summary**: The nearest Potential Fishing Zone is **[Zone Name / Landing Center]** (Sector **[Sector ID]**), located **[Distance] km [Direction]** off [Port/Coast].'\n\n"
             "2. Key Reasoning Parameters (Points Format — strictly 3 to 4 core points max):\n"
             "   • **Zone Name & Travel Time**: **[Zone Name / Landing Center]** (**[Distance] km [Direction]** off [Port]); travel time **[Hours] hours**\n"
-            "   • **Sea Depth & Conditions**: Water depth **[Depth] m**; sea conditions calm and favorable\n"
+            "   • **Sea Depth & Conditions**: Water depth **[Depth] m**; sea conditions **calm and favorable conditions**\n"
             "   • **Target Fish Species**: [Species 1], [Species 2]; catch depth **[Range] m** (Common names ONLY, never Latin scientific names, unbolded)\n"
-            "   • **Fishing Rules & Limits**: Within state waters (0–12 NM). No active ban. (Keep under 12 words)\n\n"
+            "   • **Fishing Rules & Limits**: **Within state waters (0–12 NM)**. **No active ban**. (Keep under 12 words)\n\n"
             "3. Safe Operating Window (1 single line):\n"
             "   • **Safe Operating Window**: **[Start] to [End] IST** (Optimal departure window)\n\n"
-            "Rule: Highlight all numbers and units in bold. Metric units only (km, km/h, m, IST). NEVER include scientific fish names. NEVER bold fish names. MUST state the specific fishing zone name / landing center (e.g. Odaikuppam). NEVER tell the user to recheck or verify with port authorities."
+            "Rule: Highlight all numbers and units in bold (e.g. **58 km**, **0.52 m**). Always keep a space between number and unit. Metric units only (km, km/h, m, IST). NEVER include scientific fish names. NEVER bold fish names. MUST state the specific fishing zone name / landing center (e.g. Odaikuppam). NEVER tell the user to recheck or verify with port authorities."
         ),
         "SAFETY_CHECK": (
             "Present marine safety assessment clearly for a working fisherman. Keep response concise and reassuring (~90–120 words):\n\n"
@@ -1650,7 +1768,14 @@ RESPONSE GUIDELINES:
 
 16. OPEN-ENDED QUERIES & OPERATING BASE:
     - For all open-ended questions that do not name a specific place, answer directly and decisively for the location stated in LOCATION THIS ADVICE IS FOR (the registered home port or operating base).
-    - NEVER ask the user to mention a place, provide a location, name a port, or clarify where they are. Answer decisively for the stated reference location with full operational confidence.{critique_rule}"""
+    - NEVER ask the user to mention a place, provide a location, name a port, or clarify where they are. Answer decisively for the stated reference location with full operational confidence.
+
+17. HIGHLIGHTING & SPACING:
+    - ALWAYS highlight numbers together with their units in bold markdown (e.g. **58 km SW**, **0.52 m**, **10.1 km/h**, **25 to 30 m**, **2 to 3 hours**).
+    - ALWAYS separate numbers and units with a proper space (write "58 km", NEVER "58km"; write "06:00 to 18:00 IST", NEVER "06:00to18:00IST").
+    - Highlight time windows in bold (e.g. **06:00 to 18:00 IST**).
+    - Highlight key status verdicts, operational decisions, alert tiers, and zone names (e.g. **calm and favorable conditions**, **Within state waters (0–12 NM)**, **No active ban**, **All Clear**).
+    - NEVER highlight or bold fish species names (e.g. Indian mackerel, Bombay duck, Silver pomfret must always remain plain unbolded text).{critique_rule}"""
 
     try:
         narrative = client.complete([{"role": "user", "content": prompt}]).strip()
