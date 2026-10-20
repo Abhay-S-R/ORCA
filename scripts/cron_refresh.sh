@@ -50,6 +50,7 @@ if [ -d "backend" ]; then
 else
     export PYTHONPATH="${PYTHONPATH:-.}"
 fi
+export ORCA_TILE_WORKERS="${ORCA_TILE_WORKERS:-1}"
 
 # ------------------------------------------------------------------------------
 # Phase 1: Daily Critical Datasets (Runs Every Single Day)

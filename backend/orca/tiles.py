@@ -292,7 +292,7 @@ def generate_forecast_tiles(
 
     tile_count = 0
     bounds: tuple[float, float, float, float] | None = None
-    workers = min(8, os.cpu_count() or 4)
+    workers = int(os.environ.get("ORCA_TILE_WORKERS") or 0) or min(4, os.cpu_count() or 2)
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         for local_count, local_bounds in executor.map(_render_frame, prepared):
             tile_count += local_count
