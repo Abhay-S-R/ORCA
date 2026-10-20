@@ -17,12 +17,51 @@ Works identically on Windows (local dev) and Linux (EC2 Docker container).
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import os
-import sys
 from pathlib import Path
+import re
+import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA = Path(os.environ.get("ORCA_DATA_DIR") or REPO_ROOT / "data")
+
+_DATE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    # INSAT-3DR: 18OCT2026
+    (re.compile(r"(\d{2}[A-Z]{3}\d{4})", re.IGNORECASE), "%d%b%Y"),
+    # EOS-06 scatterometer: year + julian day (2026289)
+    (re.compile(r"(?<!\d)(\d{4}\d{3})(?!\d)"), "%Y%j"),
+    # Standard 8-digit date: 20261018
+    (re.compile(r"(?<!\d)(\d{8})(?!\d)"), "%Y%m%d"),
+    # ISO date: 2026-10-18
+    (re.compile(r"(\d{4}-\d{2}-\d{2})"), "%Y-%m-%d"),
+)
+
+
+def _file_sort_key(p: Path) -> tuple[datetime, float, str]:
+    """Sort key that extracts content date chronologically, falling back to mtime.
+
+    Alphabetical sorting fails on date shapes like 18OCT2026 vs 28SEP2026 because
+    character comparisons sort by day number and month letters (ASCII 'O' < 'S'),
+    which puts October before September.
+    """
+    name = p.name
+    try:
+        mtime = p.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+
+    for pat, fmt in _DATE_PATTERNS:
+        m = pat.search(name)
+        if m:
+            raw = m.group(1)
+            for candidate in (raw, raw.title()):
+                try:
+                    dt = datetime.strptime(candidate, fmt).replace(tzinfo=timezone.utc)
+                    return (dt, mtime, name)
+                except ValueError:
+                    continue
+    return (datetime.fromtimestamp(mtime, tz=timezone.utc), mtime, name)
 
 # (directory relative to DATA, glob pattern for complete files, description)
 # The glob must match the pattern the agents use to find the newest file.
@@ -65,7 +104,7 @@ def prune(keep: int = 2, apply: bool = False) -> int:
         if not directory.is_dir():
             continue
 
-        files = sorted(directory.glob(pattern))
+        files = sorted(directory.glob(pattern), key=_file_sort_key)
         if len(files) <= keep:
             continue
 
