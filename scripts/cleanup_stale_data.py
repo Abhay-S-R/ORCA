@@ -14,14 +14,15 @@ including orphaned .part files from interrupted downloads.
 
 Works identically on Windows (local dev) and Linux (EC2 Docker container).
 """
+
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import os
-from pathlib import Path
 import re
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA = Path(os.environ.get("ORCA_DATA_DIR") or REPO_ROOT / "data")
@@ -62,6 +63,7 @@ def _file_sort_key(p: Path) -> tuple[datetime, float, str]:
                 except ValueError:
                     continue
     return (datetime.fromtimestamp(mtime, tz=timezone.utc), mtime, name)
+
 
 # (directory relative to DATA, glob pattern for complete files, description)
 # The glob must match the pattern the agents use to find the newest file.
@@ -115,7 +117,9 @@ def prune(keep: int = 2, apply: bool = False) -> int:
 
         action = "DELETING" if apply else "WOULD DELETE"
         print(f"\n[{label}] {directory}")
-        print(f"  Found {len(files)} files, keeping newest {keep}, {action} {len(to_delete)} ({_human_size(freed)})")
+        print(
+            f"  Found {len(files)} files, keeping newest {keep}, {action} {len(to_delete)} ({_human_size(freed)})"
+        )
         for f in to_delete:
             print(f"    - {f.name}  ({_human_size(f.stat().st_size)})")
             if apply:
@@ -154,10 +158,17 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description="Prune stale data files, keeping only the N newest per product."
     )
-    ap.add_argument("--keep", type=int, default=2,
-                    help="Number of newest complete files to retain per product (default: 2)")
-    ap.add_argument("--apply", action="store_true",
-                    help="Actually delete files. Without this flag, only a dry run is performed.")
+    ap.add_argument(
+        "--keep",
+        type=int,
+        default=2,
+        help="Number of newest complete files to retain per product (default: 2)",
+    )
+    ap.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually delete files. Without this flag, only a dry run is performed.",
+    )
     args = ap.parse_args()
 
     if args.keep < 1:
